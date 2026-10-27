@@ -43,3 +43,9 @@ func TestNewValidatesLevel(t *testing.T) {
 		t.Fatal("New() returned a nil logger")
 	}
 }
+
+func TestNewAcceptsMixedCaseInputs(t *testing.T) {
+	if _, err := New("identity", "DEVELOPMENT", "WARNING"); err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+}

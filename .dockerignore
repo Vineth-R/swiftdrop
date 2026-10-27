@@ -2,16 +2,7 @@
 .github
 .nx
 .gitignore
-.agents
-.claude
-.codex
-.cursor
-.gemini
-.opencode
 .vscode
-AGENTS.md
-CLAUDE.md
-opencode.json
 node_modules
 **/node_modules
 .next

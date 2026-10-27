@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
@@ -18,6 +17,8 @@ type Config struct {
 	RoutingKey     string
 	Prefetch       int
 	HandlerTimeout time.Duration
+	MaxRetries     int
+	RetryDelay     time.Duration
 	ReconnectMin   time.Duration
 	ReconnectMax   time.Duration
 }
@@ -27,12 +28,12 @@ func Load() (Config, error) {
 }
 
 func LoadFrom(loader sharedconfig.Loader) (Config, error) {
-	appEnv, err := loader.Enum("APP_ENV", "development", "development", "staging", "production")
+	appEnv, err := loader.EnumFold("APP_ENV", "development", "development", "staging", "production")
 	if err != nil {
 		return Config{}, err
 	}
 
-	logLevel, err := loader.Enum("LOG_LEVEL", "info", "debug", "info", "warn", "error")
+	logLevel, err := loader.EnumFold("LOG_LEVEL", "info", "debug", "info", "warn", "warning", "error")
 	if err != nil {
 		return Config{}, err
 	}
@@ -41,16 +42,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-
-	parsedURL, err := url.Parse(rabbitMQURL)
-	if err != nil {
-		return Config{}, fmt.Errorf("RABBITMQ_URL is invalid: %w", err)
-	}
-	if parsedURL.Scheme != "amqp" && parsedURL.Scheme != "amqps" {
-		return Config{}, errors.New("RABBITMQ_URL must use the amqp or amqps scheme")
-	}
-	if parsedURL.Host == "" {
-		return Config{}, errors.New("RABBITMQ_URL must include a host")
+	if err := sharedconfig.ValidateAMQPURL(rabbitMQURL); err != nil {
+		return Config{}, fmt.Errorf("RABBITMQ_URL: %w", err)
 	}
 
 	queue := loader.String("WEBHOOK_QUEUE", "webhook.delivery.requested.v1")
@@ -66,6 +59,22 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	handlerTimeout, err := loader.Duration("RABBITMQ_HANDLER_TIMEOUT", 30*time.Second)
 	if err != nil {
 		return Config{}, err
+	}
+
+	maxRetries, err := loader.Int("RABBITMQ_MAX_RETRIES", 3)
+	if err != nil {
+		return Config{}, err
+	}
+	if maxRetries < 0 {
+		return Config{}, errors.New("RABBITMQ_MAX_RETRIES must not be negative")
+	}
+
+	retryDelay, err := loader.Duration("RABBITMQ_RETRY_DELAY", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if retryDelay < time.Millisecond {
+		return Config{}, errors.New("RABBITMQ_RETRY_DELAY must be at least 1ms")
 	}
 
 	reconnectMin, err := loader.Duration("RABBITMQ_RECONNECT_MIN", time.Second)
@@ -90,6 +99,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		RoutingKey:     loader.String("WEBHOOK_ROUTING_KEY", queue),
 		Prefetch:       prefetch,
 		HandlerTimeout: handlerTimeout,
+		MaxRetries:     maxRetries,
+		RetryDelay:     retryDelay,
 		ReconnectMin:   reconnectMin,
 		ReconnectMax:   reconnectMax,
 	}, nil

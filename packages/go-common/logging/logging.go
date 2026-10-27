@@ -16,7 +16,7 @@ func New(service, env, level string) (*slog.Logger, error) {
 	options := &slog.HandlerOptions{Level: parsed}
 
 	var handler slog.Handler
-	if env == "development" {
+	if strings.EqualFold(strings.TrimSpace(env), "development") {
 		handler = slog.NewTextHandler(os.Stdout, options)
 	} else {
 		handler = slog.NewJSONHandler(os.Stdout, options)

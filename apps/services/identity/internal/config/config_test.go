@@ -49,3 +49,34 @@ func TestLoadFromRejectsInvalidConfig(t *testing.T) {
 		t.Fatal("LoadFrom() should fail for an unsupported APP_ENV")
 	}
 }
+
+func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_ENV":      " PRODUCTION ",
+			"LOG_LEVEL":    "WARNING",
+			"PORT":         " 9092 ",
+			"DATABASE_URL": " postgres://example ",
+		}
+		value, ok := values[key]
+		return value, ok
+	})
+
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+
+	if config.AppEnv != "production" {
+		t.Fatalf("AppEnv = %q, want production", config.AppEnv)
+	}
+	if config.LogLevel != "warning" {
+		t.Fatalf("LogLevel = %q, want warning", config.LogLevel)
+	}
+	if config.Port != 9092 {
+		t.Fatalf("Port = %d, want 9092", config.Port)
+	}
+	if config.DatabaseURL != "postgres://example" {
+		t.Fatalf("DatabaseURL = %q", config.DatabaseURL)
+	}
+}

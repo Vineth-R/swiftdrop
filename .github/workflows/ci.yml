@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -21,6 +21,7 @@ jobs:
   go:
     name: Go checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -31,7 +32,14 @@ jobs:
 
       - name: Check formatting
         run: |
-          unformatted="$(gofmt -l apps/services packages/go-common)"
+          set -euo pipefail
+          file_count="$(find apps/services packages/go-common tests/integration -type f -name '*.go' | wc -l | tr -d ' ')"
+          if [ "$file_count" -eq 0 ]; then
+            echo "No Go files found in the expected directories."
+            exit 1
+          fi
+
+          unformatted="$(find apps/services packages/go-common tests/integration -type f -name '*.go' -exec gofmt -l {} +)"
           if [ -n "$unformatted" ]; then
             echo "The following Go files are not formatted:"
             echo "$unformatted"
@@ -41,15 +49,66 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
-        run: go test ./...
+      - name: Test with race detector
+        run: go test -race ./...
 
-      - name: Build services
+      - name: Build
         run: go build ./...
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+
+  integration:
+    name: RabbitMQ integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      rabbitmq:
+        image: rabbitmq:4.1-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: swiftdrop
+          RABBITMQ_DEFAULT_PASS: swiftdrop
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
+    env:
+      RABBITMQ_URL: amqp://swiftdrop:swiftdrop@127.0.0.1:5672/
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Wait for RabbitMQ
+        run: |
+          set -euo pipefail
+          if [ -z "${RABBITMQ_URL}" ]; then
+            echo "::error::RABBITMQ_URL must be set; integration tests skip without it."
+            exit 1
+          fi
+
+          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5672) 2>/dev/null; do sleep 1; done'
+
+      - name: Run integration tests
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -tags=integration -v ./tests/integration/... | tee integration.log
+
+          if grep -q -- '--- SKIP' integration.log; then
+            echo "::error::RabbitMQ integration tests were skipped; the broker must be reachable."
+            exit 1
+          fi
 
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -67,3 +126,64 @@ jobs:
 
       - name: Lint, typecheck, and build
         run: pnpm exec nx run-many -t lint typecheck build --projects=@org/web,@org/web-e2e
+
+  e2e:
+    name: Playwright E2E (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright E2E
+        run: pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"
+
+  docker:
+    name: Docker builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Go service image (identity)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/go.Dockerfile
+          build-args: |
+            SERVICE=identity
+          push: false
+          load: false
+          cache-from: type=gha,scope=go
+          cache-to: type=gha,mode=max,scope=go
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/web.Dockerfile
+          push: false
+          load: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web

@@ -33,8 +33,38 @@ func run() error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+
+	stopped := make(chan struct{})
+	go func() {
+		defer signal.Stop(signals)
+
+		select {
+		case <-stopped:
+			return
+		case <-signals:
+		}
+
+		cancel()
+
+		select {
+		case <-stopped:
+		case sig := <-signals:
+			signal.Stop(signals)
+			shutdown, ok := sig.(syscall.Signal)
+			if !ok {
+				os.Exit(1)
+			}
+			if err := syscall.Kill(os.Getpid(), shutdown); err != nil {
+				os.Exit(1)
+			}
+			return
+		}
+	}()
 
 	logger.Info("starting worker",
 		"exchange", config.Exchange,
@@ -43,14 +73,18 @@ func run() error {
 		"environment", config.AppEnv,
 	)
 
-	return messaging.Run(ctx, messaging.ConsumerConfig{
+	err = messaging.Run(ctx, messaging.ConsumerConfig{
 		URL:            config.RabbitMQURL,
 		Exchange:       config.Exchange,
 		Queue:          config.Queue,
 		RoutingKey:     config.RoutingKey,
 		Prefetch:       config.Prefetch,
 		HandlerTimeout: config.HandlerTimeout,
+		MaxRetries:     config.MaxRetries,
+		RetryDelay:     config.RetryDelay,
 		ReconnectMin:   config.ReconnectMin,
 		ReconnectMax:   config.ReconnectMax,
 	}, worker.New(logger), logger)
+	close(stopped)
+	return err
 }
