@@ -1,0 +1,33 @@
+{
+  "name": "go-common",
+  "root": "packages/go-common",
+  "projectType": "library",
+  "sourceRoot": "packages/go-common",
+  "tags": ["go", "library"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "{workspaceRoot}/go.mod", "{workspaceRoot}/go.sum"],
+      "options": {
+        "command": "go build ./packages/go-common/..."
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "{workspaceRoot}/go.mod", "{workspaceRoot}/go.sum"],
+      "options": {
+        "command": "go test ./packages/go-common/..."
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "{workspaceRoot}/go.mod", "{workspaceRoot}/go.sum"],
+      "options": {
+        "command": "files=\"$(gofmt -l packages/go-common)\" && test -z \"$files\""
+      }
+    }
+  }
+}

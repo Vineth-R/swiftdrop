@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: SwiftDrop Parcel API
+  version: 0.1.0
+  description: Parcel creation, lifecycle, status tracking, and tracking lookups. Initialized with operational endpoints only.
+servers:
+  - url: /api/v1/parcels
+paths:
+  /healthz:
+    get:
+      operationId: parcelHealth
+      summary: Process health
+      responses:
+        '200':
+          description: The service process is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /readyz:
+    get:
+      operationId: parcelReady
+      summary: Process readiness
+      responses:
+        '200':
+          description: The service process is ready to accept traffic. Dependency checks are not performed yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ready

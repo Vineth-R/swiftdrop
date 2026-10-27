@@ -1,0 +1,42 @@
+{
+  "name": "identity",
+  "root": "apps/services/identity",
+  "projectType": "application",
+  "sourceRoot": "apps/services/identity",
+  "tags": ["go", "service", "http"],
+  "implicitDependencies": ["go-common"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "outputs": ["{workspaceRoot}/dist/apps/services/identity"],
+      "options": {
+        "command": "mkdir -p dist/apps/services/identity && go build -trimpath -o dist/apps/services/identity/identity ./apps/services/identity"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "options": {
+        "command": "go test ./apps/services/identity/..."
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "options": {
+        "command": "files=\"$(gofmt -l apps/services/identity packages/go-common)\" && test -z \"$files\""
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "options": {
+        "command": "go run ./apps/services/identity"
+      }
+    }
+  }
+}

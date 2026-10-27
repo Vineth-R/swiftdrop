@@ -1,0 +1,209 @@
+name: swiftdrop
+
+x-app-env: &app-env
+  APP_ENV: ${APP_ENV:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+x-go-build: &go-build
+  context: .
+  dockerfile: infra/docker/go.Dockerfile
+
+x-rabbitmq-env: &rabbitmq-env
+  RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-swiftdrop}:${RABBITMQ_DEFAULT_PASS:-swiftdrop}@rabbitmq:5672/
+  RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-swiftdrop.events}
+  RABBITMQ_PREFETCH: ${RABBITMQ_PREFETCH:-10}
+  RABBITMQ_HANDLER_TIMEOUT: ${RABBITMQ_HANDLER_TIMEOUT:-30s}
+  RABBITMQ_RECONNECT_MIN: ${RABBITMQ_RECONNECT_MIN:-1s}
+  RABBITMQ_RECONNECT_MAX: ${RABBITMQ_RECONNECT_MAX:-30s}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-swiftdrop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swiftdrop}
+      POSTGRES_DB: ${POSTGRES_DB:-swiftdrop}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-swiftdrop}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-swiftdrop}
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  identity:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: identity
+    environment:
+      <<: *app-env
+      PORT: '8081'
+      DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+    ports:
+      - '${IDENTITY_PORT:-8081}:8081'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8081/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  parcel:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: parcel
+    environment:
+      <<: *app-env
+      PORT: '8082'
+      DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+    ports:
+      - '${PARCEL_PORT:-8082}:8082'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8082/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pricing:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: pricing
+    environment:
+      <<: *app-env
+      PORT: '8083'
+      DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+    ports:
+      - '${PRICING_PORT:-8083}:8083'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8083/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  merchant:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: merchant
+    environment:
+      <<: *app-env
+      PORT: '8084'
+      DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+    ports:
+      - '${MERCHANT_PORT:-8084}:8084'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8084/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  realtime:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: realtime
+    environment:
+      <<: *app-env
+      PORT: '8085'
+      DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+    ports:
+      - '${REALTIME_PORT:-8085}:8085'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8085/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  notification-worker:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: notification-worker
+    environment:
+      <<: [*app-env, *rabbitmq-env]
+      NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification.requested.v1}
+      NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-notification.requested.v1}
+    stop_grace_period: 35s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  webhook-worker:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: webhook-worker
+    environment:
+      <<: [*app-env, *rabbitmq-env]
+      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.delivery.requested.v1}
+      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-webhook.delivery.requested.v1}
+    stop_grace_period: 35s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      HOSTNAME: 0.0.0.0
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - '${NGINX_PORT:-8080}:80'
+    volumes:
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      web:
+        condition: service_started
+      identity:
+        condition: service_started
+      parcel:
+        condition: service_started
+      pricing:
+        condition: service_started
+      merchant:
+        condition: service_started
+      realtime:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1/nginx-health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  rabbitmq-data:

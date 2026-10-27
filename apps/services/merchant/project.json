@@ -1,0 +1,42 @@
+{
+  "name": "merchant",
+  "root": "apps/services/merchant",
+  "projectType": "application",
+  "sourceRoot": "apps/services/merchant",
+  "tags": ["go", "service", "http"],
+  "implicitDependencies": ["go-common"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "outputs": ["{workspaceRoot}/dist/apps/services/merchant"],
+      "options": {
+        "command": "mkdir -p dist/apps/services/merchant && go build -trimpath -o dist/apps/services/merchant/merchant ./apps/services/merchant"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "options": {
+        "command": "go test ./apps/services/merchant/..."
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "options": {
+        "command": "files=\"$(gofmt -l apps/services/merchant packages/go-common)\" && test -z \"$files\""
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "options": {
+        "command": "go run ./apps/services/merchant"
+      }
+    }
+  }
+}
