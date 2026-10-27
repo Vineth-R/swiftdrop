@@ -22,19 +22,19 @@ func New(logger *slog.Logger) *Handler {
 func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 	var envelope messaging.Envelope
 	if err := json.Unmarshal(message.Body, &envelope); err != nil {
-		return fmt.Errorf("decode event envelope: %w", err)
+		return messaging.Permanent(fmt.Errorf("decode event envelope: %w", err))
 	}
 
 	if err := envelope.Validate(); err != nil {
-		return fmt.Errorf("validate event envelope: %w", err)
+		return messaging.Permanent(fmt.Errorf("validate event envelope: %w", err))
 	}
 
 	if envelope.Type != EventType {
-		return fmt.Errorf("unsupported event type %q", envelope.Type)
+		return messaging.Permanent(fmt.Errorf("unsupported event type %q", envelope.Type))
 	}
 
 	if envelope.Version != 1 {
-		return fmt.Errorf("unsupported event version %d", envelope.Version)
+		return messaging.Permanent(fmt.Errorf("unsupported event version %d", envelope.Version))
 	}
 
 	h.logger.InfoContext(ctx, "webhook delivery event received",

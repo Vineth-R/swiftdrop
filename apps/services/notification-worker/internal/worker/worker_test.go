@@ -54,6 +54,13 @@ func TestHandleRejectsInvalidMessages(t *testing.T) {
 			Producer:   "parcel",
 			Data:       validData,
 		},
+		"invalid envelope": {
+			ID:         "event-1",
+			Type:       EventType,
+			Version:    1,
+			OccurredAt: time.Now().UTC(),
+			Data:       validData,
+		},
 	}
 
 	for name, envelope := range tests {
@@ -62,13 +69,21 @@ func TestHandleRejectsInvalidMessages(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal envelope: %v", err)
 			}
-			if err := newHandler().Handle(context.Background(), messaging.Message{Body: body}); err == nil {
+			err = newHandler().Handle(context.Background(), messaging.Message{Body: body})
+			if err == nil {
 				t.Fatal("Handle() should have failed")
+			}
+			if !messaging.IsPermanent(err) {
+				t.Fatalf("Handle() error is not permanent: %v", err)
 			}
 		})
 	}
 
-	if err := newHandler().Handle(context.Background(), messaging.Message{Body: []byte(`{`)}); err == nil {
+	err := newHandler().Handle(context.Background(), messaging.Message{Body: []byte(`{`)})
+	if err == nil {
 		t.Fatal("Handle() should fail for malformed JSON")
+	}
+	if !messaging.IsPermanent(err) {
+		t.Fatalf("Handle() error is not permanent: %v", err)
 	}
 }
