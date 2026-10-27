@@ -4,9 +4,3 @@
 /.nx/cache
 /.nx/workspace-data
 .nx/self-healing
-
-# Third-party agent skills are not part of this workspace's formatting surface
-/.agents/skills
-/.opencode/skills
-/.cursor/skills
-/.github/skills
