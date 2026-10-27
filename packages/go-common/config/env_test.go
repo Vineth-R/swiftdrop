@@ -13,7 +13,11 @@ func testLoader(values map[string]string) Loader {
 }
 
 func TestLoaderStringAndRequired(t *testing.T) {
-	loader := testLoader(map[string]string{"APP_ENV": "production", "EMPTY": ""})
+	loader := testLoader(map[string]string{
+		"APP_ENV":    "  production  ",
+		"EMPTY":      "",
+		"WHITESPACE": "   ",
+	})
 
 	if got := loader.String("APP_ENV", "development"); got != "production" {
 		t.Fatalf("String() = %q, want production", got)
@@ -21,12 +25,18 @@ func TestLoaderStringAndRequired(t *testing.T) {
 	if got := loader.String("MISSING", "development"); got != "development" {
 		t.Fatalf("String() fallback = %q, want development", got)
 	}
+	if got := loader.String("WHITESPACE", "development"); got != "development" {
+		t.Fatalf("String() whitespace fallback = %q, want development", got)
+	}
 
 	if _, err := loader.Required("MISSING"); err == nil {
 		t.Fatal("Required() should fail for a missing variable")
 	}
 	if _, err := loader.Required("EMPTY"); err == nil {
 		t.Fatal("Required() should fail for an empty variable")
+	}
+	if _, err := loader.Required("WHITESPACE"); err == nil {
+		t.Fatal("Required() should fail for a whitespace-only variable")
 	}
 	if got, err := loader.Required("APP_ENV"); err != nil || got != "production" {
 		t.Fatalf("Required() = %q, %v", got, err)
@@ -75,5 +85,44 @@ func TestLoaderEnum(t *testing.T) {
 	}
 	if _, err := loader.Enum("BAD_ENV", "development", "development", "staging", "production"); err == nil {
 		t.Fatal("Enum() should fail for an unsupported value")
+	}
+}
+
+func TestLoaderEnumFold(t *testing.T) {
+	loader := testLoader(map[string]string{
+		"APP_ENV":   "  PRODUCTION ",
+		"LOG_LEVEL": "WARNING",
+		"BAD_ENV":   "local",
+	})
+
+	if got, err := loader.EnumFold("APP_ENV", "development", "development", "staging", "production"); err != nil || got != "production" {
+		t.Fatalf("EnumFold() = %q, %v; want production", got, err)
+	}
+	if got, err := loader.EnumFold("LOG_LEVEL", "info", "debug", "info", "warn", "warning", "error"); err != nil || got != "warning" {
+		t.Fatalf("EnumFold() = %q, %v; want warning", got, err)
+	}
+	if got, err := loader.EnumFold("MISSING", "development", "development", "staging", "production"); err != nil || got != "development" {
+		t.Fatalf("EnumFold() fallback = %q, %v; want development", got, err)
+	}
+	if _, err := loader.EnumFold("BAD_ENV", "development", "development", "staging", "production"); err == nil {
+		t.Fatal("EnumFold() should fail for an unsupported value")
+	}
+}
+
+func TestLoaderTrimsNumericAndDurationValues(t *testing.T) {
+	loader := testLoader(map[string]string{
+		"PORT":    " 8080 ",
+		"RETRIES": " 3 ",
+		"TIMEOUT": " 15s ",
+	})
+
+	if got, err := loader.Port("PORT", 80); err != nil || got != 8080 {
+		t.Fatalf("Port() = %d, %v; want 8080", got, err)
+	}
+	if got, err := loader.Int("RETRIES", 1); err != nil || got != 3 {
+		t.Fatalf("Int() = %d, %v; want 3", got, err)
+	}
+	if got, err := loader.Duration("TIMEOUT", time.Second); err != nil || got != 15*time.Second {
+		t.Fatalf("Duration() = %v, %v; want 15s", got, err)
 	}
 }

@@ -2,7 +2,14 @@ openapi: 3.0.3
 info:
   title: SwiftDrop Realtime API
   version: 0.1.0
-  description: Future live parcel tracking over WebSocket or Server-Sent Events. Initialized with operational endpoints only.
+  description: >-
+    Future live parcel tracking over WebSocket or Server-Sent Events. This
+    specification currently covers only the operational health endpoints.
+    Every response uses either the success shape shown below or the standard
+    error envelope `{ "error": { "code": "...", "message": "..." } }`. Unmatched
+    routes return `404 not_found`, disallowed methods return
+    `405 method_not_allowed` with an `Allow` header, and unexpected failures
+    return `500 internal_error`.
 servers:
   - url: /api/v1/realtime
 paths:
@@ -17,6 +24,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /readyz:
     get:
       operationId: realtimeReady
@@ -28,13 +43,89 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ready
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 components:
   schemas:
     HealthResponse:
       type: object
+      additionalProperties: false
       required:
         - status
       properties:
         status:
           type: string
-          example: ready
+      example:
+        status: ok
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+        message:
+          type: string
+          description: Human-readable message with no internal implementation details.
+  responses:
+    NotFound:
+      description: >-
+        No route matched the request path. This shared handler applies to every
+        unmatched path under the service prefix and returns the standard error
+        envelope with code `not_found`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: not_found
+              message: route not found
+    MethodNotAllowed:
+      description: >-
+        The HTTP method is not allowed for the requested path. The response is
+        the standard error envelope with code `method_not_allowed`, and the
+        `Allow` header lists the permitted methods.
+      headers:
+        Allow:
+          description: Comma-separated list of methods allowed for the path.
+          schema:
+            type: string
+          example: GET
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: method_not_allowed
+              message: method not allowed
+    InternalServerError:
+      description: >-
+        An unexpected server error occurred. The response is the standard error
+        envelope with code `internal_error`; internal details are not exposed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: internal_error
+              message: internal server error

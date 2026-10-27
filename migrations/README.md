@@ -32,6 +32,15 @@ The CLI is a developer tool and is not part of the application's Go module.
 
 ## Running migrations
 
+Run the commands below from the repository root against a reachable PostgreSQL 16 instance. For local development, start the Compose database and wait for it to report healthy:
+
+```sh
+docker compose up -d postgres
+docker compose ps postgres
+```
+
+The connection string matches the defaults in `.env.example`; update it if you changed `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, or `POSTGRES_PORT`.
+
 Use a unique migration version table per service so the shared database does not mix migration histories:
 
 ```sh
@@ -59,6 +68,14 @@ migrate \
 ```
 
 The migration version tables live in the default `public` schema. Service-owned tables must always use their service schema explicitly.
+
+No service connects to PostgreSQL yet. HTTP services load `DATABASE_URL` for future use, but application code does not open a database connection. These migrations create the service schemas only; they do not create business tables or seed data.
+
+Verify the schemas after applying:
+
+```sh
+psql "${DATABASE_URL}" -c '\dn'
+```
 
 ## Rolling back
 
