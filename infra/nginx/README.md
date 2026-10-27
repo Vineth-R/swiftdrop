@@ -1,6 +1,6 @@
 # Nginx local reverse proxy
 
-`default.conf` is mounted into the `nginx:alpine` container by `docker-compose.yml`.
+`default.conf` is mounted into the `nginx:1.27-alpine` container by `docker-compose.yml`.
 
 ## Routing
 
@@ -22,6 +22,8 @@ GET http://localhost:8080/api/v1/identity/healthz
 ```
 
 Gin routes therefore use root paths such as `/healthz` and `/readyz`. When adding a new route, update the service router, the OpenAPI specification, and this proxy mapping together.
+
+A service prefix without a trailing slash (for example `/api/v1/identity`) returns a `308` redirect to the trailing-slash path.
 
 The Next.js application keeps `/api/hello` available because only the `/api/v1/` namespace is proxied to Go services.
 
