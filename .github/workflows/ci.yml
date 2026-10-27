@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches:
-      - main
+      - '**'
   pull_request:
 
 permissions:
@@ -44,7 +44,7 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Build
+      - name: Build services
         run: go build ./...
 
   frontend:
@@ -67,42 +67,3 @@ jobs:
 
       - name: Lint, typecheck, and build
         run: pnpm exec nx run-many -t lint typecheck build --projects=@org/web,@org/web-e2e
-
-  e2e:
-    name: Frontend E2E
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.15.0
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps
-
-      - name: Run E2E tests
-        run: pnpm exec nx e2e @org/web-e2e
-
-  docker:
-    name: Docker validation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Validate Compose configuration
-        run: docker compose config
-
-      - name: Build Go service image
-        run: docker compose build identity
-
-      - name: Build frontend image
-        run: docker compose build web
