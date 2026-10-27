@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,17 +40,23 @@ func run() error {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	server := &http.Server{
+	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
 		Handler:           servicehttp.New(logger),
+		Logger:            logger,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
-	}
+	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 
 	logger.Info("starting http service", "address", config.Addr(), "environment", config.AppEnv)
 	return httpx.Serve(ctx, server, 10*time.Second)

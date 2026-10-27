@@ -21,15 +21,21 @@ func NewLoader(lookup func(string) (string, bool)) Loader {
 }
 
 func (l Loader) String(key, fallback string) string {
-	if value, ok := l.lookup(key); ok && value != "" {
-		return value
+	if value, ok := l.lookup(key); ok {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
 	}
 	return fallback
 }
 
 func (l Loader) Required(key string) (string, error) {
 	value, ok := l.lookup(key)
-	if !ok || strings.TrimSpace(value) == "" {
+	if !ok {
+		return "", fmt.Errorf("missing required environment variable %s", key)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return "", fmt.Errorf("missing required environment variable %s", key)
 	}
 	return value, nil
@@ -80,6 +86,16 @@ func (l Loader) Enum(key, fallback string, allowed ...string) (string, error) {
 	for _, candidate := range allowed {
 		if value == candidate {
 			return value, nil
+		}
+	}
+	return "", fmt.Errorf("%s must be one of %s", key, strings.Join(allowed, ", "))
+}
+
+func (l Loader) EnumFold(key, fallback string, allowed ...string) (string, error) {
+	value := l.String(key, fallback)
+	for _, candidate := range allowed {
+		if strings.EqualFold(value, candidate) {
+			return candidate, nil
 		}
 	}
 	return "", fmt.Errorf("%s must be one of %s", key, strings.Join(allowed, ", "))

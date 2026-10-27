@@ -18,12 +18,12 @@ func Load() (Config, error) {
 }
 
 func LoadFrom(loader sharedconfig.Loader) (Config, error) {
-	appEnv, err := loader.Enum("APP_ENV", "development", "development", "staging", "production")
+	appEnv, err := loader.EnumFold("APP_ENV", "development", "development", "staging", "production")
 	if err != nil {
 		return Config{}, err
 	}
 
-	logLevel, err := loader.Enum("LOG_LEVEL", "info", "debug", "info", "warn", "error")
+	logLevel, err := loader.EnumFold("LOG_LEVEL", "info", "debug", "info", "warn", "warning", "error")
 	if err != nil {
 		return Config{}, err
 	}
