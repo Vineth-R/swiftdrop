@@ -189,36 +189,43 @@ jobs:
               - 'packages/go-common/**'
               - 'go.mod'
               - 'go.sum'
+              - 'infra/docker/go.Dockerfile'
             parcel:
               - 'apps/services/parcel/**'
               - 'packages/go-common/**'
               - 'go.mod'
               - 'go.sum'
+              - 'infra/docker/go.Dockerfile'
             pricing:
               - 'apps/services/pricing/**'
               - 'packages/go-common/**'
               - 'go.mod'
               - 'go.sum'
+              - 'infra/docker/go.Dockerfile'
             merchant:
               - 'apps/services/merchant/**'
               - 'packages/go-common/**'
               - 'go.mod'
               - 'go.sum'
+              - 'infra/docker/go.Dockerfile'
             realtime:
               - 'apps/services/realtime/**'
               - 'packages/go-common/**'
               - 'go.mod'
               - 'go.sum'
+              - 'infra/docker/go.Dockerfile'
             notification-worker:
               - 'apps/services/notification-worker/**'
               - 'packages/go-common/**'
               - 'go.mod'
               - 'go.sum'
+              - 'infra/docker/go.Dockerfile'
             webhook-worker:
               - 'apps/services/webhook-worker/**'
               - 'packages/go-common/**'
               - 'go.mod'
               - 'go.sum'
+              - 'infra/docker/go.Dockerfile'
             web:
               - 'apps/web/**'
               - 'infra/docker/web.Dockerfile'
