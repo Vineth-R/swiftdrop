@@ -4,11 +4,13 @@ COMPOSE ?= docker compose
 COMPOSE_PARALLEL_LIMIT ?= 1
 export COMPOSE_PARALLEL_LIMIT
 
-.PHONY: help up down logs preflight ensure-postgres bootstrap-db migrate migrate-down db-reset check-routes
+.PHONY: help build up up-build down logs preflight ensure-postgres bootstrap-db migrate migrate-down db-reset check-routes
 
 help:
 	@echo "Targets:"
-	@echo "  make up             start the stack, migrate, and verify gateway routes"
+	@echo "  make build          build all application images without starting them"
+	@echo "  make up             start existing images, migrate, and verify gateway routes"
+	@echo "  make up-build       build images, then run the full make up workflow"
 	@echo "  make down           stop the stack without deleting data"
 	@echo "  make logs           follow service logs"
 	@echo "  make migrate        apply all service migrations"
@@ -33,10 +35,16 @@ ensure-postgres:
 bootstrap-db: ensure-postgres
 	$(COMPOSE) exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -f /docker-entrypoint-initdb.d/01-schemas.sql'
 
+build: preflight
+	$(COMPOSE) build
+
 up: preflight
-	$(COMPOSE) up --build -d --wait --wait-timeout 300
+	$(COMPOSE) up -d --wait --wait-timeout 300
 	$(MAKE) migrate
 	$(MAKE) check-routes
+
+up-build: preflight build
+	$(MAKE) up
 
 down:
 	$(COMPOSE) down
