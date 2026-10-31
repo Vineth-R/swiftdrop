@@ -39,7 +39,7 @@ The repository is intentionally a production-oriented foundation. Do not describ
 | HTTP services  | Gin servers with configuration, structured logging, request IDs, health and readiness endpoints, timeouts, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB header limit, and debug-level probe logs. No business endpoints.                                                  |
 | Workers        | RabbitMQ consumers that validate message framing and the shared event envelope, log non-sensitive identifiers, reconnect with jittered backoff, force exit on a second termination signal, and route failures through bounded retry or dead-letter handling. No external notification or webhook delivery. |
 | Shared Go      | `packages/go-common` provides config and credential-safe AMQP URL validation, logging, HTTP helpers, request IDs, HTTP lifecycle, event envelopes, message framing validation, failure classification, publisher-confirmed retry/dead-letter routing, and a RabbitMQ consumer.                             |
-| PostgreSQL     | Compose runs PostgreSQL 16. Migrations create service schemas only. No service connects to PostgreSQL yet.                                                                                                                                                                                                 |
+| PostgreSQL     | Compose runs PostgreSQL 16 with Mailpit for local email. Migrations create the five service schemas and their baseline tables from `docs/db.sql`. HTTP services open a shared pgx pool and expose `/health` and `/ready`; `/ready` reports database connectivity.                                                                                                                                  |
 | RabbitMQ       | Compose runs RabbitMQ 4.1 management. Workers declare the durable main exchange, queue, and binding plus retry and dead-letter exchanges and queues. No event producers or outbox implementation yet.                                                                                                      |
 | Contracts      | OpenAPI specs cover health and readiness plus shared 404/405/500 error responses. One example event schema exists for `notification.requested.v1`; the webhook payload schema is an open decision.                                                                                                         |
 | Realtime       | Health endpoints and Nginx WebSocket/SSE settings exist. No WebSocket or SSE handler or subscription engine exists.                                                                                                                                                                                        |
@@ -84,7 +84,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 | `packages/go-common`                | Shared infrastructure only: config and AMQP URL validation, logging, HTTP helpers, request IDs, server lifecycle, messaging envelope and framing validation, retry/dead-letter routing, and a RabbitMQ consumer. |
 | `contracts/openapi`                 | Hand-maintained OpenAPI 3.0.3 specs. Currently health, readiness, and shared error responses.                                                                                                                    |
 | `contracts/events`                  | Event naming, envelope, framing, versioning conventions, and one JSON Schema example.                                                                                                                            |
-| `migrations/<service>`              | golang-migrate SQL migrations. Currently schema creation only.                                                                                                                                                   |
+| `migrations/<service>`              | golang-migrate SQL migrations. `000001` creates the schema; `000002_tables` is reserved for the platform baseline tables. Owners add new migrations from `000003`.                                               |
 | `infra/docker`                      | Parameterized Go Dockerfile and Next.js standalone Dockerfile.                                                                                                                                                   |
 | `infra/nginx`                       | Local reverse proxy configuration and routing notes.                                                                                                                                                             |
 | `tests/integration`                 | Broker-backed RabbitMQ tests covering acknowledgement, retries, dead-lettering, and panic recovery.                                                                                                              |
@@ -128,7 +128,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 ### Data
 
 - PostgreSQL is the persistence choice where configured.
-- Local development uses one PostgreSQL instance with one schema per service: `identity`, `parcel`, `pricing`, and `merchant`. Realtime currently has no schema or persistence.
+- Local development uses one PostgreSQL instance with one schema per service: `identity`, `parcel`, `pricing`, `merchant`, and `notification`. Realtime has no tables and is stateless.
 - Production may use separate databases later, but service ownership rules still apply.
 - Use transactions for local consistency.
 - Avoid distributed transactions. When database changes and event publication must remain consistent, design an outbox or equivalent explicit mechanism before implementing it.
@@ -159,7 +159,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 
 ### Configuration
 
-- HTTP services read `APP_ENV`, `LOG_LEVEL`, `PORT`, and optional `DATABASE_URL`.
+- HTTP services read `APP_ENV`, `LOG_LEVEL`, `PORT`, and optional `DATABASE_URL`. They open a shared pgx pool when it is set and report connectivity through `/ready`.
 - Workers require `RABBITMQ_URL` and read `RABBITMQ_EXCHANGE`, queue/routing-key variables, `RABBITMQ_PREFETCH`, `RABBITMQ_HANDLER_TIMEOUT`, `RABBITMQ_MAX_RETRIES`, `RABBITMQ_RETRY_DELAY`, `RABBITMQ_RECONNECT_MIN`, and `RABBITMQ_RECONNECT_MAX`.
 - `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host. Validation errors must not include the URL. Use the shared config loader for this check.
 - Environment values are matched case-insensitively and trimmed by the shared loader. Keep new parsing consistent with it.
@@ -173,26 +173,27 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 ## HTTP API standards
 
 - Use resource-oriented routes and explicit HTTP methods.
-- Public routes use the existing `/api/v1/<service>/` Nginx prefixes. Nginx strips the prefix before forwarding, so Gin routers register root paths such as `/healthz` and `/readyz`.
+- Public routes follow API v1.1 path groups. Nginx strips the `/api/v1` prefix before forwarding, so Gin routers register root paths such as `/auth/...`, `/parcels/...`, `/health`, and `/ready`.
 - Current public mapping:
-  - `/api/v1/identity/` -> identity on `8081`
-  - `/api/v1/parcels/` -> parcel on `8082`
-  - `/api/v1/pricing/` -> pricing on `8083`
-  - `/api/v1/merchants/` -> merchant on `8084`
-  - `/api/v1/realtime/` -> realtime on `8085`
+  - `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers` -> identity on `8081`
+  - `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones` -> pricing on `8083`
+  - `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports` -> parcel on `8082`
+  - `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants` -> merchant on `8084`
+  - `/ws` -> realtime on `8085`
+  - `/healthz` -> gateway only; `/internal` is never routed
   - `/` -> Next.js web on `3000`
 - Do not add a second prefix inside a Gin router unless the routing architecture is deliberately changed.
 - When adding or changing a public route, update the Gin route, `contracts/openapi/<service>.yaml`, and `infra/nginx/default.conf` together.
 - Validate request bodies, query parameters, and path parameters. Reject malformed input with an appropriate 4xx response.
 - Use appropriate status codes: 200/201/204 for success, 400 for malformed input, 401/403 for auth failures, 404 for missing resources, 409 for conflicts, 422 for semantic validation failures, and 500 for unexpected server errors.
-- Use the shared response helpers. The current error shape is:
+- Use the shared response helpers. The error shape follows API v1.1:
   ```json
-  { "error": { "code": "not_found", "message": "route not found" } }
+  { "error": { "code": "NOT_FOUND", "message": "route not found" }, "meta": { "requestId": "..." } }
   ```
-- Health returns `{"status":"ok"}`. Readiness returns `{"status":"ready"}`. Readiness currently does not check PostgreSQL or RabbitMQ, so do not claim dependency health from it.
-- The shared router returns JSON for unmatched paths (`404`, code `not_found`) and disallowed methods (`405`, code `method_not_allowed`, with an `Allow` header). Do not add a separate ad hoc error shape for these cases.
-- Panics are recovered by the shared middleware and converted to a JSON `500` (`internal_error`) when no response has been written. The recovery log includes request ID, method, path, panic value, and stack trace; clients never receive the stack trace or internal details.
-- Probe requests to `/healthz` and `/readyz` are logged at debug level. Do not log them as normal traffic.
+- Health returns `{"status":"ok"}`. Readiness returns `{"status":"ready","checks":{"database":"ok"}}` or 503 with the failing check set to `down`. `/health` and `/ready` are primary; `/healthz` and `/readyz` remain deprecated aliases.
+- The shared router returns JSON for unmatched paths (`404`, code `NOT_FOUND`) and disallowed methods (`405`, code `METHOD_NOT_ALLOWED`, with an `Allow` header). Do not add a separate ad hoc error shape for these cases.
+- Panics are recovered by the shared middleware and converted to a JSON `500` (`INTERNAL_ERROR`) when no response has been written. The recovery log includes request ID, method, path, panic value, and stack trace; clients never receive the stack trace or internal details.
+- Probe requests to `/health`, `/ready`, `/healthz`, and `/readyz` are logged at debug level. Do not log them as normal traffic.
 - `httpx.NewServer` sets a 1 MiB header limit by default and routes `http.Server.ErrorLog` through `slog`. Preserve both unless an approved change requires otherwise.
 - Do not expose stack traces, SQL errors, credentials, tokens, or internal implementation details to clients. Log safe details server-side.
 - Propagate request cancellation and timeouts to downstream calls.
@@ -247,18 +248,19 @@ Authentication and authorization are not implemented yet. When they are implemen
 ## PostgreSQL and migrations
 
 - Use PostgreSQL for persistence where configured.
-- Use one local database with separate schemas per owning service: `identity`, `parcel`, `pricing`, and `merchant`.
+- Use one local database with separate schemas per owning service: `identity`, `parcel`, `pricing`, `merchant`, and `notification`. Realtime is stateless.
 - Services own their schema. Do not read or modify another service's schema.
 - Use versioned migrations under `migrations/<service>/` with the `NNNNNN_description.up.sql` and `.down.sql` naming convention.
 - Use golang-migrate as documented in `migrations/README.md`. Each service uses its own migration version table.
+- `000001` creates the service schema. `000002_tables` is reserved for the platform baseline tables from `docs/db.sql`. Other owners add new migrations from `000003`; do not renumber or reuse an applied version.
 - Applied migrations are immutable. Fix mistakes with a new migration.
 - Do not run migrations automatically at service startup.
 - Do not modify schemas manually without a migration.
 - Production changes should be forward-only and use expand/contract patterns where needed. Down migrations remain useful for local development and review.
-- Down migrations that drop schemas are destructive. Confirm the target database before running them.
-- No service currently connects to PostgreSQL. `DATABASE_URL` is loaded for future use but is not used by application code yet.
+- Down migrations that drop schemas or tables are destructive. Confirm the target database before running them.
+- HTTP services open a shared pgx pool when `DATABASE_URL` is set and report connectivity through `/ready`. Missing `DATABASE_URL` leaves the service running with `/ready` returning 503.
 - Use local transactions where needed. Avoid distributed transactions.
-- The initial migrations create schemas only. Do not add speculative business tables without a task requirement.
+- Baseline business tables come from `docs/db.sql`. Do not add speculative tables beyond it without a task requirement.
 
 ## Frontend standards
 
@@ -347,13 +349,15 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 
 - Keep the existing `docker-compose.yml` filename. Do not rename it to `compose.yaml` solely because a general skill prefers that name.
 - Compose services:
-  - `postgres` on 5432, persistent volume, `pg_isready` health check.
+  - `postgres` on 5432, persistent volume, `pg_isready` health check, schema/function init script.
   - `rabbitmq` on 5672 and management on 15672, persistent volume, diagnostics health check.
+  - `mailpit` on 1025 (SMTP) and 8025 (UI), health check.
   - `identity` 8081, `parcel` 8082, `pricing` 8083, `merchant` 8084, `realtime` 8085.
   - `notification-worker` and `webhook-worker`, no public ports.
   - `web` on 3000.
   - `nginx` on 8080.
-- Local Compose publishes service ports for developer access. Do not carry that exposure into production architecture without review.
+  - `migrate` tools-profile service for golang-migrate.
+- Only the gateway, RabbitMQ (5672/15672), and Mailpit (1025/8025) publish host ports. Service, worker, web, and Postgres ports are internal to the Compose network. Do not carry any of this exposure into production architecture without review.
 - The Go Dockerfile builds from the repository root context and accepts a `SERVICE` build argument. It uses a multi-stage build, a static binary, a minimal Alpine runtime, and a non-root user.
 - The web Dockerfile uses Node 24, pnpm, Nx build, Next standalone output, and a non-root user.
 - Do not bake secrets into images. `.dockerignore` excludes `.env` files and agent/tooling directories.
@@ -369,7 +373,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 ## Git and change management
 
 - Inspect `git status` before editing.
-- The current remote default branch is `chore/initial-workspace`. Create feature branches from it; do not assume branch protection or required reviews exist until the team establishes a permanent mainline.
+- The current integration branch is `development`. Create feature branches from it and open pull requests into `development`; do not assume branch protection or required reviews exist until the team establishes a permanent mainline.
 - Preserve existing user changes and untracked files.
 - Do not reset, clean, rebase, force-push, or discard changes without explicit permission.
 - Do not commit or push unless explicitly instructed.
