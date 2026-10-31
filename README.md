@@ -107,17 +107,23 @@ git clone https://github.com/Vineth-R/swiftdrop.git
 cd swiftdrop
 cp .env.example .env
 # edit .env only if your local configuration differs
-make up
+make up-build
 ```
 
-`make up`:
+`make up-build` builds all images and then runs the full startup workflow. `make up`:
 
 1. validates configuration (`preflight`);
-2. builds and starts the Compose stack and waits for health checks;
+2. starts the existing images and waits for health checks;
 3. applies all five service migrations;
 4. runs `scripts/check-routes.sh` against the actual published Nginx port.
 
-Open <http://localhost:8080/>. Mailpit is at <http://localhost:8025/> and RabbitMQ management at <http://localhost:15672/>. The first run builds images and can take several minutes. Running `make up` again is safe: Compose is a no-op, migrations report `no change`, and routes are re-verified.
+Open <http://localhost:8080/>. Mailpit is at <http://localhost:8025/> and RabbitMQ management at <http://localhost:15672/>. The first build can take several minutes.
+
+**Subsequent startups:** use `make up`. It reuses the existing images and does not rebuild them.
+
+**After changing application source code:** use `make up-build` so the images are rebuilt before startup.
+
+Running `make up` again is safe: Compose is a no-op, migrations report `no change`, and routes are re-verified.
 
 If `.env` is missing and `POSTGRES_USER`/`POSTGRES_DB` are not exported, `make up` fails with a clear error instead of silently using defaults.
 
@@ -125,8 +131,10 @@ If `.env` is missing and `POSTGRES_USER`/`POSTGRES_DB` are not exported, `make u
 
 | Command                        | What it does                                                     |
 | ------------------------------ | ---------------------------------------------------------------- |
-| `make up`                      | Start, wait for health, migrate, and verify routes               |
-| `docker compose up --build -d` | Start only; **does not migrate**                                 |
+| `make build`                   | Build all application images; does not start containers          |
+| `make up`                      | Start existing images, wait for health, migrate, verify routes   |
+| `make up-build`                | Build images, then run the full `make up` workflow               |
+| `docker compose up --build -d` | Start only; **builds but does not migrate**                      |
 | `make migrate`                 | Apply all service migrations                                     |
 | `make migrate-down`            | Roll back **one migration per service** (destructive; see below) |
 | `make check-routes`            | Verify gateway routing against the running stack                 |
@@ -337,10 +345,11 @@ Go targets run from the repository root so the single root module and shared pac
 ## Run the integrated environment
 
 ```sh
-make up
+make up-build    # first run or after changing source code
+make up          # subsequent runs, reusing built images
 ```
 
-`make up` starts the stack, waits for health checks, applies migrations, and verifies gateway routes. Plain `docker compose up --build -d` starts the same stack but does **not** migrate; run `make migrate` afterwards. Nginx waits for its web and HTTP service dependencies to become healthy before starting. Endpoints:
+`make up-build` builds the images and then runs the full startup workflow. `make up` starts the existing images, waits for health checks, applies migrations, and verifies gateway routes without rebuilding. Plain `docker compose up --build -d` starts the same stack but does **not** migrate; run `make migrate` afterwards. Nginx waits for its web and HTTP service dependencies to become healthy before starting. Endpoints:
 
 - Gateway (only public application port): <http://localhost:8080/>
 - Frontend through the gateway: <http://localhost:8080/>
@@ -395,10 +404,11 @@ The workflow does not deploy, publish images, or use deployment credentials. Thi
 - **Environment variables missing for a host process:** Go services do not load `.env`. Export it with `set -a; . ./.env; set +a` before `go run` or `nx serve`.
 - **Migrations cannot connect:** run `docker compose up -d postgres`, then `docker compose ps postgres`. Confirm `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` match your `.env`. `make migrate` reads the Compose-resolved `DATABASE_URL`, not a hardcoded one. URL-reserved password characters are a known limitation (use URL-safe credentials).
 - **Nginx returns 502 or will not start:** Nginx resolves upstreams at startup. Start the full stack with `make up` rather than starting Nginx alone. Check `docker compose ps` for unhealthy services.
+- **Images are missing or stale (`make up` starts old code):** run `make up-build` to rebuild before starting.
 - **Worker keeps reconnecting:** confirm RabbitMQ is healthy and `RABBITMQ_URL` points at the broker. For containers use the `rabbitmq` service name; use `localhost` only from the host. Reconnect attempts are logged with the next delay.
 - **Integration tests skip:** `RABBITMQ_URL` is unset or empty. Set it to the Compose broker URL. CI treats skips as failures.
 - **Playwright cannot launch a browser:** run `pnpm exec playwright install chromium` (add `--with-deps` on Linux if system libraries are missing).
-- **Docker runs out of memory while building every Go image:** the Go Dockerfile bounds compiler memory (`GOFLAGS=-p=1`, `GOMEMLIMIT`, `GOGC`). Build sequentially with `COMPOSE_PARALLEL_LIMIT=1 docker compose build`, then start the stack.
+- **Docker runs out of memory while building every Go image:** the Go Dockerfile bounds compiler memory (`GOFLAGS=-p=1`, `GOMEMLIMIT`, `GOGC`) and the Makefile serializes builds with `COMPOSE_PARALLEL_LIMIT=1`. Build sequentially with `make build`, then start with `make up`.
 
   ```sh
   docker compose build identity

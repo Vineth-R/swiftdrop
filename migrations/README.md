@@ -79,4 +79,4 @@ Set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in `.env` or export 
 
 ## Startup policy
 
-Services never run migrations at startup. `make up` is the one-command developer workflow: start the stack, wait for health, migrate, and verify gateway routes. Plain `docker compose up` does not migrate.
+Services never run migrations at startup. `make up` starts existing images, waits for health, migrates, and verifies gateway routes; `make up-build` builds the images first. Plain `docker compose up` does not migrate.
