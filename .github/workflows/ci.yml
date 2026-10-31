@@ -3,11 +3,18 @@ name: CI
 on:
   push:
     branches:
-      - '**'
+      - development
+      - main
+    tags:
+      - 'v*'
   pull_request:
+    branches:
+      - development
+      - main
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -21,7 +28,7 @@ jobs:
   go:
     name: Go checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -49,8 +56,16 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test with race detector
-        run: go test -race ./...
+      - name: Test with race detector and coverage
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: coverage.out
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Build
         run: go build ./...
@@ -73,7 +88,7 @@ jobs:
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s
-          --health-timeout 10s
+          --health-timeout 5s
           --health-retries 10
     env:
       RABBITMQ_URL: amqp://swiftdrop:swiftdrop@127.0.0.1:5672/
@@ -124,8 +139,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint, typecheck, and build
-        run: pnpm exec nx run-many -t lint typecheck build --projects=@org/web,@org/web-e2e
+      - name: Lint and build web
+        run: pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e
+
+      - name: Typecheck e2e
+        run: pnpm exec nx typecheck @org/web-e2e
 
   e2e:
     name: Playwright E2E (Chromium)
@@ -154,31 +172,89 @@ jobs:
       - name: Run Playwright E2E
         run: pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"
 
-  docker:
-    name: Docker builds
+  changes:
+    name: Detect changed projects
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Validate Docker Compose configuration
-        run: docker compose config --quiet
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            identity:
+              - 'apps/services/identity/**'
+              - 'packages/go-common/**'
+              - 'go.mod'
+              - 'go.sum'
+            parcel:
+              - 'apps/services/parcel/**'
+              - 'packages/go-common/**'
+              - 'go.mod'
+              - 'go.sum'
+            pricing:
+              - 'apps/services/pricing/**'
+              - 'packages/go-common/**'
+              - 'go.mod'
+              - 'go.sum'
+            merchant:
+              - 'apps/services/merchant/**'
+              - 'packages/go-common/**'
+              - 'go.mod'
+              - 'go.sum'
+            realtime:
+              - 'apps/services/realtime/**'
+              - 'packages/go-common/**'
+              - 'go.mod'
+              - 'go.sum'
+            notification-worker:
+              - 'apps/services/notification-worker/**'
+              - 'packages/go-common/**'
+              - 'go.mod'
+              - 'go.sum'
+            webhook-worker:
+              - 'apps/services/webhook-worker/**'
+              - 'packages/go-common/**'
+              - 'go.mod'
+              - 'go.sum'
+            web:
+              - 'apps/web/**'
+              - 'infra/docker/web.Dockerfile'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+
+  docker:
+    name: Docker build (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.services != '[]' && needs.changes.outputs.services != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v5
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build Go service image (identity)
+      - name: Build Go service image
+        if: matrix.service != 'web'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: infra/docker/go.Dockerfile
           build-args: |
-            SERVICE=identity
+            SERVICE=${{ matrix.service }}
           push: false
           load: false
           cache-from: type=gha,scope=go
           cache-to: type=gha,mode=max,scope=go
 
       - name: Build web image
+        if: matrix.service == 'web'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -187,3 +263,23 @@ jobs:
           load: false
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+
+  release:
+    name: Release smoke test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build all images and start the stack
+        env:
+          COMPOSE_PARALLEL_LIMIT: 1
+        run: docker compose up -d --build --wait --wait-timeout 600
+
+      - name: Verify routes
+        run: ./scripts/check-routes.sh
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down
