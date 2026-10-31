@@ -6,16 +6,27 @@ This document records Member 8's merchant order and integration flows. The merch
 
 | ID | Use case | Primary actor | Endpoint / integration |
 | --- | --- | --- | --- |
-| UC-M1 | Register as merchant | Merchant | `POST /api/v1/merchants/register` |
-| UC-M2 | Manage API keys | Merchant | `GET/POST/DELETE /api/v1/merchants/me/keys` |
-| UC-M3 | Create order through API | External Merchant System | `POST /api/v1/merchant/orders` |
-| UC-M4 | Configure webhook | Merchant | M9 webhook APIs |
-| UC-M5 | Receive status webhooks | External Merchant System | M9 webhook delivery |
-| UC-M6 | View order dashboard | Merchant | `GET /api/v1/merchant/orders` and `/{orderId}` |
-| UC-M7 | Test webhook and view delivery log | Merchant | M9 webhook APIs |
-| UC-M8 | Manage business profile | Merchant | `GET/PATCH /api/v1/merchants/me` |
+| UC-M1 | Register as merchant | Merchant | 8.1 |
+| UC-M2 | Manage API keys | Merchant | 8.9–8.11 |
+| UC-M3 | Create order through API | External Merchant System | 8.16 |
+| UC-M4 | Configure webhook | Merchant | 8.12, 8.13 |
+| UC-M5 | Receive status webhooks | External Merchant System | Section 10 |
+| UC-M6 | View order dashboard | Merchant | 8.17, 8.18 |
+| UC-M7 | Test webhook and view delivery log | Merchant | 8.14, 8.15 |
+| UC-M8 | Manage business profile | Merchant | 8.2, 8.3 |
 
 The Admin actor approves, rejects, and suspends merchants through the administrative endpoints. The External Merchant System authenticates with `X-API-Key` and submits orders.
+
+### Use-case responsibilities
+
+- **UC-M1:** A merchant submits owner and business details for administrator approval.
+- **UC-M2:** An approved merchant creates, lists, and revokes server-to-server API keys.
+- **UC-M3:** An external store submits a delivery order and receives a tracking number and fee.
+- **UC-M4:** A merchant configures webhook destinations and delivery preferences through M9.
+- **UC-M5:** The external store receives parcel status updates through M9's webhook delivery flow.
+- **UC-M6:** A merchant searches orders, filters by status, and views order history and details.
+- **UC-M7:** A merchant sends a test webhook and reviews delivery attempts through M9.
+- **UC-M8:** A merchant views and edits contact and default pickup information.
 
 ## Merchant API order creation (Section 6.2)
 
