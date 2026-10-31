@@ -2,12 +2,12 @@
 
 SwiftDrop uses a single PostgreSQL 16 instance for local development, with one schema per service:
 
-| Service    | Schema         | Migration directory      |
-| ---------- | -------------- | ------------------------ |
-| Identity   | `identity`     | `migrations/identity`    |
-| Parcel     | `parcel`       | `migrations/parcel`      |
-| Pricing    | `pricing`      | `migrations/pricing`     |
-| Merchant   | `merchant`     | `migrations/merchant`    |
+| Service      | Schema         | Migration directory       |
+| ------------ | -------------- | ------------------------- |
+| Identity     | `identity`     | `migrations/identity`     |
+| Parcel       | `parcel`       | `migrations/parcel`       |
+| Pricing      | `pricing`      | `migrations/pricing`      |
+| Merchant     | `merchant`     | `migrations/merchant`     |
 | Notification | `notification` | `migrations/notification` |
 
 Each service owns its schema. A service must not read or write another service's schema directly. Cross-service data exchange belongs in HTTP APIs or RabbitMQ events.

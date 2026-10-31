@@ -39,7 +39,7 @@ The repository is intentionally a production-oriented foundation. Do not describ
 | HTTP services  | Gin servers with configuration, structured logging, request IDs, health and readiness endpoints, timeouts, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB header limit, and debug-level probe logs. No business endpoints.                                                  |
 | Workers        | RabbitMQ consumers that validate message framing and the shared event envelope, log non-sensitive identifiers, reconnect with jittered backoff, force exit on a second termination signal, and route failures through bounded retry or dead-letter handling. No external notification or webhook delivery. |
 | Shared Go      | `packages/go-common` provides config and credential-safe AMQP URL validation, logging, HTTP helpers, request IDs, HTTP lifecycle, event envelopes, message framing validation, failure classification, publisher-confirmed retry/dead-letter routing, and a RabbitMQ consumer.                             |
-| PostgreSQL     | Compose runs PostgreSQL 16 with Mailpit for local email. Migrations create the five service schemas and their baseline tables from `docs/db.sql`. HTTP services open a shared pgx pool and expose `/health` and `/ready`; `/ready` reports database connectivity.                                                                                                                                  |
+| PostgreSQL     | Compose runs PostgreSQL 16 with Mailpit for local email. Migrations create the five service schemas and their baseline tables from `docs/db.sql`. HTTP services open a shared pgx pool and expose `/health` and `/ready`; `/ready` reports database connectivity.                                          |
 | RabbitMQ       | Compose runs RabbitMQ 4.1 management. Workers declare the durable main exchange, queue, and binding plus retry and dead-letter exchanges and queues. No event producers or outbox implementation yet.                                                                                                      |
 | Contracts      | OpenAPI specs cover health and readiness plus shared 404/405/500 error responses. One example event schema exists for `notification.requested.v1`; the webhook payload schema is an open decision.                                                                                                         |
 | Realtime       | Health endpoints and Nginx WebSocket/SSE settings exist. No WebSocket or SSE handler or subscription engine exists.                                                                                                                                                                                        |
@@ -188,7 +188,10 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 - Use appropriate status codes: 200/201/204 for success, 400 for malformed input, 401/403 for auth failures, 404 for missing resources, 409 for conflicts, 422 for semantic validation failures, and 500 for unexpected server errors.
 - Use the shared response helpers. The error shape follows API v1.1:
   ```json
-  { "error": { "code": "NOT_FOUND", "message": "route not found" }, "meta": { "requestId": "..." } }
+  {
+    "error": { "code": "NOT_FOUND", "message": "route not found" },
+    "meta": { "requestId": "..." }
+  }
   ```
 - Health returns `{"status":"ok"}`. Readiness returns `{"status":"ready","checks":{"database":"ok"}}` or 503 with the failing check set to `down`. `/health` and `/ready` are primary; `/healthz` and `/readyz` remain deprecated aliases.
 - The shared router returns JSON for unmatched paths (`404`, code `NOT_FOUND`) and disallowed methods (`405`, code `METHOD_NOT_ALLOWED`, with an `Allow` header). Do not add a separate ad hoc error shape for these cases.
@@ -391,7 +394,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 - Keep project-wide agent rules in this file. Do not create competing root instruction files that duplicate this guidance.
 - Document environment variables in `.env.example`.
 - Mark planned features as planned. Do not describe future business behavior as implemented.
-- The CI workflow file is the source of truth for CI. It currently runs Go formatting, vet, race tests, build, and Compose config validation; a separate RabbitMQ integration job that fails on skipped tests; frontend lint, typecheck, and build; Chromium-only Playwright E2E; and representative `identity` and web Docker image builds. Do not repeat stale CI summaries, and do not claim a CI run passed unless its result was observed.
+- The CI workflow file is the source of truth for CI. It runs Go formatting, vet, race tests with a coverage artifact, build, and Compose config validation; a separate RabbitMQ integration job that fails on skipped tests; frontend lint/build and E2E typecheck; Chromium-only Playwright E2E; changed-service Docker image builds; and a `v*` tag release job that builds every image and runs a Compose smoke test. Do not repeat stale CI summaries, and do not claim a CI run passed unless its result was observed.
 
 ## Agent workflow
 

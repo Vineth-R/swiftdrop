@@ -2,13 +2,13 @@
 
 One specification per HTTP service:
 
-| Service  | Specification   | Public base paths |
-| -------- | --------------- | ----------------- |
-| Identity | `identity.yaml` | `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers` |
+| Service  | Specification   | Public base paths                                                                                                        |
+| -------- | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Identity | `identity.yaml` | `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers`                                               |
 | Parcel   | `parcel.yaml`   | `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports` |
-| Pricing  | `pricing.yaml`  | `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones` |
-| Merchant | `merchant.yaml` | `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants` |
-| Realtime | `realtime.yaml` | `/ws` |
+| Pricing  | `pricing.yaml`  | `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones`                                       |
+| Merchant | `merchant.yaml` | `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`                                                       |
+| Realtime | `realtime.yaml` | `/ws`                                                                                                                    |
 
 The public base paths are the Nginx routes. Nginx strips the `/api/v1` prefix before forwarding, so service routers expose root paths such as `/auth/...`, `/parcels/...`, `/health`, and `/ready`. `/ws` is forwarded to the realtime service unchanged. See `docs/architecture.md`.
 
