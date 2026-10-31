@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -102,6 +104,35 @@ func (p *Pool) Close() {
 		return
 	}
 	p.pool.Close()
+}
+
+// Exec exposes parameterized SQL for service-owned repositories.
+func (p *Pool) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if p == nil || p.pool == nil {
+		return pgconn.CommandTag{}, ErrNotConfigured
+	}
+	return p.pool.Exec(ctx, sql, args...)
+}
+
+// QueryRow exposes a single-row query for service-owned repositories.
+func (p *Pool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return p.pool.QueryRow(ctx, sql, args...)
+}
+
+// Query exposes a row iterator for service-owned repositories.
+func (p *Pool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if p == nil || p.pool == nil {
+		return nil, ErrNotConfigured
+	}
+	return p.pool.Query(ctx, sql, args...), nil
+}
+
+// Begin starts a transaction for service-owned repositories.
+func (p *Pool) Begin(ctx context.Context) (pgx.Tx, error) {
+	if p == nil || p.pool == nil {
+		return nil, ErrNotConfigured
+	}
+	return p.pool.Begin(ctx)
 }
 
 func nextDelay(current, maximum time.Duration) time.Duration {

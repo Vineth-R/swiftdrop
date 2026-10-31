@@ -13,6 +13,7 @@ import (
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/http"
+	merchantrepository "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
@@ -45,10 +46,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	router := servicehttp.New(logger)
-
 	var database *postgres.Pool
 	var pinger postgres.Pinger
+	var merchantRepo *merchantrepository.Repository
 	if config.DatabaseURL != "" {
 		databaseConfig := postgres.DefaultConfig()
 		databaseConfig.URL = config.DatabaseURL
@@ -59,10 +59,15 @@ func run() error {
 		}
 		defer database.Close()
 		pinger = database
+		merchantRepo, err = merchantrepository.New(database)
+		if err != nil {
+			return fmt.Errorf("create merchant repository: %w", err)
+		}
 		logger.Info("database connection established")
 	} else {
 		logger.Warn("DATABASE_URL is not set; readiness will report database down")
 	}
+	router := servicehttp.New(logger, merchantRepo)
 
 	router.GET("/health", postgres.HealthHandler())
 	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))

@@ -2,11 +2,13 @@ package repository
 
 import (
 	"context"
-	"database/sql"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type MerchantStatus string
@@ -59,7 +61,7 @@ func (r *Repository) CreateMerchant(ctx context.Context, params CreateMerchantPa
 	if strings.TrimSpace(params.BusinessRegNo) == "" {
 		businessRegNo = nil
 	}
-	_, err := r.db.ExecContext(
+	_, err := r.db.Exec(
 		ctx,
 		`INSERT INTO merchant.merchants (
 			id, owner_user_id, business_name, business_reg_no, contact_email,
@@ -83,7 +85,7 @@ func (r *Repository) CreateMerchant(ctx context.Context, params CreateMerchantPa
 
 func (r *Repository) MerchantByID(ctx context.Context, merchantID string) (Merchant, error) {
 	merchant := Merchant{}
-	err := r.db.QueryRowContext(
+	err := r.db.QueryRow(
 		ctx,
 		`SELECT id, owner_user_id, business_name, business_reg_no, contact_email,
 			contact_phone, pickup_address, pickup_zone_id, status, approved_by,
@@ -108,7 +110,7 @@ func (r *Repository) MerchantByID(ctx context.Context, merchantID string) (Merch
 		&merchant.CreatedAt,
 		&merchant.UpdatedAt,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return Merchant{}, ErrNotFound
 	}
 	if err != nil {
@@ -120,7 +122,7 @@ func (r *Repository) MerchantByID(ctx context.Context, merchantID string) (Merch
 
 // UpdateProfile changes only merchant-editable contact and pickup fields.
 func (r *Repository) UpdateProfile(ctx context.Context, merchantID string, update ProfileUpdate) (Merchant, error) {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.db.Exec(ctx, `
 		UPDATE merchant.merchants
 		SET contact_email = $2, contact_phone = $3, pickup_address = $4,
 		    pickup_zone_id = $5, updated_at = now()
@@ -144,15 +146,15 @@ func (r *Repository) SuspendMerchant(ctx context.Context, merchantID, actorUserI
 }
 
 func (r *Repository) transition(ctx context.Context, merchantID, actorUserID string, target MerchantStatus, action, reason string) (Merchant, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return Merchant{}, fmt.Errorf("begin merchant transition: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	var current MerchantStatus
-	if err := tx.QueryRowContext(ctx, `SELECT status FROM merchant.merchants WHERE id = $1 FOR UPDATE`, merchantID).Scan(&current); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `SELECT status FROM merchant.merchants WHERE id = $1 FOR UPDATE`, merchantID).Scan(&current); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return Merchant{}, ErrNotFound
 		}
 		return Merchant{}, fmt.Errorf("lock merchant: %w", err)
@@ -174,16 +176,24 @@ func (r *Repository) transition(ctx context.Context, merchantID, actorUserID str
 		update = `UPDATE merchant.merchants SET status = $1, suspension_reason = $3, updated_at = now() WHERE id = $2`
 		args = append(args, reason)
 	}
-	if _, err := tx.ExecContext(ctx, update, args...); err != nil {
+	if _, err := tx.Exec(ctx, update, args...); err != nil {
 		return Merchant{}, fmt.Errorf("update merchant state: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO merchant.audit_logs (id, actor_user_id, action, entity_type, entity_id, details) VALUES (gen_random_uuid(), $1, $2, 'merchant', $3, jsonb_build_object('reason', NULLIF($4, '')))`, actorUserID, action, merchantID, reason); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO merchant.audit_logs (id, actor_user_id, action, entity_type, entity_id, details) VALUES (gen_random_uuid(), $1, $2, 'merchant', $3, jsonb_build_object('reason', NULLIF($4, '')))` , actorUserID, action, merchantID, reason); err != nil {
 		return Merchant{}, fmt.Errorf("record merchant audit: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Merchant{}, fmt.Errorf("commit merchant transition: %w", err)
 	}
 	return r.MerchantByID(ctx, merchantID)
+}
+
+func newUUID() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil { return "", err }
+	value[6] = (value[6] & 0x0f) | 0x40
+	value[8] = (value[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
 }
 
 func validTransition(from, to MerchantStatus) bool {
