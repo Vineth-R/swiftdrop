@@ -28,7 +28,7 @@ Containers address infrastructure through Docker Compose service names; host-to-
 - **Identity** owns authentication, authorization, and identity profiles in a future phase. It does not issue tokens yet.
 - **Parcel** owns parcel lifecycle, status, and tracking in a future phase.
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
-- **Merchant** owns merchant accounts, integration settings, and future API credentials.
+- **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
 - **Notification worker** will consume notification events and call external providers in a future phase.
 - **Webhook worker** will deliver outgoing merchant webhooks and eventually manage retries.

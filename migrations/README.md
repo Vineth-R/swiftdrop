@@ -69,7 +69,7 @@ migrate \
 
 The migration version tables live in the default `public` schema. Service-owned tables must always use their service schema explicitly.
 
-No service connects to PostgreSQL yet. HTTP services load `DATABASE_URL` for future use, but application code does not open a database connection. These migrations create the service schemas only; they do not create business tables or seed data.
+The merchant migration directory additionally defines the merchant-owned integration tables. Application startup does not run migrations automatically, and the merchant service does not open a database connection until its database wiring is introduced. Migrations do not seed data.
 
 Verify the schemas after applying:
 
