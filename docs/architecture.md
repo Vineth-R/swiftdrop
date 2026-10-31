@@ -124,6 +124,8 @@ Workers read:
 - required `RABBITMQ_URL`
 - `RABBITMQ_EXCHANGE`, queue, routing key, prefetch, handler timeout, retry limit, retry delay, and reconnect bounds
 
+Email delivery is configured through `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. No service sends email yet; the configuration is reserved for M2's password-reset flow and the future notification worker. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
+
 The maximum RabbitMQ message body size is 1 MiB and is fixed in `messaging.MaxMessageBytes`; it is not configurable in this phase. Secrets and connection strings are never logged.
 
 ## Health and readiness
@@ -143,7 +145,7 @@ PostgreSQL is the primary relational store. SQL migrations live under `migration
 
 `000001` creates each service schema. `000002_tables` is reserved by the platform foundation for the baseline tables in [`db.sql`](db.sql) (26 tables across five schemas). Owners add new migrations from `000003`. `make migrate` bootstraps the shared `public.set_updated_at()` function and applies all five services in order; `make migrate-down` rolls back `000002` in reverse order.
 
-Mailpit provides local SMTP (`1025`) and a web UI (`8025`). Compose publishes only the gateway (`8080`), RabbitMQ (`5672`/`15672`), and Mailpit (`1025`/`8025`).
+Mailpit provides local SMTP (`1025`, published as `MAILPIT_SMTP_PORT`) and a web UI (`8025`). Gmail SMTP relay can replace it for real delivery; the mailbox provider is configuration, not part of the schema. Compose publishes only the gateway (`8080`), RabbitMQ (`5672`/`15672`), and Mailpit (`1025`/`8025`).
 
 ## Shared Go code
 

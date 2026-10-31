@@ -88,7 +88,7 @@ pnpm install --frozen-lockfile
 
 `.env.example` contains safe local placeholders only. Do not commit `.env`, credentials, private keys, or production secrets. Docker Compose reads `.env` automatically. Go services read process environment variables directly and do not load `.env`; export it before running a service or worker on the host.
 
-The template documents every variable currently used: PostgreSQL, RabbitMQ, gateway, Mailpit/SMTP, and pool overrides. It also includes placeholders reserved for M2's identity work (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, token TTLs, cookie names and flags, Google OAuth client settings, `FRONTEND_BASE_URL`) and `INTERNAL_TOKEN` for internal service calls. Placeholders do not enable authentication.
+The template documents every variable currently used: PostgreSQL, RabbitMQ, gateway, Mailpit, Gmail SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`), and pool overrides. It also includes placeholders reserved for M2's identity work (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, token TTLs, cookie names and flags, Google OAuth client settings, `FRONTEND_BASE_URL`) and `INTERNAL_TOKEN` for internal service calls. Placeholders do not enable authentication.
 
 ```sh
 set -a
@@ -113,7 +113,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-The stack runs PostgreSQL 16, RabbitMQ 4.1, Mailpit, five HTTP services, two workers, the Next.js web app, and the Nginx gateway. All long-running containers have health checks. HTTP services report database connectivity through `/ready`; workers require RabbitMQ.
+The stack runs PostgreSQL 16, RabbitMQ 4.1, Mailpit (local email sink), five HTTP services, two workers, the Next.js web app, and the Nginx gateway. All long-running containers have health checks. HTTP services report database connectivity through `/ready`; workers require RabbitMQ.
 
 Start only what you need:
 
@@ -124,6 +124,48 @@ docker compose up -d mailpit         # local email UI on http://localhost:8025
 ```
 
 RabbitMQ management is available at <http://localhost:15672/> with the credentials from `.env`. Mailpit SMTP listens on `1025` and its UI on `8025`.
+
+## Sending email
+
+Mailpit is the local email sink and is always available at <http://localhost:8025> (SMTP on `1025`). Gmail SMTP relay is configured in `.env.example` for real delivery.
+
+### Gmail SMTP
+
+1. Enable 2-Step Verification on the Google account.
+2. Create an App Password at Google Account → Security → App Passwords (choose "Mail"). Google shows a 16-character password; the normal account password will not work.
+3. Create `.env` from the template and set the credentials:
+   ```sh
+   cp .env.example .env
+   # edit .env:
+   # SMTP_USER=vineth.ranathunga@gmail.com
+   # SMTP_PASSWORD=<16-character App Password>
+   # SMTP_FROM=vineth.ranathunga@gmail.com
+   # SMTP_FROM_NAME=Swift Drop Support
+   ```
+4. Recreate the services that receive mail configuration:
+   ```sh
+   docker compose up -d --force-recreate identity notification-worker
+   ```
+
+Gmail settings used by the template:
+
+| Setting   | Value                            |
+| --------- | -------------------------------- |
+| Host      | `smtp.gmail.com`                 |
+| Port      | `587` (STARTTLS)                 |
+| Username  | the Gmail address                |
+| Password  | 16-character Google App Password |
+| From      | the same Gmail address           |
+| From name | `Swift Drop Support`             |
+
+To use Mailpit locally instead, set `SMTP_HOST=mailpit` and `SMTP_PORT=1025`; Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`.
+
+**Security and scope**
+
+- The App Password belongs only in `.env`, which is untracked. Never commit it, paste it into chat, or log it. Revoke it from the Google account if exposed.
+- TLS certificate verification stays enabled. Certificate revocation checking (`CheckCertificateRevocation`) is not implemented in the sender.
+- No service sends email yet. This configuration is prepared for M2's password-reset flow and the future notification worker; delivery is not claimed to work in this revision.
+- Gmail SMTP is suitable for development and small volumes. Production email should use a transactional provider with SPF/DKIM/DMARC.
 
 ## Database migrations
 
@@ -317,7 +359,7 @@ The workflow does not deploy, publish images, or use deployment credentials. Thi
 
 ## Troubleshooting
 
-- **Port already in use:** change `NGINX_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `SMTP_PORT`, or `MAILPIT_UI_PORT` in `.env` and restart Compose. Service and web ports are internal and are not published.
+- **Port already in use:** change `NGINX_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `MAILPIT_SMTP_PORT`, or `MAILPIT_UI_PORT` in `.env` and restart Compose. `SMTP_PORT` is the outbound provider port, not a published port. Service and web ports are internal and are not published.
 - **Environment variables missing for a host process:** Go services do not load `.env`. Export it with `set -a; . ./.env; set +a` before `go run` or `nx serve`.
 - **Migrations cannot connect:** run `docker compose up -d postgres`, then `docker compose ps postgres`. Confirm `DATABASE_URL` matches the configured user, password, database, and host port.
 - **Nginx returns 502 or will not start:** Nginx resolves upstreams at startup. Start the full stack with `docker compose up --build` rather than starting Nginx alone. Check `docker compose ps` for unhealthy services.
