@@ -4,16 +4,21 @@ info:
   version: 0.1.0
   description: >-
     Parcel creation, lifecycle, status tracking, and tracking lookups. This
-    specification currently covers only the operational health endpoints.
+    specification currently covers only the operational health and readiness endpoints.
     Every response uses either the success shape shown below or the standard
-    error envelope `{ "error": { "code": "...", "message": "..." } }`. Unmatched
+    error envelope `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`. Unmatched
     routes return `404 not_found`, disallowed methods return
     `405 method_not_allowed` with an `Allow` header, and unexpected failures
     return `500 internal_error`.
 servers:
   - url: /api/v1/parcels
+  - url: /api/v1/tracking
+  - url: /api/v1/dispatch
+  - url: /api/v1/admin/parcels
+  - url: /api/v1/courier
+  - url: /api/v1/reports
 paths:
-  /healthz:
+  /health:
     get:
       operationId: parcelHealth
       summary: Process health
@@ -32,25 +37,38 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
-  /readyz:
+  /ready:
     get:
       operationId: parcelReady
-      summary: Process readiness
+      summary: Service readiness
       responses:
         '200':
-          description: The service process is ready to accept traffic. Dependency checks are not performed yet.
+          description: The service is ready. The database check is reported when DATABASE_URL is configured.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthResponse'
+                $ref: '#/components/schemas/ReadinessResponse'
               example:
                 status: ready
+                checks:
+                  database: ok
+        '503':
+          description: A dependency check is down.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                status: unavailable
+                checks:
+                  database: down
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
+
 components:
   schemas:
     HealthResponse:
@@ -61,16 +79,31 @@ components:
       properties:
         status:
           type: string
-      example:
-        status: ok
+          enum: [ok]
+    ReadinessResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [ready, unavailable]
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, down]
     ErrorResponse:
       type: object
       additionalProperties: false
       required:
         - error
+        - meta
       properties:
         error:
           $ref: '#/components/schemas/ErrorDetail'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
     ErrorDetail:
       type: object
       additionalProperties: false
@@ -80,29 +113,45 @@ components:
       properties:
         code:
           type: string
-          description: Stable machine-readable error code.
+          description: Stable machine-readable error code from API v1.1.
         message:
           type: string
           description: Human-readable message with no internal implementation details.
+        details:
+          type: array
+          description: Field-level validation details, present only for validation errors.
+          items:
+            type: object
+            additionalProperties: true
+    ResponseMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+      properties:
+        requestId:
+          type: string
+          description: Request correlation ID, also returned in the X-Request-Id header.
   responses:
     NotFound:
       description: >-
-        No route matched the request path. This shared handler applies to every
-        unmatched path under the service prefix and returns the standard error
-        envelope with code `not_found`.
+        No route matched the request path. Returns the standard error envelope
+        with code `NOT_FOUND`.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             error:
-              code: not_found
+              code: NOT_FOUND
               message: route not found
+            meta:
+              requestId: req_01
     MethodNotAllowed:
       description: >-
-        The HTTP method is not allowed for the requested path. The response is
-        the standard error envelope with code `method_not_allowed`, and the
-        `Allow` header lists the permitted methods.
+        The HTTP method is not allowed for the requested path. Returns the
+        standard error envelope with code `METHOD_NOT_ALLOWED`; the `Allow`
+        header lists the permitted methods.
       headers:
         Allow:
           description: Comma-separated list of methods allowed for the path.
@@ -115,17 +164,21 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             error:
-              code: method_not_allowed
+              code: METHOD_NOT_ALLOWED
               message: method not allowed
+            meta:
+              requestId: req_01
     InternalServerError:
       description: >-
-        An unexpected server error occurred. The response is the standard error
-        envelope with code `internal_error`; internal details are not exposed.
+        An unexpected server error occurred. Returns the standard error envelope
+        with code `INTERNAL_ERROR`; internal details are not exposed.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             error:
-              code: internal_error
+              code: INTERNAL_ERROR
               message: internal server error
+            meta:
+              requestId: req_01
