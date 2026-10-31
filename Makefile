@@ -1,17 +1,42 @@
 SHELL := /bin/sh
 
 COMPOSE ?= docker compose
-SERVICES := identity pricing parcel merchant notification
-REVERSE_SERVICES := notification merchant parcel pricing identity
-MIGRATION_DSN ?= postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable
+COMPOSE_PARALLEL_LIMIT ?= 1
+export COMPOSE_PARALLEL_LIMIT
 
-.PHONY: help up down logs migrate migrate-down db-reset check-routes
+.PHONY: help up down logs preflight ensure-postgres bootstrap-db migrate migrate-down db-reset check-routes
 
 help:
-	@echo "Targets: up down logs migrate migrate-down db-reset check-routes"
+	@echo "Targets:"
+	@echo "  make up             start the stack, migrate, and verify gateway routes"
+	@echo "  make down           stop the stack without deleting data"
+	@echo "  make logs           follow service logs"
+	@echo "  make migrate        apply all service migrations"
+	@echo "  make migrate-down   roll back one migration per service (destructive)"
+	@echo "  make check-routes   verify gateway routing against the running stack"
+	@echo "  make db-reset       delete local volumes and rebuild (destructive)"
 
-up:
-	$(COMPOSE) up --build -d
+preflight:
+	@if [ ! -f .env ] && { [ -z "$${POSTGRES_USER:-}" ] || [ -z "$${POSTGRES_DB:-}" ]; }; then \
+		echo "error: .env is missing and POSTGRES_USER/POSTGRES_DB are not exported." >&2; \
+		echo "       Run 'cp .env.example .env' and configure it, or export the required variables." >&2; \
+		exit 1; \
+	fi
+	@$(COMPOSE) config --quiet
+
+ensure-postgres:
+	@$(COMPOSE) ps --status running --services 2>/dev/null | grep -qx postgres || { \
+		echo "error: postgres is not running. Start it with 'docker compose up -d postgres' or run 'make up'." >&2; \
+		exit 1; \
+	}
+
+bootstrap-db: ensure-postgres
+	$(COMPOSE) exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -f /docker-entrypoint-initdb.d/01-schemas.sql'
+
+up: preflight
+	$(COMPOSE) up --build -d --wait --wait-timeout 300
+	$(MAKE) migrate
+	$(MAKE) check-routes
 
 down:
 	$(COMPOSE) down
@@ -19,28 +44,11 @@ down:
 logs:
 	$(COMPOSE) logs -f --tail=100
 
-bootstrap-db:
-	$(COMPOSE) exec -T postgres psql -v ON_ERROR_STOP=1 \
-		-U "$${POSTGRES_USER:-swiftdrop}" -d "$${POSTGRES_DB:-swiftdrop}" \
-		-c "CREATE OR REPLACE FUNCTION public.set_updated_at() RETURNS trigger AS \$$\$$ BEGIN NEW.updated_at := now(); RETURN NEW; END; \$$\$$ LANGUAGE plpgsql;"
+migrate: preflight bootstrap-db
+	$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate up
 
-migrate: bootstrap-db
-	@set -e; for svc in $(SERVICES); do \
-		echo "migrate $$svc"; \
-		$(COMPOSE) run --rm migrate \
-			-path=/migrations/$$svc \
-			-database "$(MIGRATION_DSN)&x-migrations-table=$${svc}_schema_migrations" \
-			up; \
-	done
-
-migrate-down: bootstrap-db
-	@set -e; for svc in $(REVERSE_SERVICES); do \
-		echo "migrate-down $$svc"; \
-		$(COMPOSE) run --rm migrate \
-			-path=/migrations/$$svc \
-			-database "$(MIGRATION_DSN)&x-migrations-table=$${svc}_schema_migrations" \
-			down 1; \
-	done
+migrate-down: preflight bootstrap-db
+	$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate down
 
 db-reset:
 	@echo "WARNING: this deletes local PostgreSQL and RabbitMQ volumes."
@@ -51,4 +59,9 @@ db-reset:
 	$(MAKE) migrate
 
 check-routes:
-	./scripts/check-routes.sh
+	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \
+	if [ -z "$$base" ]; then \
+		echo "error: nginx is not running. Run 'make up' or start the stack first." >&2; \
+		exit 1; \
+	fi; \
+	BASE_URL="http://localhost:$$base" ./scripts/check-routes.sh
