@@ -360,6 +360,10 @@ make up          # subsequent runs, reusing built images
 - WebSocket: `ws://localhost:8080/ws`
 - `/internal/*` is blocked at the gateway (JSON `404`); `/api/v1/ai` is a TODO and returns JSON `404`.
 
+### Docker build cache
+
+The Go image copies only `go.mod`, `go.sum`, `packages/`, and the selected service. The web image copies the pnpm/Nx manifests, `nx.json`, TypeScript configs, `apps/web`, `apps/web-e2e`, and `packages`, instead of the whole repository. Backend-only changes therefore do not invalidate the web build, and documentation, migration, Makefile, and Compose changes do not invalidate Go builds. If a JavaScript package is added under `packages/`, add its manifest to the `pnpm install` layer in `infra/docker/web.Dockerfile`.
+
 ## Demo login
 
 Authentication is owned by M2 and is **not implemented in this revision**. The infrastructure is ready for it: the gateway forwards the identity auth groups, Compose passes `DATABASE_URL`, JWT, cookie, Google, SMTP, and internal-token placeholders, and the shared error/request-ID/logging middleware is in place.
@@ -449,6 +453,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 - [`docs/db.sql`](docs/db.sql): canonical database definition (26 tables, five schemas, triggers, seeds).
 - [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md) and [`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md): product API and database design sources.
 - [`docs/how-to-error-logging.md`](docs/how-to-error-logging.md): adopting the shared error envelope and safe logging.
+- [`docs/follow-ups/merchant-database-integration.md`](docs/follow-ups/merchant-database-integration.md): merchant-owner database integration review.
 - [`contracts/events/README.md`](contracts/events/README.md): event naming, envelope, framing, and failure rules.
 - [`contracts/openapi/README.md`](contracts/openapi/README.md): HTTP contracts and shared error behavior.
 - [`migrations/README.md`](migrations/README.md): migration conventions and commands.

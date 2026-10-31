@@ -68,7 +68,7 @@ make db-reset
 
 ## Custom credentials
 
-Set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in `.env` or export them. The same values are used by the postgres container, the services, and the migration runner. Passwords containing URL-reserved characters (`@ : / ? # [ ] %`) are a known limitation because Compose builds the URL from these values; use URL-safe credentials for now.
+Set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in `.env` or export them. The same values are used by the postgres container, the services, and the migration runner. Passwords containing URL-reserved characters (`@ : / ? # [ ] %`) are a known limitation because Compose builds the URL from these values; use URL-safe credentials for now. See the root README section “Custom database credentials” for the same restriction.
 
 ## Troubleshooting
 
