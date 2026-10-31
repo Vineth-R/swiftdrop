@@ -1,13 +1,14 @@
 # Database migrations
 
-SwiftDrop uses a single PostgreSQL instance for local development, with one schema per service:
+SwiftDrop uses a single PostgreSQL 16 instance for local development, with one schema per service:
 
-| Service  | Schema     | Migration directory   |
-| -------- | ---------- | --------------------- |
-| Identity | `identity` | `migrations/identity` |
-| Parcel   | `parcel`   | `migrations/parcel`   |
-| Pricing  | `pricing`  | `migrations/pricing`  |
-| Merchant | `merchant` | `migrations/merchant` |
+| Service      | Schema         | Migration directory       |
+| ------------ | -------------- | ------------------------- |
+| Identity     | `identity`     | `migrations/identity`     |
+| Parcel       | `parcel`       | `migrations/parcel`       |
+| Pricing      | `pricing`      | `migrations/pricing`      |
+| Merchant     | `merchant`     | `migrations/merchant`     |
+| Notification | `notification` | `migrations/notification` |
 
 Each service owns its schema. A service must not read or write another service's schema directly. Cross-service data exchange belongs in HTTP APIs or RabbitMQ events.
 
@@ -18,30 +19,24 @@ Each service owns its schema. A service must not read or write another service's
 
 Use a zero-padded, monotonically increasing six-digit sequence. Applied migrations are immutable. A correction is a new migration, not an edit to an applied file.
 
-The initial migration for each service creates its schema. Business tables will be added by later migrations and must be schema-qualified, for example `parcel.parcels`.
+`000001_initial_schema` creates the service schema. `000002_tables` is reserved by the platform foundation for the baseline tables from `docs/db.sql`. Other owners add new migrations from `000003`; do not renumber or reuse an applied version.
 
 ## Tool
 
-Migrations use [golang-migrate](https://github.com/golang-migrate/migrate). Install the CLI with PostgreSQL support:
+Migrations use [golang-migrate](https://github.com/golang-migrate/migrate). The Compose `migrate` service pins `migrate/migrate:v4.18.3`; no host installation is required.
 
-```sh
-go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
-```
+## One-command workflow
 
-The CLI is a developer tool and is not part of the application's Go module.
-
-## Running migrations
-
-Run the commands below from the repository root against a reachable PostgreSQL 16 instance. For local development, start the Compose database and wait for it to report healthy:
+Run everything from the repository root with PostgreSQL started:
 
 ```sh
 docker compose up -d postgres
-docker compose ps postgres
+make migrate
 ```
 
-The connection string matches the defaults in `.env.example`; update it if you changed `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, or `POSTGRES_PORT`.
+`make migrate` bootstraps the shared `public.set_updated_at()` function (so pre-existing volumes work) and then applies every service's migrations in a safe order: identity, pricing, parcel, merchant, notification. Each service uses its own version table (`<service>_schema_migrations`).
 
-Use a unique migration version table per service so the shared database does not mix migration histories:
+Roll back the latest migration for every service (reverse order):
 
 ```sh
 DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/swiftdrop?sslmode=disable'
@@ -69,26 +64,27 @@ migrate \
 
 The migration version tables live in the default `public` schema. Service-owned tables must always use their service schema explicitly.
 
-The merchant migration directory additionally defines the merchant-owned integration tables. Application startup does not run migrations automatically, and the merchant service does not open a database connection until its database wiring is introduced. Migrations do not seed data.
+No service connects to PostgreSQL yet. HTTP services load `DATABASE_URL` for future use, but application code does not open a database connection. These migrations create the service schemas only; they do not create business tables or seed data.
 
 Verify the schemas after applying:
 
 ```sh
-psql "${DATABASE_URL}" -c '\dn'
+make db-reset
 ```
 
-## Rolling back
+`make db-reset` runs `docker compose down -v`, which deletes the PostgreSQL and RabbitMQ volumes. Confirm the target database before running it.
 
-Roll back one migration for a service:
+## Manual commands
 
 ```sh
-migrate \
-  -path migrations/identity \
-  -database "${DATABASE_URL}&x-migrations-table=identity_schema_migrations" \
-  down 1
+DATABASE_URL='postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable'
+
+docker compose run --rm migrate \
+  -path /migrations/identity \
+  -database "${DATABASE_URL}&x-migrations-table=identity_schema_migrations" up
 ```
 
-The initial down migrations drop the service schema with `CASCADE`. This is destructive. Confirm the target database before running a rollback.
+The migration version tables live in the default `public` schema. Service-owned tables must always use their service schema explicitly.
 
 ## Startup policy
 

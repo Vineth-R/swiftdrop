@@ -102,8 +102,11 @@ func TestRouterNotFoundIsJSON(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if body.Error.Code != "not_found" {
-		t.Fatalf("error code = %q, want not_found", body.Error.Code)
+	if body.Error.Code != "NOT_FOUND" {
+		t.Fatalf("error code = %q, want NOT_FOUND", body.Error.Code)
+	}
+	if body.Meta.RequestID == "" {
+		t.Fatal("error response did not include meta.requestId")
 	}
 }
 
@@ -129,8 +132,11 @@ func TestRouterMethodNotAllowedIsJSON(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if body.Error.Code != "method_not_allowed" {
-		t.Fatalf("error code = %q, want method_not_allowed", body.Error.Code)
+	if body.Error.Code != "METHOD_NOT_ALLOWED" {
+		t.Fatalf("error code = %q, want METHOD_NOT_ALLOWED", body.Error.Code)
+	}
+	if body.Meta.RequestID == "" {
+		t.Fatal("error response did not include meta.requestId")
 	}
 	if body.Error.Message != "method not allowed" {
 		t.Fatalf("error message = %q", body.Error.Message)
@@ -228,8 +234,11 @@ func TestRecoveryWritesJSONEnvelopeAndLogsContext(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if body.Error.Code != "internal_error" {
-		t.Fatalf("error code = %q, want internal_error", body.Error.Code)
+	if body.Error.Code != "INTERNAL_ERROR" {
+		t.Fatalf("error code = %q, want INTERNAL_ERROR", body.Error.Code)
+	}
+	if body.Meta.RequestID == "" {
+		t.Fatal("error response did not include meta.requestId")
 	}
 	if body.Error.Message != "internal server error" {
 		t.Fatalf("error message = %q", body.Error.Message)
