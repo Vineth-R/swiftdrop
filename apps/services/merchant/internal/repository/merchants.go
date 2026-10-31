@@ -177,7 +177,7 @@ func (r *Repository) transition(ctx context.Context, merchantID, actorUserID str
 	if _, err := tx.ExecContext(ctx, update, args...); err != nil {
 		return Merchant{}, fmt.Errorf("update merchant state: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO merchant.audit_logs (id, actor_user_id, action, entity_type, entity_id, details) VALUES (gen_random_uuid(), $1, $2, 'merchant', $3, jsonb_build_object('reason', NULLIF($4, '')))` , actorUserID, action, merchantID, reason); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO merchant.audit_logs (id, actor_user_id, action, entity_type, entity_id, details) VALUES (gen_random_uuid(), $1, $2, 'merchant', $3, jsonb_build_object('reason', NULLIF($4, '')))`, actorUserID, action, merchantID, reason); err != nil {
 		return Merchant{}, fmt.Errorf("record merchant audit: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
