@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	Header     = "X-Request-ID"
+	Header     = "X-Request-Id"
 	contextKey = "request_id"
 )
 

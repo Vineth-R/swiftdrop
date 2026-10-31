@@ -7,9 +7,9 @@ info:
     specification currently covers only the operational health and readiness endpoints.
     Every response uses either the success shape shown below or the standard
     error envelope `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`. Unmatched
-    routes return `404 not_found`, disallowed methods return
-    `405 method_not_allowed` with an `Allow` header, and unexpected failures
-    return `500 internal_error`.
+    routes return `404 NOT_FOUND`, disallowed methods return
+    `405 METHOD_NOT_ALLOWED` with an `Allow` header, and unexpected failures
+    return `500 INTERNAL_ERROR`.
 servers:
   - url: /api/v1/parcels
   - url: /api/v1/tracking
