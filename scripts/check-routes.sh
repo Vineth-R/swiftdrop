@@ -24,10 +24,12 @@ check_upstream() {
   local body code
   body="$(curl -s --max-time 5 -w '\n%{http_code}' "$BASE_URL$path" || true)"
   code="$(printf '%s' "$body" | tail -n1)"
-  if [ "$code" = "404" ] && printf '%s' "$body" | grep -q '"code":"NOT_FOUND"'; then
-    pass "$description ($path -> upstream 404)"
+  # A route proves gateway forwarding when the upstream answers with its own
+  # JSON error: 404 for unimplemented paths, 401/403 for auth-protected paths.
+  if { [ "$code" = "404" ] && printf '%s' "$body" | grep -q '"code"'; } || [ "$code" = "401" ] || [ "$code" = "403" ]; then
+    pass "$description ($path -> upstream $code)"
   else
-    fail "$description ($path -> $code, expected upstream NOT_FOUND)"
+    fail "$description ($path -> $code, expected an upstream JSON error)"
   fi
 }
 

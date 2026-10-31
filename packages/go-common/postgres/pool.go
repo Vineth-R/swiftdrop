@@ -116,6 +116,9 @@ func (p *Pool) Exec(ctx context.Context, sql string, args ...any) (pgconn.Comman
 
 // QueryRow exposes a single-row query for service-owned repositories.
 func (p *Pool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if p == nil || p.pool == nil {
+		return nil
+	}
 	return p.pool.QueryRow(ctx, sql, args...)
 }
 
@@ -124,7 +127,7 @@ func (p *Pool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, er
 	if p == nil || p.pool == nil {
 		return nil, ErrNotConfigured
 	}
-	return p.pool.Query(ctx, sql, args...), nil
+	return p.pool.Query(ctx, sql, args...)
 }
 
 // Begin starts a transaction for service-owned repositories.
