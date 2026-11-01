@@ -1,1 +1,5 @@
-scripts/migrate.sh text eol=lf
+# Shell scripts must use LF for Linux and Docker compatibility.
+*.sh text eol=lf
+
+# Makefile recipes must use LF for consistent execution.
+Makefile text eol=lf

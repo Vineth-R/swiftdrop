@@ -73,6 +73,31 @@ jobs:
       - name: Validate Docker Compose configuration
         run: docker compose config --quiet
 
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Enforce LF line endings for shell scripts
+        run: |
+          set -euo pipefail
+          offenders="$(git ls-files --eol '*.sh' | awk '$1 != "i/lf"')"
+          if [ -n "$offenders" ]; then
+            echo "::error::Tracked shell scripts must use LF line endings. See .gitattributes."
+            echo "$offenders"
+            exit 1
+          fi
+
+          missing="$(git ls-files -z '*.sh' | xargs -0 git check-attr eol | awk -F': ' '$3 != "lf"')"
+          if [ -n "$missing" ]; then
+            echo "::error::Shell scripts must match the .gitattributes eol=lf rule."
+            echo "$missing"
+            exit 1
+          fi
+          echo "All tracked shell scripts are LF and covered by the eol rule."
+
   integration:
     name: RabbitMQ integration tests
     runs-on: ubuntu-latest
