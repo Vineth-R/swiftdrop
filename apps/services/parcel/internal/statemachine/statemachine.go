@@ -1,11 +1,19 @@
+// Package statemachine defines the canonical parcel lifecycle statuses and the
+// deterministic rules for moving a parcel between them.
+//
+// The package is domain-only: it has no HTTP, database, or messaging
+// dependencies. Parcel HTTP handlers, repositories, and the courier workflow
+// should call these helpers before persisting a status change so the same rules
+// are enforced everywhere.
 package statemachine
 
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
-// ParcelStatus represents the status of a parcel in the lifecycle.
+// ParcelStatus identifies a parcel's position in the delivery lifecycle.
 type ParcelStatus string
 
 const (
@@ -17,8 +25,9 @@ const (
 	StatusFailed         ParcelStatus = "FAILED"
 )
 
-// AllStatuses is the list of all valid parcel statuses.
-var AllStatuses = []ParcelStatus{
+// allStatuses is intentionally unexported so callers cannot mutate the
+// canonical status set. Use AllStatuses for a defensive copy.
+var allStatuses = [...]ParcelStatus{
 	StatusCreated,
 	StatusPickedUp,
 	StatusInTransit,
@@ -27,8 +36,10 @@ var AllStatuses = []ParcelStatus{
 	StatusFailed,
 }
 
-// AllowedTransitions maps each status to its allowed next statuses.
-var AllowedTransitions = map[ParcelStatus][]ParcelStatus{
+// allowedTransitions is the single source of truth for permitted moves. It is
+// unexported so callers cannot add or remove transitions at runtime. Use
+// AllowedNext for a defensive copy.
+var allowedTransitions = map[ParcelStatus][]ParcelStatus{
 	StatusCreated:        {StatusPickedUp, StatusFailed},
 	StatusPickedUp:       {StatusInTransit, StatusFailed},
 	StatusInTransit:      {StatusOutForDelivery, StatusFailed},
@@ -37,7 +48,7 @@ var AllowedTransitions = map[ParcelStatus][]ParcelStatus{
 	StatusFailed:         {},
 }
 
-// DomainError represents a structured business domain error mapping to API v1.1.
+// DomainError is a structured business error that maps to API v1.1 error codes.
 type DomainError struct {
 	HTTPStatus int    `json:"-"`
 	Code       string `json:"code"`
@@ -48,7 +59,14 @@ func (e *DomainError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
-// Predefined domain errors per API v1.1 specification.
+// Is lets errors.Is match a dynamic domain error against a sentinel with the
+// same API error code.
+func (e *DomainError) Is(target error) bool {
+	t, ok := target.(*DomainError)
+	return ok && e != nil && t != nil && e.Code == t.Code
+}
+
+// Predefined domain errors per API v1.1.
 var (
 	ErrInvalidTransition = &DomainError{
 		HTTPStatus: 409,
@@ -70,6 +88,11 @@ var (
 		Code:       "VALIDATION_ERROR",
 		Message:    "validation failed",
 	}
+	ErrUnknownStatus = &DomainError{
+		HTTPStatus: 422,
+		Code:       "VALIDATION_ERROR",
+		Message:    "unknown parcel status",
+	}
 	ErrParcelClosed = &DomainError{
 		HTTPStatus: 409,
 		Code:       "PARCEL_CLOSED",
@@ -82,7 +105,7 @@ var (
 	}
 )
 
-// NewValidationError creates a VALIDATION_ERROR with custom detail message.
+// NewValidationError creates a VALIDATION_ERROR with a custom detail message.
 func NewValidationError(message string) *DomainError {
 	return &DomainError{
 		HTTPStatus: 422,
@@ -91,7 +114,16 @@ func NewValidationError(message string) *DomainError {
 	}
 }
 
-// NewInvalidTransitionError creates an INVALID_TRANSITION error with transition context.
+// NewUnknownStatusError creates a VALIDATION_ERROR describing an unknown status.
+func NewUnknownStatusError(status ParcelStatus) *DomainError {
+	return &DomainError{
+		HTTPStatus: 422,
+		Code:       "VALIDATION_ERROR",
+		Message:    fmt.Sprintf("unknown parcel status %q", status),
+	}
+}
+
+// NewInvalidTransitionError creates an INVALID_TRANSITION error with context.
 func NewInvalidTransitionError(from, to ParcelStatus) *DomainError {
 	return &DomainError{
 		HTTPStatus: 409,
@@ -100,16 +132,31 @@ func NewInvalidTransitionError(from, to ParcelStatus) *DomainError {
 	}
 }
 
-// TransitionInput contains metadata provided when transitioning parcel status.
+// TransitionInput contains the metadata supplied with a status transition.
 type TransitionInput struct {
 	RecipientName string
 	FailureReason string
 	Note          string
 }
 
-// IsValidStatus checks if a given status string is a known ParcelStatus.
+// AllStatuses returns a defensive copy of the canonical status list.
+func AllStatuses() []ParcelStatus {
+	return append([]ParcelStatus(nil), allStatuses[:]...)
+}
+
+// AllowedNext returns the statuses reachable from from. The boolean is false
+// when from is not a known status. The returned slice is a defensive copy.
+func AllowedNext(from ParcelStatus) ([]ParcelStatus, bool) {
+	next, ok := allowedTransitions[from]
+	if !ok {
+		return nil, false
+	}
+	return append([]ParcelStatus(nil), next...), true
+}
+
+// IsValidStatus reports whether status is one of the canonical statuses.
 func IsValidStatus(status ParcelStatus) bool {
-	for _, s := range AllStatuses {
+	for _, s := range allStatuses {
 		if s == status {
 			return true
 		}
@@ -117,19 +164,21 @@ func IsValidStatus(status ParcelStatus) bool {
 	return false
 }
 
-// IsTerminal returns true if the status is a terminal state (DELIVERED or FAILED).
+// IsTerminal reports whether status is a terminal state (DELIVERED or FAILED).
 func IsTerminal(status ParcelStatus) bool {
 	return status == StatusDelivered || status == StatusFailed
 }
 
-// IsClosed returns true if the parcel is closed and cannot be assigned/reassigned.
+// IsClosed reports whether a parcel in status is closed and therefore cannot be
+// assigned or reassigned.
 func IsClosed(status ParcelStatus) bool {
 	return IsTerminal(status)
 }
 
-// CanTransition checks if transitioning from one status to another is permitted.
+// CanTransition reports whether moving from one status to another is permitted.
+// Unknown, identical, backward, and skipped transitions are rejected.
 func CanTransition(from, to ParcelStatus) bool {
-	nextStatuses, ok := AllowedTransitions[from]
+	nextStatuses, ok := allowedTransitions[from]
 	if !ok {
 		return false
 	}
@@ -141,17 +190,22 @@ func CanTransition(from, to ParcelStatus) bool {
 	return false
 }
 
-// CanAssignCourier checks if a parcel in the given status is eligible for courier assignment.
-// A parcel in DELIVERED or FAILED status cannot be assigned or reassigned -> 409 PARCEL_CLOSED.
+// CanAssignCourier checks whether a parcel in status is eligible for courier
+// assignment. Terminal parcels are closed (409 PARCEL_CLOSED); unknown statuses
+// are a validation error (422 VALIDATION_ERROR).
 func CanAssignCourier(status ParcelStatus) error {
+	if !IsValidStatus(status) {
+		return NewUnknownStatusError(status)
+	}
 	if IsClosed(status) {
 		return ErrParcelClosed
 	}
 	return nil
 }
 
-// VerifyCourierOwnership checks that only the courier currently assigned to the parcel
-// can trigger a status update. If not matching, returns 403 FORBIDDEN.
+// VerifyCourierOwnership checks that only the courier currently assigned to the
+// parcel can trigger a status update. Missing or mismatched identities return
+// 403 FORBIDDEN.
 func VerifyCourierOwnership(currentCourierID, actorCourierID string) error {
 	if currentCourierID == "" || actorCourierID == "" || currentCourierID != actorCourierID {
 		return ErrForbidden
@@ -159,13 +213,25 @@ func VerifyCourierOwnership(currentCourierID, actorCourierID string) error {
 	return nil
 }
 
-// ValidateTransition validates that the transition from 'from' to 'to' is allowed
-// and verifies that all transition input rules are satisfied according to API v1.1:
-// - Disallowed status transition -> 409 INVALID_TRANSITION
-// - Transitioning to DELIVERED requires a non-empty RecipientName (up to 150 chars) -> missing returns 422 RECIPIENT_REQUIRED
-// - Transitioning to FAILED requires a FailureReason between 5 and 255 chars -> missing/invalid returns 422 FAILURE_REASON_REQUIRED
-// - Optional Note is allowed up to 500 characters -> exceeding returns 422 VALIDATION_ERROR
+// ValidateTransition validates a status transition and its required input:
+//   - unknown or empty statuses return 422 VALIDATION_ERROR
+//   - disallowed, identical, backward, skipped, or terminal transitions return
+//     409 INVALID_TRANSITION
+//   - DELIVERED requires a non-empty recipient name of at most 150 characters
+//     (422 RECIPIENT_REQUIRED when missing)
+//   - FAILED requires a failure reason of 5 to 255 characters
+//     (422 FAILURE_REASON_REQUIRED when missing or out of range)
+//   - the optional note is limited to 500 characters (422 VALIDATION_ERROR)
+//
+// Limits are measured in Unicode code points, matching PostgreSQL VARCHAR
+// semantics.
 func ValidateTransition(from, to ParcelStatus, input TransitionInput) error {
+	if !IsValidStatus(from) {
+		return NewUnknownStatusError(from)
+	}
+	if !IsValidStatus(to) {
+		return NewUnknownStatusError(to)
+	}
 	if !CanTransition(from, to) {
 		return NewInvalidTransitionError(from, to)
 	}
@@ -175,26 +241,29 @@ func ValidateTransition(from, to ParcelStatus, input TransitionInput) error {
 		if recipient == "" {
 			return ErrRecipientRequired
 		}
-		if len(recipient) > 150 {
+		if utf8.RuneCountInString(recipient) > 150 {
 			return NewValidationError("recipient name must not exceed 150 characters")
 		}
 	}
 
 	if to == StatusFailed {
 		reason := strings.TrimSpace(input.FailureReason)
-		if len(reason) < 5 || len(reason) > 255 {
+		reasonLength := utf8.RuneCountInString(reason)
+		if reasonLength < 5 || reasonLength > 255 {
 			return ErrFailureReasonRequired
 		}
 	}
 
-	if len(input.Note) > 500 {
+	if utf8.RuneCountInString(input.Note) > 500 {
 		return NewValidationError("note must not exceed 500 characters")
 	}
 
 	return nil
 }
 
-// ValidateCourierTransition combines ownership verification with status transition validation.
+// ValidateCourierTransition combines courier ownership verification with status
+// transition validation. Ownership is checked first so an unassigned actor
+// cannot distinguish valid from invalid transitions.
 func ValidateCourierTransition(currentCourierID, actorCourierID string, from, to ParcelStatus, input TransitionInput) error {
 	if err := VerifyCourierOwnership(currentCourierID, actorCourierID); err != nil {
 		return err

@@ -8,286 +8,357 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/statemachine"
 )
 
-func TestAllowedTransitions(t *testing.T) {
+// expectedTransitions is an independent copy of the API v1.1 transition table.
+// Keeping it separate from the package's internal map makes a wrongly-permitted
+// transition fail instead of silently agreeing with the implementation.
+var expectedTransitions = map[statemachine.ParcelStatus][]statemachine.ParcelStatus{
+	statemachine.StatusCreated:        {statemachine.StatusPickedUp, statemachine.StatusFailed},
+	statemachine.StatusPickedUp:       {statemachine.StatusInTransit, statemachine.StatusFailed},
+	statemachine.StatusInTransit:      {statemachine.StatusOutForDelivery, statemachine.StatusFailed},
+	statemachine.StatusOutForDelivery: {statemachine.StatusDelivered, statemachine.StatusFailed},
+	statemachine.StatusDelivered:      {},
+	statemachine.StatusFailed:         {},
+}
+
+func expectedStatuses() []statemachine.ParcelStatus {
+	return []statemachine.ParcelStatus{
+		statemachine.StatusCreated,
+		statemachine.StatusPickedUp,
+		statemachine.StatusInTransit,
+		statemachine.StatusOutForDelivery,
+		statemachine.StatusDelivered,
+		statemachine.StatusFailed,
+	}
+}
+
+func containsStatus(statuses []statemachine.ParcelStatus, target statemachine.ParcelStatus) bool {
+	for _, status := range statuses {
+		if status == target {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCanTransitionMatrix(t *testing.T) {
+	statuses := expectedStatuses()
+	allowedCount := 0
+	prohibitedCount := 0
+
+	for _, from := range statuses {
+		for _, to := range statuses {
+			want := containsStatus(expectedTransitions[from], to)
+			got := statemachine.CanTransition(from, to)
+			if got != want {
+				t.Errorf("CanTransition(%s, %s) = %v; want %v", from, to, got, want)
+			}
+			if want {
+				allowedCount++
+			} else {
+				prohibitedCount++
+			}
+		}
+	}
+
+	if allowedCount != 8 {
+		t.Errorf("allowed transition count = %d; want 8", allowedCount)
+	}
+	if prohibitedCount != len(statuses)*len(statuses)-allowedCount {
+		t.Errorf("prohibited transition count = %d; want %d", prohibitedCount, len(statuses)*len(statuses)-allowedCount)
+	}
+}
+
+func TestCanTransitionRejectsUnknownAndEmptyStatuses(t *testing.T) {
 	tests := []struct {
-		name     string
-		from     statemachine.ParcelStatus
-		to       statemachine.ParcelStatus
-		expected bool
+		name string
+		from statemachine.ParcelStatus
+		to   statemachine.ParcelStatus
 	}{
-		// Allowed transitions
-		{"CREATED to PICKED_UP", statemachine.StatusCreated, statemachine.StatusPickedUp, true},
-		{"CREATED to FAILED", statemachine.StatusCreated, statemachine.StatusFailed, true},
-		{"PICKED_UP to IN_TRANSIT", statemachine.StatusPickedUp, statemachine.StatusInTransit, true},
-		{"PICKED_UP to FAILED", statemachine.StatusPickedUp, statemachine.StatusFailed, true},
-		{"IN_TRANSIT to OUT_FOR_DELIVERY", statemachine.StatusInTransit, statemachine.StatusOutForDelivery, true},
-		{"IN_TRANSIT to FAILED", statemachine.StatusInTransit, statemachine.StatusFailed, true},
-		{"OUT_FOR_DELIVERY to DELIVERED", statemachine.StatusOutForDelivery, statemachine.StatusDelivered, true},
-		{"OUT_FOR_DELIVERY to FAILED", statemachine.StatusOutForDelivery, statemachine.StatusFailed, true},
-
-		// Refused: skipping steps
-		{"CREATED to IN_TRANSIT (skip)", statemachine.StatusCreated, statemachine.StatusInTransit, false},
-		{"CREATED to OUT_FOR_DELIVERY (skip)", statemachine.StatusCreated, statemachine.StatusOutForDelivery, false},
-		{"CREATED to DELIVERED (skip)", statemachine.StatusCreated, statemachine.StatusDelivered, false},
-		{"PICKED_UP to DELIVERED (skip)", statemachine.StatusPickedUp, statemachine.StatusDelivered, false},
-		{"IN_TRANSIT to DELIVERED (skip)", statemachine.StatusInTransit, statemachine.StatusDelivered, false},
-
-		// Refused: backward steps
-		{"PICKED_UP to CREATED (backward)", statemachine.StatusPickedUp, statemachine.StatusCreated, false},
-		{"IN_TRANSIT to PICKED_UP (backward)", statemachine.StatusInTransit, statemachine.StatusPickedUp, false},
-		{"OUT_FOR_DELIVERY to IN_TRANSIT (backward)", statemachine.StatusOutForDelivery, statemachine.StatusInTransit, false},
-		{"OUT_FOR_DELIVERY to PICKED_UP (backward)", statemachine.StatusOutForDelivery, statemachine.StatusPickedUp, false},
-
-		// Refused: self transitions
-		{"CREATED to CREATED (self)", statemachine.StatusCreated, statemachine.StatusCreated, false},
-		{"PICKED_UP to PICKED_UP (self)", statemachine.StatusPickedUp, statemachine.StatusPickedUp, false},
-		{"IN_TRANSIT to IN_TRANSIT (self)", statemachine.StatusInTransit, statemachine.StatusInTransit, false},
-		{"OUT_FOR_DELIVERY to OUT_FOR_DELIVERY (self)", statemachine.StatusOutForDelivery, statemachine.StatusOutForDelivery, false},
-		{"DELIVERED to DELIVERED (self)", statemachine.StatusDelivered, statemachine.StatusDelivered, false},
-		{"FAILED to FAILED (self)", statemachine.StatusFailed, statemachine.StatusFailed, false},
-
-		// Refused: out of terminal states
-		{"DELIVERED to CREATED (terminal)", statemachine.StatusDelivered, statemachine.StatusCreated, false},
-		{"DELIVERED to PICKED_UP (terminal)", statemachine.StatusDelivered, statemachine.StatusPickedUp, false},
-		{"DELIVERED to IN_TRANSIT (terminal)", statemachine.StatusDelivered, statemachine.StatusInTransit, false},
-		{"DELIVERED to OUT_FOR_DELIVERY (terminal)", statemachine.StatusDelivered, statemachine.StatusOutForDelivery, false},
-		{"DELIVERED to FAILED (terminal)", statemachine.StatusDelivered, statemachine.StatusFailed, false},
-		{"FAILED to CREATED (terminal)", statemachine.StatusFailed, statemachine.StatusCreated, false},
-		{"FAILED to PICKED_UP (terminal)", statemachine.StatusFailed, statemachine.StatusPickedUp, false},
-		{"FAILED to IN_TRANSIT (terminal)", statemachine.StatusFailed, statemachine.StatusInTransit, false},
-		{"FAILED to OUT_FOR_DELIVERY (terminal)", statemachine.StatusFailed, statemachine.StatusOutForDelivery, false},
-		{"FAILED to DELIVERED (terminal)", statemachine.StatusFailed, statemachine.StatusDelivered, false},
-
-		// Unknown / invalid status
-		{"UNKNOWN from status", statemachine.ParcelStatus("UNKNOWN"), statemachine.StatusPickedUp, false},
-		{"UNKNOWN to status", statemachine.StatusCreated, statemachine.ParcelStatus("UNKNOWN"), false},
+		{name: "unknown source", from: statemachine.ParcelStatus("UNKNOWN"), to: statemachine.StatusPickedUp},
+		{name: "unknown destination", from: statemachine.StatusCreated, to: statemachine.ParcelStatus("UNKNOWN")},
+		{name: "empty source", from: statemachine.ParcelStatus(""), to: statemachine.StatusPickedUp},
+		{name: "empty destination", from: statemachine.StatusCreated, to: statemachine.ParcelStatus("")},
+		{name: "both empty", from: statemachine.ParcelStatus(""), to: statemachine.ParcelStatus("")},
+		{name: "lowercase source", from: statemachine.ParcelStatus("created"), to: statemachine.StatusPickedUp},
+		{name: "whitespace destination", from: statemachine.StatusCreated, to: statemachine.ParcelStatus(" PICKED_UP ")},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := statemachine.CanTransition(tt.from, tt.to)
-			if actual != tt.expected {
-				t.Errorf("CanTransition(%s, %s) = %v; want %v", tt.from, tt.to, actual, tt.expected)
+			if statemachine.CanTransition(tt.from, tt.to) {
+				t.Fatalf("CanTransition(%q, %q) = true; want false", tt.from, tt.to)
 			}
 		})
 	}
 }
 
-func TestValidateTransition(t *testing.T) {
+func TestAllowedNextReturnsDefensiveCopies(t *testing.T) {
+	for _, status := range expectedStatuses() {
+		got, ok := statemachine.AllowedNext(status)
+		if !ok {
+			t.Fatalf("AllowedNext(%s) returned ok=false; want true", status)
+		}
+		want := expectedTransitions[status]
+		if len(got) != len(want) {
+			t.Fatalf("AllowedNext(%s) length = %d; want %d", status, len(got), len(want))
+		}
+		for _, expected := range want {
+			if !containsStatus(got, expected) {
+				t.Errorf("AllowedNext(%s) missing %s; got %v", status, expected, got)
+			}
+		}
+	}
+
+	if next, ok := statemachine.AllowedNext(statemachine.ParcelStatus("UNKNOWN")); ok || next != nil {
+		t.Errorf("AllowedNext(UNKNOWN) = (%v, %v); want (nil, false)", next, ok)
+	}
+	if next, ok := statemachine.AllowedNext(statemachine.ParcelStatus("")); ok || next != nil {
+		t.Errorf("AllowedNext(empty) = (%v, %v); want (nil, false)", next, ok)
+	}
+
+	// Mutating the returned slice must not change the canonical table.
+	next, _ := statemachine.AllowedNext(statemachine.StatusCreated)
+	next[0] = statemachine.StatusDelivered
+	again, _ := statemachine.AllowedNext(statemachine.StatusCreated)
+	if again[0] != statemachine.StatusPickedUp {
+		t.Fatalf("AllowedNext returned a shared slice: first element = %s; want PICKED_UP", again[0])
+	}
+
+	statuses := statemachine.AllStatuses()
+	statuses[0] = statemachine.ParcelStatus("MUTATED")
+	if statemachine.AllStatuses()[0] != statemachine.StatusCreated {
+		t.Fatal("AllStatuses returned a shared slice")
+	}
+}
+
+func TestAllStatusesAreCanonical(t *testing.T) {
+	statuses := statemachine.AllStatuses()
+	if len(statuses) != 6 {
+		t.Fatalf("AllStatuses length = %d; want 6", len(statuses))
+	}
+	seen := make(map[statemachine.ParcelStatus]bool, len(statuses))
+	for _, status := range statuses {
+		if seen[status] {
+			t.Fatalf("AllStatuses contains duplicate %s", status)
+		}
+		seen[status] = true
+		if !statemachine.IsValidStatus(status) {
+			t.Fatalf("IsValidStatus(%s) = false; want true", status)
+		}
+		if _, ok := statemachine.AllowedNext(status); !ok {
+			t.Fatalf("AllowedNext(%s) missing from transition table", status)
+		}
+	}
+}
+
+func TestValidateTransitionRejectsUnknownAndEmptyStatuses(t *testing.T) {
 	tests := []struct {
-		name         string
-		from         statemachine.ParcelStatus
-		to           statemachine.ParcelStatus
-		input        statemachine.TransitionInput
-		wantErrCode  string
-		wantHTTPCode int
+		name string
+		from statemachine.ParcelStatus
+		to   statemachine.ParcelStatus
 	}{
-		// Valid transitions
+		{name: "unknown source", from: statemachine.ParcelStatus("UNKNOWN"), to: statemachine.StatusPickedUp},
+		{name: "unknown destination", from: statemachine.StatusCreated, to: statemachine.ParcelStatus("UNKNOWN")},
+		{name: "empty source", from: statemachine.ParcelStatus(""), to: statemachine.StatusPickedUp},
+		{name: "empty destination", from: statemachine.StatusCreated, to: statemachine.ParcelStatus("")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := statemachine.ValidateTransition(tt.from, tt.to, statemachine.TransitionInput{})
+			assertDomainError(t, err, "VALIDATION_ERROR", 422)
+			if !errors.Is(err, statemachine.ErrUnknownStatus) {
+				t.Errorf("errors.Is(err, ErrUnknownStatus) = false; err = %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateTransitionRejectsProhibitedTransitions(t *testing.T) {
+	tests := []struct {
+		name string
+		from statemachine.ParcelStatus
+		to   statemachine.ParcelStatus
+	}{
+		{name: "skip CREATED to IN_TRANSIT", from: statemachine.StatusCreated, to: statemachine.StatusInTransit},
+		{name: "skip CREATED to DELIVERED", from: statemachine.StatusCreated, to: statemachine.StatusDelivered},
+		{name: "skip PICKED_UP to DELIVERED", from: statemachine.StatusPickedUp, to: statemachine.StatusDelivered},
+		{name: "skip IN_TRANSIT to DELIVERED", from: statemachine.StatusInTransit, to: statemachine.StatusDelivered},
+		{name: "backward PICKED_UP to CREATED", from: statemachine.StatusPickedUp, to: statemachine.StatusCreated},
+		{name: "backward IN_TRANSIT to PICKED_UP", from: statemachine.StatusInTransit, to: statemachine.StatusPickedUp},
+		{name: "backward OUT_FOR_DELIVERY to IN_TRANSIT", from: statemachine.StatusOutForDelivery, to: statemachine.StatusInTransit},
+		{name: "self CREATED", from: statemachine.StatusCreated, to: statemachine.StatusCreated},
+		{name: "self IN_TRANSIT", from: statemachine.StatusInTransit, to: statemachine.StatusInTransit},
+		{name: "self DELIVERED", from: statemachine.StatusDelivered, to: statemachine.StatusDelivered},
+		{name: "terminal DELIVERED to FAILED", from: statemachine.StatusDelivered, to: statemachine.StatusFailed},
+		{name: "terminal FAILED to CREATED", from: statemachine.StatusFailed, to: statemachine.StatusCreated},
+		{name: "terminal FAILED to DELIVERED", from: statemachine.StatusFailed, to: statemachine.StatusDelivered},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := statemachine.ValidateTransition(tt.from, tt.to, statemachine.TransitionInput{
+				RecipientName: "Amali Fernando",
+				FailureReason: "Recipient unavailable",
+			})
+			assertDomainError(t, err, "INVALID_TRANSITION", 409)
+			if !errors.Is(err, statemachine.ErrInvalidTransition) {
+				t.Errorf("errors.Is(err, ErrInvalidTransition) = false; err = %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateTransitionAllowsEveryPermittedTransition(t *testing.T) {
+	for from, nextStatuses := range expectedTransitions {
+		for _, to := range nextStatuses {
+			t.Run(string(from)+" to "+string(to), func(t *testing.T) {
+				err := statemachine.ValidateTransition(from, to, validInputFor(to))
+				if err != nil {
+					t.Fatalf("ValidateTransition(%s, %s) = %v; want nil", from, to, err)
+				}
+			})
+		}
+	}
+}
+
+func TestValidateTransitionInputRules(t *testing.T) {
+	tests := []struct {
+		name        string
+		from        statemachine.ParcelStatus
+		to          statemachine.ParcelStatus
+		input       statemachine.TransitionInput
+		wantCode    string
+		wantHTTP    int
+		wantIs      error
+		wantNoError bool
+	}{
 		{
-			name:        "Valid CREATED to PICKED_UP",
+			name:     "DELIVERED missing recipient",
+			from:     statemachine.StatusOutForDelivery,
+			to:       statemachine.StatusDelivered,
+			input:    statemachine.TransitionInput{},
+			wantCode: "RECIPIENT_REQUIRED", wantHTTP: 422, wantIs: statemachine.ErrRecipientRequired,
+		},
+		{
+			name:     "DELIVERED whitespace recipient",
+			from:     statemachine.StatusOutForDelivery,
+			to:       statemachine.StatusDelivered,
+			input:    statemachine.TransitionInput{RecipientName: " \t\n "},
+			wantCode: "RECIPIENT_REQUIRED", wantHTTP: 422, wantIs: statemachine.ErrRecipientRequired,
+		},
+		{
+			name:        "DELIVERED recipient at 150 characters",
+			from:        statemachine.StatusOutForDelivery,
+			to:          statemachine.StatusDelivered,
+			input:       statemachine.TransitionInput{RecipientName: strings.Repeat("A", 150)},
+			wantNoError: true,
+		},
+		{
+			name:     "DELIVERED recipient at 151 characters",
+			from:     statemachine.StatusOutForDelivery,
+			to:       statemachine.StatusDelivered,
+			input:    statemachine.TransitionInput{RecipientName: strings.Repeat("A", 151)},
+			wantCode: "VALIDATION_ERROR", wantHTTP: 422,
+		},
+		{
+			name:        "DELIVERED multibyte recipient at 150 runes",
+			from:        statemachine.StatusOutForDelivery,
+			to:          statemachine.StatusDelivered,
+			input:       statemachine.TransitionInput{RecipientName: strings.Repeat("é", 150)},
+			wantNoError: true,
+		},
+		{
+			name:     "DELIVERED multibyte recipient at 151 runes",
+			from:     statemachine.StatusOutForDelivery,
+			to:       statemachine.StatusDelivered,
+			input:    statemachine.TransitionInput{RecipientName: strings.Repeat("é", 151)},
+			wantCode: "VALIDATION_ERROR", wantHTTP: 422,
+		},
+		{
+			name:     "FAILED reason at 4 characters",
+			from:     statemachine.StatusOutForDelivery,
+			to:       statemachine.StatusFailed,
+			input:    statemachine.TransitionInput{FailureReason: "Nope"},
+			wantCode: "FAILURE_REASON_REQUIRED", wantHTTP: 422, wantIs: statemachine.ErrFailureReasonRequired,
+		},
+		{
+			name:        "FAILED reason at 5 characters",
+			from:        statemachine.StatusOutForDelivery,
+			to:          statemachine.StatusFailed,
+			input:       statemachine.TransitionInput{FailureReason: "12345"},
+			wantNoError: true,
+		},
+		{
+			name:        "FAILED reason at 255 characters",
+			from:        statemachine.StatusOutForDelivery,
+			to:          statemachine.StatusFailed,
+			input:       statemachine.TransitionInput{FailureReason: strings.Repeat("R", 255)},
+			wantNoError: true,
+		},
+		{
+			name:     "FAILED reason at 256 characters",
+			from:     statemachine.StatusOutForDelivery,
+			to:       statemachine.StatusFailed,
+			input:    statemachine.TransitionInput{FailureReason: strings.Repeat("R", 256)},
+			wantCode: "FAILURE_REASON_REQUIRED", wantHTTP: 422, wantIs: statemachine.ErrFailureReasonRequired,
+		},
+		{
+			name:     "FAILED whitespace reason",
+			from:     statemachine.StatusOutForDelivery,
+			to:       statemachine.StatusFailed,
+			input:    statemachine.TransitionInput{FailureReason: "     "},
+			wantCode: "FAILURE_REASON_REQUIRED", wantHTTP: 422, wantIs: statemachine.ErrFailureReasonRequired,
+		},
+		{
+			name:        "FAILED multibyte reason at 5 runes",
+			from:        statemachine.StatusOutForDelivery,
+			to:          statemachine.StatusFailed,
+			input:       statemachine.TransitionInput{FailureReason: strings.Repeat("é", 5)},
+			wantNoError: true,
+		},
+		{
+			name:        "note at 500 characters",
 			from:        statemachine.StatusCreated,
 			to:          statemachine.StatusPickedUp,
-			input:       statemachine.TransitionInput{},
-			wantErrCode: "",
+			input:       statemachine.TransitionInput{Note: strings.Repeat("N", 500)},
+			wantNoError: true,
 		},
 		{
-			name:        "Valid PICKED_UP to IN_TRANSIT with optional note",
-			from:        statemachine.StatusPickedUp,
-			to:          statemachine.StatusInTransit,
-			input:       statemachine.TransitionInput{Note: "Picked up at sorting center"},
-			wantErrCode: "",
+			name:     "note at 501 characters",
+			from:     statemachine.StatusCreated,
+			to:       statemachine.StatusPickedUp,
+			input:    statemachine.TransitionInput{Note: strings.Repeat("N", 501)},
+			wantCode: "VALIDATION_ERROR", wantHTTP: 422, wantIs: statemachine.ErrValidationError,
 		},
 		{
-			name:        "Valid IN_TRANSIT to OUT_FOR_DELIVERY",
-			from:        statemachine.StatusInTransit,
-			to:          statemachine.StatusOutForDelivery,
-			input:       statemachine.TransitionInput{},
-			wantErrCode: "",
+			name:        "note multibyte at 500 runes",
+			from:        statemachine.StatusCreated,
+			to:          statemachine.StatusPickedUp,
+			input:       statemachine.TransitionInput{Note: strings.Repeat("é", 500)},
+			wantNoError: true,
 		},
 		{
-			name: "Valid OUT_FOR_DELIVERY to DELIVERED with recipient",
-			from: statemachine.StatusOutForDelivery,
-			to:   statemachine.StatusDelivered,
-			input: statemachine.TransitionInput{
-				RecipientName: "John Doe",
-				Note:          "Handed directly to recipient",
-			},
-			wantErrCode: "",
-		},
-		{
-			name: "Valid OUT_FOR_DELIVERY to FAILED with reason",
-			from: statemachine.StatusOutForDelivery,
-			to:   statemachine.StatusFailed,
-			input: statemachine.TransitionInput{
-				FailureReason: "Customer address unreachable after 3 attempts",
-			},
-			wantErrCode: "",
-		},
-		{
-			name: "Valid CREATED to FAILED with reason",
-			from: statemachine.StatusCreated,
-			to:   statemachine.StatusFailed,
-			input: statemachine.TransitionInput{
-				FailureReason: "Package damaged before pickup",
-			},
-			wantErrCode: "",
-		},
-
-		// Disallowed transition -> 409 INVALID_TRANSITION
-		{
-			name:         "Disallowed transition CREATED to DELIVERED",
-			from:         statemachine.StatusCreated,
-			to:           statemachine.StatusDelivered,
-			input:        statemachine.TransitionInput{RecipientName: "John Doe"},
-			wantErrCode:  "INVALID_TRANSITION",
-			wantHTTPCode: 409,
-		},
-		{
-			name:         "Disallowed transition IN_TRANSIT to PICKED_UP",
-			from:         statemachine.StatusInTransit,
-			to:           statemachine.StatusPickedUp,
-			input:        statemachine.TransitionInput{},
-			wantErrCode:  "INVALID_TRANSITION",
-			wantHTTPCode: 409,
-		},
-		{
-			name:         "Disallowed transition DELIVERED to FAILED (terminal)",
-			from:         statemachine.StatusDelivered,
-			to:           statemachine.StatusFailed,
-			input:        statemachine.TransitionInput{FailureReason: "Some reason here"},
-			wantErrCode:  "INVALID_TRANSITION",
-			wantHTTPCode: 409,
-		},
-
-		// DELIVERED missing recipient -> 422 RECIPIENT_REQUIRED
-		{
-			name:         "DELIVERED with empty recipient",
-			from:         statemachine.StatusOutForDelivery,
-			to:           statemachine.StatusDelivered,
-			input:        statemachine.TransitionInput{RecipientName: ""},
-			wantErrCode:  "RECIPIENT_REQUIRED",
-			wantHTTPCode: 422,
-		},
-		{
-			name:         "DELIVERED with whitespace-only recipient",
-			from:         statemachine.StatusOutForDelivery,
-			to:           statemachine.StatusDelivered,
-			input:        statemachine.TransitionInput{RecipientName: "   \t\n  "},
-			wantErrCode:  "RECIPIENT_REQUIRED",
-			wantHTTPCode: 422,
-		},
-		{
-			name: "DELIVERED with recipient exceeding 150 chars",
-			from: statemachine.StatusOutForDelivery,
-			to:   statemachine.StatusDelivered,
-			input: statemachine.TransitionInput{
-				RecipientName: strings.Repeat("A", 151),
-			},
-			wantErrCode:  "VALIDATION_ERROR",
-			wantHTTPCode: 422,
-		},
-
-		// FAILED missing or invalid reason -> 422 FAILURE_REASON_REQUIRED
-		{
-			name:         "FAILED with empty reason",
-			from:         statemachine.StatusOutForDelivery,
-			to:           statemachine.StatusFailed,
-			input:        statemachine.TransitionInput{FailureReason: ""},
-			wantErrCode:  "FAILURE_REASON_REQUIRED",
-			wantHTTPCode: 422,
-		},
-		{
-			name:         "FAILED with whitespace-only reason",
-			from:         statemachine.StatusOutForDelivery,
-			to:           statemachine.StatusFailed,
-			input:        statemachine.TransitionInput{FailureReason: "   "},
-			wantErrCode:  "FAILURE_REASON_REQUIRED",
-			wantHTTPCode: 422,
-		},
-		{
-			name:         "FAILED with reason too short (< 5 chars)",
-			from:         statemachine.StatusOutForDelivery,
-			to:           statemachine.StatusFailed,
-			input:        statemachine.TransitionInput{FailureReason: "Nope"},
-			wantErrCode:  "FAILURE_REASON_REQUIRED",
-			wantHTTPCode: 422,
-		},
-		{
-			name: "FAILED with reason exactly 5 chars (valid min)",
-			from: statemachine.StatusOutForDelivery,
-			to:   statemachine.StatusFailed,
-			input: statemachine.TransitionInput{
-				FailureReason: "12345",
-			},
-			wantErrCode: "",
-		},
-		{
-			name: "FAILED with reason exactly 255 chars (valid max)",
-			from: statemachine.StatusOutForDelivery,
-			to:   statemachine.StatusFailed,
-			input: statemachine.TransitionInput{
-				FailureReason: strings.Repeat("R", 255),
-			},
-			wantErrCode: "",
-		},
-		{
-			name: "FAILED with reason too long (> 255 chars)",
-			from: statemachine.StatusOutForDelivery,
-			to:   statemachine.StatusFailed,
-			input: statemachine.TransitionInput{
-				FailureReason: strings.Repeat("R", 256),
-			},
-			wantErrCode:  "FAILURE_REASON_REQUIRED",
-			wantHTTPCode: 422,
-		},
-
-		// Note length validation (> 500 chars -> 422 VALIDATION_ERROR)
-		{
-			name: "Note exceeding 500 characters",
-			from: statemachine.StatusCreated,
-			to:   statemachine.StatusPickedUp,
-			input: statemachine.TransitionInput{
-				Note: strings.Repeat("N", 501),
-			},
-			wantErrCode:  "VALIDATION_ERROR",
-			wantHTTPCode: 422,
-		},
-		{
-			name: "Note with exactly 500 characters (valid)",
-			from: statemachine.StatusCreated,
-			to:   statemachine.StatusPickedUp,
-			input: statemachine.TransitionInput{
-				Note: strings.Repeat("N", 500),
-			},
-			wantErrCode: "",
+			name:     "note multibyte at 501 runes",
+			from:     statemachine.StatusCreated,
+			to:       statemachine.StatusPickedUp,
+			input:    statemachine.TransitionInput{Note: strings.Repeat("é", 501)},
+			wantCode: "VALIDATION_ERROR", wantHTTP: 422, wantIs: statemachine.ErrValidationError,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := statemachine.ValidateTransition(tt.from, tt.to, tt.input)
-			if tt.wantErrCode == "" {
+			if tt.wantNoError {
 				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
+					t.Fatalf("ValidateTransition() = %v; want nil", err)
 				}
 				return
 			}
-
-			if err == nil {
-				t.Fatalf("expected error code %s, got nil", tt.wantErrCode)
-			}
-
-			var domainErr *statemachine.DomainError
-			if !errors.As(err, &domainErr) {
-				t.Fatalf("expected *statemachine.DomainError, got %T (%v)", err, err)
-			}
-
-			if domainErr.Code != tt.wantErrCode {
-				t.Errorf("error code = %s; want %s", domainErr.Code, tt.wantErrCode)
-			}
-
-			if tt.wantHTTPCode != 0 && domainErr.HTTPStatus != tt.wantHTTPCode {
-				t.Errorf("HTTP status = %d; want %d", domainErr.HTTPStatus, tt.wantHTTPCode)
+			assertDomainError(t, err, tt.wantCode, tt.wantHTTP)
+			if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+				t.Errorf("errors.Is(err, %v) = false; err = %v", tt.wantIs, err)
 			}
 		})
 	}
@@ -295,44 +366,34 @@ func TestValidateTransition(t *testing.T) {
 
 func TestCanAssignCourier(t *testing.T) {
 	tests := []struct {
-		name         string
-		status       statemachine.ParcelStatus
-		wantErrCode  string
-		wantHTTPCode int
+		name     string
+		status   statemachine.ParcelStatus
+		wantCode string
+		wantHTTP int
+		wantIs   error
 	}{
-		{"CREATED can be assigned", statemachine.StatusCreated, "", 0},
-		{"PICKED_UP can be assigned", statemachine.StatusPickedUp, "", 0},
-		{"IN_TRANSIT can be assigned", statemachine.StatusInTransit, "", 0},
-		{"OUT_FOR_DELIVERY can be assigned", statemachine.StatusOutForDelivery, "", 0},
-		{"DELIVERED cannot be assigned (PARCEL_CLOSED)", statemachine.StatusDelivered, "PARCEL_CLOSED", 409},
-		{"FAILED cannot be assigned (PARCEL_CLOSED)", statemachine.StatusFailed, "PARCEL_CLOSED", 409},
+		{name: "CREATED", status: statemachine.StatusCreated},
+		{name: "PICKED_UP", status: statemachine.StatusPickedUp},
+		{name: "IN_TRANSIT", status: statemachine.StatusInTransit},
+		{name: "OUT_FOR_DELIVERY", status: statemachine.StatusOutForDelivery},
+		{name: "DELIVERED", status: statemachine.StatusDelivered, wantCode: "PARCEL_CLOSED", wantHTTP: 409, wantIs: statemachine.ErrParcelClosed},
+		{name: "FAILED", status: statemachine.StatusFailed, wantCode: "PARCEL_CLOSED", wantHTTP: 409, wantIs: statemachine.ErrParcelClosed},
+		{name: "unknown", status: statemachine.ParcelStatus("UNKNOWN"), wantCode: "VALIDATION_ERROR", wantHTTP: 422, wantIs: statemachine.ErrUnknownStatus},
+		{name: "empty", status: statemachine.ParcelStatus(""), wantCode: "VALIDATION_ERROR", wantHTTP: 422, wantIs: statemachine.ErrUnknownStatus},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := statemachine.CanAssignCourier(tt.status)
-			if tt.wantErrCode == "" {
+			if tt.wantCode == "" {
 				if err != nil {
-					t.Fatalf("expected nil error, got %v", err)
+					t.Fatalf("CanAssignCourier(%s) = %v; want nil", tt.status, err)
 				}
 				return
 			}
-
-			if err == nil {
-				t.Fatalf("expected error code %s, got nil", tt.wantErrCode)
-			}
-
-			var domainErr *statemachine.DomainError
-			if !errors.As(err, &domainErr) {
-				t.Fatalf("expected *DomainError, got %T", err)
-			}
-
-			if domainErr.Code != tt.wantErrCode {
-				t.Errorf("code = %s; want %s", domainErr.Code, tt.wantErrCode)
-			}
-
-			if domainErr.HTTPStatus != tt.wantHTTPCode {
-				t.Errorf("HTTP status = %d; want %d", domainErr.HTTPStatus, tt.wantHTTPCode)
+			assertDomainError(t, err, tt.wantCode, tt.wantHTTP)
+			if !errors.Is(err, tt.wantIs) {
+				t.Errorf("errors.Is(err, %v) = false; err = %v", tt.wantIs, err)
 			}
 		})
 	}
@@ -343,63 +404,27 @@ func TestVerifyCourierOwnership(t *testing.T) {
 		name             string
 		currentCourierID string
 		actorCourierID   string
-		wantErrCode      string
-		wantHTTPCode     int
+		wantErr          bool
 	}{
-		{
-			name:             "Matching courier ID is permitted",
-			currentCourierID: "courier-uuid-1234",
-			actorCourierID:   "courier-uuid-1234",
-			wantErrCode:      "",
-		},
-		{
-			name:             "Different courier ID returns 403 FORBIDDEN",
-			currentCourierID: "courier-uuid-1234",
-			actorCourierID:   "courier-uuid-9999",
-			wantErrCode:      "FORBIDDEN",
-			wantHTTPCode:     403,
-		},
-		{
-			name:             "Empty current courier ID returns 403 FORBIDDEN",
-			currentCourierID: "",
-			actorCourierID:   "courier-uuid-1234",
-			wantErrCode:      "FORBIDDEN",
-			wantHTTPCode:     403,
-		},
-		{
-			name:             "Empty actor courier ID returns 403 FORBIDDEN",
-			currentCourierID: "courier-uuid-1234",
-			actorCourierID:   "",
-			wantErrCode:      "FORBIDDEN",
-			wantHTTPCode:     403,
-		},
+		{name: "matching identities", currentCourierID: "courier-1", actorCourierID: "courier-1"},
+		{name: "different identities", currentCourierID: "courier-1", actorCourierID: "courier-2", wantErr: true},
+		{name: "empty current identity", currentCourierID: "", actorCourierID: "courier-1", wantErr: true},
+		{name: "empty actor identity", currentCourierID: "courier-1", actorCourierID: "", wantErr: true},
+		{name: "both empty", currentCourierID: "", actorCourierID: "", wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := statemachine.VerifyCourierOwnership(tt.currentCourierID, tt.actorCourierID)
-			if tt.wantErrCode == "" {
+			if !tt.wantErr {
 				if err != nil {
-					t.Fatalf("expected nil error, got %v", err)
+					t.Fatalf("VerifyCourierOwnership() = %v; want nil", err)
 				}
 				return
 			}
-
-			if err == nil {
-				t.Fatalf("expected error %s, got nil", tt.wantErrCode)
-			}
-
-			var domainErr *statemachine.DomainError
-			if !errors.As(err, &domainErr) {
-				t.Fatalf("expected *DomainError, got %T", err)
-			}
-
-			if domainErr.Code != tt.wantErrCode {
-				t.Errorf("code = %s; want %s", domainErr.Code, tt.wantErrCode)
-			}
-
-			if domainErr.HTTPStatus != tt.wantHTTPCode {
-				t.Errorf("HTTP status = %d; want %d", domainErr.HTTPStatus, tt.wantHTTPCode)
+			assertDomainError(t, err, "FORBIDDEN", 403)
+			if !errors.Is(err, statemachine.ErrForbidden) {
+				t.Errorf("errors.Is(err, ErrForbidden) = false; err = %v", err)
 			}
 		})
 	}
@@ -413,97 +438,134 @@ func TestValidateCourierTransition(t *testing.T) {
 		from             statemachine.ParcelStatus
 		to               statemachine.ParcelStatus
 		input            statemachine.TransitionInput
-		wantErrCode      string
+		wantCode         string
+		wantHTTP         int
 	}{
 		{
-			name:             "Valid courier update to IN_TRANSIT",
-			currentCourierID: "c1",
-			actorCourierID:   "c1",
-			from:             statemachine.StatusPickedUp,
-			to:               statemachine.StatusInTransit,
-			input:            statemachine.TransitionInput{},
-			wantErrCode:      "",
+			name:             "assigned courier valid transition",
+			currentCourierID: "courier-1", actorCourierID: "courier-1",
+			from: statemachine.StatusPickedUp, to: statemachine.StatusInTransit,
 		},
 		{
-			name:             "Unassigned or different courier blocked before status check",
-			currentCourierID: "c1",
-			actorCourierID:   "c2",
-			from:             statemachine.StatusPickedUp,
-			to:               statemachine.StatusInTransit,
-			input:            statemachine.TransitionInput{},
-			wantErrCode:      "FORBIDDEN",
+			name:             "ownership failure takes precedence over invalid transition",
+			currentCourierID: "courier-1", actorCourierID: "courier-2",
+			from: statemachine.StatusCreated, to: statemachine.StatusDelivered,
+			wantCode: "FORBIDDEN", wantHTTP: 403,
 		},
 		{
-			name:             "Assigned courier with invalid transition",
-			currentCourierID: "c1",
-			actorCourierID:   "c1",
-			from:             statemachine.StatusCreated,
-			to:               statemachine.StatusDelivered,
-			input:            statemachine.TransitionInput{RecipientName: "John"},
-			wantErrCode:      "INVALID_TRANSITION",
+			name:             "assigned courier invalid transition",
+			currentCourierID: "courier-1", actorCourierID: "courier-1",
+			from: statemachine.StatusCreated, to: statemachine.StatusDelivered,
+			wantCode: "INVALID_TRANSITION", wantHTTP: 409,
 		},
 		{
-			name:             "Assigned courier with missing recipient on DELIVERED",
-			currentCourierID: "c1",
-			actorCourierID:   "c1",
-			from:             statemachine.StatusOutForDelivery,
-			to:               statemachine.StatusDelivered,
-			input:            statemachine.TransitionInput{},
-			wantErrCode:      "RECIPIENT_REQUIRED",
+			name:             "assigned courier missing recipient",
+			currentCourierID: "courier-1", actorCourierID: "courier-1",
+			from: statemachine.StatusOutForDelivery, to: statemachine.StatusDelivered,
+			wantCode: "RECIPIENT_REQUIRED", wantHTTP: 422,
+		},
+		{
+			name:             "assigned courier missing failure reason",
+			currentCourierID: "courier-1", actorCourierID: "courier-1",
+			from: statemachine.StatusOutForDelivery, to: statemachine.StatusFailed,
+			wantCode: "FAILURE_REASON_REQUIRED", wantHTTP: 422,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := statemachine.ValidateCourierTransition(tt.currentCourierID, tt.actorCourierID, tt.from, tt.to, tt.input)
-			if tt.wantErrCode == "" {
+			err := statemachine.ValidateCourierTransition(
+				tt.currentCourierID, tt.actorCourierID, tt.from, tt.to, tt.input,
+			)
+			if tt.wantCode == "" {
 				if err != nil {
-					t.Fatalf("expected nil error, got %v", err)
+					t.Fatalf("ValidateCourierTransition() = %v; want nil", err)
 				}
 				return
 			}
-
-			if err == nil {
-				t.Fatalf("expected error %s, got nil", tt.wantErrCode)
-			}
-
-			var domainErr *statemachine.DomainError
-			if !errors.As(err, &domainErr) {
-				t.Fatalf("expected *DomainError, got %T", err)
-			}
-
-			if domainErr.Code != tt.wantErrCode {
-				t.Errorf("code = %s; want %s", domainErr.Code, tt.wantErrCode)
-			}
+			assertDomainError(t, err, tt.wantCode, tt.wantHTTP)
 		})
 	}
 }
 
 func TestStatusHelpers(t *testing.T) {
 	if !statemachine.IsValidStatus(statemachine.StatusCreated) {
-		t.Error("expected CREATED to be valid")
+		t.Error("IsValidStatus(CREATED) = false; want true")
 	}
 	if statemachine.IsValidStatus("INVALID") {
-		t.Error("expected INVALID to not be valid")
+		t.Error("IsValidStatus(INVALID) = true; want false")
+	}
+	if statemachine.IsValidStatus("") {
+		t.Error("IsValidStatus(empty) = true; want false")
 	}
 
-	if !statemachine.IsTerminal(statemachine.StatusDelivered) {
-		t.Error("expected DELIVERED to be terminal")
+	for _, status := range []statemachine.ParcelStatus{statemachine.StatusDelivered, statemachine.StatusFailed} {
+		if !statemachine.IsTerminal(status) {
+			t.Errorf("IsTerminal(%s) = false; want true", status)
+		}
+		if !statemachine.IsClosed(status) {
+			t.Errorf("IsClosed(%s) = false; want true", status)
+		}
 	}
-	if !statemachine.IsTerminal(statemachine.StatusFailed) {
-		t.Error("expected FAILED to be terminal")
+	for _, status := range []statemachine.ParcelStatus{
+		statemachine.StatusCreated,
+		statemachine.StatusPickedUp,
+		statemachine.StatusInTransit,
+		statemachine.StatusOutForDelivery,
+		statemachine.ParcelStatus("UNKNOWN"),
+		statemachine.ParcelStatus(""),
+	} {
+		if statemachine.IsTerminal(status) {
+			t.Errorf("IsTerminal(%s) = true; want false", status)
+		}
+		if statemachine.IsClosed(status) {
+			t.Errorf("IsClosed(%s) = true; want false", status)
+		}
 	}
-	if statemachine.IsTerminal(statemachine.StatusInTransit) {
-		t.Error("expected IN_TRANSIT to not be terminal")
+}
+
+func TestDomainErrorIsMatchesByCode(t *testing.T) {
+	dynamic := statemachine.NewInvalidTransitionError(statemachine.StatusCreated, statemachine.StatusDelivered)
+	if !errors.Is(dynamic, statemachine.ErrInvalidTransition) {
+		t.Errorf("errors.Is(dynamic INVALID_TRANSITION, ErrInvalidTransition) = false")
+	}
+	if errors.Is(dynamic, statemachine.ErrForbidden) {
+		t.Error("errors.Is(INVALID_TRANSITION, ErrForbidden) = true; want false")
 	}
 
-	if !statemachine.IsClosed(statemachine.StatusDelivered) {
-		t.Error("expected DELIVERED to be closed")
+	unknown := statemachine.NewUnknownStatusError("BROKEN")
+	if !errors.Is(unknown, statemachine.ErrUnknownStatus) {
+		t.Errorf("errors.Is(unknown status, ErrUnknownStatus) = false")
 	}
-	if !statemachine.IsClosed(statemachine.StatusFailed) {
-		t.Error("expected FAILED to be closed")
+	if !errors.Is(unknown, statemachine.ErrValidationError) {
+		t.Errorf("errors.Is(unknown status, ErrValidationError) = false")
 	}
-	if statemachine.IsClosed(statemachine.StatusOutForDelivery) {
-		t.Error("expected OUT_FOR_DELIVERY to not be closed")
+}
+
+func validInputFor(status statemachine.ParcelStatus) statemachine.TransitionInput {
+	input := statemachine.TransitionInput{Note: "handled by courier"}
+	switch status {
+	case statemachine.StatusDelivered:
+		input.RecipientName = "Amali Fernando"
+	case statemachine.StatusFailed:
+		input.FailureReason = "Recipient unavailable after two attempts"
+	}
+	return input
+}
+
+func assertDomainError(t *testing.T, err error, wantCode string, wantHTTP int) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected %s error, got nil", wantCode)
+	}
+	var domainErr *statemachine.DomainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected *statemachine.DomainError, got %T (%v)", err, err)
+	}
+	if domainErr.Code != wantCode {
+		t.Errorf("error code = %s; want %s", domainErr.Code, wantCode)
+	}
+	if domainErr.HTTPStatus != wantHTTP {
+		t.Errorf("HTTP status = %d; want %d", domainErr.HTTPStatus, wantHTTP)
 	}
 }
