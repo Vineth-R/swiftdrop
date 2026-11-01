@@ -36,7 +36,7 @@ The repository is intentionally a production-oriented foundation. Do not describ
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Frontend       | Next.js App Router starter page and `/api/hello` example route. No SwiftDrop business UI.                                                                                                                                                                                                                  |
 | Frontend E2E   | Playwright configuration with one example title test.                                                                                                                                                                                                                                                      |
-| HTTP services  | Gin servers with configuration, structured logging, request IDs, health and readiness endpoints, timeouts, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB header limit, and debug-level probe logs. No business endpoints.                                                  |
+| HTTP services  | Gin servers with configuration, structured logging, request IDs, health and readiness endpoints, timeouts, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB header limit, and debug-level probe logs. Identity auth only.                                                     |
 | Workers        | RabbitMQ consumers that validate message framing and the shared event envelope, log non-sensitive identifiers, reconnect with jittered backoff, force exit on a second termination signal, and route failures through bounded retry or dead-letter handling. No external notification or webhook delivery. |
 | Shared Go      | `packages/go-common` provides config and credential-safe AMQP URL validation, logging, HTTP helpers, request IDs, HTTP lifecycle, event envelopes, message framing validation, failure classification, publisher-confirmed retry/dead-letter routing, and a RabbitMQ consumer.                             |
 | PostgreSQL     | Compose runs PostgreSQL 16 with Mailpit for local email. Migrations create the five service schemas and their baseline tables from `docs/db.sql`. HTTP services open a shared pgx pool and expose `/health` and `/ready`; `/ready` reports database connectivity.                                          |
@@ -48,7 +48,7 @@ The repository is intentionally a production-oriented foundation. Do not describ
 
 Planned responsibilities:
 
-- `identity`: future authentication, authorization, and profiles.
+- `identity`: email and password authentication (register, login, refresh, logout) is implemented; profiles, Google login, password reset, and admin users are planned.
 - `parcel`: future parcel lifecycle, status, and tracking.
 - `pricing`: future delivery fee calculation and pricing configuration.
 - `merchant`: future merchant accounts, integration settings, and API credentials.
@@ -205,7 +205,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 
 ## Security and authentication
 
-Authentication and authorization are not implemented yet. When they are implemented:
+Email and password authentication is implemented in the identity service, and `packages/go-common/auth` provides access-token verification and role middleware for every service. Add authorization checks to each endpoint as it lands. For all authentication and authorization work:
 
 - Never store plaintext passwords. Use a current, vetted password-hashing algorithm with an appropriate work factor.
 - Validate JWT signatures, allowed algorithms, expiry, issuer, and audience where applicable. Do not hand-roll JWT validation.
