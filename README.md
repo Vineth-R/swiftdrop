@@ -212,6 +212,17 @@ make migrate
 
 Expected result: 26 tables and seeds `5/5/25/4/4`.
 
+**Windows and line endings.** Git for Windows may convert shell scripts to CRLF, which breaks execution in the Linux migration container. `.gitattributes` forces LF for `*.sh` and `Makefile`; do not override it. If an existing clone still fails with `bad interpreter: /bin/sh^M` or `$'\r': command not found`, preserve any local edits and re-checkout only the affected scripts:
+
+```sh
+git stash push -- scripts/migrate.sh scripts/check-routes.sh
+rm scripts/migrate.sh scripts/check-routes.sh
+git checkout -- scripts/migrate.sh scripts/check-routes.sh
+git stash pop
+```
+
+A fresh clone also works. Do not run `git checkout -- scripts/` to fix this: it rewrites every file under `scripts/` and can discard unrelated local changes.
+
 Roll back:
 
 ```sh
