@@ -673,6 +673,10 @@ Indexes: user_id , expires_at .
 
 
 
+  browser_binding_hash        CHAR(64)                       NULL          SHA-256 of the browser-binding cookie value (internal security column; NULL on pre-000003 rows)
+
+
+
   expires_at                  TIMESTAMPTZ                    NOT NULL      Short expiry (about 10 minutes)
 
 

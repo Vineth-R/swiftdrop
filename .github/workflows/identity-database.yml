@@ -67,3 +67,32 @@ jobs:
             echo "::error::Identity PostgreSQL integration tests were skipped; the database must be reachable."
             exit 1
           fi
+
+      - name: Migration smoke (up, down, up)
+        run: |
+          set -euo pipefail
+          SMOKE_DB="swiftdrop_migrate_smoke_${GITHUB_RUN_ID}_${GITHUB_JOB}"
+          cleanup() {
+            psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
+              -c "DROP DATABASE IF EXISTS \"$SMOKE_DB\" WITH (FORCE)" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$SMOKE_DB\""
+          SMOKE_URL="$(printf '%s' "$TEST_DATABASE_URL" | sed "s#/postgres?#/${SMOKE_DB}?#")"
+          psql "$SMOKE_URL" -v ON_ERROR_STOP=1 -f infra/docker/postgres/init/01-schemas.sql
+
+          MIGRATE_IMAGE="migrate/migrate:v4.18.3"
+          MIGRATE_URL="${SMOKE_URL}&x-migrations-table=identity_schema_migrations"
+          docker run --rm --network host -v "$PWD/migrations:/migrations:ro" "$MIGRATE_IMAGE" \
+            -path /migrations/identity -database "$MIGRATE_URL" up
+          docker run --rm --network host -v "$PWD/migrations:/migrations:ro" "$MIGRATE_IMAGE" \
+            -path /migrations/identity -database "$MIGRATE_URL" down 1
+          docker run --rm --network host -v "$PWD/migrations:/migrations:ro" "$MIGRATE_IMAGE" \
+            -path /migrations/identity -database "$MIGRATE_URL" up
+
+          psql "$SMOKE_URL" -v ON_ERROR_STOP=1 -tAc "
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'identity'
+              AND table_name = 'oauth_states'
+              AND column_name = 'browser_binding_hash'" | grep -qx 1
