@@ -1,6 +1,6 @@
 # Integration tests
 
-This directory contains the M7.1 PostgreSQL verification script and broker-backed RabbitMQ tests. They have separate prerequisites and coverage. The optional Go proof-photo validator tests live in the parcel service and require neither PostgreSQL nor RabbitMQ.
+This directory contains the M7.1 PostgreSQL verification script, the isolated PostgreSQL dispatch tests in `database/`, and broker-backed RabbitMQ tests. Each suite has separate prerequisites and coverage. The optional Go proof-photo validator tests live in the parcel service and require neither PostgreSQL nor RabbitMQ.
 
 ## M7.1 database verification
 
@@ -65,9 +65,29 @@ The local November 1, 2026 verification completed this sequence:
 | SQL suite after reapplication                    | PASS — **95/95 assertions** again.                                                                                                                                                                        |
 | Migration-state checks                           | PASS — **33 checks**: 11 at each of initial version 2, rolled-back version 1 and reapplied version 2. Each snapshot checks two schemas, two clean migration versions and seven table-presence conditions. |
 
-The seven tables are `parcel.parcels`, `parcel.parcel_status_history`, `parcel.parcel_assignments`, `parcel.delivery_proofs`, `parcel.outbox_events`, `notification.notification_logs` and `notification.processed_events`. Version `000001` is never rolled back by this runner. The 95 assertions are the same suite run twice, not 190 distinct assertions; the 33 migration-state checks are separate.
+The seven tables are `parcel.parcels`, `parcel.parcel_status_history`, `parcel.parcel_assignments`, `parcel.delivery_proofs`, `parcel.outbox_events`, `notification.notification_logs` and `notification.processed_events`. Version `000001` is never rolled back by this runner. The M7 runner intentionally stops at baseline version `000002`; the separate PostgreSQL dispatch suite below covers M6's `000003_dispatch_foundations` migration. The 95 assertions are the same suite run twice, not 190 distinct assertions; the 33 migration-state checks are separate.
 
 Normal cleanup and a deliberate SQL-failure probe were verified: the failure propagated a nonzero exit code and disposable resources were removed. Before/after observations showed the existing 12 SwiftDrop containers remained healthy with unchanged identities/start/restart state and the existing PostgreSQL/RabbitMQ volumes remained unchanged. The active database was not accessed by the runner. These are recorded local results, not a claim that CI or a new run passed when this document was updated.
+
+## PostgreSQL tests
+
+Dispatch database tests live in `tests/integration/database` behind the `integration` build tag. They verify the parcel assignment and outbox migrations, constraints, indexes, triggers, upgrade paths, and rollback/reapply behavior.
+
+The tests create a uniquely named database on the server named by `TEST_DATABASE_URL`, run the migrations there, and drop it during cleanup. The URL must allow `CREATE DATABASE`. Never point it at a shared application database; the tests do not read or modify application data outside their isolated databases.
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  go test -race -count=1 -tags=integration -v ./tests/integration/database/...
+```
+
+Or:
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  make test-db
+```
+
+Tests skip when `TEST_DATABASE_URL` is unset. CI starts a PostgreSQL 16 service container, sets the variable, and fails the job if any database test is skipped.
 
 ## Optional Go proof-photo validator verification
 
@@ -129,7 +149,7 @@ amqp://swiftdrop:swiftdrop@localhost:5672/
 
 ```sh
 RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
-  go test -race -count=1 -tags=integration -v ./tests/integration/...
+  go test -race -count=1 -tags=integration -v ./tests/integration
 ```
 
 Tests call `t.Skip` when `RABBITMQ_URL` is unset. A skip is expected for local runs that do not need a broker, but CI treats any skip as a failure. Run from the repository root so the root Go module resolves.
@@ -163,10 +183,10 @@ Cleanup runs through `t.Cleanup`: it deletes the queues, then the exchanges, and
 The `integration` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) starts a RabbitMQ service container, sets `RABBITMQ_URL`, waits for port 5672, and runs:
 
 ```sh
-go test -race -count=1 -tags=integration -v ./tests/integration/...
+go test -race -count=1 -tags=integration -v ./tests/integration
 ```
 
-The job fails if the broker is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
+The `database` job starts a PostgreSQL 16 service container, sets `TEST_DATABASE_URL`, and runs the database tests. Both jobs fail if their dependency is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
 
 ### Guidelines for new tests
 
