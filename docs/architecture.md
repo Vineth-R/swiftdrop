@@ -143,7 +143,7 @@ Workers do not expose public HTTP endpoints. Their lifecycle is log-driven: they
 
 PostgreSQL is the primary relational store. SQL migrations live under `migrations/<service>/` and are applied with `golang-migrate`. Each service uses a distinct migration version table in the shared local database. Services never run migrations at startup.
 
-`000001` creates each service schema. `000002_tables` is reserved by the platform foundation for the baseline tables in [`db.sql`](db.sql) (26 tables across five schemas). Owners add new migrations from `000003`. `make migrate` bootstraps the shared `public.set_updated_at()` function and applies all five services in order; `make migrate-down` rolls back `000002` in reverse order.
+`000001` creates each service schema. `000002_tables` is reserved by the platform foundation for the baseline tables in [`db.sql`](db.sql) (26 tables across five schemas). Owners add new migrations from `000003`. Parcel `000003_dispatch_foundations` extends the baseline `parcel_assignments` and `outbox_events` tables without recreating them. `make migrate` bootstraps the shared `public.set_updated_at()` function and applies all five services in order; `make migrate-down` rolls back one migration per service in reverse order.
 
 Mailpit provides local SMTP (`1025`, published as `MAILPIT_SMTP_PORT`) and a web UI (`8025`). Gmail SMTP relay can replace it for real delivery; the mailbox provider is configuration, not part of the schema. Compose publishes only the gateway (`8080`), RabbitMQ (`5672`/`15672`), and Mailpit (`1025`/`8025`).
 
@@ -176,10 +176,17 @@ Broker-backed messaging tests require RabbitMQ:
 ```sh
 docker compose up -d rabbitmq
 RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
-  go test -tags=integration ./tests/integration/...
+  go test -tags=integration ./tests/integration
 ```
 
-CI runs the checks in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml): Go formatting, vet, race tests, build, and Compose config validation; a separate RabbitMQ integration job that fails on skipped tests; frontend lint, typecheck, and build; Chromium-only Playwright E2E; and representative `identity` and web Docker image builds. See the [README](../README.md#ci) for the job summary and [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the contribution workflow.
+Dispatch database tests require PostgreSQL and create isolated test databases:
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  make test-db
+```
+
+CI runs the checks in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml): Go formatting, vet, race tests, build, and Compose config validation; separate RabbitMQ and PostgreSQL integration jobs that fail on skipped tests; frontend lint, typecheck, and build; Chromium-only Playwright E2E; and representative `identity` and web Docker image builds. See the [README](../README.md#ci) for the job summary and [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the contribution workflow.
 
 ## Deliberate omissions
 

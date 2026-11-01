@@ -54,7 +54,7 @@ infra/
   docker/                   Go and Next.js Dockerfiles
   nginx/                    Local reverse proxy configuration
 docs/                       Architecture documentation
-tests/integration/          Broker-backed RabbitMQ integration tests
+tests/integration/          RabbitMQ and PostgreSQL integration tests
 .github/workflows/          CI
 ```
 
@@ -321,10 +321,21 @@ Broker-backed messaging integration tests live in [`tests/integration`](tests/in
 ```sh
 docker compose up -d rabbitmq
 RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
-  go test -tags=integration ./tests/integration/...
+  go test -tags=integration ./tests/integration
 ```
 
 Tests skip when `RABBITMQ_URL` is unset. CI sets it and fails the job if any integration test is skipped. Each test creates uniquely named exchanges and queues and removes them during cleanup. See [`tests/integration/README.md`](tests/integration/README.md).
+
+### PostgreSQL integration tests
+
+Dispatch database tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel baseline and dispatch migrations to a uniquely named, isolated database, then verify assignments, outbox behavior, constraints, indexes, triggers, upgrade paths, and rollback/reapply.
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  make test-db
+```
+
+`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. CI runs the same tests against PostgreSQL 16.
 
 ### Nx and frontend checks
 
@@ -402,14 +413,15 @@ docker compose down
 
 GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pull requests to `development` and `main`, on pushes to those branches, and on `v*` tags. The current jobs are:
 
-| Job                      | What it runs                                                                                                                                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Go checks**            | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, and `docker compose config --quiet`.               |
-| **RabbitMQ integration** | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration/...`, and fails if any test is skipped. |
-| **Frontend checks**      | Installs dependencies with pnpm, runs `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. Nx runs only configured targets.                          |
-| **Playwright E2E**       | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                             |
-| **Docker builds**        | Detects changed projects with `dorny/paths-filter` and builds only the affected Go service images and the web image.                                                                                   |
-| **Release smoke (tags)** | On `v*` tags, builds every image, starts the full Compose stack with `--wait`, runs `scripts/check-routes.sh`, and stops the stack.                                                                    |
+| Job                        | What it runs                                                                                                                                                                                       |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Go checks**              | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, and `docker compose config --quiet`.           |
+| **RabbitMQ integration**   | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration`, and fails if any test is skipped. |
+| **PostgreSQL integration** | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch database tests under `tests/integration/database`; fails if any test is skipped.            |
+| **Frontend checks**        | Installs dependencies with pnpm, runs `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. Nx runs only configured targets.                      |
+| **Playwright E2E**         | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                         |
+| **Docker builds**          | Detects changed projects with `dorny/paths-filter` and builds only the affected Go service images and the web image.                                                                               |
+| **Release smoke (tags)**   | On `v*` tags, builds every image, starts the full Compose stack with `--wait`, runs `scripts/check-routes.sh`, and stops the stack.                                                                |
 
 The workflow does not deploy, publish images, or use deployment credentials. This documentation does not claim that CI has passed for a given revision; check the Actions run for the branch or pull request.
 
@@ -469,7 +481,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 - [`contracts/openapi/README.md`](contracts/openapi/README.md): HTTP contracts and shared error behavior.
 - [`migrations/README.md`](migrations/README.md): migration conventions and commands.
 - [`infra/nginx/README.md`](infra/nginx/README.md): local edge routing.
-- [`tests/integration/README.md`](tests/integration/README.md): broker-backed test setup.
+- [`tests/integration/README.md`](tests/integration/README.md): RabbitMQ and PostgreSQL integration test setup.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): development and review workflow.
 
 ## Current scope
