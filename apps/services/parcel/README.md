@@ -143,13 +143,15 @@ server's major version and requires PostgreSQL 16; another version cannot stand
 in for target-version acceptance. Run from the repository root:
 
 ```sh
-go test -race -count=1 -tags=integration,postgres -run '^TestParcel' ./tests/integration/... ./apps/services/parcel/internal/repository
+go test -race -count=1 -tags=integration,postgres -run '^TestParcel' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository
+go test -race -count=1 -tags=integration ./tests/integration/database/...
 ```
 
-When running the recursive scope after combining with M6's `development` changes,
-also set `TEST_DATABASE_URL` to the same isolated server URL. M6's existing
-PostgreSQL tests use that variable; the M5 workflow supplies both variables so
-those tests execute rather than skip.
+For the complete dispatch suite in the second command, also set
+`TEST_DATABASE_URL` to the same isolated server URL. M6's existing PostgreSQL
+tests use that variable; the M5 workflow supplies both variables so those tests
+execute rather than skip. Run the dispatch suite without a test-name filter:
+its migration inventory and outbox tests do not begin with `TestParcel`.
 
 In PowerShell, quote the tag argument: `'-tags=integration,postgres'`. Race detection
 also requires `CGO_ENABLED=1` and a supported C compiler. On Windows, an existing

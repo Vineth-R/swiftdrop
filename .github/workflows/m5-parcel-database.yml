@@ -70,4 +70,9 @@ jobs:
       - name: Run PostgreSQL migration and repository tests
         run: >-
           go test -race -count=1 -tags=integration,postgres -run '^TestParcel'
-          ./tests/integration/... ./apps/services/parcel/internal/repository
+          ./tests/integration ./tests/integration/parceltest
+          ./apps/services/parcel/internal/repository
+
+      - name: Run the complete dispatch database suite
+        run: >-
+          go test -race -count=1 -tags=integration ./tests/integration/database/...

@@ -143,7 +143,7 @@ source addition, because ordinary `git diff --check` alone does not inspect them
 | Docker Desktop / local environment                                                                           | BLOCKED: daemon API returns HTTP 500; guest-service sockets refuse connections and WSL guest execution times out. Native isolated PG16 supplied actual target-version coverage. | No                                                                         |
 | Outbox publication contract / M6 with M1 messaging and consumer owners, per the user's ownership description | Pending coordination; details below.                                                                                                                                            | No, under supplied M5.1 criteria; resolve before publishing Parcel events. |
 | Future business integration / assigned application owners including M7                                       | Not implemented here; database/repository integration is verified.                                                                                                              | No                                                                         |
-| Prepared GitHub workflow / branch maintainer                                                                 | PostgreSQL 16, CGO and both race commands reviewed and YAML checked. No GitHub run was executed or claimed.                                                                     | No; actual local checks passed.                                            |
+| Prepared GitHub workflow / branch maintainer                                                                 | Initial M5 workflows passed on GitHub; the general PostgreSQL job exposed the inventory assertion corrected below. Updated CI results are reported on PR #9.                    | No after verification of the correction; see the CI follow-up section.     |
 | Windows worker portability / notification and webhook worker owners                                          | Existing `syscall.Kill` compilation errors, separate from Parcel.                                                                                                               | No                                                                         |
 | Official member task sheet / team                                                                            | Missing; explicit user acceptance list used.                                                                                                                                    | No for that list; reassess if an additional signed criterion is supplied.  |
 
@@ -233,8 +233,11 @@ branch and the combined chain `000001` → `000002` → M6 `000003` → M5 `0000
 are covered. The M5 workflow also supplies M6's `TEST_DATABASE_URL` alongside
 `PARCEL_TEST_DATABASE_URL` so recursive database coverage does not silently skip
 M6 tests. An ignored export of the exact development commit with only M5's
-source additions overlaid is used for combined verification; the working branch
-is not switched, merged, or rebased.
+source additions overlaid was used for initial combined verification; during
+that verification the working branch was not switched, merged, or rebased.
+
+The initial filtered combined run below did not include the complete existing
+dispatch suite. The subsequent CI correction is recorded in the next section.
 
 Refreshed feature results: 28 top-level unit tests and 16 top-level tagged tests
 passed with race detection, plus focused vet, build and live `/ready` on
@@ -247,3 +250,41 @@ chain remained at 26 business tables with clean Parcel version 4. The exact
 runner is `verify-combined.ps1` and results are in `combined-checks.json`,
 `combined-unit-race.jsonl`, `combined-postgresql16-race.jsonl` and
 `pre-submission-summary.json` under the ignored audit root above.
+
+## CI correction after PR submission
+
+On the initial PR head `d5f33af`, the dedicated M5 workflow passed, but the
+existing CI PostgreSQL job failed in `TestMigrationVersionFiles`: it expected
+exactly `000001`–`000003` even though M5 correctly added `000004`. The prior
+`^TestParcel` filter excluded this test and `TestOutboxFoundation`. This was a
+verification gap; the initial combined counts above did not cover that entire
+existing suite.
+
+Integrated current development history into the feature branch with a normal
+merge, preserving M6's implementation and applied migrations. Updated only the
+inventory test's expected list/count to include `000004`; exact inventory,
+filename, up/down pairing, baseline and dispatch assertions remain enabled.
+Reproduced the exact failure locally before the edit, then verified the complete
+existing database suite without a test-name filter. The M5 workflow now runs its
+own database scope and the entire existing dispatch suite as separate steps so
+non-`TestParcel` tests cannot be omitted by the filter.
+
+Final local checks for this correction used the same isolated PostgreSQL 16.15
+cluster, Go 1.27.3, CGO and UCRT64 GCC environment documented above:
+
+```powershell
+go test -p 1 -race -count=1 -v '-tags=integration' ./tests/integration/database/...
+go test -p 1 -race -count=1 -json '-tags=integration,postgres' -run '^TestParcel' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository
+go test -p 1 -race -count=1 -json ./apps/services/parcel/... ./packages/go-common/postgres ./tests/integration/parceltest
+go vet '-tags=integration,postgres' ./apps/services/parcel/... ./tests/integration/...
+go build -p 1 -trimpath -o (Join-Path $audit 'parcel.exe') ./apps/services/parcel
+```
+
+All exited 0: **8 complete dispatch tests (44 passing test/subtest events)**,
+**16 M5 tagged tests (101 passing events)**, and **41 unit tests (152 passing
+events)**. No failed tests, skipped tests or race warnings. The exact runner,
+commands and results are retained in `verify-ci-fix.ps1`, `ci-fix-checks.json`,
+`ci-fix-summary.json` and the corresponding `ci-*.log`/`ci-*.jsonl` files under
+the ignored audit root. Formatting, workflow parsing and whitespace checks also
+passed. Updated remote CI results must be read from PR #9; these local results
+do not claim the subsequent GitHub run passed.
