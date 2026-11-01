@@ -63,7 +63,7 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 		servicehttp.WithAuth(servicehttp.AuthRoutes{Service: identity, Verifier: tokens, Cookies: cookies}),
 	}
 
-	googleOption, err := googleRouterOption(logger, config, repo, identity, cookies)
+	googleOption, err := googleRouterOption(logger, config, repo, identity, cookies, authConfig.OAuthStateTTL)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -71,7 +71,7 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 		options = append(options, googleOption)
 	}
 
-	resetOption, drain, err := resetRouterOption(logger, repo, identity, cookies)
+	resetOption, drain, err := resetRouterOption(logger, repo, identity, cookies, authConfig.PasswordResetTokenTTL)
 	if err != nil {
 		return nil, nil, err
 	}

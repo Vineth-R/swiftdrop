@@ -358,7 +358,7 @@ func (a *AdminUsers) SetUserActive(ctx context.Context, actorID, userID string, 
 	if !active && userID == actorID {
 		return ErrCannotDeactivateSelf
 	}
-	err := a.store.SetUserActive(ctx, userID, active, actorID, a.base.now())
+	err := a.store.SetUserActive(ctx, userID, active, actorID, a.base.nowUTC())
 	if errors.Is(err, repository.ErrNotFound) {
 		return ErrUserNotFound
 	}

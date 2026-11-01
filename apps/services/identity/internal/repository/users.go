@@ -131,6 +131,7 @@ func (r *Repository) queryUser(ctx context.Context, condition string, arg any) (
 // RecordSuccessfulLogin clears the failure counter and any lock, and stamps
 // last_login_at.
 func (r *Repository) RecordSuccessfulLogin(ctx context.Context, userID string, now time.Time) error {
+	now = now.UTC()
 	tag, err := r.db.Exec(ctx, `
 		UPDATE identity.users
 		SET failed_login_count = 0, locked_until = NULL, last_login_at = $2
@@ -155,6 +156,7 @@ func (r *Repository) RecordFailedLogin(
 	policy lockout.Policy,
 	now time.Time,
 ) (lockout.State, error) {
+	now = now.UTC()
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return lockout.State{}, fmt.Errorf("recording failed login: %w", err)

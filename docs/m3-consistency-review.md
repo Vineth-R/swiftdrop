@@ -53,6 +53,8 @@ or a stricter reading, and each is explained in the report sections or the hando
 
 The original M3 PR added no migration because `migrations/identity/000002_tables.up.sql` already created every table the features use. The security remediation adds identity `000003_oauth_states_browser_binding` for the nullable `browser_binding_hash` column; it does not recreate `oauth_states`.
 
+Authentication lifetimes are loaded by `LoadAuthFrom` (`ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`, `OAUTH_STATE_TTL`, `PASSWORD_RESET_TOKEN_TTL`) and validated at startup; the services receive them from that single configuration type. Email verification is not implemented in this repository, so no verification-token lifetime is configured.
+
 | Table / rule (Database Design v1.1)                                             | Used how                                                                                                              | Result |
 | :------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------- | :----- |
 | 3.2 `users.google_sub` unique, `auth_provider`, `email_verified`, `password_hash` NULL for Google | Google sign-up inserts `GOOGLE`, `NULL` password, `email_verified = true`; the `users_has_login_method` check is satisfied by `google_sub` | Matches (SQL) |

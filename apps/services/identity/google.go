@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/identity/internal/config"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/google"
@@ -23,6 +24,7 @@ func googleRouterOption(
 	repo *repository.Repository,
 	identity *service.Service,
 	cookies servicehttp.CookieConfig,
+	oauthStateTTL time.Duration,
 ) (servicehttp.Option, error) {
 	if problems := config.GoogleProblems(); len(problems) > 0 {
 		logger.Warn("Google sign-in is disabled: "+strings.Join(problems, "; "),
@@ -38,7 +40,7 @@ func googleRouterOption(
 	if err != nil {
 		return nil, fmt.Errorf("create google client: %w", err)
 	}
-	googleAuth, err := service.NewGoogleAuth(identity, repo, client)
+	googleAuth, err := service.NewGoogleAuth(identity, repo, client, oauthStateTTL)
 	if err != nil {
 		return nil, fmt.Errorf("create google auth service: %w", err)
 	}

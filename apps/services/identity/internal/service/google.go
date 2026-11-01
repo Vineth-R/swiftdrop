@@ -18,10 +18,6 @@ import (
 )
 
 const (
-	// oauthStateTTL is how long a Google login attempt stays valid (DB v1.1
-	// section 3.5: about 10 minutes).
-	oauthStateTTL = 10 * time.Minute
-
 	// oauthRandomBytes gives 43 URL-safe characters, which fits the 64 character
 	// state column and satisfies the 43 character minimum for a PKCE verifier.
 	oauthRandomBytes = 32
@@ -112,6 +108,7 @@ type GoogleLoginStart struct {
 	AuthURL           string
 	BindingCookieName string
 	BindingValue      string
+	BindingMaxAge     int
 }
 
 // OAuthBindingCookieName returns the browser-binding cookie name for a state.
@@ -142,14 +139,19 @@ type GoogleAuth struct {
 	base     *Service
 	store    GoogleStore
 	provider GoogleProvider
+	stateTTL time.Duration
 }
 
-// NewGoogleAuth returns a GoogleAuth that builds sessions with base.
-func NewGoogleAuth(base *Service, store GoogleStore, provider GoogleProvider) (*GoogleAuth, error) {
+// NewGoogleAuth returns a GoogleAuth that builds sessions with base and keeps
+// OAuth states for stateTTL, from the central auth configuration.
+func NewGoogleAuth(base *Service, store GoogleStore, provider GoogleProvider, stateTTL time.Duration) (*GoogleAuth, error) {
 	if base == nil || store == nil || provider == nil {
 		return nil, errors.New("google auth requires a service, a store and a provider")
 	}
-	return &GoogleAuth{base: base, store: store, provider: provider}, nil
+	if stateTTL <= 0 {
+		return nil, errors.New("google auth requires a positive OAuth state lifetime")
+	}
+	return &GoogleAuth{base: base, store: store, provider: provider, stateTTL: stateTTL}, nil
 }
 
 // StartGoogleLogin remembers a new login attempt and returns the Google URL to
@@ -178,7 +180,7 @@ func (g *GoogleAuth) StartGoogleLogin(ctx context.Context, redirectTo string) (G
 		return GoogleLoginStart{}, errors.New("start google login: generated state cannot be bound to a cookie")
 	}
 
-	now := g.base.now()
+	now := g.base.nowUTC()
 	// Housekeeping only: a failure here must not stop someone from signing in.
 	if err := g.store.PurgeExpiredOAuthStates(ctx, now); err != nil {
 		g.base.logger.WarnContext(ctx, "could not purge expired oauth states", "error", err.Error())
@@ -189,7 +191,7 @@ func (g *GoogleAuth) StartGoogleLogin(ctx context.Context, redirectTo string) (G
 		CodeVerifier:       verifier,
 		RedirectTo:         redirectTo,
 		BrowserBindingHash: hashOAuthBinding(binding),
-		ExpiresAt:          now.Add(oauthStateTTL),
+		ExpiresAt:          now.Add(g.stateTTL),
 	}); err != nil {
 		return GoogleLoginStart{}, fmt.Errorf("start google login: %w", err)
 	}
@@ -197,6 +199,7 @@ func (g *GoogleAuth) StartGoogleLogin(ctx context.Context, redirectTo string) (G
 		AuthURL:           g.provider.AuthURL(state, verifier),
 		BindingCookieName: cookieName,
 		BindingValue:      binding,
+		BindingMaxAge:     int(g.stateTTL / time.Second),
 	}, nil
 }
 
@@ -215,7 +218,7 @@ func (g *GoogleAuth) CompleteGoogleLogin(ctx context.Context, input GoogleCallba
 	if input.BrowserBinding == "" || len(input.BrowserBinding) > maxOAuthBindingLength {
 		return GoogleLoginResult{}, ErrOAuthStateInvalid
 	}
-	now := g.base.now()
+	now := g.base.nowUTC()
 
 	// The state is consumed before anything else, so it works exactly once even
 	// if the rest of the login fails. The binding hash is part of the atomic
