@@ -134,7 +134,7 @@ func LoadAuthFrom(loader sharedconfig.Loader, appEnv string) (Auth, error) {
 	if err != nil {
 		return Auth{}, err
 	}
-	if err := validateTTL("LOGIN_LOCKOUT_DURATION", lockoutDuration, time.Minute, maxLockoutDuration); err != nil {
+	if err := validateTTL("LOGIN_LOCKOUT_DURATION", lockoutDuration, time.Second, maxLockoutDuration); err != nil {
 		return Auth{}, err
 	}
 
