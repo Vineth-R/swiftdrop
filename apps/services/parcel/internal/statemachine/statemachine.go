@@ -201,4 +201,3 @@ func ValidateCourierTransition(currentCourierID, actorCourierID string, from, to
 	}
 	return ValidateTransition(from, to, input)
 }
-

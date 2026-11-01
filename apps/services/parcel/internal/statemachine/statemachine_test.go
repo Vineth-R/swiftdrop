@@ -507,4 +507,3 @@ func TestStatusHelpers(t *testing.T) {
 		t.Error("expected OUT_FOR_DELIVERY to not be closed")
 	}
 }
-
