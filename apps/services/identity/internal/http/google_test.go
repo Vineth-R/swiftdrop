@@ -17,8 +17,17 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
 
+// testOAuthState is a syntactically valid 43-character state, so the handler
+// can derive a browser-binding cookie name from it.
+const testOAuthState = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func testBindingCookieName() string {
+	name, _ := service.OAuthBindingCookieName(testOAuthState)
+	return name
+}
+
 type fakeGoogleService struct {
-	startURL   string
+	start      service.GoogleLoginStart
 	result     service.GoogleLoginResult
 	err        error
 	startCalls int
@@ -28,10 +37,10 @@ type fakeGoogleService struct {
 	callbacks     int
 }
 
-func (f *fakeGoogleService) StartGoogleLogin(_ context.Context, redirectTo string) (string, error) {
+func (f *fakeGoogleService) StartGoogleLogin(_ context.Context, redirectTo string) (service.GoogleLoginStart, error) {
 	f.startCalls++
 	f.gotRedirectTo = redirectTo
-	return f.startURL, f.err
+	return f.start, f.err
 }
 
 func (f *fakeGoogleService) CompleteGoogleLogin(_ context.Context, input service.GoogleCallbackInput) (service.GoogleLoginResult, error) {
@@ -47,10 +56,18 @@ type googleHarness struct {
 }
 
 func newGoogleHarness(t *testing.T) *googleHarness {
+	return newGoogleHarnessWithSecure(t, false)
+}
+
+func newGoogleHarnessWithSecure(t *testing.T, secure bool) *googleHarness {
 	t.Helper()
 	logs := &bytes.Buffer{}
 	fake := &fakeGoogleService{
-		startURL: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+		start: service.GoogleLoginStart{
+			AuthURL:           "https://accounts.google.com/o/oauth2/v2/auth?state=" + testOAuthState,
+			BindingCookieName: testBindingCookieName(),
+			BindingValue:      "binding-value",
+		},
 		result: service.GoogleLoginResult{
 			Session: service.Session{
 				Account:          service.Account{ID: "user-1", Email: "nimal@example.com", Role: auth.RoleCustomer},
@@ -64,14 +81,24 @@ func newGoogleHarness(t *testing.T) *googleHarness {
 	}
 	handler := New(slog.New(slog.NewTextHandler(logs, nil)), WithGoogle(GoogleRoutes{
 		Service: fake,
-		Cookies: CookieConfig{AccessName: "sd_access", RefreshName: "sd_refresh", SameSite: http.SameSiteLaxMode},
+		Cookies: CookieConfig{
+			AccessName: "sd_access", RefreshName: "sd_refresh",
+			Secure: secure, SameSite: http.SameSiteLaxMode,
+		},
 	}))
 	return &googleHarness{service: fake, handler: handler, logs: logs}
 }
 
 func (h *googleHarness) get(target string, headers ...string) *httptest.ResponseRecorder {
+	return h.getWithCookies(target, nil, headers...)
+}
+
+func (h *googleHarness) getWithCookies(target string, cookies []*http.Cookie, headers ...string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodGet, target, nil)
 	request.Header.Set("User-Agent", "test-browser")
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
 	for i := 0; i+1 < len(headers); i += 2 {
 		request.Header.Set(headers[i], headers[i+1])
 	}
@@ -88,7 +115,7 @@ func TestGoogleLogin_redirectsToGoogle(t *testing.T) {
 	if response.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", response.Code)
 	}
-	if location := response.Header().Get("Location"); location != h.service.startURL {
+	if location := response.Header().Get("Location"); location != h.service.start.AuthURL {
 		t.Fatalf("Location = %q, want the Google URL", location)
 	}
 	if h.service.gotRedirectTo != "/parcels?tab=1" {
@@ -97,8 +124,37 @@ func TestGoogleLogin_redirectsToGoogle(t *testing.T) {
 	if response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("login redirect must not be cached")
 	}
-	if len(response.Result().Cookies()) != 0 {
-		t.Fatal("starting a login must not set cookies")
+
+	cookies := map[string]*http.Cookie{}
+	for _, cookie := range response.Result().Cookies() {
+		cookies[cookie.Name] = cookie
+	}
+	binding := cookies[testBindingCookieName()]
+	if binding == nil {
+		t.Fatalf("cookies = %v, want the browser-binding cookie", cookies)
+	}
+	if binding.Value != "binding-value" {
+		t.Fatalf("binding cookie value = %q", binding.Value)
+	}
+	if !binding.HttpOnly || binding.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("binding cookie flags: HttpOnly=%t SameSite=%v", binding.HttpOnly, binding.SameSite)
+	}
+	if binding.Path != oauthBindingCookiePath || binding.MaxAge != oauthBindingCookieMaxAge {
+		t.Fatalf("binding cookie path/MaxAge = %q/%d", binding.Path, binding.MaxAge)
+	}
+	if binding.Secure {
+		t.Fatal("development configuration must not force Secure on the binding cookie")
+	}
+}
+
+func TestGoogleLogin_bindingCookieIsSecureWhenConfigured(t *testing.T) {
+	h := newGoogleHarnessWithSecure(t, true)
+
+	response := h.get("/auth/google/login")
+	for _, cookie := range response.Result().Cookies() {
+		if cookie.Name == testBindingCookieName() && !cookie.Secure {
+			t.Fatal("production-style configuration must set Secure on the binding cookie")
+		}
 	}
 }
 
@@ -148,8 +204,11 @@ func TestGoogleCallback_success(t *testing.T) {
 	h := newGoogleHarness(t)
 	h.service.result.RedirectTo = "/parcels"
 
-	response := h.get("/auth/google/callback?code=the-code&state=the-state",
-		"Accept", "text/html,application/xhtml+xml")
+	response := h.getWithCookies(
+		"/auth/google/callback?code=the-code&state="+testOAuthState,
+		[]*http.Cookie{{Name: testBindingCookieName(), Value: "binding-value"}},
+		"Accept", "text/html,application/xhtml+xml",
+	)
 
 	if response.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", response.Code)
@@ -157,7 +216,8 @@ func TestGoogleCallback_success(t *testing.T) {
 	if location := response.Header().Get("Location"); location != "/parcels" {
 		t.Fatalf("Location = %q, want /parcels", location)
 	}
-	if got := h.service.gotCallback; got.Code != "the-code" || got.State != "the-state" || got.UserAgent != "test-browser" {
+	if got := h.service.gotCallback; got.Code != "the-code" || got.State != testOAuthState ||
+		got.BrowserBinding != "binding-value" || got.UserAgent != "test-browser" {
 		t.Fatalf("service got %+v", got)
 	}
 
@@ -181,12 +241,28 @@ func TestGoogleCallback_success(t *testing.T) {
 	if strings.Contains(response.Body.String(), "access-token-value") {
 		t.Fatal("tokens must not appear in the redirect body")
 	}
+	if binding := cookies[testBindingCookieName()]; binding == nil || binding.MaxAge >= 0 {
+		t.Fatalf("binding cookie = %+v, want it cleared after the callback", binding)
+	}
+}
+
+func TestGoogleCallback_missingBindingIsPassedAsEmpty(t *testing.T) {
+	h := newGoogleHarness(t)
+
+	h.get("/auth/google/callback?code=c&state=" + testOAuthState)
+
+	if h.service.gotCallback.BrowserBinding != "" {
+		t.Fatalf("BrowserBinding = %q, want empty when no cookie is present", h.service.gotCallback.BrowserBinding)
+	}
 }
 
 func TestGoogleCallback_defaultLanding(t *testing.T) {
 	h := newGoogleHarness(t)
 
-	response := h.get("/auth/google/callback?code=c&state=s")
+	response := h.getWithCookies(
+		"/auth/google/callback?code=c&state="+testOAuthState,
+		[]*http.Cookie{{Name: testBindingCookieName(), Value: "binding-value"}},
+	)
 
 	if location := response.Header().Get("Location"); location != googleLandingPath {
 		t.Fatalf("Location = %q, want %q", location, googleLandingPath)
@@ -198,7 +274,10 @@ func TestGoogleCallback_neverRedirectsOffSite(t *testing.T) {
 		h := newGoogleHarness(t)
 		h.service.result.RedirectTo = bad
 
-		response := h.get("/auth/google/callback?code=c&state=s")
+		response := h.getWithCookies(
+			"/auth/google/callback?code=c&state="+testOAuthState,
+			[]*http.Cookie{{Name: testBindingCookieName(), Value: "binding-value"}},
+		)
 
 		if location := response.Header().Get("Location"); location != googleLandingPath {
 			t.Fatalf("stored redirect %q produced Location %q, want %q", bad, location, googleLandingPath)
@@ -219,7 +298,11 @@ func TestGoogleCallback_browserFailuresRedirectToLogin(t *testing.T) {
 			h := newGoogleHarness(t)
 			h.service.err = failure
 
-			response := h.get("/auth/google/callback?code=c&state=s", "Accept", "text/html")
+			response := h.getWithCookies(
+				"/auth/google/callback?code=c&state="+testOAuthState,
+				[]*http.Cookie{{Name: testBindingCookieName(), Value: "binding-value"}},
+				"Accept", "text/html",
+			)
 
 			if response.Code != http.StatusFound {
 				t.Fatalf("status = %d, want 302", response.Code)
@@ -227,8 +310,15 @@ func TestGoogleCallback_browserFailuresRedirectToLogin(t *testing.T) {
 			if location := response.Header().Get("Location"); location != googleFailurePath {
 				t.Fatalf("Location = %q, want %q", location, googleFailurePath)
 			}
-			if len(response.Result().Cookies()) != 0 {
-				t.Fatal("a failed login must not set cookies")
+			cookies := map[string]*http.Cookie{}
+			for _, cookie := range response.Result().Cookies() {
+				cookies[cookie.Name] = cookie
+			}
+			if cookies["sd_access"] != nil || cookies["sd_refresh"] != nil {
+				t.Fatal("a failed login must not set session cookies")
+			}
+			if binding := cookies[testBindingCookieName()]; binding == nil || binding.MaxAge >= 0 {
+				t.Fatalf("binding cookie = %+v, want it cleared", binding)
 			}
 		})
 	}
@@ -262,7 +352,7 @@ func TestGoogleCallback_jsonErrorsWhenCalledDirectly(t *testing.T) {
 			h := newGoogleHarness(t)
 			h.service.err = test.err
 
-			response := h.get("/auth/google/callback?code=c&state=s", "Accept", "application/json")
+			response := h.get("/auth/google/callback?code=c&state="+testOAuthState, "Accept", "application/json")
 
 			if response.Code != test.status {
 				t.Fatalf("status = %d, want %d", response.Code, test.status)
@@ -278,9 +368,12 @@ func TestGoogleCallback_googleRefusalSendsNoCode(t *testing.T) {
 	h := newGoogleHarness(t)
 	h.service.err = service.ErrOAuthProvider
 
-	response := h.get("/auth/google/callback?error=access_denied&state=s&code=ignored")
+	response := h.getWithCookies(
+		"/auth/google/callback?error=access_denied&state="+testOAuthState+"&code=ignored",
+		[]*http.Cookie{{Name: testBindingCookieName(), Value: "binding-value"}},
+	)
 
-	if h.service.gotCallback.Code != "" || h.service.gotCallback.State != "s" {
+	if h.service.gotCallback.Code != "" || h.service.gotCallback.State != testOAuthState {
 		t.Fatalf("service got %+v, want the state but no code", h.service.gotCallback)
 	}
 	if location := response.Header().Get("Location"); location != googleFailurePath {
@@ -292,14 +385,20 @@ func TestGoogleCallback_logsNeverContainCredentials(t *testing.T) {
 	h := newGoogleHarness(t)
 	h.service.err = service.ErrOAuthProvider
 
-	h.get("/auth/google/callback?code=SECRET-CODE&state=SECRET-STATE", "Accept", "text/html")
+	h.getWithCookies(
+		"/auth/google/callback?code=SECRET-CODE&state="+testOAuthState,
+		[]*http.Cookie{{Name: testBindingCookieName(), Value: "SECRET-BINDING"}},
+		"Accept", "text/html",
+	)
 
 	logs := h.logs.String()
 	if !strings.Contains(logs, "google sign-in failed") {
 		t.Fatalf("failure was not logged: %q", logs)
 	}
-	if strings.Contains(logs, "SECRET-CODE") || strings.Contains(logs, "SECRET-STATE") {
-		t.Fatal("the authorization code or state was logged")
+	for _, secret := range []string{"SECRET-CODE", testOAuthState, "SECRET-BINDING"} {
+		if strings.Contains(logs, secret) {
+			t.Fatalf("sensitive value %q was logged: %q", secret, logs)
+		}
 	}
 }
 

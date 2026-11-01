@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +70,7 @@ func TestRepository_CreateOAuthState_sendsEmptyOptionalFieldsAsNull(t *testing.T
 	if err := repo.CreateOAuthState(context.Background(), NewOAuthState{State: "abc", ExpiresAt: expires}); err != nil {
 		t.Fatalf("CreateOAuthState returned error: %v", err)
 	}
-	if len(db.lastArgs) != 4 || db.lastArgs[0] != "abc" || db.lastArgs[1] != "" || db.lastArgs[2] != "" {
+	if len(db.lastArgs) != 5 || db.lastArgs[0] != "abc" || db.lastArgs[1] != "" || db.lastArgs[2] != "" || db.lastArgs[3] != "" {
 		t.Fatalf("unexpected query arguments: %v", db.lastArgs)
 	}
 }
@@ -116,9 +117,16 @@ func TestRepository_ConsumeOAuthState(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			repo, _ := New(&fakeDB{row: test.row})
+			db := &fakeDB{row: test.row}
+			repo, _ := New(db)
 
-			got, err := repo.ConsumeOAuthState(context.Background(), "abc", time.Now())
+			got, err := repo.ConsumeOAuthState(context.Background(), "abc", "binding-hash", time.Now())
+			if !strings.Contains(db.lastSQL, "browser_binding_hash") {
+				t.Fatalf("ConsumeOAuthState SQL = %q, want it to match on browser_binding_hash", db.lastSQL)
+			}
+			if len(db.lastArgs) != 3 || db.lastArgs[0] != "abc" || db.lastArgs[1] != "binding-hash" {
+				t.Fatalf("ConsumeOAuthState args = %v", db.lastArgs)
+			}
 			if test.wantErr != nil {
 				if !errors.Is(err, test.wantErr) {
 					t.Fatalf("ConsumeOAuthState() error = %v, want %v", err, test.wantErr)
