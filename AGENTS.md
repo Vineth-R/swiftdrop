@@ -43,7 +43,7 @@ The repository is intentionally a production-oriented foundation. Do not describ
 | RabbitMQ       | Compose runs RabbitMQ 4.1 management. Workers declare the durable main exchange, queue, and binding plus retry and dead-letter exchanges and queues. No event producers or outbox implementation yet.                                                                                                      |
 | Contracts      | OpenAPI specs cover health and readiness plus shared 404/405/500 error responses. One example event schema exists for `notification.requested.v1`; the webhook payload schema is an open decision.                                                                                                         |
 | Realtime       | Health endpoints and Nginx WebSocket/SSE settings exist. No WebSocket or SSE handler or subscription engine exists.                                                                                                                                                                                        |
-| Tests          | Go unit tests exist and five broker-backed messaging integration scenarios live under `tests/integration`. Playwright has one example test.                                                                                                                                                                |
+| Tests          | Go unit tests exist, including the parcel dispatch state machine; five broker-backed messaging scenarios and isolated PostgreSQL dispatch migration tests live under `tests/integration`. Playwright covers the starter page and dispatch preview.                                                         |
 | Infrastructure | Docker Compose, Go and web Dockerfiles, Nginx, migrations, event contracts, and CI exist. No Kubernetes, Terraform, cloud deployment, or production TLS.                                                                                                                                                   |
 
 Planned responsibilities:
@@ -87,7 +87,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 | `migrations/<service>`              | golang-migrate SQL migrations. `000001` creates the schema; `000002_tables` is reserved for the platform baseline tables. Owners add new migrations from `000003`.                                               |
 | `infra/docker`                      | Parameterized Go Dockerfile and Next.js standalone Dockerfile.                                                                                                                                                   |
 | `infra/nginx`                       | Local reverse proxy configuration and routing notes.                                                                                                                                                             |
-| `tests/integration`                 | Broker-backed RabbitMQ tests covering acknowledgement, retries, dead-lettering, and panic recovery.                                                                                                              |
+| `tests/integration`                 | Broker-backed RabbitMQ tests covering acknowledgement, retries, dead-lettering, and panic recovery, plus isolated PostgreSQL dispatch migration tests in `tests/integration/database`.                           |
 | `docs`                              | Architecture documentation.                                                                                                                                                                                      |
 | `.github/workflows`                 | CI workflows.                                                                                                                                                                                                    |
 | `.agents/skills`                    | Third-party project skills pinned by `skills-lock.json`, plus local Nx skills.                                                                                                                                   |
@@ -256,6 +256,7 @@ Authentication and authorization are not implemented yet. When they are implemen
 - Use versioned migrations under `migrations/<service>/` with the `NNNNNN_description.up.sql` and `.down.sql` naming convention.
 - Use golang-migrate as documented in `migrations/README.md`. Each service uses its own migration version table.
 - `000001` creates the service schema. `000002_tables` is reserved for the platform baseline tables from `docs/db.sql`. Other owners add new migrations from `000003`; do not renumber or reuse an applied version.
+- Parcel `000003_dispatch_foundations` extends the baseline `parcel_assignments` and `outbox_events` tables. It adds reassignment metadata, an assignment `updated_at` trigger, and outbox aggregate metadata without recreating tables.
 - Applied migrations are immutable. Fix mistakes with a new migration.
 - Do not run migrations automatically at service startup.
 - Do not modify schemas manually without a migration.
@@ -290,7 +291,7 @@ Add or update tests for every meaningful change.
 - HTTP handler and route tests.
 - Configuration and validation tests.
 - Repository tests when a database layer is added.
-- Integration tests for PostgreSQL, and broker-backed RabbitMQ tests under `tests/integration`.
+- Integration tests for PostgreSQL and broker-backed RabbitMQ tests under `tests/integration`. PostgreSQL tests create and drop uniquely named databases and require `TEST_DATABASE_URL`.
 - Tests for validation, authorization, and failure paths.
 - Existing tests use the Go standard library testing package. Follow that style unless there is a clear reason to add another tool.
 - Unit tests must not require PostgreSQL or RabbitMQ. Use `//go:build integration` for infrastructure-backed tests under `tests/integration`.
@@ -341,7 +342,8 @@ Never claim tests passed unless they were actually run and passed. Report any ch
   pnpm exec nx typecheck @org/web-e2e
   pnpm exec nx e2e @org/web-e2e
   pnpm exec nx run-many -t lint test build -p identity,parcel,pricing,merchant,notification-worker,webhook-worker,realtime,go-common
-  RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' go test -tags=integration ./tests/integration/...
+  RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' go test -tags=integration ./tests/integration
+  TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' go test -tags=integration ./tests/integration/database/...
   ```
 - `pnpm exec nx lint @org/web` and `pnpm exec nx build @org/web` are valid. `pnpm exec nx serve @org/web` is not; use `dev` or `start`.
 - The CI frontend command is `pnpm exec nx run-many -t lint typecheck build --projects=@org/web,@org/web-e2e`. Nx runs only targets that are configured for each project.
