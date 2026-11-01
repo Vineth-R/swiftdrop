@@ -91,7 +91,7 @@ type GoogleStore interface {
 	UserByGoogleSub(ctx context.Context, googleSub string) (repository.User, error)
 	UserByEmail(ctx context.Context, email string) (repository.User, error)
 	CreateGoogleUser(ctx context.Context, params repository.CreateGoogleUserParams) (repository.User, error)
-	LinkGoogleAccount(ctx context.Context, userID, googleSub string) error
+	LinkGoogleAccount(ctx context.Context, userID, googleSub string, now time.Time) (bool, error)
 	RecordSuccessfulLogin(ctx context.Context, userID string, now time.Time) error
 	CreateRefreshToken(ctx context.Context, token repository.NewRefreshToken) (string, error)
 }
@@ -244,7 +244,7 @@ func (g *GoogleAuth) CompleteGoogleLogin(ctx context.Context, input GoogleCallba
 		return GoogleLoginResult{}, ErrGoogleEmailNotVerified
 	}
 
-	user, err := g.resolveUser(ctx, profile, email)
+	user, err := g.resolveUser(ctx, profile, email, now)
 	if err != nil {
 		return GoogleLoginResult{}, err
 	}
@@ -277,7 +277,7 @@ func (g *GoogleAuth) CompleteGoogleLogin(ctx context.Context, input GoogleCallba
 
 // resolveUser finds the account for a verified Google profile: by google_sub,
 // then by email (linking the Google account), otherwise it creates a CUSTOMER.
-func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, email string) (repository.User, error) {
+func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, email string, now time.Time) (repository.User, error) {
 	user, err := g.store.UserByGoogleSub(ctx, profile.Subject)
 	if err == nil {
 		return user, nil
@@ -288,20 +288,7 @@ func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, ema
 
 	user, err = g.store.UserByEmail(ctx, email)
 	if err == nil {
-		if !user.IsActive {
-			// The caller refuses a disabled account; do not link it first.
-			return user, nil
-		}
-		// Google verified this email, so the owner of the Google account owns the
-		// SwiftDrop account. Link them so the next login matches on google_sub.
-		if err := g.store.LinkGoogleAccount(ctx, user.ID, profile.Subject); err != nil {
-			if errors.Is(err, repository.ErrGoogleAccountConflict) {
-				return repository.User{}, fmt.Errorf("google login: %w: account linked to another google account", ErrOAuthProvider)
-			}
-			return repository.User{}, fmt.Errorf("google login: %w", err)
-		}
-		g.base.logger.InfoContext(ctx, "google account linked to existing user", "user_id", user.ID)
-		return user, nil
+		return g.linkExisting(ctx, user, profile.Subject, now)
 	}
 	if !errors.Is(err, repository.ErrNotFound) {
 		return repository.User{}, fmt.Errorf("google login: %w", err)
@@ -313,10 +300,63 @@ func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, ema
 		GoogleSub: profile.Subject,
 		Role:      auth.RoleCustomer,
 	})
+	if errors.Is(err, repository.ErrEmailTaken) || errors.Is(err, repository.ErrGoogleAccountConflict) {
+		// Another request created or linked the account between our lookup and
+		// the insert. Re-read and take the safe linking path once.
+		return g.resolveAfterCreationRace(ctx, profile, email, now)
+	}
 	if err != nil {
 		return repository.User{}, fmt.Errorf("google login: %w", err)
 	}
 	return user, nil
+}
+
+// linkExisting links a Google identity to an account matched by email. The
+// repository clears the password and revokes sessions when the existing email
+// was not verified, so an attacker who pre-registered the address cannot keep
+// password access.
+func (g *GoogleAuth) linkExisting(ctx context.Context, user repository.User, googleSub string, now time.Time) (repository.User, error) {
+	if !user.IsActive {
+		// The caller refuses a disabled account; do not link it first.
+		return user, nil
+	}
+	passwordCleared, err := g.store.LinkGoogleAccount(ctx, user.ID, googleSub, now)
+	if errors.Is(err, repository.ErrGoogleAccountConflict) {
+		return repository.User{}, fmt.Errorf("google login: %w: account linked to another google account", ErrOAuthProvider)
+	}
+	if err != nil {
+		return repository.User{}, fmt.Errorf("google login: %w", err)
+	}
+	user.EmailVerified = true
+	if passwordCleared {
+		user.PasswordHash = nil
+	}
+	g.base.logger.InfoContext(ctx, "google account linked to existing user",
+		"user_id", user.ID,
+		"password_cleared", passwordCleared,
+	)
+	return user, nil
+}
+
+// resolveAfterCreationRace handles a concurrent first login. It never attaches
+// the Google subject to a different user: a conflict is reported instead.
+func (g *GoogleAuth) resolveAfterCreationRace(ctx context.Context, profile GoogleProfile, email string, now time.Time) (repository.User, error) {
+	user, err := g.store.UserByGoogleSub(ctx, profile.Subject)
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, repository.ErrNotFound) {
+		return repository.User{}, fmt.Errorf("google login: %w", err)
+	}
+
+	user, err = g.store.UserByEmail(ctx, email)
+	if err == nil {
+		return g.linkExisting(ctx, user, profile.Subject, now)
+	}
+	if !errors.Is(err, repository.ErrNotFound) {
+		return repository.User{}, fmt.Errorf("google login: %w", err)
+	}
+	return repository.User{}, fmt.Errorf("google login: %w: account creation race", ErrOAuthProvider)
 }
 
 // googleDisplayName fits Google's name into the 2 to 150 character full_name

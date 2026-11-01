@@ -14,14 +14,16 @@ import (
 
 // googleMemoryStore is an in-memory GoogleStore.
 type googleMemoryStore struct {
-	states map[string]repository.NewOAuthState
-	users  map[string]*repository.User
-	subs   map[string]string // google_sub -> user ID
-	tokens []repository.NewRefreshToken
-	logins []string
-	nextID int
+	states         map[string]repository.NewOAuthState
+	users          map[string]*repository.User
+	subs           map[string]string // google_sub -> user ID
+	tokens         []repository.NewRefreshToken
+	logins         []string
+	revokedUserIDs []string
+	nextID         int
 
-	failOn map[string]error
+	failOn       map[string]error
+	beforeCreate func()
 }
 
 func newGoogleMemoryStore() *googleMemoryStore {
@@ -37,7 +39,8 @@ func (s *googleMemoryStore) addUser(email string, active bool, provider string) 
 	s.nextID++
 	user := &repository.User{
 		ID: "user-" + string(rune('0'+s.nextID)), Email: email, FullName: "Existing User",
-		Role: auth.RoleCustomer, AuthProvider: provider, IsActive: active,
+		Role: auth.RoleCustomer, AuthProvider: provider,
+		EmailVerified: provider == "GOOGLE", IsActive: active,
 	}
 	s.users[user.ID] = user
 	return user
@@ -92,6 +95,9 @@ func (s *googleMemoryStore) UserByEmail(_ context.Context, email string) (reposi
 }
 
 func (s *googleMemoryStore) CreateGoogleUser(_ context.Context, params repository.CreateGoogleUserParams) (repository.User, error) {
+	if s.beforeCreate != nil {
+		s.beforeCreate()
+	}
 	if err := s.failOn["CreateGoogleUser"]; err != nil {
 		return repository.User{}, err
 	}
@@ -101,12 +107,27 @@ func (s *googleMemoryStore) CreateGoogleUser(_ context.Context, params repositor
 	return *user, nil
 }
 
-func (s *googleMemoryStore) LinkGoogleAccount(_ context.Context, userID, sub string) error {
+func (s *googleMemoryStore) LinkGoogleAccount(_ context.Context, userID, sub string, _ time.Time) (bool, error) {
 	if err := s.failOn["LinkGoogleAccount"]; err != nil {
-		return err
+		return false, err
 	}
+	user, ok := s.users[userID]
+	if !ok {
+		return false, repository.ErrNotFound
+	}
+	for existingSub, id := range s.subs {
+		if id == userID && existingSub != sub {
+			return false, repository.ErrGoogleAccountConflict
+		}
+	}
+	cleared := !user.EmailVerified
+	if cleared {
+		user.PasswordHash = nil
+		s.revokedUserIDs = append(s.revokedUserIDs, userID)
+	}
+	user.EmailVerified = true
 	s.subs[sub] = userID
-	return nil
+	return cleared, nil
 }
 
 func (s *googleMemoryStore) RecordSuccessfulLogin(_ context.Context, userID string, _ time.Time) error {
@@ -501,6 +522,7 @@ func TestGoogleAuth_CompleteGoogleLogin_linksExistingEmailAccount(t *testing.T) 
 	f := newGoogleFixture(t)
 	existing := f.store.addUser("nimal@example.com", true, "LOCAL")
 	existing.Role = auth.RoleMerchant
+	existing.PasswordHash = stringPtr("attacker-chosen-hash")
 
 	result, err := f.callback(f.begin(t, ""))
 	if err != nil {
@@ -512,8 +534,58 @@ func TestGoogleAuth_CompleteGoogleLogin_linksExistingEmailAccount(t *testing.T) 
 	if f.store.subs["google-sub-1"] != existing.ID {
 		t.Fatal("Google account was not linked")
 	}
+	if existing.PasswordHash != nil {
+		t.Fatal("an unverified account kept its password after Google linking")
+	}
+	if !existing.EmailVerified {
+		t.Fatal("the linked account was not marked email verified")
+	}
+	if len(f.store.revokedUserIDs) != 1 || f.store.revokedUserIDs[0] != existing.ID {
+		t.Fatalf("revoked users = %v, want the linked user", f.store.revokedUserIDs)
+	}
 	if len(f.store.users) != 1 {
 		t.Fatal("a duplicate account was created")
+	}
+}
+
+func TestGoogleAuth_CompleteGoogleLogin_keepsVerifiedPassword(t *testing.T) {
+	f := newGoogleFixture(t)
+	existing := f.store.addUser("nimal@example.com", true, "LOCAL")
+	existing.EmailVerified = true
+	existing.PasswordHash = stringPtr("legitimate-hash")
+
+	if _, err := f.callback(f.begin(t, "")); err != nil {
+		t.Fatalf("CompleteGoogleLogin returned error: %v", err)
+	}
+	if existing.PasswordHash == nil {
+		t.Fatal("a verified account lost its password on Google linking")
+	}
+	if len(f.store.revokedUserIDs) != 0 {
+		t.Fatalf("sessions were revoked for a verified account: %v", f.store.revokedUserIDs)
+	}
+}
+
+func TestGoogleAuth_CompleteGoogleLogin_creationRaceRelinks(t *testing.T) {
+	f := newGoogleFixture(t)
+	f.store.failOn["CreateGoogleUser"] = repository.ErrEmailTaken
+	var winner *repository.User
+	f.store.beforeCreate = func() {
+		winner = f.store.addUser("nimal@example.com", true, "GOOGLE")
+		f.store.subs["google-sub-1"] = winner.ID
+	}
+
+	result, err := f.callback(f.begin(t, ""))
+	if err != nil {
+		t.Fatalf("CompleteGoogleLogin returned error: %v", err)
+	}
+	if winner == nil || result.Session.Account.ID != winner.ID {
+		t.Fatalf("signed in as %v, want the account created by the winning request", result.Session.Account.ID)
+	}
+	if len(f.store.users) != 1 {
+		t.Fatal("the race created a duplicate account")
+	}
+	if len(f.store.tokens) != 1 {
+		t.Fatal("the losing request did not receive a session")
 	}
 }
 
@@ -569,6 +641,8 @@ func TestGoogleAuth_CompleteGoogleLogin_storeFailures(t *testing.T) {
 		})
 	}
 }
+
+func stringPtr(value string) *string { return &value }
 
 func TestGoogleDisplayName(t *testing.T) {
 	tests := []struct {

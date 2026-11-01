@@ -37,11 +37,12 @@ func (r *Repository) UserByGoogleSub(ctx context.Context, googleSub string) (Use
 // ErrGoogleAccountConflict when the Google subject is already linked.
 func (r *Repository) CreateGoogleUser(ctx context.Context, params CreateGoogleUserParams) (User, error) {
 	user := User{
-		Email:        params.Email,
-		FullName:     params.FullName,
-		Role:         params.Role,
-		AuthProvider: "GOOGLE",
-		IsActive:     true,
+		Email:         params.Email,
+		FullName:      params.FullName,
+		Role:          params.Role,
+		AuthProvider:  "GOOGLE",
+		EmailVerified: true,
+		IsActive:      true,
 	}
 
 	err := r.db.QueryRow(ctx, `
@@ -68,35 +69,87 @@ func (r *Repository) CreateGoogleUser(ctx context.Context, params CreateGoogleUs
 }
 
 // LinkGoogleAccount attaches a Google account to an existing user and marks the
-// email verified, because Google proved the owner controls it. The user keeps
-// their auth_provider and any password. It returns ErrGoogleAccountConflict if
-// the user is already linked to a different Google account, and ErrNotFound if
-// the user does not exist.
-func (r *Repository) LinkGoogleAccount(ctx context.Context, userID, googleSub string) error {
-	tag, err := r.db.Exec(ctx, `
-		UPDATE identity.users
-		SET google_sub = $2, email_verified = true
-		WHERE id = $1 AND (google_sub IS NULL OR google_sub = $2)`,
-		userID, googleSub,
+// email verified, because Google proved the owner controls it. When the
+// existing account's email was not verified, it also clears the existing
+// password and revokes every active refresh token, so a password chosen by
+// whoever pre-registered the address cannot be used afterwards. A verified
+// account keeps its password.
+//
+// It returns passwordCleared, ErrGoogleAccountConflict if the user is already
+// linked to a different Google account, and ErrNotFound if the user does not
+// exist.
+func (r *Repository) LinkGoogleAccount(ctx context.Context, userID, googleSub string, now time.Time) (bool, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("linking google account: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		existingSub   *string
+		emailVerified bool
 	)
-	if isGoogleSubTaken(err) {
-		return ErrGoogleAccountConflict
+	err = tx.QueryRow(ctx, `
+		SELECT google_sub, email_verified
+		FROM identity.users
+		WHERE id = $1
+		FOR UPDATE`,
+		userID,
+	).Scan(&existingSub, &emailVerified)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("linking google account: %w", err)
+		return false, fmt.Errorf("linking google account: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		// Either the user is missing or already linked to someone else.
-		var exists bool
-		if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM identity.users WHERE id = $1)`, userID).Scan(&exists); err != nil {
-			return fmt.Errorf("linking google account: %w", err)
+	if existingSub != nil {
+		if *existingSub == googleSub {
+			// Already linked to this Google identity; nothing to change.
+			return false, nil
 		}
-		if !exists {
-			return ErrNotFound
-		}
-		return ErrGoogleAccountConflict
+		return false, ErrGoogleAccountConflict
 	}
-	return nil
+
+	clearPassword := !emailVerified
+	if clearPassword {
+		_, err = tx.Exec(ctx, `
+			UPDATE identity.users
+			SET google_sub = $2, email_verified = true, password_hash = NULL,
+			    failed_login_count = 0, locked_until = NULL
+			WHERE id = $1`,
+			userID, googleSub,
+		)
+	} else {
+		_, err = tx.Exec(ctx, `
+			UPDATE identity.users
+			SET google_sub = $2, email_verified = true,
+			    failed_login_count = 0, locked_until = NULL
+			WHERE id = $1`,
+			userID, googleSub,
+		)
+	}
+	if isGoogleSubTaken(err) {
+		return false, ErrGoogleAccountConflict
+	}
+	if err != nil {
+		return false, fmt.Errorf("linking google account: %w", err)
+	}
+
+	if clearPassword {
+		if _, err := tx.Exec(ctx, `
+			UPDATE identity.refresh_tokens
+			SET revoked_at = $2
+			WHERE user_id = $1 AND revoked_at IS NULL`,
+			userID, now,
+		); err != nil {
+			return false, fmt.Errorf("linking google account: revoking sessions: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("linking google account: %w", err)
+	}
+	return clearPassword, nil
 }
 
 // PurgeExpiredOAuthStates deletes states that can no longer be used, so
