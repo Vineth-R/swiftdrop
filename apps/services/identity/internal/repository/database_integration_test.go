@@ -77,6 +77,7 @@ func newTestRepository(t *testing.T) (*Repository, *postgres.Pool) {
 		"infra/docker/postgres/init/01-schemas.sql",
 		"migrations/identity/000001_initial_schema.up.sql",
 		"migrations/identity/000002_tables.up.sql",
+		"migrations/identity/000003_oauth_states_browser_binding.up.sql",
 	} {
 		script, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file)))
 		if err != nil {
