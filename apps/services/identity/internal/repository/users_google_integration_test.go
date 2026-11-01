@@ -136,8 +136,11 @@ func TestRepository_PurgeExpiredOAuthStates(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
+	binding := testBindingHash()
 	for state, expires := range map[string]time.Time{"old": now.Add(-time.Minute), "live": now.Add(time.Minute)} {
-		if err := repo.CreateOAuthState(ctx, NewOAuthState{State: state, ExpiresAt: expires}); err != nil {
+		if err := repo.CreateOAuthState(ctx, NewOAuthState{
+			State: state, BrowserBindingHash: binding, ExpiresAt: expires,
+		}); err != nil {
 			t.Fatalf("CreateOAuthState(%s) returned error: %v", state, err)
 		}
 	}
@@ -145,10 +148,10 @@ func TestRepository_PurgeExpiredOAuthStates(t *testing.T) {
 		t.Fatalf("PurgeExpiredOAuthStates returned error: %v", err)
 	}
 
-	if _, err := repo.ConsumeOAuthState(ctx, "live", now); err != nil {
+	if _, err := repo.ConsumeOAuthState(ctx, "live", binding, now); err != nil {
 		t.Fatalf("live state was purged: %v", err)
 	}
-	if _, err := repo.ConsumeOAuthState(ctx, "old", now.Add(-2*time.Minute)); !errors.Is(err, ErrOAuthStateInvalid) {
+	if _, err := repo.ConsumeOAuthState(ctx, "old", binding, now.Add(-2*time.Minute)); !errors.Is(err, ErrOAuthStateInvalid) {
 		t.Fatalf("expired state survived the purge: %v", err)
 	}
 }
