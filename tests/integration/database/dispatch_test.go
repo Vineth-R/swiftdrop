@@ -543,10 +543,10 @@ func TestMigrationVersionFiles(t *testing.T) {
 
 	// Each service has its own migration version table, so versions are unique
 	// per service directory rather than across the whole repository.
-	if len(services["parcel"]) != 3 {
-		t.Errorf("parcel migration version count = %d; want 3", len(services["parcel"]))
+	if len(services["parcel"]) != 4 {
+		t.Errorf("parcel migration version count = %d; want 4", len(services["parcel"]))
 	}
-	for _, version := range []string{"000001", "000002", "000003"} {
+	for _, version := range []string{"000001", "000002", "000003", "000004"} {
 		if services["parcel"][version] == nil {
 			t.Errorf("parcel migration %s is missing", version)
 		}
@@ -581,8 +581,8 @@ func TestMigrationVersionFiles(t *testing.T) {
 		versions = append(versions, version)
 	}
 	sort.Strings(versions)
-	if strings.Join(versions, ",") != "000001,000002,000003" {
-		t.Errorf("parcel versions = %v; want [000001 000002 000003]", versions)
+	if strings.Join(versions, ",") != "000001,000002,000003,000004" {
+		t.Errorf("parcel versions = %v; want [000001 000002 000003 000004]", versions)
 	}
 }
 
