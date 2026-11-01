@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -12,8 +13,10 @@ import (
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/http"
+	merchantrepository "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
 const serviceName = "merchant"
@@ -40,23 +43,44 @@ func run() error {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var database *postgres.Pool
+	var pinger postgres.Pinger
+	var merchantRepo *merchantrepository.Repository
+	if config.DatabaseURL != "" {
+		databaseConfig := postgres.DefaultConfig()
+		databaseConfig.URL = config.DatabaseURL
+
+		database, err = postgres.Open(ctx, databaseConfig)
+		if err != nil {
+			return fmt.Errorf("connect database: %w", err)
+		}
+		defer database.Close()
+		pinger = database
+		merchantRepo, err = merchantrepository.New(database)
+		if err != nil {
+			return fmt.Errorf("create merchant repository: %w", err)
+		}
+		logger.Info("database connection established")
+	} else {
+		logger.Warn("DATABASE_URL is not set; readiness will report database down")
+	}
+	router := servicehttp.New(logger, merchantRepo)
+
+	router.GET("/health", postgres.HealthHandler())
+	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))
+
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
-		Handler:           servicehttp.New(logger),
+		Handler:           router,
 		Logger:            logger,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	})
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	go func() {
-		<-ctx.Done()
-		stop()
-	}()
 
 	logger.Info("starting http service", "address", config.Addr(), "environment", config.AppEnv)
 	return httpx.Serve(ctx, server, 10*time.Second)

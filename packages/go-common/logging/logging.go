@@ -22,7 +22,7 @@ func New(service, env, level string) (*slog.Logger, error) {
 		handler = slog.NewJSONHandler(os.Stdout, options)
 	}
 
-	return slog.New(handler).With("service", service), nil
+	return slog.New(NewRedactingHandler(handler)).With("service", service), nil
 }
 
 func ParseLevel(value string) (slog.Level, error) {

@@ -4,7 +4,7 @@ SwiftDrop is a foundation-stage monorepo. Keep changes focused, preserve existin
 
 ## Before you start
 
-1. Read [`README.md`](README.md) for setup and repository rules, and [`docs/architecture.md`](docs/architecture.md) for service boundaries.
+1. Read [`AGENTS.md`](AGENTS.md) for repository rules and [`docs/architecture.md`](docs/architecture.md) for service boundaries.
 2. Install the prerequisites from the [README](README.md#prerequisites).
 3. Set up the workspace:
 
@@ -144,7 +144,7 @@ pnpm exec prettier --check path/to/changed-file.md
 - When an event changes, update the schema under `contracts/events/` and respect versioning rules.
 - When configuration changes, update `.env.example` and the relevant documentation.
 - Mark planned functionality as planned.
-- Keep the README, architecture document, contracts, and migration guide consistent.
+- Keep the README, architecture document, contracts, migration guide, and agent guide consistent.
 
 ## Secrets policy
 

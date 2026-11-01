@@ -8,7 +8,10 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/web-e2e/package.json apps/web-e2e/package.json
 RUN pnpm install --frozen-lockfile
 
-COPY . .
+COPY nx.json tsconfig.base.json tsconfig.json ./
+COPY packages ./packages
+COPY apps/web ./apps/web
+COPY apps/web-e2e ./apps/web-e2e
 
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm exec nx build @org/web

@@ -22,10 +22,10 @@ func NewRouter(logger *slog.Logger) *gin.Engine {
 	router.Use(RequestLogger(logger))
 	router.Use(Recovery(logger))
 	router.NoRoute(func(c *gin.Context) {
-		Error(c, http.StatusNotFound, "not_found", "route not found")
+		Error(c, http.StatusNotFound, "NOT_FOUND", "route not found")
 	})
 	router.NoMethod(func(c *gin.Context) {
-		Error(c, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		Error(c, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 	})
 	return router
 }
@@ -95,7 +95,7 @@ func Recovery(logger *slog.Logger) gin.HandlerFunc {
 				return
 			}
 
-			Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 		}()
 
 		c.Next()
@@ -104,7 +104,7 @@ func Recovery(logger *slog.Logger) gin.HandlerFunc {
 
 func isProbePath(path string) bool {
 	switch strings.TrimSuffix(path, "/") {
-	case "/healthz", "/readyz":
+	case "/health", "/ready", "/healthz", "/readyz":
 		return true
 	default:
 		return false
