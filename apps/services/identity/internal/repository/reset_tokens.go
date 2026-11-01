@@ -50,14 +50,14 @@ func (r *Repository) IssuePasswordResetToken(ctx context.Context, token NewPassw
 		UPDATE identity.password_reset_tokens
 		SET used_at = $2
 		WHERE user_id = $1 AND used_at IS NULL`,
-		token.UserID, now,
+		token.UserID, now.UTC(),
 	); err != nil {
 		return fmt.Errorf("issuing password reset token: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO identity.password_reset_tokens (user_id, token_hash, expires_at, requested_ip)
 		VALUES ($1, $2, $3, $4)`,
-		token.UserID, token.TokenHash, token.ExpiresAt, token.RequestedIP,
+		token.UserID, token.TokenHash, token.ExpiresAt.UTC(), token.RequestedIP,
 	); err != nil {
 		return fmt.Errorf("issuing password reset token: %w", err)
 	}
@@ -80,7 +80,7 @@ func (r *Repository) PasswordResetTokenUsable(ctx context.Context, tokenHash str
 		FROM identity.password_reset_tokens t
 		JOIN identity.users u ON u.id = t.user_id
 		WHERE t.token_hash = $1`,
-		tokenHash, now,
+		tokenHash, now.UTC(),
 	).Scan(&usable)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -144,14 +144,14 @@ func (r *Repository) ResetPasswordWithToken(
 	); err != nil {
 		return "", fmt.Errorf("resetting password: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE identity.password_reset_tokens SET used_at = $2 WHERE id = $1`, tokenID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE identity.password_reset_tokens SET used_at = $2 WHERE id = $1`, tokenID, now.UTC()); err != nil {
 		return "", fmt.Errorf("resetting password: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE identity.refresh_tokens
 		SET revoked_at = $2
 		WHERE user_id = $1 AND revoked_at IS NULL`,
-		userID, now,
+		userID, now.UTC(),
 	); err != nil {
 		return "", fmt.Errorf("resetting password: %w", err)
 	}

@@ -18,9 +18,6 @@ import (
 )
 
 const (
-	// resetTokenTTL is how long a reset link works (API v1.1 section 2.17).
-	resetTokenTTL = 30 * time.Minute
-
 	// maxResetTokenLength bounds the work done on untrusted input. A real token
 	// is 43 characters.
 	maxResetTokenLength = 128
@@ -47,10 +44,11 @@ type ResetStore interface {
 // PasswordReset implements forgot and reset password (API v1.1 sections 2.16
 // and 2.17). It reuses Service for the clock, hasher and logger.
 type PasswordReset struct {
-	base     *Service
-	store    ResetStore
-	mailer   mailer.Mailer
-	frontend string // trusted frontend base URL, no trailing slash
+	base          *Service
+	store         ResetStore
+	mailer        mailer.Mailer
+	frontend      string // trusted frontend base URL, no trailing slash
+	resetTokenTTL time.Duration
 
 	// dispatch runs email delivery. The default runs it in the background so the
 	// response time does not reveal whether an account exists.
@@ -75,10 +73,14 @@ func NewPasswordReset(
 	store ResetStore,
 	sender mailer.Mailer,
 	frontendBaseURL string,
+	resetTokenTTL time.Duration,
 	opts ...PasswordResetOption,
 ) (*PasswordReset, error) {
 	if base == nil || store == nil || sender == nil {
 		return nil, errors.New("password reset requires a service, a store and a mailer")
+	}
+	if resetTokenTTL <= 0 {
+		return nil, errors.New("password reset requires a positive token lifetime")
 	}
 	parsed, err := url.Parse(frontendBaseURL)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
@@ -86,10 +88,11 @@ func NewPasswordReset(
 	}
 
 	p := &PasswordReset{
-		base:     base,
-		store:    store,
-		mailer:   sender,
-		frontend: strings.TrimRight(frontendBaseURL, "/"),
+		base:          base,
+		store:         store,
+		mailer:        sender,
+		frontend:      strings.TrimRight(frontendBaseURL, "/"),
+		resetTokenTTL: resetTokenTTL,
 	}
 	p.dispatch = func(job func()) {
 		p.pending.Add(1)
@@ -141,7 +144,7 @@ func (p *PasswordReset) ForgotPassword(ctx context.Context, input ForgotPassword
 	if err != nil {
 		return fmt.Errorf("forgot password: %w", err)
 	}
-	now := p.base.now()
+	now := p.base.nowUTC()
 	var ip *netip.Addr
 	if input.IP.IsValid() {
 		ip = &input.IP
@@ -149,7 +152,7 @@ func (p *PasswordReset) ForgotPassword(ctx context.Context, input ForgotPassword
 	if err := p.store.IssuePasswordResetToken(ctx, repository.NewPasswordResetToken{
 		UserID:      user.ID,
 		TokenHash:   hashResetToken(token),
-		ExpiresAt:   now.Add(resetTokenTTL),
+		ExpiresAt:   now.Add(p.resetTokenTTL),
 		RequestedIP: ip,
 	}, now); err != nil {
 		return fmt.Errorf("forgot password: %w", err)
@@ -189,7 +192,7 @@ func (p *PasswordReset) ResetPassword(ctx context.Context, input ResetPasswordIn
 	}
 	tokenHash := hashResetToken(input.Token)
 
-	usable, err := p.store.PasswordResetTokenUsable(ctx, tokenHash, p.base.now())
+	usable, err := p.store.PasswordResetTokenUsable(ctx, tokenHash, p.base.nowUTC())
 	if err != nil {
 		return fmt.Errorf("reset password: %w", err)
 	}
@@ -212,7 +215,7 @@ func (p *PasswordReset) ResetPassword(ctx context.Context, input ResetPasswordIn
 	}
 	// The check above was only a read. Spending the token repeats it under a lock,
 	// so two requests with the same token still cannot both succeed.
-	userID, err := p.store.ResetPasswordWithToken(ctx, tokenHash, hash, p.base.now())
+	userID, err := p.store.ResetPasswordWithToken(ctx, tokenHash, hash, p.base.nowUTC())
 	if errors.Is(err, repository.ErrResetTokenInvalid) {
 		return ErrResetTokenInvalid
 	}

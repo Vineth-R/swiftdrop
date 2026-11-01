@@ -25,15 +25,17 @@ func TestLoadAuthFrom_defaults(t *testing.T) {
 	}
 
 	want := Auth{
-		AccessSecret:      strongSecret,
-		AccessTokenTTL:    15 * time.Minute,
-		RefreshTokenTTL:   7 * 24 * time.Hour,
-		AccessCookieName:  "sd_access",
-		RefreshCookieName: "sd_refresh",
-		CookieSecure:      false,
-		CookieSameSite:    http.SameSiteLaxMode,
-		MaxFailedLogins:   5,
-		LockoutDuration:   15 * time.Minute,
+		AccessSecret:          strongSecret,
+		AccessTokenTTL:        15 * time.Minute,
+		RefreshTokenTTL:       7 * 24 * time.Hour,
+		OAuthStateTTL:         10 * time.Minute,
+		PasswordResetTokenTTL: 30 * time.Minute,
+		AccessCookieName:      "sd_access",
+		RefreshCookieName:     "sd_refresh",
+		CookieSecure:          false,
+		CookieSameSite:        http.SameSiteLaxMode,
+		MaxFailedLogins:       5,
+		LockoutDuration:       15 * time.Minute,
 	}
 	if got != want {
 		t.Fatalf("LoadAuthFrom() = %+v, want %+v", got, want)
@@ -42,21 +44,26 @@ func TestLoadAuthFrom_defaults(t *testing.T) {
 
 func TestLoadAuthFrom_overrides(t *testing.T) {
 	got, err := LoadAuthFrom(authLoader(map[string]string{
-		"JWT_ACCESS_SECRET":      strongSecret,
-		"ACCESS_TOKEN_TTL":       "10m",
-		"REFRESH_TOKEN_TTL":      "24h",
-		"COOKIE_NAME":            "a_access",
-		"COOKIE_REFRESH_NAME":    "a_refresh",
-		"COOKIE_SECURE":          "true",
-		"COOKIE_SAMESITE":        "Strict",
-		"LOGIN_MAX_FAILURES":     "3",
-		"LOGIN_LOCKOUT_DURATION": "30m",
+		"JWT_ACCESS_SECRET":        strongSecret,
+		"ACCESS_TOKEN_TTL":         "10m",
+		"REFRESH_TOKEN_TTL":        "24h",
+		"OAUTH_STATE_TTL":          "5m",
+		"PASSWORD_RESET_TOKEN_TTL": "45m",
+		"COOKIE_NAME":              "a_access",
+		"COOKIE_REFRESH_NAME":      "a_refresh",
+		"COOKIE_SECURE":            "true",
+		"COOKIE_SAMESITE":          "Strict",
+		"LOGIN_MAX_FAILURES":       "3",
+		"LOGIN_LOCKOUT_DURATION":   "30m",
 	}), "production")
 	if err != nil {
 		t.Fatalf("LoadAuthFrom returned error: %v", err)
 	}
 	if got.AccessTokenTTL != 10*time.Minute || got.RefreshTokenTTL != 24*time.Hour {
 		t.Fatalf("lifetimes = %s / %s", got.AccessTokenTTL, got.RefreshTokenTTL)
+	}
+	if got.OAuthStateTTL != 5*time.Minute || got.PasswordResetTokenTTL != 45*time.Minute {
+		t.Fatalf("oauth/reset lifetimes = %s / %s", got.OAuthStateTTL, got.PasswordResetTokenTTL)
 	}
 	if got.AccessCookieName != "a_access" || got.RefreshCookieName != "a_refresh" {
 		t.Fatalf("cookie names = %q / %q", got.AccessCookieName, got.RefreshCookieName)
@@ -158,6 +165,54 @@ func TestLoadAuthFrom_errors(t *testing.T) {
 			name:    "bad lockout duration",
 			appEnv:  "development",
 			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "LOGIN_LOCKOUT_DURATION": "-1m"},
+			wantErr: "LOGIN_LOCKOUT_DURATION",
+		},
+		{
+			name:    "oauth state lifetime too short",
+			appEnv:  "development",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "OAUTH_STATE_TTL": "30s"},
+			wantErr: "OAUTH_STATE_TTL",
+		},
+		{
+			name:    "oauth state lifetime too long",
+			appEnv:  "development",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "OAUTH_STATE_TTL": "2h"},
+			wantErr: "OAUTH_STATE_TTL",
+		},
+		{
+			name:    "reset token lifetime too short",
+			appEnv:  "development",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "PASSWORD_RESET_TOKEN_TTL": "1m"},
+			wantErr: "PASSWORD_RESET_TOKEN_TTL",
+		},
+		{
+			name:    "reset token lifetime too long",
+			appEnv:  "development",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "PASSWORD_RESET_TOKEN_TTL": "48h"},
+			wantErr: "PASSWORD_RESET_TOKEN_TTL",
+		},
+		{
+			name:    "access token lifetime zero",
+			appEnv:  "development",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "ACCESS_TOKEN_TTL": "0s"},
+			wantErr: "ACCESS_TOKEN_TTL",
+		},
+		{
+			name:    "access token lifetime too long",
+			appEnv:  "development",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "ACCESS_TOKEN_TTL": "48h"},
+			wantErr: "ACCESS_TOKEN_TTL",
+		},
+		{
+			name:    "refresh token lifetime too long",
+			appEnv:  "development",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "REFRESH_TOKEN_TTL": "8761h"},
+			wantErr: "REFRESH_TOKEN_TTL",
+		},
+		{
+			name:    "lockout duration too long",
+			appEnv:  "development",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "LOGIN_LOCKOUT_DURATION": "25h"},
 			wantErr: "LOGIN_LOCKOUT_DURATION",
 		},
 	}

@@ -67,6 +67,7 @@ func newGoogleHarnessWithSecure(t *testing.T, secure bool) *googleHarness {
 			AuthURL:           "https://accounts.google.com/o/oauth2/v2/auth?state=" + testOAuthState,
 			BindingCookieName: testBindingCookieName(),
 			BindingValue:      "binding-value",
+			BindingMaxAge:     420,
 		},
 		result: service.GoogleLoginResult{
 			Session: service.Session{
@@ -139,7 +140,7 @@ func TestGoogleLogin_redirectsToGoogle(t *testing.T) {
 	if !binding.HttpOnly || binding.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("binding cookie flags: HttpOnly=%t SameSite=%v", binding.HttpOnly, binding.SameSite)
 	}
-	if binding.Path != oauthBindingCookiePath || binding.MaxAge != oauthBindingCookieMaxAge {
+	if binding.Path != oauthBindingCookiePath || binding.MaxAge != h.service.start.BindingMaxAge {
 		t.Fatalf("binding cookie path/MaxAge = %q/%d", binding.Path, binding.MaxAge)
 	}
 	if binding.Secure {

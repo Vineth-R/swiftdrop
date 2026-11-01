@@ -16,16 +16,33 @@ import (
 // service (API v1.1 sections 1.2 and 2.1 to 2.4). It is loaded separately from
 // Config so the authentication settings stay in one place.
 type Auth struct {
-	AccessSecret      string
-	AccessTokenTTL    time.Duration
-	RefreshTokenTTL   time.Duration
-	AccessCookieName  string
-	RefreshCookieName string
-	CookieSecure      bool
-	CookieSameSite    http.SameSite
-	MaxFailedLogins   int
-	LockoutDuration   time.Duration
+	AccessSecret          string
+	AccessTokenTTL        time.Duration
+	RefreshTokenTTL       time.Duration
+	OAuthStateTTL         time.Duration
+	PasswordResetTokenTTL time.Duration
+	AccessCookieName      string
+	RefreshCookieName     string
+	CookieSecure          bool
+	CookieSameSite        http.SameSite
+	MaxFailedLogins       int
+	LockoutDuration       time.Duration
 }
+
+const (
+	defaultAccessTokenTTL        = 15 * time.Minute
+	defaultRefreshTokenTTL       = 7 * 24 * time.Hour
+	defaultOAuthStateTTL         = 10 * time.Minute
+	defaultPasswordResetTokenTTL = 30 * time.Minute
+
+	maxAccessTokenTTL        = 24 * time.Hour
+	maxRefreshTokenTTL       = 365 * 24 * time.Hour
+	minOAuthStateTTL         = time.Minute
+	maxOAuthStateTTL         = time.Hour
+	minPasswordResetTokenTTL = 5 * time.Minute
+	maxPasswordResetTokenTTL = 24 * time.Hour
+	maxLockoutDuration       = 24 * time.Hour
+)
 
 // LoadAuth reads the authentication settings from the process environment.
 // appEnv is the already validated APP_ENV value.
@@ -50,16 +67,36 @@ func LoadAuthFrom(loader sharedconfig.Loader, appEnv string) (Auth, error) {
 		}
 	}
 
-	accessTTL, err := loader.Duration("ACCESS_TOKEN_TTL", 15*time.Minute)
+	accessTTL, err := loader.Duration("ACCESS_TOKEN_TTL", defaultAccessTokenTTL)
 	if err != nil {
 		return Auth{}, err
 	}
-	refreshTTL, err := loader.Duration("REFRESH_TOKEN_TTL", 7*24*time.Hour)
+	if err := validateTTL("ACCESS_TOKEN_TTL", accessTTL, time.Second, maxAccessTokenTTL); err != nil {
+		return Auth{}, err
+	}
+	refreshTTL, err := loader.Duration("REFRESH_TOKEN_TTL", defaultRefreshTokenTTL)
 	if err != nil {
+		return Auth{}, err
+	}
+	if err := validateTTL("REFRESH_TOKEN_TTL", refreshTTL, time.Second, maxRefreshTokenTTL); err != nil {
 		return Auth{}, err
 	}
 	if refreshTTL <= accessTTL {
 		return Auth{}, errors.New("REFRESH_TOKEN_TTL must be longer than ACCESS_TOKEN_TTL")
+	}
+	oauthStateTTL, err := loader.Duration("OAUTH_STATE_TTL", defaultOAuthStateTTL)
+	if err != nil {
+		return Auth{}, err
+	}
+	if err := validateTTL("OAUTH_STATE_TTL", oauthStateTTL, minOAuthStateTTL, maxOAuthStateTTL); err != nil {
+		return Auth{}, err
+	}
+	passwordResetTTL, err := loader.Duration("PASSWORD_RESET_TOKEN_TTL", defaultPasswordResetTokenTTL)
+	if err != nil {
+		return Auth{}, err
+	}
+	if err := validateTTL("PASSWORD_RESET_TOKEN_TTL", passwordResetTTL, minPasswordResetTokenTTL, maxPasswordResetTokenTTL); err != nil {
+		return Auth{}, err
 	}
 
 	accessCookie := loader.String("COOKIE_NAME", "sd_access")
@@ -97,18 +134,30 @@ func LoadAuthFrom(loader sharedconfig.Loader, appEnv string) (Auth, error) {
 	if err != nil {
 		return Auth{}, err
 	}
+	if err := validateTTL("LOGIN_LOCKOUT_DURATION", lockoutDuration, time.Minute, maxLockoutDuration); err != nil {
+		return Auth{}, err
+	}
 
 	return Auth{
-		AccessSecret:      secret,
-		AccessTokenTTL:    accessTTL,
-		RefreshTokenTTL:   refreshTTL,
-		AccessCookieName:  accessCookie,
-		RefreshCookieName: refreshCookie,
-		CookieSecure:      secure,
-		CookieSameSite:    sameSite,
-		MaxFailedLogins:   maxFailures,
-		LockoutDuration:   lockoutDuration,
+		AccessSecret:          secret,
+		AccessTokenTTL:        accessTTL,
+		RefreshTokenTTL:       refreshTTL,
+		OAuthStateTTL:         oauthStateTTL,
+		PasswordResetTokenTTL: passwordResetTTL,
+		AccessCookieName:      accessCookie,
+		RefreshCookieName:     refreshCookie,
+		CookieSecure:          secure,
+		CookieSameSite:        sameSite,
+		MaxFailedLogins:       maxFailures,
+		LockoutDuration:       lockoutDuration,
 	}, nil
+}
+
+func validateTTL(name string, value, min, max time.Duration) error {
+	if value < min || value > max {
+		return fmt.Errorf("%s must be between %s and %s", name, min, max)
+	}
+	return nil
 }
 
 func parseSameSite(loader sharedconfig.Loader) (http.SameSite, error) {

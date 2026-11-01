@@ -140,7 +140,7 @@ func (r *Repository) LinkGoogleAccount(ctx context.Context, userID, googleSub st
 			UPDATE identity.refresh_tokens
 			SET revoked_at = $2
 			WHERE user_id = $1 AND revoked_at IS NULL`,
-			userID, now,
+			userID, now.UTC(),
 		); err != nil {
 			return false, fmt.Errorf("linking google account: revoking sessions: %w", err)
 		}
@@ -155,7 +155,7 @@ func (r *Repository) LinkGoogleAccount(ctx context.Context, userID, googleSub st
 // PurgeExpiredOAuthStates deletes states that can no longer be used, so
 // abandoned login attempts do not pile up (DB v1.1 section 3.5).
 func (r *Repository) PurgeExpiredOAuthStates(ctx context.Context, now time.Time) error {
-	if _, err := r.db.Exec(ctx, `DELETE FROM identity.oauth_states WHERE expires_at <= $1`, now); err != nil {
+	if _, err := r.db.Exec(ctx, `DELETE FROM identity.oauth_states WHERE expires_at <= $1`, now.UTC()); err != nil {
 		return fmt.Errorf("purging oauth states: %w", err)
 	}
 	return nil

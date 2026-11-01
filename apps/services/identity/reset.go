@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/identity/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
@@ -22,6 +23,7 @@ func resetRouterOption(
 	repo *repository.Repository,
 	identity *service.Service,
 	cookies servicehttp.CookieConfig,
+	passwordResetTTL time.Duration,
 ) (servicehttp.Option, func(), error) {
 	noop := func() {}
 	loader := sharedconfig.Load()
@@ -40,7 +42,7 @@ func resetRouterOption(
 		return nil, nil, fmt.Errorf("create mailer: %w", err)
 	}
 
-	reset, err := service.NewPasswordReset(identity, repo, sender, loader.String("FRONTEND_BASE_URL", ""))
+	reset, err := service.NewPasswordReset(identity, repo, sender, loader.String("FRONTEND_BASE_URL", ""), passwordResetTTL)
 	if err != nil {
 		logger.Warn("Password reset is disabled: FRONTEND_BASE_URL must be an absolute http or https URL",
 			"routes_disabled", "/auth/forgot-password, /auth/reset-password")

@@ -17,9 +17,6 @@ const refreshCookiePath = "/api/v1/auth"
 // endpoints. It is the public path behind the gateway.
 const oauthBindingCookiePath = "/api/v1/auth/google"
 
-// oauthBindingCookieMaxAge matches the 10 minute OAuth state lifetime.
-const oauthBindingCookieMaxAge = 600
-
 // CookieConfig describes the session cookies (API v1.1 section 1.2): an
 // HttpOnly access cookie and an HttpOnly refresh cookie.
 type CookieConfig struct {
@@ -53,11 +50,12 @@ func (cfg CookieConfig) RefreshToken(c *gin.Context) string {
 	return value
 }
 
-// SetOAuthBinding writes the per-attempt browser-binding cookie. It always
-// uses SameSite=Lax because the Google callback is a cross-site top-level
-// navigation; a stricter session-cookie policy must not break the callback.
-func (cfg CookieConfig) SetOAuthBinding(c *gin.Context, name, value string) {
-	cfg.setOAuthBinding(c, name, value, oauthBindingCookieMaxAge)
+// SetOAuthBinding writes the per-attempt browser-binding cookie with the
+// lifetime supplied by the OAuth configuration. It always uses SameSite=Lax
+// because the Google callback is a cross-site top-level navigation; a stricter
+// session-cookie policy must not break the callback.
+func (cfg CookieConfig) SetOAuthBinding(c *gin.Context, name, value string, maxAge int) {
+	cfg.setOAuthBinding(c, name, value, maxAge)
 }
 
 // ClearOAuthBinding expires a browser-binding cookie after callback handling.

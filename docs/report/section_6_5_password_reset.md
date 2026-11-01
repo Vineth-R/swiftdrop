@@ -3,14 +3,14 @@
 **Actor:** a user who has forgotten their password. **Service:** Identity, with the shared mailer (`packages/go-common/mailer`). **API:** v1.1 sections 2.16 and 2.17.
 **Tables:** `identity.password_reset_tokens`, `identity.users`, `identity.refresh_tokens` (Database Design v1.1 sections 3.4 and 3.7).
 
-A user asks for a reset link by email, opens it, and chooses a new password. The link carries a random token that works once and expires after 30 minutes. The service never reveals whether an email belongs to an account. Figure 16 shows the message flow and Figure 17 the decisions. The draw.io sources are `docs/diagrams/figure-16-password-reset-sequence.drawio` and `docs/diagrams/figure-17-password-reset-activity.drawio`.
+A user asks for a reset link by email, opens it, and chooses a new password. The link carries a random token that works once and expires after the configured `PASSWORD_RESET_TOKEN_TTL` (default 30 minutes). The service never reveals whether an email belongs to an account. Figure 16 shows the message flow and Figure 17 the decisions. The draw.io sources are `docs/diagrams/figure-16-password-reset-sequence.drawio` and `docs/diagrams/figure-17-password-reset-activity.drawio`.
 
 ### 6.5.1 Step by step
 
 The step numbers below are the numbers in Figure 16.
 
 1. The user selects **Forgot password** and the page sends `POST /auth/forgot-password` with the email.
-2. Identity applies the rate limits (per client address and per email). If the email belongs to an **active local account that has a password**, Identity generates a random token, then in one transaction marks the user's earlier unused tokens as used and stores the SHA-256 hash of the new token with a 30 minute expiry. Otherwise it does nothing.
+2. Identity applies the rate limits (per client address and per email). If the email belongs to an **active local account that has a password**, Identity generates a random token, then in one transaction marks the user's earlier unused tokens as used and stores the SHA-256 hash of the new token with the configured `PASSWORD_RESET_TOKEN_TTL` expiry (default 30 minutes). Otherwise it does nothing.
 3. Identity answers `202` with the same message for every well-formed email: "If an account exists for this email, a password reset link will be sent."
 4. In the background, Identity sends the email through the shared SMTP mailer (Mailpit in development). The link is `FRONTEND_BASE_URL/reset-password?token=...`.
 5. The email arrives and the user opens the link. The reset page reads the token from the URL and asks only for a new password.
@@ -68,7 +68,7 @@ flowchart TD
 | Rule                      | Value                                                                                                                                          |
 | :------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------- |
 | Token                     | 32 bytes from the system random generator, shown as 43 URL-safe characters. Only its SHA-256 hash (64 hex characters) is stored.              |
-| Lifetime                  | 30 minutes (`expires_at`). A token is valid only while `used_at` is empty and the time is before `expires_at`.                                  |
+| Lifetime                  | `PASSWORD_RESET_TOKEN_TTL` (default 30 minutes; 5m to 24h). A token is valid only while `used_at` is empty and the time is before `expires_at`. |
 | One live link             | Requesting a new link marks the earlier unused tokens used, so only the newest works. The database also enforces one unused token per user.   |
 | Who gets a link           | A user that exists, is active and has a password. Google-only and disabled accounts get nothing, but the same `202` is returned.               |
 | Link                      | Built from the configured `FRONTEND_BASE_URL`, never from the request's `Host` header.                                                          |
@@ -100,7 +100,7 @@ There is no distinct response for an unknown email. A mail-server outage is also
 | The email is sent in the background, after the reply is prepared                           | The reply time then does not depend on how long the mail server takes, which would otherwise reveal whether an email was sent.                                                                             |
 | Only the SHA-256 hash of the token is stored                                              | A database leak or backup does not hand out working reset links. SHA-256 is enough for a 256-bit random token; a slow password hash is needed only for guessable secrets.                                  |
 | 32 random bytes                                                                            | 256 bits cannot be guessed. The 5-per-minute limit adds a second barrier.                                                                                                                                  |
-| 30 minutes, single use                                                                    | Limits the window if the mailbox is read by someone else, and a spent link is useless (API v1.1 2.17).                                                                                                     |
+| Configurable lifetime (default 30 minutes), single use                                    | Limits the window if the mailbox is read by someone else, and a spent link is useless (API v1.1 2.17).                                                                                                     |
 | Older unused tokens are marked used before the new one is inserted, in one transaction with the user row locked | Only the newest link works. The lock stops two simultaneous requests from both inserting an unused token and hitting the database's one-unused-token index.                       |
 | The password change, `used_at` and the session revocation are one transaction             | A crash cannot leave the password changed but the token reusable, or old sessions alive. The token row is locked, so two requests with the same token cannot both succeed.                                  |
 | All refresh tokens are revoked                                                            | Whoever knew the old password (the usual reason for a reset) loses their sessions. An access token already issued stays valid until it expires (15 minutes by default).                                    |
@@ -120,7 +120,8 @@ Executed locally with `go test` and `go test -race` for the identity and mailer 
 | Requirement (task sheet M3.3 test)                   | Test                                                                                                                                                   |
 | :--------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | An unknown email gets the same reply                 | `TestPasswordReset_ForgotPassword_sameOutcomeForEveryEmail` (unknown, Google-only, disabled), `TestForgotPassword_replyDoesNotDependOnTheAccount`        |
-| Token stored only as a hash, 30 minute expiry        | `TestPasswordReset_ForgotPassword_sendsLinkAndStoresOnlyAHash`                                                                                          |
+| Token stored only as a hash, configured expiry        | `TestPasswordReset_ForgotPassword_sendsLinkAndStoresOnlyAHash`, `TestPasswordReset_ForgotPassword_persistsUTCTimestamps`                                      |
+| Reset lifetime comes from configuration and persists in UTC | `TestPasswordReset_ForgotPassword_persistsUTCTimestamps`; ◇ `TestPasswordResetFlow_persistsConfiguredTTL` |
 | Older links stop working                             | `TestPasswordReset_newestLinkOnly`; ◇ `TestRepository_IssuePasswordResetToken_onlyTheNewestWorks`, `_concurrentRequestsLeaveOneUnusedToken`             |
 | The link works once                                  | `TestPasswordReset_ResetPassword_worksOnce`; ◇ `TestRepository_ResetPasswordWithToken_concurrentUseSucceedsOnce`                                         |
 | An expired or used link returns 400                  | `_expired`, `_stillValidJustBeforeExpiry`, `TestResetPassword_errors`, `TestResetPassword_sameMessageForEveryBadToken`; ◇ `_rejectsBadTokens`           |

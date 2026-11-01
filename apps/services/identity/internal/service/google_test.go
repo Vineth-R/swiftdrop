@@ -12,6 +12,10 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
 
+// testOAuthStateTTL is deliberately not the production default, so the tests
+// prove the lifetime comes from configuration.
+const testOAuthStateTTL = 7 * time.Minute
+
 // googleMemoryStore is an in-memory GoogleStore.
 type googleMemoryStore struct {
 	states         map[string]repository.NewOAuthState
@@ -175,7 +179,7 @@ func newGoogleFixture(t *testing.T) *googleFixture {
 	provider := &fakeProvider{profile: GoogleProfile{
 		Subject: "google-sub-1", Email: "Nimal@Example.com", EmailVerified: true, FullName: "Nimal Perera",
 	}}
-	google, err := NewGoogleAuth(base.service, store, provider)
+	google, err := NewGoogleAuth(base.service, store, provider, testOAuthStateTTL)
 	if err != nil {
 		t.Fatalf("NewGoogleAuth returned error: %v", err)
 	}
@@ -184,8 +188,9 @@ func newGoogleFixture(t *testing.T) *googleFixture {
 
 // startedLogin is a login attempt plus its browser binding.
 type startedLogin struct {
-	state   string
-	binding string
+	state         string
+	binding       string
+	bindingMaxAge int
 }
 
 // begin starts a login and returns the saved state and binding value.
@@ -195,7 +200,7 @@ func (f *googleFixture) begin(t *testing.T, redirectTo string) startedLogin {
 	if err != nil {
 		t.Fatalf("StartGoogleLogin returned error: %v", err)
 	}
-	return startedLogin{state: f.provider.gotState, binding: start.BindingValue}
+	return startedLogin{state: f.provider.gotState, binding: start.BindingValue, bindingMaxAge: start.BindingMaxAge}
 }
 
 func (f *googleFixture) callback(start startedLogin) (GoogleLoginResult, error) {
@@ -210,14 +215,17 @@ func (f *googleFixture) callbackRaw(state, binding string) (GoogleLoginResult, e
 
 func TestNewGoogleAuth(t *testing.T) {
 	base := newFixture(t)
-	if _, err := NewGoogleAuth(nil, newGoogleMemoryStore(), &fakeProvider{}); err == nil {
+	if _, err := NewGoogleAuth(nil, newGoogleMemoryStore(), &fakeProvider{}, testOAuthStateTTL); err == nil {
 		t.Fatal("NewGoogleAuth accepted a nil service")
 	}
-	if _, err := NewGoogleAuth(base.service, nil, &fakeProvider{}); err == nil {
+	if _, err := NewGoogleAuth(base.service, nil, &fakeProvider{}, testOAuthStateTTL); err == nil {
 		t.Fatal("NewGoogleAuth accepted a nil store")
 	}
-	if _, err := NewGoogleAuth(base.service, newGoogleMemoryStore(), nil); err == nil {
+	if _, err := NewGoogleAuth(base.service, newGoogleMemoryStore(), nil, testOAuthStateTTL); err == nil {
 		t.Fatal("NewGoogleAuth accepted a nil provider")
+	}
+	if _, err := NewGoogleAuth(base.service, newGoogleMemoryStore(), &fakeProvider{}, 0); err == nil {
+		t.Fatal("NewGoogleAuth accepted a zero OAuth state lifetime")
 	}
 }
 
@@ -234,6 +242,9 @@ func TestGoogleAuth_StartGoogleLogin(t *testing.T) {
 	}
 	if !strings.Contains(start.AuthURL, state) {
 		t.Fatal("authorization URL does not carry the state")
+	}
+	if want := int(testOAuthStateTTL / time.Second); start.BindingMaxAge != want {
+		t.Fatalf("binding MaxAge = %d, want %d", start.BindingMaxAge, want)
 	}
 	if len(start.BindingValue) < 43 {
 		t.Fatalf("binding length = %d, want at least 43", len(start.BindingValue))
@@ -253,7 +264,7 @@ func TestGoogleAuth_StartGoogleLogin(t *testing.T) {
 	if saved.BrowserBindingHash != hashOAuthBinding(start.BindingValue) {
 		t.Fatal("saved binding hash does not match the cookie value")
 	}
-	if want := f.now.Add(oauthStateTTL); !saved.ExpiresAt.Equal(want) {
+	if want := f.now.Add(testOAuthStateTTL); !saved.ExpiresAt.Equal(want) {
 		t.Fatalf("state expires at %v, want %v", saved.ExpiresAt, want)
 	}
 	if !strings.Contains(start.AuthURL, saved.CodeVerifier) {
@@ -265,6 +276,21 @@ func TestGoogleAuth_StartGoogleLogin(t *testing.T) {
 			t.Fatal("state was reused")
 		}
 	})
+}
+
+func TestGoogleAuth_StartGoogleLogin_persistsUTCTimestamps(t *testing.T) {
+	f := newGoogleFixture(t)
+	local := time.Date(2026, time.November, 2, 12, 0, 0, 0, time.FixedZone("UTC+05:30", 5*3600+1800))
+	f.service.now = func() time.Time { return local }
+
+	f.begin(t, "")
+	saved := f.store.states[f.provider.gotState]
+	if saved.ExpiresAt.Location() != time.UTC {
+		t.Fatalf("expires_at location = %v, want UTC", saved.ExpiresAt.Location())
+	}
+	if want := local.UTC().Add(testOAuthStateTTL); !saved.ExpiresAt.Equal(want) {
+		t.Fatalf("expires_at = %v, want %v", saved.ExpiresAt, want)
+	}
 }
 
 func TestGoogleAuth_StartGoogleLogin_rejectsUnsafeRedirect(t *testing.T) {
@@ -380,7 +406,7 @@ func TestGoogleAuth_CompleteGoogleLogin_rejectsBadState(t *testing.T) {
 		{name: "empty", state: ""},
 		{name: "never issued", state: "not-a-real-state"},
 		{name: "too long", state: strings.Repeat("a", maxOAuthStateLength+1)},
-		{name: "expired", state: valid.state, wait: oauthStateTTL},
+		{name: "expired", state: valid.state, wait: testOAuthStateTTL},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

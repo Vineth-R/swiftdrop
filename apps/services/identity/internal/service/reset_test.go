@@ -97,6 +97,10 @@ func (s *resetMemoryStore) ResetPasswordWithToken(_ context.Context, tokenHash, 
 	return record.userID, nil
 }
 
+// testResetTokenTTL is deliberately not the production default, so the tests
+// prove the lifetime comes from configuration.
+const testResetTokenTTL = 45 * time.Minute
+
 type resetFixture struct {
 	*fixture
 	reset  *PasswordReset
@@ -112,7 +116,7 @@ func newResetFixture(t *testing.T) *resetFixture {
 	store.addUser("user-1", "nimal@example.com", true, &hash)
 	sender := &mailer.Mock{}
 
-	reset, err := NewPasswordReset(base.service, store, sender, "https://swiftdrop.example/", WithSynchronousEmail())
+	reset, err := NewPasswordReset(base.service, store, sender, "https://swiftdrop.example/", testResetTokenTTL, WithSynchronousEmail())
 	if err != nil {
 		t.Fatalf("NewPasswordReset returned error: %v", err)
 	}
@@ -152,19 +156,40 @@ func TestNewPasswordReset(t *testing.T) {
 	base := newFixture(t)
 	store, sender := newResetMemoryStore(), &mailer.Mock{}
 
-	if _, err := NewPasswordReset(nil, store, sender, "https://a.example"); err == nil {
+	if _, err := NewPasswordReset(nil, store, sender, "https://a.example", testResetTokenTTL); err == nil {
 		t.Fatal("accepted a nil service")
 	}
-	if _, err := NewPasswordReset(base.service, nil, sender, "https://a.example"); err == nil {
+	if _, err := NewPasswordReset(base.service, nil, sender, "https://a.example", testResetTokenTTL); err == nil {
 		t.Fatal("accepted a nil store")
 	}
-	if _, err := NewPasswordReset(base.service, store, nil, "https://a.example"); err == nil {
+	if _, err := NewPasswordReset(base.service, store, nil, "https://a.example", testResetTokenTTL); err == nil {
 		t.Fatal("accepted a nil mailer")
 	}
 	for _, bad := range []string{"", "/relative", "ftp://a.example", "not a url", "https://"} {
-		if _, err := NewPasswordReset(base.service, store, sender, bad); err == nil {
+		if _, err := NewPasswordReset(base.service, store, sender, bad, testResetTokenTTL); err == nil {
 			t.Fatalf("accepted frontend base URL %q", bad)
 		}
+	}
+	if _, err := NewPasswordReset(base.service, store, sender, "https://a.example", 0); err == nil {
+		t.Fatal("accepted a zero reset token lifetime")
+	}
+}
+
+func TestPasswordReset_ForgotPassword_persistsUTCTimestamps(t *testing.T) {
+	f := newResetFixture(t)
+	local := time.Date(2026, time.November, 2, 12, 0, 0, 0, time.FixedZone("UTC+05:30", 5*3600+1800))
+	f.service.now = func() time.Time { return local }
+
+	token := f.forgot(t, "nimal@example.com")
+	record := f.store.tokens[hashResetToken(token)]
+	if record == nil {
+		t.Fatal("reset token was not stored")
+	}
+	if record.expiresAt.Location() != time.UTC {
+		t.Fatalf("expires_at location = %v, want UTC", record.expiresAt.Location())
+	}
+	if want := local.UTC().Add(testResetTokenTTL); !record.expiresAt.Equal(want) {
+		t.Fatalf("expires_at = %v, want %v", record.expiresAt, want)
 	}
 }
 
@@ -194,7 +219,7 @@ func TestPasswordReset_ForgotPassword_sendsLinkAndStoresOnlyAHash(t *testing.T) 
 	if !ok {
 		t.Fatal("the token hash was not stored")
 	}
-	if want := f.now.Add(30 * time.Minute); !record.expiresAt.Equal(want) {
+	if want := f.now.Add(testResetTokenTTL); !record.expiresAt.Equal(want) {
 		t.Fatalf("token expires at %v, want %v", record.expiresAt, want)
 	}
 	if record.ip == nil || record.ip.String() != "203.0.113.7" {
@@ -280,7 +305,7 @@ func TestPasswordReset_ForgotPassword_asyncDeliveryCompletesBeforeWaitReturns(t 
 	hash := "h"
 	store.addUser("user-1", "nimal@example.com", true, &hash)
 	sender := &mailer.Mock{}
-	reset, err := NewPasswordReset(base.service, store, sender, "https://swiftdrop.example")
+	reset, err := NewPasswordReset(base.service, store, sender, "https://swiftdrop.example", testResetTokenTTL)
 	if err != nil {
 		t.Fatalf("NewPasswordReset returned error: %v", err)
 	}
@@ -338,7 +363,7 @@ func TestPasswordReset_ResetPassword_expired(t *testing.T) {
 	f := newResetFixture(t)
 	token := f.forgot(t, "nimal@example.com")
 
-	f.advance(resetTokenTTL)
+	f.advance(testResetTokenTTL)
 
 	err := f.reset.ResetPassword(context.Background(), ResetPasswordInput{Token: token, NewPassword: "N3wStr0ngPass"})
 	if !errors.Is(err, ErrResetTokenInvalid) {
@@ -353,7 +378,7 @@ func TestPasswordReset_ResetPassword_stillValidJustBeforeExpiry(t *testing.T) {
 	f := newResetFixture(t)
 	token := f.forgot(t, "nimal@example.com")
 
-	f.advance(resetTokenTTL - time.Second)
+	f.advance(testResetTokenTTL - time.Second)
 
 	if err := f.reset.ResetPassword(context.Background(), ResetPasswordInput{Token: token, NewPassword: "N3wStr0ngPass"}); err != nil {
 		t.Fatalf("ResetPassword returned error: %v", err)
@@ -406,7 +431,7 @@ func TestPasswordReset_ResetPassword_tokenIsCheckedBeforeThePassword(t *testing.
 		t.Fatalf("setup reset returned error: %v", err)
 	}
 	expired := f.forgot(t, "nimal@example.com")
-	f.advance(resetTokenTTL)
+	f.advance(testResetTokenTTL)
 
 	for name, token := range map[string]string{"unknown": "never-issued", "missing": "", "already used": used, "expired": expired} {
 		t.Run(name, func(t *testing.T) {

@@ -485,7 +485,7 @@ func (r *Repository) SetUserActive(ctx context.Context, userID string, active bo
 			UPDATE identity.refresh_tokens
 			SET revoked_at = $2
 			WHERE user_id = $1 AND revoked_at IS NULL`,
-			userID, now,
+			userID, now.UTC(),
 		); err != nil {
 			return fmt.Errorf("setting user status: %w", err)
 		}

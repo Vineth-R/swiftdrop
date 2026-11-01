@@ -36,7 +36,7 @@ func (r *Repository) CreateOAuthState(ctx context.Context, state NewOAuthState) 
 	if _, err := r.db.Exec(ctx, `
 		INSERT INTO identity.oauth_states (state, code_verifier, redirect_to, browser_binding_hash, expires_at)
 		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5)`,
-		state.State, state.CodeVerifier, state.RedirectTo, state.BrowserBindingHash, state.ExpiresAt,
+		state.State, state.CodeVerifier, state.RedirectTo, state.BrowserBindingHash, state.ExpiresAt.UTC(),
 	); err != nil {
 		return fmt.Errorf("creating oauth state: %w", err)
 	}
@@ -60,7 +60,7 @@ func (r *Repository) ConsumeOAuthState(ctx context.Context, state, browserBindin
 		  AND browser_binding_hash = $2
 		  AND expires_at > $3
 		RETURNING code_verifier, redirect_to`,
-		state, browserBindingHash, now,
+		state, browserBindingHash, now.UTC(),
 	).Scan(&verifier, &redirectTo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OAuthState{}, ErrOAuthStateInvalid

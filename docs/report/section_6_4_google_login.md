@@ -10,7 +10,7 @@ Google sign-in uses the OAuth 2.0 authorization code flow with PKCE and OpenID C
 The step numbers below are the numbers in Figure 14.
 
 1. The browser opens `GET /auth/google/login`, optionally with `redirectTo` (for example `/dashboard`).
-2. Identity checks that `redirectTo` is a safe relative path (otherwise `422 VALIDATION_ERROR`), then stores a random `state`, a PKCE verifier, the `redirectTo` and the SHA-256 hash of a random browser-binding value in `oauth_states`. The row expires after about 10 minutes. It also sets the cookie `sd_oauth_binding_<first 8 state characters>` with `HttpOnly`, `SameSite=Lax`, `Path=/api/v1/auth/google`, a 10 minute lifetime and `Secure` in production.
+2. Identity checks that `redirectTo` is a safe relative path (otherwise `422 VALIDATION_ERROR`), then stores a random `state`, a PKCE verifier, the `redirectTo` and the SHA-256 hash of a random browser-binding value in `oauth_states`. The row expires after the configured `OAUTH_STATE_TTL` (default 10 minutes). It also sets the cookie `sd_oauth_binding_<first 8 state characters>` with `HttpOnly`, `SameSite=Lax`, `Path=/api/v1/auth/google`, the same lifetime and `Secure` in production.
 3. Identity answers `302` to Google's consent URL with `client_id`, `redirect_uri`, `response_type=code`, `scope=openid email profile`, the `state` and the PKCE `code_challenge` (method `S256`).
 4. The user signs in and consents at Google.
 5. Google redirects the browser to `/auth/google/callback` with a `code` and the `state`. If the user refuses, Google sends `error` and no `code`.
@@ -30,7 +30,7 @@ sequenceDiagram
     participant I as Identity service
     participant G as Google
     B->>I: GET /auth/google/login?redirectTo=/path
-    Note over I: check redirectTo; store state + PKCE + binding hash (about 10 min)
+    Note over I: check redirectTo; store state + PKCE + binding hash (OAUTH_STATE_TTL, default 10m)
     I-->>B: 302 to Google (state, code_challenge) + Set-Cookie sd_oauth_binding_*
     B->>G: sign in and consent
     G-->>B: 302 to callback (code, state)
@@ -119,6 +119,7 @@ Executed locally with `go test` and `go test -race` for the identity packages, a
 | Requirement (task sheet M3.1 test)             | Test                                                                                                                          |
 | :--------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------- |
 | A new Google user becomes a CUSTOMER           | `TestGoogleAuth_CompleteGoogleLogin_createsCustomer`; ◇ `TestRepository_CreateGoogleUser`, `TestGoogleFlow_createsCustomer`   |
+| OAuth lifetime comes from configuration and persists in UTC | `TestGoogleAuth_StartGoogleLogin`, `TestGoogleAuth_StartGoogleLogin_persistsUTCTimestamps`; ◇ `TestGoogleFlow_persistsConfiguredOAuthStateTTL` |
 | A missing or mismatched browser binding is refused, without burning the state | `TestGoogleAuth_CompleteGoogleLogin_missingBindingDoesNotBurnState`, `_mismatchedBindingDoesNotBurnState`; ◇ `TestRepository_ConsumeOAuthState_mismatchedBindingDoesNotConsume`, `TestGoogleFlow_bindingIsRequiredAndNotBurnedOnMismatch` |
 | A reused or wrong state is refused             | `TestGoogleAuth_CompleteGoogleLogin_stateIsSingleUse`, `_rejectsBadState`; ◇ `TestRepository_ConsumeOAuthState_*` (including 8 simultaneous callbacks), `TestGoogleFlow_replayRejected` |
 | Only relative redirect paths are allowed       | `TestValidRedirectPath` (absolute, `//`, `\`, control characters, length), `TestGoogleCallback_neverRedirectsOffSite`          |

@@ -76,7 +76,7 @@ func (h *googleHandlers) login(c *gin.Context) {
 		h.fail(c, err)
 		return
 	}
-	h.cookies.SetOAuthBinding(c, start.BindingCookieName, start.BindingValue)
+	h.cookies.SetOAuthBinding(c, start.BindingCookieName, start.BindingValue, start.BindingMaxAge)
 	c.Redirect(http.StatusFound, start.AuthURL)
 }
 

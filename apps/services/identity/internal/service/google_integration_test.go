@@ -23,10 +23,15 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/service"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
-const integrationSigningSecret = "integration-signing-secret-0123456789abcdef"
+const (
+	integrationSigningSecret    = "integration-signing-secret-0123456789abcdef"
+	integrationOAuthStateTTL    = 7 * time.Minute
+	integrationPasswordResetTTL = 45 * time.Minute
+)
 
 type fakeGoogleProvider struct {
 	profile service.GoogleProfile
@@ -39,6 +44,15 @@ func (p *fakeGoogleProvider) AuthURL(state, _ string) string {
 
 func (p *fakeGoogleProvider) Exchange(context.Context, string, string) (service.GoogleProfile, error) {
 	return p.profile, p.err
+}
+
+type captureMailer struct {
+	messages []mailer.Message
+}
+
+func (m *captureMailer) Send(_ context.Context, message mailer.Message) error {
+	m.messages = append(m.messages, message)
+	return nil
 }
 
 type googleFlow struct {
@@ -74,7 +88,7 @@ func newGoogleFlow(t *testing.T) *googleFlow {
 	provider := &fakeGoogleProvider{profile: service.GoogleProfile{
 		Subject: "google-sub-1", Email: "User@Example.com", EmailVerified: true, FullName: "Integration User",
 	}}
-	google, err := service.NewGoogleAuth(base, repo, provider)
+	google, err := service.NewGoogleAuth(base, repo, provider, integrationOAuthStateTTL)
 	if err != nil {
 		t.Fatalf("service.NewGoogleAuth: %v", err)
 	}
@@ -145,6 +159,68 @@ func TestGoogleFlow_createsCustomer(t *testing.T) {
 	if provider != "GOOGLE" || hasPassword || !emailVerified || sub != "google-sub-1" || role != "CUSTOMER" || count != 1 {
 		t.Fatalf("created user: provider=%s hasPassword=%t verified=%t sub=%s role=%s count=%d",
 			provider, hasPassword, emailVerified, sub, role, count)
+	}
+}
+
+func TestGoogleFlow_persistsConfiguredOAuthStateTTL(t *testing.T) {
+	f := newGoogleFlow(t)
+	before := time.Now().UTC()
+	start := f.start(t)
+	state := stateFromAuthURL(t, start.AuthURL)
+
+	var expires time.Time
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT expires_at FROM identity.oauth_states WHERE state = $1`, state,
+	).Scan(&expires); err != nil {
+		t.Fatalf("read oauth state: %v", err)
+	}
+	want := before.Add(integrationOAuthStateTTL)
+	if expires.Before(want.Add(-10*time.Second)) || expires.After(want.Add(10*time.Second)) {
+		t.Fatalf("oauth_states.expires_at = %v, want about %v", expires, want)
+	}
+	if start.BindingMaxAge != int(integrationOAuthStateTTL/time.Second) {
+		t.Fatalf("binding MaxAge = %d, want %d", start.BindingMaxAge, int(integrationOAuthStateTTL/time.Second))
+	}
+}
+
+func TestPasswordResetFlow_persistsConfiguredTTL(t *testing.T) {
+	f := newGoogleFlow(t)
+	hasher, _ := password.NewHasher(password.DefaultCost)
+	hash, _ := hasher.Hash("OldPass1!")
+	if _, err := f.repo.CreateUser(context.Background(), repository.CreateUserParams{
+		Email: "reset@example.com", PasswordHash: hash, FullName: "Reset User",
+		Phone: "+94771234567", Role: auth.RoleCustomer,
+	}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	sender := &captureMailer{}
+	reset, err := service.NewPasswordReset(f.base, f.repo, sender, "https://swiftdrop.example", integrationPasswordResetTTL, service.WithSynchronousEmail())
+	if err != nil {
+		t.Fatalf("NewPasswordReset: %v", err)
+	}
+	before := time.Now().UTC()
+	if err := reset.ForgotPassword(context.Background(), service.ForgotPasswordInput{
+		Email: "reset@example.com", IP: netip.MustParseAddr("203.0.113.5"),
+	}); err != nil {
+		t.Fatalf("ForgotPassword: %v", err)
+	}
+	if len(sender.messages) != 1 {
+		t.Fatalf("%d reset emails sent, want 1", len(sender.messages))
+	}
+
+	var expires time.Time
+	if err := f.pool.QueryRow(context.Background(), `
+		SELECT t.expires_at
+		FROM identity.password_reset_tokens t
+		JOIN identity.users u ON u.id = t.user_id
+		WHERE u.email = $1 AND t.used_at IS NULL`, "reset@example.com",
+	).Scan(&expires); err != nil {
+		t.Fatalf("read reset token: %v", err)
+	}
+	want := before.Add(integrationPasswordResetTTL)
+	if expires.Before(want.Add(-10*time.Second)) || expires.After(want.Add(10*time.Second)) {
+		t.Fatalf("password_reset_tokens.expires_at = %v, want about %v", expires, want)
 	}
 }
 

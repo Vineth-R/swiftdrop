@@ -245,7 +245,8 @@ paths:
       operationId: identityGoogleLogin
       summary: Start Google sign-in (API v1.1 section 2.5)
       description: >-
-        Saves a random one-time `state` (about 10 minutes) with a PKCE verifier
+        Saves a random one-time `state` (configured `OAUTH_STATE_TTL`, default 10
+        minutes) with a PKCE verifier
         and the SHA-256 hash of a browser-binding value, sets the short-lived
         HttpOnly `sd_oauth_binding_<state prefix>` cookie (SameSite=Lax,
         Path=/api/v1/auth/google, Secure in production) and redirects the browser
@@ -354,7 +355,8 @@ paths:
       operationId: identityForgotPassword
       summary: Request a password reset link (API v1.1 section 2.16)
       description: >-
-        Emails a single-use link that expires after 30 minutes and replaces any
+        Emails a single-use link that expires after `PASSWORD_RESET_TOKEN_TTL`
+        (default 30 minutes) and replaces any
         earlier link. The reply is always the same 202 for a well-formed email,
         whether or not an account exists, and Google-only or disabled accounts
         silently receive nothing. Limited to 5 requests per minute per client
