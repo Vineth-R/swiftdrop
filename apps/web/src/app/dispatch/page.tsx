@@ -5,7 +5,13 @@ import React, { useState, useMemo } from 'react';
 // Type definitions matching API v1.1 contracts
 type UserRole = 'DISPATCHER' | 'ADMIN' | 'COURIER' | 'CUSTOMER';
 type ParcelSizeCategory = 'SMALL' | 'MEDIUM' | 'LARGE' | 'OVERSIZED';
-type ParcelLifecycleStatus = 'CREATED' | 'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'FAILED';
+type ParcelLifecycleStatus =
+  | 'CREATED'
+  | 'PICKED_UP'
+  | 'IN_TRANSIT'
+  | 'OUT_FOR_DELIVERY'
+  | 'DELIVERED'
+  | 'FAILED';
 
 interface UnassignedParcel {
   id: string;
@@ -128,28 +134,98 @@ const INITIAL_COURIERS: CourierWorkload[] = [
 ];
 
 const INITIAL_MONITORED_PARCELS: MonitoredParcel[] = [
-  { id: 'm-1', trackingNumber: 'SDK7M2Q9XP4', status: 'CREATED', pickupCity: 'Colombo', dropoffCity: 'Kandy', zone: 'Western (Colombo)', courierName: null, updatedAt: '10 mins ago' },
-  { id: 'm-2', trackingNumber: 'SDN4T8W2LC6', status: 'CREATED', pickupCity: 'Nugegoda', dropoffCity: 'Galle', zone: 'Western (Colombo)', courierName: null, updatedAt: '25 mins ago' },
-  { id: 'm-3', trackingNumber: 'SDK9J1B4QQ9', status: 'PICKED_UP', pickupCity: 'Colombo', dropoffCity: 'Negombo', zone: 'Western (Colombo)', courierName: 'Kamal Perera', updatedAt: '5 mins ago' },
-  { id: 'm-4', trackingNumber: 'SDN2L8K7VV3', status: 'IN_TRANSIT', pickupCity: 'Kandy', dropoffCity: 'Colombo', zone: 'Central (Kandy)', courierName: 'Kamal Perera', updatedAt: '12 mins ago' },
-  { id: 'm-5', trackingNumber: 'SDK5M3X9WW1', status: 'OUT_FOR_DELIVERY', pickupCity: 'Colombo', dropoffCity: 'Colombo 07', zone: 'Western (Colombo)', courierName: 'Sunil Jayamaha', updatedAt: '2 mins ago' },
-  { id: 'm-6', trackingNumber: 'SDN8R4C2ZZ8', status: 'DELIVERED', pickupCity: 'Galle', dropoffCity: 'Matara', zone: 'Southern (Galle)', courierName: 'Kasun Fernando', updatedAt: '1 hour ago' },
-  { id: 'm-7', trackingNumber: 'SDK1W9N5YY4', status: 'FAILED', pickupCity: 'Colombo', dropoffCity: 'Dehiwala', zone: 'Western (Colombo)', courierName: 'Kasun Fernando', updatedAt: '2 hours ago' },
+  {
+    id: 'm-1',
+    trackingNumber: 'SDK7M2Q9XP4',
+    status: 'CREATED',
+    pickupCity: 'Colombo',
+    dropoffCity: 'Kandy',
+    zone: 'Western (Colombo)',
+    courierName: null,
+    updatedAt: '10 mins ago',
+  },
+  {
+    id: 'm-2',
+    trackingNumber: 'SDN4T8W2LC6',
+    status: 'CREATED',
+    pickupCity: 'Nugegoda',
+    dropoffCity: 'Galle',
+    zone: 'Western (Colombo)',
+    courierName: null,
+    updatedAt: '25 mins ago',
+  },
+  {
+    id: 'm-3',
+    trackingNumber: 'SDK9J1B4QQ9',
+    status: 'PICKED_UP',
+    pickupCity: 'Colombo',
+    dropoffCity: 'Negombo',
+    zone: 'Western (Colombo)',
+    courierName: 'Kamal Perera',
+    updatedAt: '5 mins ago',
+  },
+  {
+    id: 'm-4',
+    trackingNumber: 'SDN2L8K7VV3',
+    status: 'IN_TRANSIT',
+    pickupCity: 'Kandy',
+    dropoffCity: 'Colombo',
+    zone: 'Central (Kandy)',
+    courierName: 'Kamal Perera',
+    updatedAt: '12 mins ago',
+  },
+  {
+    id: 'm-5',
+    trackingNumber: 'SDK5M3X9WW1',
+    status: 'OUT_FOR_DELIVERY',
+    pickupCity: 'Colombo',
+    dropoffCity: 'Colombo 07',
+    zone: 'Western (Colombo)',
+    courierName: 'Sunil Jayamaha',
+    updatedAt: '2 mins ago',
+  },
+  {
+    id: 'm-6',
+    trackingNumber: 'SDN8R4C2ZZ8',
+    status: 'DELIVERED',
+    pickupCity: 'Galle',
+    dropoffCity: 'Matara',
+    zone: 'Southern (Galle)',
+    courierName: 'Kasun Fernando',
+    updatedAt: '1 hour ago',
+  },
+  {
+    id: 'm-7',
+    trackingNumber: 'SDK1W9N5YY4',
+    status: 'FAILED',
+    pickupCity: 'Colombo',
+    dropoffCity: 'Dehiwala',
+    zone: 'Western (Colombo)',
+    courierName: 'Kasun Fernando',
+    updatedAt: '2 hours ago',
+  },
 ];
 
 export default function DispatcherDashboardPage() {
   // Role Guard State (DISPATCHER and ADMIN permitted)
   const [currentRole, setCurrentRole] = useState<UserRole>('DISPATCHER');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<'all' | 'unassigned' | 'workload' | 'monitor'>('all');
+  const [activeSection, setActiveSection] = useState<
+    'all' | 'unassigned' | 'workload' | 'monitor'
+  >('all');
 
   // Interactive Data States
-  const [unassignedList, setUnassignedList] = useState<UnassignedParcel[]>(INITIAL_UNASSIGNED);
+  const [unassignedList, setUnassignedList] =
+    useState<UnassignedParcel[]>(INITIAL_UNASSIGNED);
   const [couriers, setCouriers] = useState<CourierWorkload[]>(INITIAL_COURIERS);
-  const [monitoredParcels, setMonitoredParcels] = useState<MonitoredParcel[]>(INITIAL_MONITORED_PARCELS);
+  const [monitoredParcels, setMonitoredParcels] = useState<MonitoredParcel[]>(
+    INITIAL_MONITORED_PARCELS,
+  );
 
   // Modal State for Assigning Courier
-  const [selectedParcel, setSelectedParcel] = useState<UnassignedParcel | null>(null);
+  const [selectedParcel, setSelectedParcel] = useState<UnassignedParcel | null>(
+    null,
+  );
   const [assignedCourierId, setAssignedCourierId] = useState<string>('');
   const [assignReason, setAssignReason] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -165,7 +241,7 @@ export default function DispatcherDashboardPage() {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // Handle Courier Assignment (simulates POST /api/v1/dispatch/assign)
+  // Preview only: simulates PUT /api/v1/dispatch/parcels/{parcelId}/assignment
   const handleConfirmAssignment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedParcel || !assignedCourierId) return;
@@ -185,8 +261,8 @@ export default function DispatcherDashboardPage() {
               activeDeliveries: c.activeDeliveries + 1,
               breakdown: { ...c.breakdown, CREATED: c.breakdown.CREATED + 1 },
             }
-          : c
-      )
+          : c,
+      ),
     );
 
     // Update or add to parcel monitor list
@@ -204,7 +280,9 @@ export default function DispatcherDashboardPage() {
       ...prev.filter((p) => p.trackingNumber !== selectedParcel.trackingNumber),
     ]);
 
-    showToast(`Assigned ${selectedParcel.trackingNumber} to ${courier.fullName} successfully!`);
+    showToast(
+      `Assigned ${selectedParcel.trackingNumber} to ${courier.fullName} successfully!`,
+    );
     setSelectedParcel(null);
     setAssignedCourierId('');
     setAssignReason('');
@@ -213,8 +291,11 @@ export default function DispatcherDashboardPage() {
   // Filtered Parcels for All Parcels Monitor
   const filteredMonitoredParcels = useMemo(() => {
     return monitoredParcels.filter((p) => {
-      const matchTracking = searchTracking === '' || p.trackingNumber.toLowerCase().includes(searchTracking.toLowerCase());
-      const matchStatus = selectedStatus === 'ALL' || p.status === selectedStatus;
+      const matchTracking =
+        searchTracking === '' ||
+        p.trackingNumber.toLowerCase().includes(searchTracking.toLowerCase());
+      const matchStatus =
+        selectedStatus === 'ALL' || p.status === selectedStatus;
       const matchZone = selectedZone === 'ALL' || p.zone.includes(selectedZone);
       return matchTracking && matchStatus && matchZone;
     });
@@ -229,7 +310,9 @@ export default function DispatcherDashboardPage() {
       <aside className={mobileMenuOpen ? 'sidebar sidebarOpen' : 'sidebar'}>
         <div className="brand">
           <b>S</b>
-          <span>Swift<i>Drop</i></span>
+          <span>
+            Swift<i>Drop</i>
+          </span>
         </div>
         <p className="workspaceLabel">LOGISTICS DISPATCH</p>
         <div className="workspaceSelect">
@@ -239,25 +322,37 @@ export default function DispatcherDashboardPage() {
         <nav aria-label="Dispatcher Navigation">
           <button
             className={`navItem ${activeSection === 'all' ? 'navActive' : ''}`}
-            onClick={() => { setActiveSection('all'); setMobileMenuOpen(false); }}
+            onClick={() => {
+              setActiveSection('all');
+              setMobileMenuOpen(false);
+            }}
           >
             <em>▦</em> Dispatch Dashboard
           </button>
           <button
             className={`navItem ${activeSection === 'unassigned' ? 'navActive' : ''}`}
-            onClick={() => { setActiveSection('unassigned'); setMobileMenuOpen(false); }}
+            onClick={() => {
+              setActiveSection('unassigned');
+              setMobileMenuOpen(false);
+            }}
           >
             <em>◫</em> Unassigned Queue ({unassignedList.length})
           </button>
           <button
             className={`navItem ${activeSection === 'workload' ? 'navActive' : ''}`}
-            onClick={() => { setActiveSection('workload'); setMobileMenuOpen(false); }}
+            onClick={() => {
+              setActiveSection('workload');
+              setMobileMenuOpen(false);
+            }}
           >
             <em>👥</em> Courier Workload
           </button>
           <button
             className={`navItem ${activeSection === 'monitor' ? 'navActive' : ''}`}
-            onClick={() => { setActiveSection('monitor'); setMobileMenuOpen(false); }}
+            onClick={() => {
+              setActiveSection('monitor');
+              setMobileMenuOpen(false);
+            }}
           >
             <em>⌁</em> Parcels Monitor
           </button>
@@ -267,9 +362,26 @@ export default function DispatcherDashboardPage() {
         </nav>
 
         <div className="sidebarBottom">
-          <div style={{ padding: '8px 12px', background: '#f5f3ff', borderRadius: '8px', marginBottom: '10px' }}>
-            <span style={{ fontSize: '10px', color: '#6d28d9', fontWeight: 700, textTransform: 'uppercase' }}>Active Role</span>
+          <div
+            style={{
+              padding: '8px 12px',
+              background: '#f5f3ff',
+              borderRadius: '8px',
+              marginBottom: '10px',
+            }}
+          >
+            <span
+              style={{
+                fontSize: '10px',
+                color: '#6d28d9',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+              }}
+            >
+              Active Role
+            </span>
             <select
+              aria-label="Simulated user role"
               value={currentRole}
               onChange={(e) => setCurrentRole(e.target.value as UserRole)}
               style={{
@@ -313,10 +425,19 @@ export default function DispatcherDashboardPage() {
             ☰
           </button>
           <div className="breadcrumbs">
-            Dispatch Center <b>/</b> <strong>{activeSection === 'all' ? 'Operations Overview' : activeSection}</strong>
+            Dispatch Center <b>/</b>{' '}
+            <strong>
+              {activeSection === 'all' ? 'Operations Overview' : activeSection}
+            </strong>
           </div>
           <div className="topActions">
-            <span style={{ fontSize: '11px', color: isAuthorized ? '#15803d' : '#b91c1c', fontWeight: 600 }}>
+            <span
+              style={{
+                fontSize: '11px',
+                color: isAuthorized ? '#15803d' : '#b91c1c',
+                fontWeight: 600,
+              }}
+            >
               ● {isAuthorized ? 'Guard: Authorized' : 'Guard: Forbidden (403)'}
             </span>
             <b>{currentRole[0]}</b>
@@ -351,7 +472,15 @@ export default function DispatcherDashboardPage() {
         <div className="contentWrap">
           {/* Role Guard Enforcement Screen */}
           {!isAuthorized ? (
-            <section className="card" style={{ padding: '40px 24px', textAlign: 'center', maxWidth: '640px', margin: '40px auto' }}>
+            <section
+              className="card"
+              style={{
+                padding: '40px 24px',
+                textAlign: 'center',
+                maxWidth: '640px',
+                margin: '40px auto',
+              }}
+            >
               <div
                 style={{
                   width: '56px',
@@ -367,14 +496,38 @@ export default function DispatcherDashboardPage() {
               >
                 ✕
               </div>
-              <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#991b1b', marginBottom: '8px' }}>
+              <h2
+                style={{
+                  fontSize: '20px',
+                  fontWeight: 800,
+                  color: '#991b1b',
+                  marginBottom: '8px',
+                }}
+              >
                 403 Forbidden: Access Restricted
               </h2>
-              <p style={{ color: '#6b7280', fontSize: '13px', lineHeight: 1.6, marginBottom: '20px' }}>
-                The Dispatcher Dashboard and Assignment operations are restricted to <strong>DISPATCHER</strong> and{' '}
-                <strong>ADMIN</strong> roles (API v1.1 Section 5). The currently simulated user role{' '}
-                <code style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>{currentRole}</code> is not
-                authorized to view or manage dispatch queues.
+              <p
+                style={{
+                  color: '#6b7280',
+                  fontSize: '13px',
+                  lineHeight: 1.6,
+                  marginBottom: '20px',
+                }}
+              >
+                The Dispatcher Dashboard and Assignment operations are
+                restricted to <strong>DISPATCHER</strong> and{' '}
+                <strong>ADMIN</strong> roles (API v1.1 Section 5). The currently
+                simulated user role{' '}
+                <code
+                  style={{
+                    background: '#f3f4f6',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                  }}
+                >
+                  {currentRole}
+                </code>{' '}
+                is not authorized to view or manage dispatch queues.
               </p>
               <button
                 className="primaryButton"
@@ -389,17 +542,32 @@ export default function DispatcherDashboardPage() {
               {/* Dispatch Intro Header */}
               <section className="pageIntro">
                 <div>
-                  <p className="eyebrow">CENTRAL LOGISTICS DISPATCH (API v1.1)</p>
+                  <p className="eyebrow">DISPATCH PREVIEW (API v1.1)</p>
                   <h1>
                     Dispatcher Control Hub <span>⚡</span>
                   </h1>
-                  <p>Allocate unassigned parcels, balance courier capacity, and monitor delivery progress in real time.</p>
+                  <p>
+                    Allocate unassigned parcels, balance courier capacity, and
+                    monitor delivery progress in real time.
+                  </p>
+                  <p
+                    style={{
+                      fontSize: '12px',
+                      color: '#6b7280',
+                      marginTop: '6px',
+                    }}
+                  >
+                    Preview UI: the dispatch endpoints are planned and this page
+                    uses local demo data.
+                  </p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <button
                     className="outlineButton"
                     onClick={() => {
-                      showToast('Queues synchronized with Parcel Operations service.');
+                      showToast(
+                        'Queues synchronized with Parcel Operations service.',
+                      );
                     }}
                   >
                     ↻ Sync Queues
@@ -414,22 +582,37 @@ export default function DispatcherDashboardPage() {
                   <div>
                     <p>Unassigned Parcels</p>
                     <strong>{unassignedList.length}</strong>
-                    <small><b>GET</b> /api/v1/dispatch/unassigned</small>
+                    <small>
+                      <b>GET</b> /api/v1/dispatch/unassigned
+                    </small>
                   </div>
                 </div>
                 <div className="metric card">
                   <span className="metricIcon green">🛵</span>
                   <div>
                     <p>Available Couriers</p>
-                    <strong>{couriers.filter((c) => c.isAvailable).length} / {couriers.length}</strong>
-                    <small><b>GET</b> /api/v1/dispatch/workload</small>
+                    <strong>
+                      {couriers.filter((c) => c.isAvailable).length} /{' '}
+                      {couriers.length}
+                    </strong>
+                    <small>
+                      <b>GET</b> /api/v1/dispatch/workload
+                    </small>
                   </div>
                 </div>
                 <div className="metric card">
                   <span className="metricIcon blue">🚚</span>
                   <div>
                     <p>In Transit</p>
-                    <strong>{monitoredParcels.filter((p) => p.status === 'IN_TRANSIT' || p.status === 'OUT_FOR_DELIVERY').length}</strong>
+                    <strong>
+                      {
+                        monitoredParcels.filter(
+                          (p) =>
+                            p.status === 'IN_TRANSIT' ||
+                            p.status === 'OUT_FOR_DELIVERY',
+                        ).length
+                      }
+                    </strong>
                     <small>Active deliveries in field</small>
                   </div>
                 </div>
@@ -437,7 +620,12 @@ export default function DispatcherDashboardPage() {
                   <span className="metricIcon purple">✓</span>
                   <div>
                     <p>Completed Deliveries</p>
-                    <strong>{monitoredParcels.filter((p) => p.status === 'DELIVERED').length}</strong>
+                    <strong>
+                      {
+                        monitoredParcels.filter((p) => p.status === 'DELIVERED')
+                          .length
+                      }
+                    </strong>
                     <small>Today&apos;s finished routes</small>
                   </div>
                 </div>
@@ -445,13 +633,17 @@ export default function DispatcherDashboardPage() {
 
               {/* 1. Unassigned Parcels Queue Section */}
               {(activeSection === 'all' || activeSection === 'unassigned') && (
-                <section className="card ordersCard" style={{ marginBottom: '24px' }}>
+                <section
+                  className="card ordersCard"
+                  style={{ marginBottom: '24px' }}
+                >
                   <div className="cardHeader">
                     <div>
                       <h2>1. Unassigned Parcels Queue</h2>
                       <p>
-                        Parcels awaiting courier assignment (<code>GET /api/v1/dispatch/unassigned</code>). Closed parcels
-                        cannot be assigned.
+                        Parcels awaiting courier assignment (
+                        <code>GET /api/v1/dispatch/unassigned</code>). Closed
+                        parcels cannot be assigned.
                       </p>
                     </div>
                     <span
@@ -484,21 +676,33 @@ export default function DispatcherDashboardPage() {
                       <tbody>
                         {unassignedList.length === 0 ? (
                           <tr>
-                            <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#9ca3af' }}>
-                              All parcels have been assigned to couriers! Good job.
+                            <td
+                              colSpan={7}
+                              style={{
+                                textAlign: 'center',
+                                padding: '30px',
+                                color: '#9ca3af',
+                              }}
+                            >
+                              All parcels have been assigned to couriers! Good
+                              job.
                             </td>
                           </tr>
                         ) : (
                           unassignedList.map((parcel) => (
                             <tr key={parcel.id}>
                               <td>
-                                <strong className="orderId">{parcel.trackingNumber}</strong>
+                                <strong className="orderId">
+                                  {parcel.trackingNumber}
+                                </strong>
                               </td>
                               <td>{parcel.pickupCity}</td>
                               <td>
                                 <strong>{parcel.dropoffCity}</strong>
                               </td>
-                              <td className="muted">{parcel.weightKg.toFixed(2)} kg</td>
+                              <td className="muted">
+                                {parcel.weightKg.toFixed(2)} kg
+                              </td>
                               <td>
                                 <span
                                   style={{
@@ -511,18 +715,18 @@ export default function DispatcherDashboardPage() {
                                       parcel.sizeCategory === 'SMALL'
                                         ? '#e0f2fe'
                                         : parcel.sizeCategory === 'MEDIUM'
-                                        ? '#ede9fe'
-                                        : parcel.sizeCategory === 'LARGE'
-                                        ? '#fef3c7'
-                                        : '#fee2e2',
+                                          ? '#ede9fe'
+                                          : parcel.sizeCategory === 'LARGE'
+                                            ? '#fef3c7'
+                                            : '#fee2e2',
                                     color:
                                       parcel.sizeCategory === 'SMALL'
                                         ? '#0369a1'
                                         : parcel.sizeCategory === 'MEDIUM'
-                                        ? '#6d28d9'
-                                        : parcel.sizeCategory === 'LARGE'
-                                        ? '#b45309'
-                                        : '#b91c1c',
+                                          ? '#6d28d9'
+                                          : parcel.sizeCategory === 'LARGE'
+                                            ? '#b45309'
+                                            : '#b91c1c',
                                   }}
                                 >
                                   {parcel.sizeCategory}
@@ -532,10 +736,16 @@ export default function DispatcherDashboardPage() {
                               <td>
                                 <button
                                   className="primaryButton"
-                                  style={{ padding: '6px 12px', fontSize: '11px' }}
+                                  style={{
+                                    padding: '6px 12px',
+                                    fontSize: '11px',
+                                  }}
                                   onClick={() => {
                                     setSelectedParcel(parcel);
-                                    setAssignedCourierId(couriers.find((c) => c.isAvailable)?.courierId || '');
+                                    setAssignedCourierId(
+                                      couriers.find((c) => c.isAvailable)
+                                        ?.courierId || '',
+                                    );
                                   }}
                                 >
                                   Assign Courier →
@@ -552,12 +762,16 @@ export default function DispatcherDashboardPage() {
 
               {/* 2. Courier Workload Panel Section */}
               {(activeSection === 'all' || activeSection === 'workload') && (
-                <section className="card" style={{ padding: '22px', marginBottom: '24px' }}>
+                <section
+                  className="card"
+                  style={{ padding: '22px', marginBottom: '24px' }}
+                >
                   <div className="cardHeader" style={{ marginBottom: '16px' }}>
                     <div>
                       <h2>2. Courier Workload Panel</h2>
                       <p>
-                        Real-time courier availability and delivery workload breakdown (<code>GET /api/v1/dispatch/workload</code>).
+                        Real-time courier availability and delivery workload
+                        breakdown (<code>GET /api/v1/dispatch/workload</code>).
                       </p>
                     </div>
                   </div>
@@ -565,7 +779,8 @@ export default function DispatcherDashboardPage() {
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                      gridTemplateColumns:
+                        'repeat(auto-fit, minmax(280px, 1fr))',
                       gap: '16px',
                     }}
                   >
@@ -579,10 +794,29 @@ export default function DispatcherDashboardPage() {
                           background: '#fff',
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            marginBottom: '8px',
+                          }}
+                        >
                           <div>
-                            <strong style={{ fontSize: '14px', color: '#1d1b2b', display: 'block' }}>{courier.fullName}</strong>
-                            <small style={{ color: '#888597', fontSize: '11px' }}>{courier.phone}</small>
+                            <strong
+                              style={{
+                                fontSize: '14px',
+                                color: '#1d1b2b',
+                                display: 'block',
+                              }}
+                            >
+                              {courier.fullName}
+                            </strong>
+                            <small
+                              style={{ color: '#888597', fontSize: '11px' }}
+                            >
+                              {courier.phone}
+                            </small>
                           </div>
                           <span
                             style={{
@@ -590,36 +824,142 @@ export default function DispatcherDashboardPage() {
                               borderRadius: '12px',
                               fontSize: '10px',
                               fontWeight: 700,
-                              background: courier.isAvailable ? '#dcfce7' : '#f3f4f6',
-                              color: courier.isAvailable ? '#15803d' : '#6b7280',
+                              background: courier.isAvailable
+                                ? '#dcfce7'
+                                : '#f3f4f6',
+                              color: courier.isAvailable
+                                ? '#15803d'
+                                : '#6b7280',
                             }}
                           >
                             ● {courier.isAvailable ? 'Available' : 'Busy / Off'}
                           </span>
                         </div>
 
-                        <div style={{ margin: '12px 0 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '11px', color: '#77758a', fontWeight: 600 }}>Active Deliveries:</span>
-                          <strong style={{ fontSize: '16px', color: '#6d28d9' }}>{courier.activeDeliveries}</strong>
+                        <div
+                          style={{
+                            margin: '12px 0 10px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              color: '#77758a',
+                              fontWeight: 600,
+                            }}
+                          >
+                            Active Deliveries:
+                          </span>
+                          <strong
+                            style={{ fontSize: '16px', color: '#6d28d9' }}
+                          >
+                            {courier.activeDeliveries}
+                          </strong>
                         </div>
 
                         {/* Status Breakdown Pills */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', textAlign: 'center' }}>
-                          <div style={{ background: '#f5f3ff', padding: '6px 4px', borderRadius: '6px' }}>
-                            <span style={{ display: 'block', fontSize: '9px', color: '#7c3aed', fontWeight: 600 }}>CREATED</span>
-                            <strong style={{ fontSize: '12px', color: '#4c1d95' }}>{courier.breakdown.CREATED}</strong>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(4, 1fr)',
+                            gap: '6px',
+                            textAlign: 'center',
+                          }}
+                        >
+                          <div
+                            style={{
+                              background: '#f5f3ff',
+                              padding: '6px 4px',
+                              borderRadius: '6px',
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: '9px',
+                                color: '#7c3aed',
+                                fontWeight: 600,
+                              }}
+                            >
+                              CREATED
+                            </span>
+                            <strong
+                              style={{ fontSize: '12px', color: '#4c1d95' }}
+                            >
+                              {courier.breakdown.CREATED}
+                            </strong>
                           </div>
-                          <div style={{ background: '#fef3c7', padding: '6px 4px', borderRadius: '6px' }}>
-                            <span style={{ display: 'block', fontSize: '9px', color: '#b45309', fontWeight: 600 }}>PICKED UP</span>
-                            <strong style={{ fontSize: '12px', color: '#92400e' }}>{courier.breakdown.PICKED_UP}</strong>
+                          <div
+                            style={{
+                              background: '#fef3c7',
+                              padding: '6px 4px',
+                              borderRadius: '6px',
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: '9px',
+                                color: '#b45309',
+                                fontWeight: 600,
+                              }}
+                            >
+                              PICKED UP
+                            </span>
+                            <strong
+                              style={{ fontSize: '12px', color: '#92400e' }}
+                            >
+                              {courier.breakdown.PICKED_UP}
+                            </strong>
                           </div>
-                          <div style={{ background: '#e0f2fe', padding: '6px 4px', borderRadius: '6px' }}>
-                            <span style={{ display: 'block', fontSize: '9px', color: '#0369a1', fontWeight: 600 }}>IN TRANSIT</span>
-                            <strong style={{ fontSize: '12px', color: '#075985' }}>{courier.breakdown.IN_TRANSIT}</strong>
+                          <div
+                            style={{
+                              background: '#e0f2fe',
+                              padding: '6px 4px',
+                              borderRadius: '6px',
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: '9px',
+                                color: '#0369a1',
+                                fontWeight: 600,
+                              }}
+                            >
+                              IN TRANSIT
+                            </span>
+                            <strong
+                              style={{ fontSize: '12px', color: '#075985' }}
+                            >
+                              {courier.breakdown.IN_TRANSIT}
+                            </strong>
                           </div>
-                          <div style={{ background: '#fef9c3', padding: '6px 4px', borderRadius: '6px' }}>
-                            <span style={{ display: 'block', fontSize: '9px', color: '#a16207', fontWeight: 600 }}>OUT FOR DEL</span>
-                            <strong style={{ fontSize: '12px', color: '#854d0e' }}>{courier.breakdown.OUT_FOR_DELIVERY}</strong>
+                          <div
+                            style={{
+                              background: '#fef9c3',
+                              padding: '6px 4px',
+                              borderRadius: '6px',
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: '9px',
+                                color: '#a16207',
+                                fontWeight: 600,
+                              }}
+                            >
+                              OUT FOR DEL
+                            </span>
+                            <strong
+                              style={{ fontSize: '12px', color: '#854d0e' }}
+                            >
+                              {courier.breakdown.OUT_FOR_DELIVERY}
+                            </strong>
                           </div>
                         </div>
                       </div>
@@ -631,11 +971,15 @@ export default function DispatcherDashboardPage() {
               {/* 3. All Parcels Search & Monitor Filter Bar Section */}
               {(activeSection === 'all' || activeSection === 'monitor') && (
                 <section className="card ordersCard">
-                  <div className="cardHeader" style={{ flexWrap: 'wrap', gap: '12px' }}>
+                  <div
+                    className="cardHeader"
+                    style={{ flexWrap: 'wrap', gap: '12px' }}
+                  >
                     <div>
                       <h2>3. All Parcels Search &amp; Monitor</h2>
                       <p>
-                        Track and audit parcel lifecycles across all zones and couriers (<code>GET /api/v1/admin/parcels</code>).
+                        Track and audit parcel lifecycles across all zones and
+                        couriers (<code>GET /api/v1/admin/parcels</code>).
                       </p>
                     </div>
                   </div>
@@ -652,7 +996,15 @@ export default function DispatcherDashboardPage() {
                     }}
                   >
                     <div style={{ flex: '1 1 240px' }}>
-                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, color: '#888597', marginBottom: '4px' }}>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#888597',
+                          marginBottom: '4px',
+                        }}
+                      >
                         SEARCH TRACKING NUMBER
                       </label>
                       <input
@@ -672,7 +1024,15 @@ export default function DispatcherDashboardPage() {
                     </div>
 
                     <div style={{ flex: '1 1 180px' }}>
-                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, color: '#888597', marginBottom: '4px' }}>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#888597',
+                          marginBottom: '4px',
+                        }}
+                      >
                         FILTER STATUS
                       </label>
                       <select
@@ -691,14 +1051,24 @@ export default function DispatcherDashboardPage() {
                         <option value="CREATED">CREATED</option>
                         <option value="PICKED_UP">PICKED_UP</option>
                         <option value="IN_TRANSIT">IN_TRANSIT</option>
-                        <option value="OUT_FOR_DELIVERY">OUT_FOR_DELIVERY</option>
+                        <option value="OUT_FOR_DELIVERY">
+                          OUT_FOR_DELIVERY
+                        </option>
                         <option value="DELIVERED">DELIVERED</option>
                         <option value="FAILED">FAILED</option>
                       </select>
                     </div>
 
                     <div style={{ flex: '1 1 180px' }}>
-                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, color: '#888597', marginBottom: '4px' }}>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#888597',
+                          marginBottom: '4px',
+                        }}
+                      >
                         FILTER ZONE
                       </label>
                       <select
@@ -737,7 +1107,14 @@ export default function DispatcherDashboardPage() {
                       <tbody>
                         {filteredMonitoredParcels.length === 0 ? (
                           <tr>
-                            <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: '#9ca3af' }}>
+                            <td
+                              colSpan={6}
+                              style={{
+                                textAlign: 'center',
+                                padding: '24px',
+                                color: '#9ca3af',
+                              }}
+                            >
                               No parcels match your search and filter criteria.
                             </td>
                           </tr>
@@ -745,7 +1122,9 @@ export default function DispatcherDashboardPage() {
                           filteredMonitoredParcels.map((parcel) => (
                             <tr key={parcel.id}>
                               <td>
-                                <strong className="orderId">{parcel.trackingNumber}</strong>
+                                <strong className="orderId">
+                                  {parcel.trackingNumber}
+                                </strong>
                               </td>
                               <td>
                                 <span
@@ -753,14 +1132,20 @@ export default function DispatcherDashboardPage() {
                                     parcel.status === 'IN_TRANSIT'
                                       ? 'Intransit'
                                       : parcel.status === 'OUT_FOR_DELIVERY'
-                                      ? 'Outfordelivery'
-                                      : parcel.status === 'DELIVERED'
-                                      ? 'Delivered'
-                                      : ''
+                                        ? 'Outfordelivery'
+                                        : parcel.status === 'DELIVERED'
+                                          ? 'Delivered'
+                                          : ''
                                   }`}
                                   style={{
-                                    color: parcel.status === 'FAILED' ? '#dc2626' : undefined,
-                                    background: parcel.status === 'FAILED' ? '#fee2e2' : undefined,
+                                    color:
+                                      parcel.status === 'FAILED'
+                                        ? '#dc2626'
+                                        : undefined,
+                                    background:
+                                      parcel.status === 'FAILED'
+                                        ? '#fee2e2'
+                                        : undefined,
                                   }}
                                 >
                                   <i>●</i> {parcel.status}
@@ -772,9 +1157,23 @@ export default function DispatcherDashboardPage() {
                               <td>{parcel.zone}</td>
                               <td>
                                 {parcel.courierName ? (
-                                  <span style={{ fontWeight: 600, color: '#374151' }}>{parcel.courierName}</span>
+                                  <span
+                                    style={{
+                                      fontWeight: 600,
+                                      color: '#374151',
+                                    }}
+                                  >
+                                    {parcel.courierName}
+                                  </span>
                                 ) : (
-                                  <span style={{ color: '#d97706', fontStyle: 'italic' }}>Unassigned</span>
+                                  <span
+                                    style={{
+                                      color: '#d97706',
+                                      fontStyle: 'italic',
+                                    }}
+                                  >
+                                    Unassigned
+                                  </span>
                                 )}
                               </td>
                               <td className="muted">{parcel.updatedAt}</td>
@@ -791,7 +1190,7 @@ export default function DispatcherDashboardPage() {
         </div>
       </main>
 
-      {/* Assign Courier Modal / Drawer (API 5.2 POST /dispatch/assign) */}
+      {/* Assign Courier Modal / Drawer (API 5.2 PUT /dispatch/parcels/{parcelId}/assignment) */}
       {selectedParcel && (
         <div
           style={{
@@ -817,39 +1216,101 @@ export default function DispatcherDashboardPage() {
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px',
+              }}
+            >
               <div>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#1d1b2b' }}>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: '18px',
+                    fontWeight: 800,
+                    color: '#1d1b2b',
+                  }}
+                >
                   Assign Courier to Parcel
                 </h3>
-                <small style={{ color: '#77758a' }}>API v1.1 Endpoint: POST /api/v1/dispatch/assign</small>
+                <small style={{ color: '#77758a' }}>
+                  {
+                    'API v1.1 Endpoint: PUT /api/v1/dispatch/parcels/{parcelId}/assignment'
+                  }
+                </small>
               </div>
               <button
                 onClick={() => setSelectedParcel(null)}
-                style={{ background: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}
+                style={{
+                  background: 'none',
+                  fontSize: '20px',
+                  color: '#9ca3af',
+                  cursor: 'pointer',
+                }}
               >
                 ✕
               </button>
             </div>
 
-            <div style={{ background: '#f8f8fb', padding: '14px', borderRadius: '8px', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', color: '#6b7280' }}>Tracking Number:</span>
-                <strong style={{ fontSize: '12px', color: '#6d28d9' }}>{selectedParcel.trackingNumber}</strong>
+            <div
+              style={{
+                background: '#f8f8fb',
+                padding: '14px',
+                borderRadius: '8px',
+                marginBottom: '16px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  marginBottom: '6px',
+                }}
+              >
+                <span style={{ fontSize: '11px', color: '#6b7280' }}>
+                  Tracking Number:
+                </span>
+                <strong style={{ fontSize: '12px', color: '#6d28d9' }}>
+                  {selectedParcel.trackingNumber}
+                </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', color: '#6b7280' }}>Route:</span>
-                <span style={{ fontSize: '12px', fontWeight: 600 }}>{selectedParcel.pickupCity} → {selectedParcel.dropoffCity}</span>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  marginBottom: '6px',
+                }}
+              >
+                <span style={{ fontSize: '11px', color: '#6b7280' }}>
+                  Route:
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 600 }}>
+                  {selectedParcel.pickupCity} → {selectedParcel.dropoffCity}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '11px', color: '#6b7280' }}>Package Specs:</span>
-                <span style={{ fontSize: '11px', color: '#374151' }}>{selectedParcel.weightKg} kg · {selectedParcel.sizeCategory}</span>
+                <span style={{ fontSize: '11px', color: '#6b7280' }}>
+                  Package Specs:
+                </span>
+                <span style={{ fontSize: '11px', color: '#374151' }}>
+                  {selectedParcel.weightKg} kg · {selectedParcel.sizeCategory}
+                </span>
               </div>
             </div>
 
             <form onSubmit={handleConfirmAssignment}>
               <div style={{ marginBottom: '14px' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#4b5563', marginBottom: '6px' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: '#4b5563',
+                    marginBottom: '6px',
+                  }}
+                >
                   SELECT AVAILABLE COURIER *
                 </label>
                 <select
@@ -865,17 +1326,28 @@ export default function DispatcherDashboardPage() {
                     background: '#fff',
                   }}
                 >
-                  <option value="" disabled>Choose a field courier...</option>
+                  <option value="" disabled>
+                    Choose a field courier...
+                  </option>
                   {couriers.map((c) => (
                     <option key={c.courierId} value={c.courierId}>
-                      {c.fullName} ({c.activeDeliveries} active deliveries) — {c.isAvailable ? 'Available' : 'Busy'}
+                      {c.fullName} ({c.activeDeliveries} active deliveries) —{' '}
+                      {c.isAvailable ? 'Available' : 'Busy'}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#4b5563', marginBottom: '6px' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: '#4b5563',
+                    marginBottom: '6px',
+                  }}
+                >
                   ASSIGNMENT / REASSIGNMENT REASON (OPTIONAL)
                 </label>
                 <input
@@ -893,7 +1365,13 @@ export default function DispatcherDashboardPage() {
                 />
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '10px',
+                }}
+              >
                 <button
                   type="button"
                   className="outlineButton"
@@ -901,10 +1379,7 @@ export default function DispatcherDashboardPage() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="primaryButton"
-                >
+                <button type="submit" className="primaryButton">
                   Confirm Assignment
                 </button>
               </div>
@@ -915,4 +1390,3 @@ export default function DispatcherDashboardPage() {
     </div>
   );
 }
-
