@@ -246,9 +246,12 @@ paths:
       summary: Start Google sign-in (API v1.1 section 2.5)
       description: >-
         Saves a random one-time `state` (about 10 minutes) with a PKCE verifier
-        and redirects the browser to Google's consent page. The route exists only
-        when `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI`
-        are all set; otherwise it returns `404 NOT_FOUND`.
+        and the SHA-256 hash of a browser-binding value, sets the short-lived
+        HttpOnly `sd_oauth_binding_<state prefix>` cookie (SameSite=Lax,
+        Path=/api/v1/auth/google, Secure in production) and redirects the browser
+        to Google's consent page. The route exists only when `GOOGLE_CLIENT_ID`,
+        `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI` are all set; otherwise it
+        returns `404 NOT_FOUND`.
       parameters:
         - name: redirectTo
           in: query
@@ -278,13 +281,17 @@ paths:
       operationId: identityGoogleCallback
       summary: Finish Google sign-in (API v1.1 section 2.6)
       description: >-
-        Checks and burns the `state` (it works once), exchanges the code, verifies
-        the ID token, finds the user by `google_sub` and then by email (linking
-        the Google account), or creates a CUSTOMER with `auth_provider=GOOGLE` and
-        no password, then sets the `sd_access` and `sd_refresh` cookies. A browser
-        is redirected on success and on failure. A caller that sends
-        `Accept: application/json` (and not `text/html`) gets the JSON errors
-        instead.
+        Requires the browser-binding cookie set by the login endpoint. Checks and
+        burns the `state` with the binding hash and expiry in one statement;
+        a missing or mismatched binding is rejected without consuming the state.
+        Exchanges the code, verifies the ID token, finds the user by `google_sub`
+        and then by email, or creates a CUSTOMER with `auth_provider=GOOGLE` and
+        no password. When an unverified email account is linked, its password is
+        cleared and its refresh tokens are revoked; a password reset restores
+        password login. Sets the `sd_access` and `sd_refresh` cookies and clears
+        the binding cookie. A browser is redirected on success and on failure.
+        A caller that sends `Accept: application/json` (and not `text/html`) gets
+        the JSON errors instead.
       parameters:
         - name: code
           in: query
