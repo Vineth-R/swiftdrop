@@ -45,8 +45,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	router := servicehttp.New(logger)
-
+	var routerOptions []servicehttp.Option
 	var database *postgres.Pool
 	var pinger postgres.Pinger
 	if config.DatabaseURL != "" {
@@ -60,9 +59,17 @@ func run() error {
 		defer database.Close()
 		pinger = database
 		logger.Info("database connection established")
+
+		authOption, err := authRouterOptions(logger, config.AppEnv, database)
+		if err != nil {
+			return err
+		}
+		routerOptions = append(routerOptions, authOption)
 	} else {
-		logger.Warn("DATABASE_URL is not set; readiness will report database down")
+		logger.Warn("DATABASE_URL is not set; readiness will report database down and authentication is disabled")
 	}
+
+	router := servicehttp.New(logger, routerOptions...)
 
 	router.GET("/health", postgres.HealthHandler())
 	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))

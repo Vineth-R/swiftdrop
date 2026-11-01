@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Business functionality such as authentication, parcel lifecycles, pricing rules, merchant onboarding, live tracking, notification delivery, and webhook delivery is intentionally not implemented yet. See [Current scope](#current-scope) and [`docs/architecture.md`](docs/architecture.md).
+Business functionality such as parcel lifecycles, pricing rules, merchant onboarding, live tracking, notification delivery, and webhook delivery is intentionally not implemented yet. See [Current scope](#current-scope) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
@@ -388,18 +388,20 @@ The Go image copies only `go.mod`, `go.sum`, `packages/`, and the selected servi
 
 ## Demo login
 
-Authentication is owned by M2 and is **not implemented in this revision**. The infrastructure is ready for it: the gateway forwards the identity auth groups, Compose passes `DATABASE_URL`, JWT, cookie, Google, SMTP, and internal-token placeholders, and the shared error/request-ID/logging middleware is in place.
-
-Intended flow once M2 lands it (API v1.1 section 2.2):
+Email and password authentication is implemented in the identity service (API v1.1 sections 2.1 to 2.4): register, login, refresh and logout. Google login, password reset, profiles and admin user management are still planned. Demo users and password seeding are also pending, so register an account first:
 
 ```sh
+curl -i -X POST http://localhost:8080/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"Str0ngPass!","fullName":"Your Name","phone":"+94771234567"}'
+
 curl -i -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -H 'X-Token-Mode: body' \
-  -d '{"email":"admin@swiftdrop.local","password":"<seeded password>"}'
+  -d '{"email":"you@example.com","password":"Str0ngPass!"}'
 ```
 
-The response sets `sd_access` and `sd_refresh` cookies and, in token mode, returns `accessToken` and `refreshToken`. Demo users and password seeding are also pending M2. Do not treat login as working until the identity service implements and tests it.
+Login sets the HttpOnly `sd_access` (15 minutes) and `sd_refresh` (7 days) cookies and, in token mode, also returns `accessToken` and `refreshToken` in the body. Five wrong passwords lock the account for 15 minutes (`423 ACCOUNT_LOCKED`), and login and register are limited to 10 requests per minute per client address. `JWT_ACCESS_SECRET` is required; outside development it must be at least 32 random bytes.
 
 Stop containers without deleting data:
 

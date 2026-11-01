@@ -4,7 +4,9 @@ info:
   version: 0.1.0
   description: >-
     Authentication, authorization, and identity profile APIs. This specification
-    currently covers only the operational health and readiness endpoints. Every response uses
+    currently covers the operational health and readiness endpoints and the
+    authentication endpoints register, login, refresh and logout (API v1.1
+    sections 2.1 to 2.4). Every response uses
     either the success shape shown below or the standard error envelope
     `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`. Unmatched routes return
     `404 NOT_FOUND`, disallowed methods return `405 METHOD_NOT_ALLOWED` with an
@@ -66,8 +68,284 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /auth/register:
+    post:
+      operationId: identityRegister
+      summary: Register a customer account (API v1.1 section 2.1)
+      description: >-
+        Creates a CUSTOMER account. Rate limited to 10 requests per minute per
+        client address, shared with `/auth/login`. The email is stored in lower
+        case and matched without regard to letter case.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created. No session is started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: An account already uses this email (`EMAIL_ALREADY_EXISTS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/login:
+    post:
+      operationId: identityLogin
+      summary: Log in with email and password (API v1.1 section 2.2)
+      description: >-
+        Sets the HttpOnly cookies `sd_access` (15 minutes) and `sd_refresh`
+        (7 days, path `/api/v1/auth`). An unknown email and a wrong password
+        return the same 401. Five consecutive wrong passwords lock the account
+        for 15 minutes (423). Send `X-Token-Mode: body` to also receive the
+        tokens in the response body. Rate limited to 10 requests per minute per
+        client address, shared with `/auth/register`.
+      parameters:
+        - $ref: '#/components/parameters/TokenMode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Signed in.
+          headers:
+            Set-Cookie:
+              description: The `sd_access` and `sd_refresh` cookies.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Wrong email or password (`INVALID_CREDENTIALS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The account was deactivated (`ACCOUNT_DISABLED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '423':
+          description: Too many failed logins (`ACCOUNT_LOCKED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/refresh:
+    post:
+      operationId: identityRefresh
+      summary: Rotate the refresh token (API v1.1 section 2.3)
+      description: >-
+        Reads the `sd_refresh` cookie (or `refreshToken` in the body when
+        `X-Token-Mode: body` is sent), revokes it and issues a new access and
+        refresh token. A used, expired or revoked token returns 401 and the
+        cookies are cleared.
+      parameters:
+        - $ref: '#/components/parameters/TokenMode'
+      requestBody:
+        required: false
+        description: Needed only in token mode.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New tokens issued.
+          headers:
+            Set-Cookie:
+              description: The rotated `sd_access` and `sd_refresh` cookies.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: The refresh token is not valid (`REFRESH_TOKEN_INVALID`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/logout:
+    post:
+      operationId: identityLogout
+      summary: Log out (API v1.1 section 2.4)
+      description: >-
+        Revokes the caller's current refresh token and clears both cookies.
+        Requires a valid access token (cookie or Bearer header). It never fails
+        because the refresh token is missing or unknown.
+      parameters:
+        - $ref: '#/components/parameters/TokenMode'
+      requestBody:
+        required: false
+        description: Optional `refreshToken`, used only in token mode.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: Signed out. No body.
+        '401':
+          description: >-
+            No valid access token (`UNAUTHENTICATED`, or `TOKEN_EXPIRED` when the
+            access token has expired and should be refreshed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
+  parameters:
+    TokenMode:
+      name: X-Token-Mode
+      in: header
+      required: false
+      description: Send `body` to receive tokens in the response body (for Postman and automated tests).
+      schema:
+        type: string
+        enum: [body]
   schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, fullName, phone]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: At least 8 characters with an upper case letter, a lower case letter and a digit.
+        fullName:
+          type: string
+          minLength: 2
+          maxLength: 150
+        phone:
+          type: string
+          description: E.164 format.
+          example: '+94771234567'
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          format: password
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+    Account:
+      type: object
+      required: [id, email, fullName, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        fullName:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [CUSTOMER, MERCHANT, COURIER, DISPATCHER, ADMIN]
+        createdAt:
+          type: string
+          format: date-time
+    SuccessMeta:
+      type: object
+      required: [requestId, timestamp]
+      properties:
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    AccountEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/Account'
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
+    Session:
+      type: object
+      required: [expiresIn]
+      properties:
+        user:
+          $ref: '#/components/schemas/Account'
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds.
+          example: 900
+        accessToken:
+          type: string
+          description: Present only in token mode (header X-Token-Mode set to body).
+        refreshToken:
+          type: string
+          description: Present only in token mode (header X-Token-Mode set to body).
+    SessionEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/Session'
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
     HealthResponse:
       type: object
       additionalProperties: false
@@ -130,6 +408,56 @@ components:
           type: string
           description: Request correlation ID, also returned in the X-Request-Id header.
   responses:
+    BadRequest:
+      description: The body is not valid JSON (`BAD_REQUEST`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: The body is over 16 KiB (`PAYLOAD_TOO_LARGE`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnsupportedMediaType:
+      description: The content type is not `application/json` (`UNSUPPORTED_MEDIA_TYPE`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationError:
+      description: >-
+        One or more fields are invalid (`VALIDATION_ERROR`). `details` lists
+        each field and the problem, never the submitted value.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: One or more fields are invalid.
+              details:
+                - field: password
+                  issue: must be at least 8 characters
+            meta:
+              requestId: req_01
+    RateLimited:
+      description: Too many requests (`RATE_LIMITED`).
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          description: Requests left in the current window.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     NotFound:
       description: >-
         No route matched the request path. Returns the standard error envelope
