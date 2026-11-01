@@ -72,6 +72,12 @@ func LoadAuthFrom(loader sharedconfig.Loader, appEnv string) (Auth, error) {
 	if err != nil {
 		return Auth{}, fmt.Errorf("COOKIE_SECURE must be true or false: %w", err)
 	}
+	// Session cookies carry tokens. Production must not start with them
+	// traversing plain HTTP. Local development intentionally uses HTTP, so the
+	// insecure default remains available there.
+	if appEnv == "production" && !secure {
+		return Auth{}, errors.New("COOKIE_SECURE must be true in production")
+	}
 	sameSite, err := parseSameSite(loader)
 	if err != nil {
 		return Auth{}, err

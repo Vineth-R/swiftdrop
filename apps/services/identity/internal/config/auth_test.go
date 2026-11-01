@@ -125,6 +125,12 @@ func TestLoadAuthFrom_errors(t *testing.T) {
 			wantErr: "COOKIE_SECURE",
 		},
 		{
+			name:    "production requires secure cookies",
+			appEnv:  "production",
+			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret},
+			wantErr: "COOKIE_SECURE must be true in production",
+		},
+		{
 			name:    "bad samesite",
 			appEnv:  "development",
 			values:  map[string]string{"JWT_ACCESS_SECRET": strongSecret, "COOKIE_SAMESITE": "sideways"},
