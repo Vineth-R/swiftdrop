@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1095" viewBox="0 0 1180 1095" font-family="Helvetica, Arial, sans-serif">
+<defs>
+<marker id="open" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="11" markerHeight="11" orient="auto"><path d="M1 1 L11 6 L1 11" fill="none" stroke="#3B4658" stroke-width="1.6"/></marker>
+<marker id="gen" viewBox="0 0 14 14" refX="13" refY="7" markerWidth="13" markerHeight="13" orient="auto"><path d="M1 1 L13 7 L1 13 Z" fill="#FFFFFF" stroke="#3B4658" stroke-width="1.6"/></marker>
+</defs>
+<rect width="1180" height="1095" fill="#FFFFFF"/>
+<text x="30" y="40" font-size="22" font-weight="700" fill="#1B2430">Account and session use cases: Admin</text>
+<text x="30" y="64" font-size="14" fill="#5A6678">UC-A4 and UC-A5 · API v1.1 sections 2.2, 2.10 to 2.14, 8.4 to 8.8 · plus the shared UC-U1 to UC-U4</text>
+<rect x="300" y="84" width="760" height="941" rx="14" fill="#F7F9FC" stroke="#5B6B8C" stroke-width="1.6"/>
+<text x="316" y="110" font-size="15" font-weight="700" fill="#5B6B8C">SwiftDrop identity and merchant service: Admin accounts</text>
+<rect x="320.0" y="810.0" width="680" height="190" rx="14" fill="#EEF4FF" stroke="#2F6FDE" stroke-width="1.6" stroke-dasharray="7 5"/>
+<text x="336.0" y="836.0" font-size="15" font-weight="700" fill="#2F6FDE">Shared with every role (Figure 5)</text>
+<line x1="638.7" y1="148.1" x2="756.6" y2="136.3" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="756.6" y1="183.7" x2="638.7" y2="171.9" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="601.6" y1="374.7" x2="807.2" y2="298.3" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="628.1" y1="384.9" x2="775.2" y2="357.6" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="645.0" y1="405.0" x2="745.0" y2="405.0" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="628.1" y1="425.1" x2="775.2" y2="452.4" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="807.2" y1="511.7" x2="601.6" y2="435.3" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="576.7" y1="440.6" x2="829.4" y2="599.5" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="643.8" y1="734.7" x2="747.4" y2="730.3" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="604.9" y1="712.1" x2="801.3" y2="647.6" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="104.0" y1="907.0" x2="497.9" y2="197.4" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<line x1="104.0" y1="907.0" x2="486.1" y2="443.5" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<line x1="104.0" y1="907.0" x2="441.3" y2="769.5" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<line x1="104.0" y1="907.0" x2="320.0" y2="905.0" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<g stroke="#1F8A4C" stroke-width="2.4" stroke-linecap="round" fill="none">
+<circle cx="80" cy="871" r="12" fill="#E6F6EC"/>
+<line x1="80" y1="883" x2="80" y2="919"/>
+<line x1="60" y1="895" x2="100" y2="895"/>
+<line x1="80" y1="919" x2="64" y2="945"/>
+<line x1="80" y1="919" x2="96" y2="945"/>
+</g>
+<text x="80" y="965" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1B2430">Admin</text>
+<ellipse cx="520" cy="160" rx="125.0" ry="38.0" fill="#E6F6EC" stroke="#1F8A4C" stroke-width="2"/>
+<text x="520" y="156.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Log in with email</text>
+<text x="520" y="173.5" text-anchor="middle" font-size="14.5" fill="#1B2430">and password</text>
+<ellipse cx="870" cy="125" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="121.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Set sd_access and</text>
+<text x="870" y="138.5" text-anchor="middle" font-size="14.5" fill="#1B2430">sd_refresh cookies</text>
+<ellipse cx="870" cy="195" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="191.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Lock after 5 failed</text>
+<text x="870" y="208.5" text-anchor="middle" font-size="14.5" fill="#1B2430">logins (423)</text>
+<ellipse cx="520" cy="405" rx="125.0" ry="40.0" fill="#E6F6EC" stroke="#1F8A4C" stroke-width="2"/>
+<text x="520" y="401.5" text-anchor="middle" font-size="13" font-weight="700" fill="#1F8A4C">UC-A4</text>
+<text x="520" y="418.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Manage users</text>
+<ellipse cx="870" cy="275" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="271.5" text-anchor="middle" font-size="14.5" fill="#1B2430">List, search and view</text>
+<text x="870" y="288.5" text-anchor="middle" font-size="14.5" fill="#1B2430">users</text>
+<ellipse cx="870" cy="340" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="336.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Create a staff account</text>
+<text x="870" y="353.5" text-anchor="middle" font-size="14.5" fill="#1B2430">(courier, dispatcher, admin)</text>
+<ellipse cx="870" cy="405" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="401.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Edit a profile, role or</text>
+<text x="870" y="418.5" text-anchor="middle" font-size="14.5" fill="#1B2430">courier details</text>
+<ellipse cx="870" cy="470" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="466.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Activate or deactivate;</text>
+<text x="870" y="483.5" text-anchor="middle" font-size="14.5" fill="#1B2430">deactivation revokes tokens</text>
+<ellipse cx="870" cy="535" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="531.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Refuse deactivating</text>
+<text x="870" y="548.5" text-anchor="middle" font-size="14.5" fill="#1B2430">your own account (409)</text>
+<ellipse cx="870" cy="625" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="621.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Write an audit log</text>
+<text x="870" y="638.5" text-anchor="middle" font-size="14.5" fill="#1B2430">entry</text>
+<ellipse cx="520" cy="740" rx="125.0" ry="38.0" fill="#F3F4F6" stroke="#8A93A3" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="520" y="736.5" text-anchor="middle" font-size="13" font-weight="700" fill="#8A93A3">UC-A5</text>
+<text x="520" y="753.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Approve merchants</text>
+<ellipse cx="870" cy="725" rx="125.0" ry="27.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="870" y="721.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Approve, reject or suspend,</text>
+<text x="870" y="738.5" text-anchor="middle" font-size="14.5" fill="#1B2430">with a reason</text>
+<ellipse cx="410" cy="919" rx="75.0" ry="42.0" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="410" y="907.0" text-anchor="middle" font-size="13" font-weight="700" fill="#2F6FDE">UC-U1</text>
+<text x="410" y="924.0" text-anchor="middle" font-size="14.5" fill="#1B2430">View and edit</text>
+<text x="410" y="941.0" text-anchor="middle" font-size="14.5" fill="#1B2430">own profile</text>
+<ellipse cx="574" cy="919" rx="75.0" ry="42.0" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="574" y="907.0" text-anchor="middle" font-size="13" font-weight="700" fill="#2F6FDE">UC-U2</text>
+<text x="574" y="924.0" text-anchor="middle" font-size="14.5" fill="#1B2430">Change</text>
+<text x="574" y="941.0" text-anchor="middle" font-size="14.5" fill="#1B2430">password</text>
+<ellipse cx="738" cy="919" rx="75.0" ry="42.0" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="738" y="907.0" text-anchor="middle" font-size="13" font-weight="700" fill="#2F6FDE">UC-U3</text>
+<text x="738" y="924.0" text-anchor="middle" font-size="14.5" fill="#1B2430">Reset forgotten</text>
+<text x="738" y="941.0" text-anchor="middle" font-size="14.5" fill="#1B2430">password</text>
+<ellipse cx="902" cy="919" rx="75.0" ry="42.0" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="902" y="907.0" text-anchor="middle" font-size="13" font-weight="700" fill="#2F6FDE">UC-U4</text>
+<text x="902" y="924.0" text-anchor="middle" font-size="14.5" fill="#1B2430">Refresh session</text>
+<text x="902" y="941.0" text-anchor="middle" font-size="14.5" fill="#1B2430">and log out</text>
+<rect x="660.3" y="132.2" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="697.7" y="146.2" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="663.9" y="167.8" width="67.6" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="697.7" y="181.8" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«extend»</text>
+<rect x="667.0" y="326.5" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="704.4" y="340.5" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="664.3" y="361.3" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="701.7" y="375.3" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="657.6" y="395.0" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="695.0" y="409.0" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="664.3" y="428.7" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="701.7" y="442.7" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="670.6" y="463.5" width="67.6" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="704.4" y="477.5" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«extend»</text>
+<rect x="645.6" y="510.1" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="683.0" y="524.1" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="658.2" y="722.5" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="695.6" y="736.5" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="645.7" y="669.8" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="683.1" y="683.8" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="156.6" y="882.0" width="110.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="212.0" y="896.0" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">UC-U1 to UC-U4</text>
+<path d="M40 110 H256 L270 124 V220 H40 Z" fill="#FFFBE6" stroke="#B59B2E" stroke-width="1.4"/>
+<path d="M256 110 V124 H270" fill="none" stroke="#B59B2E" stroke-width="1.4"/>
+<text x="52" y="134" font-size="13" font-weight="700" fill="#6B5A0E">Inheritance</text>
+<text x="52" y="152" font-size="13" fill="#1B2430">Admin also has every</text>
+<text x="52" y="170" font-size="13" fill="#1B2430">Dispatcher use case:</text>
+<text x="52" y="188" font-size="13" fill="#1B2430">UC-A1 to UC-A3 and UC-A8</text>
+<text x="52" y="206" font-size="13" fill="#1B2430">(Figure 4).</text>
+<text x="30" y="1066" font-size="13" font-weight="700" fill="#5A6678">Legend</text>
+<ellipse cx="110" cy="1061" rx="18" ry="11" fill="#E6F6EC" stroke="#1F8A4C" stroke-width="2"/>
+<text x="136" y="1066" font-size="13" fill="#1B2430">Admin use case</text>
+<ellipse cx="274.0" cy="1061" rx="18" ry="11" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="300.0" y="1066" font-size="13" fill="#1B2430">Shared account use case</text>
+<ellipse cx="501.0" cy="1061" rx="18" ry="11" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="527.0" y="1066" font-size="13" fill="#1B2430">Included or extending step</text>
+<ellipse cx="749.0" cy="1061" rx="18" ry="11" fill="#F3F4F6" stroke="#8A93A3" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="775.0" y="1066" font-size="13" fill="#1B2430">Use case from another section</text>
+</svg>

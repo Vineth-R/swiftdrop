@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="910" viewBox="0 0 1180 910" font-family="Helvetica, Arial, sans-serif">
+<defs>
+<marker id="open" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="11" markerHeight="11" orient="auto"><path d="M1 1 L11 6 L1 11" fill="none" stroke="#3B4658" stroke-width="1.6"/></marker>
+<marker id="gen" viewBox="0 0 14 14" refX="13" refY="7" markerWidth="13" markerHeight="13" orient="auto"><path d="M1 1 L13 7 L1 13 Z" fill="#FFFFFF" stroke="#3B4658" stroke-width="1.6"/></marker>
+</defs>
+<rect width="1180" height="910" fill="#FFFFFF"/>
+<text x="30" y="40" font-size="22" font-weight="700" fill="#1B2430">Account use cases: shared by every signed-in role</text>
+<text x="30" y="64" font-size="14" fill="#5A6678">Identity service · UC-U1 to UC-U4 · API v1.1 sections 2.3, 2.4, 2.7 to 2.9, 2.16, 2.17</text>
+<rect x="405" y="84" width="640" height="760" rx="14" fill="#F7F9FC" stroke="#5B6B8C" stroke-width="1.6"/>
+<text x="421" y="110" font-size="15" font-weight="700" fill="#5B6B8C">SwiftDrop identity: account and session use cases</text>
+<line x1="94.0" y1="152.0" x2="266.0" y2="392.0" stroke="#3B4658" stroke-width="1.6" fill="none" marker-end="url(#gen)"/>
+<line x1="94.0" y1="272.0" x2="266.0" y2="392.0" stroke="#3B4658" stroke-width="1.6" fill="none" marker-end="url(#gen)"/>
+<line x1="94.0" y1="392.0" x2="266.0" y2="392.0" stroke="#3B4658" stroke-width="1.6" fill="none" marker-end="url(#gen)"/>
+<line x1="94.0" y1="512.0" x2="266.0" y2="392.0" stroke="#3B4658" stroke-width="1.6" fill="none" marker-end="url(#gen)"/>
+<line x1="94.0" y1="632.0" x2="266.0" y2="392.0" stroke="#3B4658" stroke-width="1.6" fill="none" marker-end="url(#gen)"/>
+<line x1="314.0" y1="392.0" x2="535.6" y2="183.2" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<line x1="314.0" y1="392.0" x2="481.0" y2="343.1" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<line x1="314.0" y1="392.0" x2="525.5" y2="542.9" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<line x1="314.0" y1="392.0" x2="549.3" y2="735.7" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<line x1="693.3" y1="138.7" x2="800.4" y2="128.5" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="690.0" y1="163.7" x2="804.2" y2="177.4" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="681.3" y1="301.6" x2="813.8" y2="278.7" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="796.5" y1="334.5" x2="696.7" y2="328.0" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="652.0" y1="347.6" x2="843.3" y2="416.1" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="646.3" y1="546.3" x2="848.6" y2="464.7" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="682.8" y1="557.3" x2="812.2" y2="536.1" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="698.4" y1="580.5" x2="794.4" y2="584.8" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="828.1" y1="639.2" x2="667.6" y2="598.5" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="694.1" y1="759.3" x2="799.5" y2="749.9" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="690.0" y1="783.7" x2="804.2" y2="797.4" stroke="#3B4658" stroke-width="1.6" fill="none" stroke-dasharray="7 5" marker-end="url(#open)"/>
+<line x1="1088.0" y1="522.0" x2="1027.5" y2="520.0" stroke="#3B4658" stroke-width="1.6" fill="none"/>
+<g stroke="#1F8A4C" stroke-width="2.4" stroke-linecap="round" fill="none">
+<circle cx="70" cy="116" r="12" fill="#E6F6EC"/>
+<line x1="70" y1="128" x2="70" y2="164"/>
+<line x1="50" y1="140" x2="90" y2="140"/>
+<line x1="70" y1="164" x2="54" y2="190"/>
+<line x1="70" y1="164" x2="86" y2="190"/>
+</g>
+<text x="70" y="210" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1B2430">Customer</text>
+<g stroke="#1F8A4C" stroke-width="2.4" stroke-linecap="round" fill="none">
+<circle cx="70" cy="236" r="12" fill="#E6F6EC"/>
+<line x1="70" y1="248" x2="70" y2="284"/>
+<line x1="50" y1="260" x2="90" y2="260"/>
+<line x1="70" y1="284" x2="54" y2="310"/>
+<line x1="70" y1="284" x2="86" y2="310"/>
+</g>
+<text x="70" y="330" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1B2430">Merchant</text>
+<g stroke="#1F8A4C" stroke-width="2.4" stroke-linecap="round" fill="none">
+<circle cx="70" cy="356" r="12" fill="#E6F6EC"/>
+<line x1="70" y1="368" x2="70" y2="404"/>
+<line x1="50" y1="380" x2="90" y2="380"/>
+<line x1="70" y1="404" x2="54" y2="430"/>
+<line x1="70" y1="404" x2="86" y2="430"/>
+</g>
+<text x="70" y="450" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1B2430">Courier</text>
+<g stroke="#1F8A4C" stroke-width="2.4" stroke-linecap="round" fill="none">
+<circle cx="70" cy="476" r="12" fill="#E6F6EC"/>
+<line x1="70" y1="488" x2="70" y2="524"/>
+<line x1="50" y1="500" x2="90" y2="500"/>
+<line x1="70" y1="524" x2="54" y2="550"/>
+<line x1="70" y1="524" x2="86" y2="550"/>
+</g>
+<text x="70" y="570" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1B2430">Dispatcher</text>
+<g stroke="#1F8A4C" stroke-width="2.4" stroke-linecap="round" fill="none">
+<circle cx="70" cy="596" r="12" fill="#E6F6EC"/>
+<line x1="70" y1="608" x2="70" y2="644"/>
+<line x1="50" y1="620" x2="90" y2="620"/>
+<line x1="70" y1="644" x2="54" y2="670"/>
+<line x1="70" y1="644" x2="86" y2="670"/>
+</g>
+<text x="70" y="690" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1B2430">Admin</text>
+<g stroke="#2F6FDE" stroke-width="2.4" stroke-linecap="round" fill="none">
+<circle cx="290" cy="356" r="12" fill="#E8F1FF"/>
+<line x1="290" y1="368" x2="290" y2="404"/>
+<line x1="270" y1="380" x2="310" y2="380"/>
+<line x1="290" y1="404" x2="274" y2="430"/>
+<line x1="290" y1="404" x2="306" y2="430"/>
+</g>
+<text x="290" y="450" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1B2430">Registered user</text>
+<ellipse cx="575" cy="150" rx="125.0" ry="35.0" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="575" y="146.5" text-anchor="middle" font-size="13" font-weight="700" fill="#2F6FDE">UC-U1</text>
+<text x="575" y="163.5" text-anchor="middle" font-size="14.5" fill="#1B2430">View and edit own profile</text>
+<ellipse cx="575" cy="320" rx="125.0" ry="35.0" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="575" y="316.5" text-anchor="middle" font-size="13" font-weight="700" fill="#2F6FDE">UC-U2</text>
+<text x="575" y="333.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Change password</text>
+<ellipse cx="575" cy="575" rx="125.0" ry="35.0" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="575" y="571.5" text-anchor="middle" font-size="13" font-weight="700" fill="#2F6FDE">UC-U3</text>
+<text x="575" y="588.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Reset forgotten password</text>
+<ellipse cx="575" cy="770" rx="125.0" ry="35.0" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="575" y="758.0" text-anchor="middle" font-size="13" font-weight="700" fill="#2F6FDE">UC-U4</text>
+<text x="575" y="775.0" text-anchor="middle" font-size="14.5" fill="#1B2430">Refresh session</text>
+<text x="575" y="792.0" text-anchor="middle" font-size="14.5" fill="#1B2430">and log out</text>
+<ellipse cx="910" cy="118" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="114.5" text-anchor="middle" font-size="14.5" fill="#1B2430">View profile, role and</text>
+<text x="910" y="131.5" text-anchor="middle" font-size="14.5" fill="#1B2430">sign-in provider</text>
+<ellipse cx="910" cy="190" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="186.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Update full name</text>
+<text x="910" y="203.5" text-anchor="middle" font-size="14.5" fill="#1B2430">and phone</text>
+<ellipse cx="910" cy="262" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="258.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Check the</text>
+<text x="910" y="275.5" text-anchor="middle" font-size="14.5" fill="#1B2430">current password</text>
+<ellipse cx="910" cy="342" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="338.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Refuse a Google-only</text>
+<text x="910" y="355.5" text-anchor="middle" font-size="14.5" fill="#1B2430">account (409)</text>
+<ellipse cx="910" cy="440" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="436.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Revoke all</text>
+<text x="910" y="453.5" text-anchor="middle" font-size="14.5" fill="#1B2430">refresh tokens</text>
+<ellipse cx="910" cy="520" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="516.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Email a single-use</text>
+<text x="910" y="533.5" text-anchor="middle" font-size="14.5" fill="#1B2430">reset link</text>
+<ellipse cx="910" cy="590" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="586.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Set a new password</text>
+<text x="910" y="603.5" text-anchor="middle" font-size="14.5" fill="#1B2430">with the token</text>
+<ellipse cx="910" cy="660" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="656.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Refuse an invalid or</text>
+<text x="910" y="673.5" text-anchor="middle" font-size="14.5" fill="#1B2430">expired token (400)</text>
+<ellipse cx="910" cy="740" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="736.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Rotate the</text>
+<text x="910" y="753.5" text-anchor="middle" font-size="14.5" fill="#1B2430">refresh token</text>
+<ellipse cx="910" cy="810" rx="117.5" ry="29.0" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="910" y="806.5" text-anchor="middle" font-size="14.5" fill="#1B2430">Revoke token and</text>
+<text x="910" y="823.5" text-anchor="middle" font-size="14.5" fill="#1B2430">clear cookies</text>
+<g stroke="#C27C0E" stroke-width="2.4" stroke-linecap="round" fill="none">
+<circle cx="1112" cy="486" r="12" fill="#FFF4E0"/>
+<line x1="1112" y1="498" x2="1112" y2="534"/>
+<line x1="1092" y1="510" x2="1132" y2="510"/>
+<line x1="1112" y1="534" x2="1096" y2="560"/>
+<line x1="1112" y1="534" x2="1128" y2="560"/>
+</g>
+<text x="1112" y="580" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1B2430">Email service</text>
+<rect x="709.5" y="119.6" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="746.9" y="133.6" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="709.7" y="166.5" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="747.1" y="180.5" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="710.2" y="280.1" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="747.6" y="294.1" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="712.8" y="321.3" width="67.6" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="746.6" y="335.3" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«extend»</text>
+<rect x="692.3" y="371.8" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="729.7" y="385.8" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="692.1" y="495.5" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="729.5" y="509.5" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="710.1" y="530.7" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="747.5" y="544.7" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="709.0" y="572.7" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="746.4" y="586.7" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="714.0" y="608.9" width="67.6" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="747.8" y="622.9" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«extend»</text>
+<rect x="709.4" y="738.6" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="746.8" y="752.6" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<rect x="709.7" y="786.5" width="74.8" height="19" rx="4" fill="#FFFFFF" fill-opacity="0.95"/>
+<text x="747.1" y="800.5" text-anchor="middle" font-size="12.5" font-style="italic" fill="#3B4658">«include»</text>
+<path d="M40 700 H326 L340 714 V828 H40 Z" fill="#FFFBE6" stroke="#B59B2E" stroke-width="1.4"/>
+<path d="M326 700 V714 H340" fill="none" stroke="#B59B2E" stroke-width="1.4"/>
+<text x="52" y="724" font-size="13" font-weight="700" fill="#6B5A0E">Preconditions</text>
+<text x="52" y="742" font-size="13" fill="#1B2430">UC-U1, UC-U2 and UC-U4 need a signed-in</text>
+<text x="52" y="760" font-size="13" fill="#1B2430">session: access token valid for 15 minutes.</text>
+<text x="52" y="778" font-size="13" fill="#1B2430">UC-U3 is for a user who cannot sign in.</text>
+<text x="52" y="796" font-size="13" fill="#1B2430">Google-only accounts have no password,</text>
+<text x="52" y="814" font-size="13" fill="#1B2430">so they cannot use UC-U2 or UC-U3.</text>
+<text x="30" y="881" font-size="13" font-weight="700" fill="#5A6678">Legend</text>
+<ellipse cx="110" cy="876" rx="18" ry="11" fill="#E8F1FF" stroke="#2F6FDE" stroke-width="2"/>
+<text x="136" y="881" font-size="13" fill="#1B2430">Account use case</text>
+<ellipse cx="288.0" cy="876" rx="18" ry="11" fill="#FFFFFF" stroke="#6B7A99" stroke-width="2"/>
+<text x="314.0" y="881" font-size="13" fill="#1B2430">Included or extending step</text>
+<circle cx="527.0" cy="876" r="7" fill="#FFF4E0" stroke="#C27C0E" stroke-width="2"/>
+<line x1="527.0" y1="883" x2="527.0" y2="893" stroke="#C27C0E" stroke-width="2"/>
+<text x="544.0" y="881" font-size="13" fill="#1B2430">External system</text>
+</svg>
