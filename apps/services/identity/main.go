@@ -60,11 +60,12 @@ func run() error {
 		pinger = database
 		logger.Info("database connection established")
 
-		authOption, err := authRouterOptions(logger, config.AppEnv, database)
+		authOptions, drainEmail, err := authRouterOptions(logger, config, database)
 		if err != nil {
 			return err
 		}
-		routerOptions = append(routerOptions, authOption)
+		defer drainEmail()
+		routerOptions = append(routerOptions, authOptions...)
 	} else {
 		logger.Warn("DATABASE_URL is not set; readiness will report database down and authentication is disabled")
 	}

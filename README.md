@@ -189,7 +189,7 @@ To use Mailpit locally instead, set `SMTP_HOST=mailpit` and `SMTP_PORT=1025`; Ma
 
 - The App Password belongs only in `.env`, which is untracked. Never commit it, paste it into chat, or log it. Revoke it from the Google account if exposed.
 - TLS certificate verification stays enabled. Certificate revocation checking (`CheckCertificateRevocation`) is not implemented in the sender.
-- No service sends email yet. This configuration is prepared for M2's password-reset flow and the future notification worker; delivery is not claimed to work in this revision.
+- The identity service sends password-reset email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. The notification worker does not send email yet; it is expected to use the same package. Delivery has been tested against a fake SMTP server only, not yet against Mailpit or Gmail.
 - Gmail SMTP is suitable for development and small volumes. Production email should use a transactional provider with SPF/DKIM/DMARC.
 
 ## Database migrations
@@ -388,7 +388,7 @@ The Go image copies only `go.mod`, `go.sum`, `packages/`, and the selected servi
 
 ## Demo login
 
-Email and password authentication is implemented in the identity service (API v1.1 sections 2.1 to 2.4): register, login, refresh and logout. Google login, password reset, profiles and admin user management are still planned. Demo users and password seeding are also pending, so register an account first:
+Email and password authentication is implemented in the identity service (API v1.1 sections 2.1 to 2.4): register, login, refresh and logout. Google login, password reset, admin user management, the courier list and two internal lookup APIs are also implemented in the identity service (sections 2.5, 2.6, 2.10 to 2.17 and 13); profiles are still planned. Demo users and password seeding are also pending, so register an account first:
 
 ```sh
 curl -i -X POST http://localhost:8080/api/v1/auth/register \
@@ -494,4 +494,4 @@ Platform foundation implemented: shared PostgreSQL pool and database-backed read
 
 Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
 
-Not implemented: authentication (owned by M2), JWT, cookies/sessions, Google OAuth, password reset, parcels, pricing formulas, merchant onboarding, API keys, notification delivery, webhook signing and delivery retries, realtime subscriptions, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Business tables exist, but no business endpoints or event producers are implemented yet.
+Not implemented: authentication (owned by M2), JWT, cookies/sessions, parcels, pricing formulas, merchant onboarding, API keys, notification delivery, webhook signing and delivery retries, realtime subscriptions, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Business tables exist, but no business endpoints or event producers are implemented yet.

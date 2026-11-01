@@ -4,9 +4,11 @@ info:
   version: 0.1.0
   description: >-
     Authentication, authorization, and identity profile APIs. This specification
-    currently covers the operational health and readiness endpoints and the
-    authentication endpoints register, login, refresh and logout (API v1.1
-    sections 2.1 to 2.4). Every response uses
+    covers the operational health and readiness endpoints, the authentication
+    endpoints (API v1.1 sections 2.1 to 2.6 and 2.16 to 2.17), the admin user
+    endpoints and the courier list (sections 2.10 to 2.15). The service-to-service
+    `/internal` endpoints are deliberately not listed here, because the gateway
+    never routes them; see docs/identity-internal-api.md. Every response uses
     either the success shape shown below or the standard error envelope
     `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`. Unmatched routes return
     `404 NOT_FOUND`, disallowed methods return `405 METHOD_NOT_ALLOWED` with an
@@ -238,9 +240,381 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /auth/google/login:
+    get:
+      operationId: identityGoogleLogin
+      summary: Start Google sign-in (API v1.1 section 2.5)
+      description: >-
+        Saves a random one-time `state` (about 10 minutes) with a PKCE verifier
+        and redirects the browser to Google's consent page. The route exists only
+        when `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI`
+        are all set; otherwise it returns `404 NOT_FOUND`.
+      parameters:
+        - name: redirectTo
+          in: query
+          required: false
+          description: >-
+            Relative frontend path to return to after sign-in, such as
+            `/dashboard`. Absolute URLs, `//host` and backslashes are refused.
+          schema:
+            type: string
+            maxLength: 255
+            example: /dashboard
+      responses:
+        '302':
+          description: Redirect to `https://accounts.google.com/o/oauth2/v2/auth`.
+          headers:
+            Location:
+              schema:
+                type: string
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/google/callback:
+    get:
+      operationId: identityGoogleCallback
+      summary: Finish Google sign-in (API v1.1 section 2.6)
+      description: >-
+        Checks and burns the `state` (it works once), exchanges the code, verifies
+        the ID token, finds the user by `google_sub` and then by email (linking
+        the Google account), or creates a CUSTOMER with `auth_provider=GOOGLE` and
+        no password, then sets the `sd_access` and `sd_refresh` cookies. A browser
+        is redirected on success and on failure. A caller that sends
+        `Accept: application/json` (and not `text/html`) gets the JSON errors
+        instead.
+      parameters:
+        - name: code
+          in: query
+          required: false
+          description: Authorization code from Google. Absent when Google sends `error`.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 64
+        - name: error
+          in: query
+          required: false
+          description: Sent by Google when sign-in was refused.
+          schema:
+            type: string
+      responses:
+        '302':
+          description: >-
+            Success: redirect to the saved relative `redirectTo` (default
+            `/dashboard`) with the session cookies set. Failure: redirect to
+            `/login?error=oauth_failed` with no cookies.
+          headers:
+            Location:
+              schema:
+                type: string
+            Set-Cookie:
+              description: The `sd_access` and `sd_refresh` cookies (success only).
+              schema:
+                type: string
+        '400':
+          description: The state is missing, unknown, expired or used (`OAUTH_STATE_INVALID`). JSON callers only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >-
+            The account is disabled (`ACCOUNT_DISABLED`) or Google did not verify
+            the email (`FORBIDDEN`). JSON callers only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '502':
+          description: Google failed or returned an unusable response (`OAUTH_PROVIDER_ERROR`). JSON callers only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/forgot-password:
+    post:
+      operationId: identityForgotPassword
+      summary: Request a password reset link (API v1.1 section 2.16)
+      description: >-
+        Emails a single-use link that expires after 30 minutes and replaces any
+        earlier link. The reply is always the same 202 for a well-formed email,
+        whether or not an account exists, and Google-only or disabled accounts
+        silently receive nothing. Limited to 5 requests per minute per client
+        address and per email. The route exists only when `SMTP_HOST` and a valid
+        `FRONTEND_BASE_URL` are configured; otherwise it returns `404 NOT_FOUND`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '202':
+          description: The same reply for every well-formed email.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/reset-password:
+    post:
+      operationId: identityResetPassword
+      summary: Set a new password with a reset token (API v1.1 section 2.17)
+      description: >-
+        Spends the token and sets the new password in one transaction, clears any
+        login lock and revokes every refresh token of the user. An unknown,
+        expired or already used token (a missing one too) returns the same
+        `400 INVALID_OR_EXPIRED_RESET_TOKEN`. The token is checked first and the
+        new password second, as API v1.1 section 2.17 orders them; a password
+        that breaks the registration rules returns `422` and leaves the token
+        unspent. Limited to 5 requests per minute per client address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password changed. The session cookies are cleared.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageEnvelope'
+        '400':
+          description: >-
+            Malformed JSON (`BAD_REQUEST`), or the token is missing, invalid, expired
+            or already used (`INVALID_OR_EXPIRED_RESET_TOKEN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admin/users:
+    get:
+      operationId: identityAdminListUsers
+      summary: List users (API v1.1 section 2.10, ADMIN)
+      description: Paginated, filterable list. Sorted newest first unless `sort` says otherwise.
+      parameters:
+        - { name: role, in: query, required: false, schema: { $ref: '#/components/schemas/Role' } }
+        - { name: isActive, in: query, required: false, schema: { type: boolean } }
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive search of full name and email. `%` and `_` match themselves.
+          schema: { type: string, maxLength: 100 }
+        - name: sort
+          in: query
+          required: false
+          description: '`createdAt`, `fullName` or `email`, optionally followed by `:asc` or `:desc`. Default `createdAt:desc`.'
+          schema: { type: string, example: 'createdAt:desc' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserListEnvelope'
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: identityAdminCreateUser
+      summary: Create a staff account (API v1.1 section 2.11, ADMIN)
+      description: >-
+        Creates a courier, dispatcher or admin account and writes a `USER_CREATED`
+        audit row in the same transaction. `courierProfile` is required when the role
+        is `COURIER` and refused otherwise.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStaffRequest'
+      responses:
+        '201':
+          description: The created user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserEnvelope'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The email is already registered (`EMAIL_ALREADY_EXISTS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /admin/users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      operationId: identityAdminGetUser
+      summary: Get one user (API v1.1 section 2.12, ADMIN)
+      responses:
+        '200':
+          description: The full administrative view, with `courierProfile` for couriers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserEnvelope'
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      operationId: identityAdminUpdateUser
+      summary: Update a user (API v1.1 section 2.13, ADMIN)
+      description: >-
+        Any subset of `fullName`, `phone`, `role` and `courierProfile`; at least one is
+        required. Writes a `USER_UPDATED` audit row. An admin cannot change their own
+        role (`409 CONFLICT`), the `MERCHANT` role cannot be assigned or changed, and a
+        user cannot be made a `COURIER` without a `courierProfile`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: The updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserEnvelope'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: An admin tried to change their own role (`CONFLICT`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /admin/users/{userId}/status:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    patch:
+      operationId: identityAdminSetUserStatus
+      summary: Activate or deactivate a user (API v1.1 section 2.14, ADMIN)
+      description: >-
+        Deactivation revokes every refresh token of the user, so no session can be
+        renewed and the user cannot sign in. Writes a `USER_ACTIVATED` or
+        `USER_DEACTIVATED` audit row.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isActive]
+              properties:
+                isActive: { type: boolean }
+      responses:
+        '200':
+          description: The new status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, isActive]
+                    properties:
+                      id: { type: string, format: uuid }
+                      isActive: { type: boolean }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: An admin tried to deactivate their own account (`CANNOT_DEACTIVATE_SELF`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /couriers:
+    get:
+      operationId: identityListCouriers
+      summary: List active couriers for assignment (API v1.1 section 2.15, DISPATCHER and ADMIN)
+      parameters:
+        - { name: isAvailable, in: query, required: false, schema: { type: boolean } }
+        - { name: zoneId, in: query, required: false, description: Home zone, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of active couriers, ordered by name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourierListEnvelope'
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     TokenMode:
       name: X-Token-Mode
       in: header
@@ -286,6 +660,45 @@ components:
       properties:
         refreshToken:
           type: string
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+          description: The `token` query parameter from the emailed link.
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+    MessageEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string
+        meta:
+          type: object
+          required: [requestId, timestamp]
+          properties:
+            requestId:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
     Account:
       type: object
       required: [id, email, fullName, role]
@@ -368,6 +781,135 @@ components:
           additionalProperties:
             type: string
             enum: [ok, down]
+    Role:
+      type: string
+      enum: [CUSTOMER, MERCHANT, COURIER, DISPATCHER, ADMIN]
+    Pagination:
+      type: object
+      required: [page, pageSize, totalItems, totalPages]
+      properties:
+        page: { type: integer }
+        pageSize: { type: integer }
+        totalItems: { type: integer }
+        totalPages: { type: integer }
+    ListMeta:
+      type: object
+      required: [requestId, timestamp, pagination]
+      properties:
+        requestId: { type: string }
+        timestamp: { type: string, format: date-time }
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    AdminUserItem:
+      type: object
+      required: [id, email, fullName, phone, role, isActive, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        fullName: { type: string }
+        phone: { type: string, description: Empty when the user has none. }
+        role:
+          $ref: '#/components/schemas/Role'
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    CourierProfile:
+      type: object
+      required: [vehicleType, vehicleNumber, homeZoneId, isAvailable]
+      properties:
+        vehicleType: { type: string, nullable: true, maxLength: 30, example: BIKE }
+        vehicleNumber: { type: string, nullable: true, maxLength: 20, example: BCD-4521 }
+        homeZoneId: { type: string, format: uuid, nullable: true }
+        isAvailable: { type: boolean }
+    AdminUser:
+      allOf:
+        - $ref: '#/components/schemas/AdminUserItem'
+        - type: object
+          required: [lastLoginAt, updatedAt]
+          properties:
+            courierProfile:
+              $ref: '#/components/schemas/CourierProfile'
+            lastLoginAt: { type: string, format: date-time, nullable: true }
+            updatedAt: { type: string, format: date-time }
+    AdminUserEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/AdminUser'
+        meta:
+          type: object
+          properties:
+            requestId: { type: string }
+            timestamp: { type: string, format: date-time }
+    AdminUserListEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUserItem'
+        meta:
+          $ref: '#/components/schemas/ListMeta'
+    CreateStaffRequest:
+      type: object
+      required: [email, password, fullName, phone, role]
+      properties:
+        email: { type: string, format: email, maxLength: 255 }
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: Same rules as registration. The caller should ask the new user to change it.
+        fullName: { type: string, minLength: 2, maxLength: 150 }
+        phone: { type: string, description: E.164 format., example: '+94712223344' }
+        role:
+          type: string
+          enum: [COURIER, DISPATCHER, ADMIN]
+        courierProfile:
+          type: object
+          description: Required when `role` is `COURIER`, refused otherwise.
+          properties:
+            vehicleType: { type: string, maxLength: 30 }
+            vehicleNumber: { type: string, maxLength: 20 }
+            homeZoneId: { type: string, format: uuid }
+    UpdateUserRequest:
+      type: object
+      description: Any subset of the fields; at least one is required.
+      properties:
+        fullName: { type: string, minLength: 2, maxLength: 150 }
+        phone: { type: string, description: E.164 format. }
+        role:
+          type: string
+          enum: [CUSTOMER, COURIER, DISPATCHER, ADMIN]
+        courierProfile:
+          type: object
+          properties:
+            vehicleType: { type: string, maxLength: 30 }
+            vehicleNumber: { type: string, maxLength: 20 }
+            homeZoneId: { type: string, format: uuid }
+            isAvailable: { type: boolean }
+    CourierListItem:
+      type: object
+      required: [id, fullName, phone, vehicleType, homeZoneId, isAvailable]
+      properties:
+        id: { type: string, format: uuid }
+        fullName: { type: string }
+        phone: { type: string }
+        vehicleType: { type: string, nullable: true }
+        homeZoneId: { type: string, format: uuid, nullable: true }
+        isAvailable: { type: boolean }
+    CourierListEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CourierListItem'
+        meta:
+          $ref: '#/components/schemas/ListMeta'
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -454,6 +996,24 @@ components:
           description: Requests left in the current window.
           schema:
             type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: >-
+        No valid access token (`UNAUTHENTICATED`, or `TOKEN_EXPIRED` when it has
+        expired), or the signed-in account no longer exists.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: >-
+        The caller's role may not use this endpoint (`FORBIDDEN`), or the account was
+        disabled after the token was issued (`ACCOUNT_DISABLED`). The admin and
+        courier endpoints read the caller's current role and active flag from the
+        database on every call instead of trusting the role in the token.
       content:
         application/json:
           schema:

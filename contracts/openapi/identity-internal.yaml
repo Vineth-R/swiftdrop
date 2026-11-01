@@ -1,0 +1,175 @@
+openapi: 3.0.3
+info:
+  title: SwiftDrop Identity internal API
+  version: 0.1.0
+  description: >-
+    Service-to-service endpoints of the Identity service (API v1.1 section 13).
+    They are **not public**: Nginx never routes `/internal` and returns
+    `404 NOT_FOUND` for it, so this specification is separate from
+    `identity.yaml`. Callers on the Compose network use the base URL
+    `http://identity:8081`.
+
+
+    Every call needs the shared secret in `X-Internal-Token` (the
+    `INTERNAL_TOKEN` environment variable, at least 16 characters) and a
+    well-formed `X-Request-Id`. If Identity has no valid `INTERNAL_TOKEN` it
+    refuses every call with 401 instead of allowing them. Responses use the
+    standard success envelope and error envelope. See
+    `docs/identity-internal-api.md` for set-up and client examples.
+servers:
+  - url: http://identity:8081
+    description: Compose network only
+paths:
+  /internal/couriers/{courierId}/eligibility:
+    get:
+      operationId: identityInternalCourierEligibility
+      summary: Courier eligibility (API v1.1 section 13, called by Parcel)
+      description: >-
+        Returns the facts the Parcel service needs before assigning a parcel. Any
+        existing user is answered with their real role. A courier may be assigned
+        only when `role` is `COURIER` and `isActive` and `isAvailable` are both
+        true; Identity does not decide that. A user without a courier profile has
+        `isAvailable` false.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - name: courierId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The courier facts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EligibilityEnvelope'
+              example:
+                data: { isActive: true, isAvailable: true, role: COURIER }
+                meta: { requestId: req_01HF-example, timestamp: '2026-11-04T09:30:00Z' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /internal/users/{userId}/contact:
+    get:
+      operationId: identityInternalUserContact
+      summary: User contact details (API v1.1 section 13, called by the notification worker)
+      description: >-
+        Returns the name, email and phone of any user, including a deactivated
+        one. `phone` is an empty string when the user has none. This is personal
+        data and must not be logged by the caller.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The contact details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactEnvelope'
+              example:
+                data: { fullName: Nimal Perera, email: nimal@example.com, phone: '+94771234567' }
+                meta: { requestId: req_01HF-example, timestamp: '2026-11-04T09:30:00Z' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+components:
+  parameters:
+    InternalToken:
+      name: X-Internal-Token
+      in: header
+      required: true
+      description: The shared secret from `INTERNAL_TOKEN`. Never log it.
+      schema: { type: string, minLength: 16 }
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: true
+      description: 1 to 128 characters from letters, digits and `- . _ :`.
+      schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+  schemas:
+    EligibilityEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [isActive, isAvailable, role]
+          properties:
+            isActive: { type: boolean }
+            isAvailable: { type: boolean }
+            role:
+              type: string
+              enum: [CUSTOMER, MERCHANT, COURIER, DISPATCHER, ADMIN]
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
+    ContactEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [fullName, email, phone]
+          properties:
+            fullName: { type: string }
+            email: { type: string }
+            phone: { type: string, description: Empty when the user has none. }
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
+    SuccessMeta:
+      type: object
+      required: [requestId, timestamp]
+      properties:
+        requestId: { type: string }
+        timestamp: { type: string, format: date-time }
+    ErrorResponse:
+      type: object
+      required: [error, meta]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+        meta:
+          type: object
+          required: [requestId]
+          properties:
+            requestId: { type: string }
+  responses:
+    BadRequest:
+      description: '`X-Request-Id` is missing or malformed (`BAD_REQUEST`). Checked after the token.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: >-
+        `X-Internal-Token` is missing or wrong, or Identity has no valid
+        `INTERNAL_TOKEN` of its own (`UNAUTHENTICATED`). Treat this as a
+        configuration fault, never as "not found".
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: No user has that ID, or the ID is not a UUID (`NOT_FOUND`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Unexpected failure (`INTERNAL_ERROR`). Safe to retry.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
