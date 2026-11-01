@@ -23,7 +23,10 @@ Current chain:
 
 - `000001_initial_schema` creates the service schema.
 - `000002_tables` is the M1 baseline from [`docs/db.sql`](../docs/db.sql): 26 tables, triggers, indexes, and reference seeds.
+- `000003_dispatch_foundations` (parcel) extends the baseline `parcel_assignments` and `parcel.outbox_events` tables with reassignment metadata, an assignment `updated_at` trigger, and outbox aggregate metadata. It uses additive `ALTER TABLE` statements and does not recreate the baseline tables.
 - `000006_merchant_constraints` is the merchant service's forward migration. It adds the stricter merchant CHECK constraints through additive `ALTER TABLE` statements.
+
+**Parcel history:** a dispatch feature branch briefly proposed `000002_parcels` and `000003_parcel_assignments_and_outbox`. Both duplicated tables already created by the applied `000002_tables` baseline, and the second reused the `000003` version. They were never applied to the shared baseline database and were replaced by `000003_dispatch_foundations` before merge. Parcel migrations continue from `000004`.
 
 **Merchant history:** `000002_merchants`, `000003_api_clients`, `000004_orders_and_events`, and `000005_audit_logs` were removed. They duplicated the applied `000002_tables` baseline (including its version number) and re-created existing tables without `IF NOT EXISTS`, which made the migration source invalid. They were never applied to the shared baseline database. The useful constraints were preserved in `000006_merchant_constraints`; redundant index variants were not re-added. Merchant migrations continue from `000007`.
 
