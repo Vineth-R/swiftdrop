@@ -4,7 +4,7 @@ COMPOSE ?= docker compose
 COMPOSE_PARALLEL_LIMIT ?= 1
 export COMPOSE_PARALLEL_LIMIT
 
-.PHONY: help build up up-build down logs preflight ensure-postgres bootstrap-db migrate migrate-down db-reset check-routes
+.PHONY: help build up up-build down logs preflight ensure-postgres bootstrap-db migrate migrate-down db-reset check-routes test-db
 
 help:
 	@echo "Targets:"
@@ -17,6 +17,7 @@ help:
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
 	@echo "  make check-routes   verify gateway routing against the running stack"
 	@echo "  make db-reset       delete local volumes and rebuild (destructive)"
+	@echo "  make test-db        run PostgreSQL integration tests against TEST_DATABASE_URL"
 
 preflight:
 	@if [ ! -f .env ] && { [ -z "$${POSTGRES_USER:-}" ] || [ -z "$${POSTGRES_DB:-}" ]; }; then \
@@ -65,6 +66,14 @@ db-reset:
 	@echo "waiting for postgres to become healthy"
 	@until [ "$$(docker inspect -f '{{.State.Health.Status}}' "$$($(COMPOSE) ps -q postgres)")" = "healthy" ]; do sleep 1; done
 	$(MAKE) migrate
+
+test-db:
+	@if [ -z "$${TEST_DATABASE_URL:-}" ]; then \
+		echo "error: TEST_DATABASE_URL is required for database integration tests." >&2; \
+		echo "       The URL must allow CREATE DATABASE; tests create and drop isolated databases." >&2; \
+		exit 1; \
+	fi
+	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/...
 
 check-routes:
 	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \

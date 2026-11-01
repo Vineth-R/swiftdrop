@@ -2,7 +2,7 @@
 
 This directory contains tests that require running infrastructure. Broker-backed RabbitMQ tests are guarded by the `integration` build tag, so `go test ./...` never requires a broker.
 
-## Prerequisites
+## RabbitMQ tests
 
 Start RabbitMQ and wait for it to become healthy:
 
@@ -21,10 +21,30 @@ amqp://swiftdrop:swiftdrop@localhost:5672/
 
 ```sh
 RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
-  go test -race -count=1 -tags=integration -v ./tests/integration/...
+  go test -race -count=1 -tags=integration -v ./tests/integration
 ```
 
 Tests call `t.Skip` when `RABBITMQ_URL` is unset. A skip is expected for local runs that do not need a broker, but CI treats any skip as a failure. Run from the repository root so the root Go module resolves.
+
+## PostgreSQL tests
+
+Dispatch database tests live in `tests/integration/database` behind the `integration` build tag. They verify the parcel assignment and outbox migrations, constraints, indexes, triggers, upgrade paths, and rollback/reapply behavior.
+
+The tests create a uniquely named database on the server named by `TEST_DATABASE_URL`, run the migrations there, and drop it during cleanup. The URL must allow `CREATE DATABASE`. Never point it at a shared application database; the tests do not read or modify application data outside their isolated databases.
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  go test -race -count=1 -tags=integration -v ./tests/integration/database/...
+```
+
+Or:
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  make test-db
+```
+
+Tests skip when `TEST_DATABASE_URL` is unset. CI starts a PostgreSQL 16 service container, sets the variable, and fails the job if any database test is skipped.
 
 ## Messaging scenarios
 
@@ -55,10 +75,10 @@ Cleanup runs through `t.Cleanup`: it deletes the queues, then the exchanges, and
 The `integration` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) starts a RabbitMQ service container, sets `RABBITMQ_URL`, waits for port 5672, and runs:
 
 ```sh
-go test -race -count=1 -tags=integration -v ./tests/integration/...
+go test -race -count=1 -tags=integration -v ./tests/integration
 ```
 
-The job fails if the broker is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
+The `database` job starts a PostgreSQL 16 service container, sets `TEST_DATABASE_URL`, and runs the database tests. Both jobs fail if their dependency is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
 
 ## Guidelines for new tests
 
