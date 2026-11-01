@@ -124,6 +124,7 @@ services:
     environment:
       <<: *app-env
       PORT: '8082'
+      HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
     depends_on:
       postgres:
@@ -142,6 +143,10 @@ services:
     environment:
       <<: *app-env
       PORT: '8083'
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
     depends_on:
       postgres:

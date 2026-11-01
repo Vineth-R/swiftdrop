@@ -28,9 +28,9 @@ SwiftDrop is a parcel delivery and courier management platform. The repository i
 
 This file is the project-specific source of guidance for AI agents. The Nx block above is maintained by Nx and must stay intact. The code and configuration in this repository take precedence over README summaries, generic skill advice, and assumptions from other projects.
 
-## Current phase: foundation, not business functionality
+## Current phase: foundation with M4 backend work
 
-The repository is intentionally a production-oriented foundation. Do not describe or implement planned features as if they already exist.
+The repository is a production-oriented foundation with Pricing quotes/administration and public Parcel tracking implemented on this branch. See `docs/pricing-and-tracking.md` for the backend slice and its verification commands. Business UI and submission reports remain deferred. Do not describe other planned features as if they already exist. The foundation inventory below describes the starting baseline; this branch additionally provides the documented M4 APIs, JWT role validation and bounded HTTP rate limiting.
 
 | Area           | Current state                                                                                                                                                                                                                                                                                              |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -49,8 +49,8 @@ The repository is intentionally a production-oriented foundation. Do not describ
 Planned responsibilities:
 
 - `identity`: future authentication, authorization, and profiles.
-- `parcel`: future parcel lifecycle, status, and tracking.
-- `pricing`: future delivery fee calculation and pricing configuration.
+- `parcel`: public tracking reads exist; parcel lifecycle and status writes remain future work.
+- `pricing`: delivery fee calculation and pricing configuration APIs exist on this branch.
 - `merchant`: future merchant accounts, integration settings, and API credentials.
 - `notification-worker`: future notification delivery.
 - `webhook-worker`: future outgoing webhook delivery and retries.
@@ -205,7 +205,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 
 ## Security and authentication
 
-Authentication and authorization are not implemented yet. When they are implemented:
+Identity login and token issuance are not implemented yet. Pricing administration validates ADMIN access JWTs through the shared middleware. For authentication and authorization work:
 
 - Never store plaintext passwords. Use a current, vetted password-hashing algorithm with an appropriate work factor.
 - Validate JWT signatures, allowed algorithms, expiry, issuer, and audience where applicable. Do not hand-roll JWT validation.

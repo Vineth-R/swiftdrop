@@ -1,5 +1,15 @@
 # Integration tests
 
+## Pricing and tracking backend
+
+The backend HTTP fixture suite uses both `integration` and `backendintegration` tags, so it is separate from the broker-only CI job. Start a disposable local Compose stack, configure `JWT_ACCESS_SECRET`, apply migrations, and run:
+
+```sh
+TEST_BASE_URL=http://localhost:8080 go test -tags=integration,backendintegration -run TestPricingTrackingBackend -count=1 ./tests/integration/...
+```
+
+Use your configured gateway port. This suite requires a loopback HTTP URL and local Docker. It creates UUID-scoped fixtures and deletes only those fixtures; it does not reset the application database. It assumes baseline pricing bands and surcharges and should run on a disposable stack. It covers quote boundaries and sizes, admin authentication/audits, configuration conflicts, stored fee preservation, all six tracking states, privacy, and gateway rate enforcement. Lifecycle transitions themselves belong to the Parcel owner's write APIs.
+
 This directory contains tests that require running infrastructure. Broker-backed RabbitMQ tests are guarded by the `integration` build tag, so `go test ./...` never requires a broker.
 
 ## Prerequisites

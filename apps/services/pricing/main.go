@@ -13,6 +13,7 @@ import (
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/pricing"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
@@ -45,8 +46,6 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	router := servicehttp.New(logger)
-
 	var database *postgres.Pool
 	var pinger postgres.Pinger
 	if config.DatabaseURL != "" {
@@ -62,6 +61,15 @@ func run() error {
 		logger.Info("database connection established")
 	} else {
 		logger.Warn("DATABASE_URL is not set; readiness will report database down")
+	}
+	options := servicehttp.Options{InternalToken: config.InternalToken, AccessSecret: config.AccessSecret,
+		CookieName: config.CookieName, TrustedProxies: config.TrustedProxies}
+	if database != nil {
+		options.Store = pricing.NewRepository(database)
+	}
+	router, err := servicehttp.New(logger, options)
+	if err != nil {
+		return fmt.Errorf("configure pricing router: %w", err)
 	}
 
 	router.GET("/health", postgres.HealthHandler())

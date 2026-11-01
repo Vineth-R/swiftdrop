@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Business functionality such as authentication, parcel lifecycles, pricing rules, merchant onboarding, live tracking, notification delivery, and webhook delivery is intentionally not implemented yet. See [Current scope](#current-scope) and [`docs/architecture.md`](docs/architecture.md).
+This branch adds exact delivery quotes, pricing administration APIs, and database-backed public parcel tracking. See [backend details](docs/pricing-and-tracking.md) for contracts and verification. UI and submission report work remain deferred. Authentication issuance, parcel lifecycle writes, notification delivery, webhook delivery and realtime subscriptions remain separate work.
 
 ## Technology
 
@@ -418,4 +418,6 @@ Implemented: repository structure, service entry points, health and readiness en
 
 Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), Mailpit, gateway-only published ports, API v1.1 error envelope with request IDs, redacting logs, and the API v1.1 gateway route groups.
 
-Not implemented: authentication (owned by M2), JWT, cookies/sessions, Google OAuth, password reset, parcels, pricing formulas, merchant onboarding, API keys, notification delivery, webhook signing and delivery retries, realtime subscriptions, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Business tables exist, but no business endpoints or event producers are implemented yet.
+M4 backend: Pricing estimates and active zones, authenticated internal quote/zone handoffs, ADMIN pricing configuration with transactional audit records, and anonymous public tracking with a restricted field projection and rate limiting. See [Pricing and public tracking](docs/pricing-and-tracking.md). ADMIN token validation is implemented; login and token issuance remain M2's responsibility.
+
+Not implemented by this slice: login, sessions, Google OAuth, password reset, parcel lifecycle writes, notification delivery, outgoing webhook delivery, realtime subscriptions, the AI assistant, payments, production TLS or deployment automation. Business UI and submission reports remain deferred. No event producers are added here.

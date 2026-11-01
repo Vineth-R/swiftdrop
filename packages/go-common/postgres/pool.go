@@ -124,7 +124,7 @@ func (p *Pool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, er
 	if p == nil || p.pool == nil {
 		return nil, ErrNotConfigured
 	}
-	return p.pool.Query(ctx, sql, args...), nil
+	return p.pool.Query(ctx, sql, args...)
 }
 
 // Begin starts a transaction for service-owned repositories.

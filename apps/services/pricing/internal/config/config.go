@@ -7,10 +7,14 @@ import (
 )
 
 type Config struct {
-	Port        int
-	AppEnv      string
-	LogLevel    string
-	DatabaseURL string
+	Port           int
+	AppEnv         string
+	LogLevel       string
+	DatabaseURL    string
+	InternalToken  string
+	AccessSecret   string
+	CookieName     string
+	TrustedProxies []string
 }
 
 func Load() (Config, error) {
@@ -32,12 +36,20 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	proxies, err := loader.CIDRs("HTTP_TRUSTED_PROXIES")
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
-		Port:        port,
-		AppEnv:      appEnv,
-		LogLevel:    logLevel,
-		DatabaseURL: loader.String("DATABASE_URL", ""),
+		Port:           port,
+		AppEnv:         appEnv,
+		LogLevel:       logLevel,
+		DatabaseURL:    loader.String("DATABASE_URL", ""),
+		InternalToken:  loader.String("INTERNAL_TOKEN", ""),
+		AccessSecret:   loader.String("JWT_ACCESS_SECRET", ""),
+		CookieName:     loader.String("COOKIE_NAME", "sd_access"),
+		TrustedProxies: proxies,
 	}, nil
 }
 

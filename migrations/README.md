@@ -36,7 +36,29 @@ make migrate
 
 `make migrate` bootstraps the shared `public.set_updated_at()` function (so pre-existing volumes work) and then applies every service's migrations in a safe order: identity, pricing, parcel, merchant, notification. Each service uses its own version table (`<service>_schema_migrations`).
 
-Roll back the latest migration for every service (reverse order):
+On Windows with Git Bash and without GNU Make, use `bash scripts/migrate.sh`. To migrate one service, use `bash scripts/migrate.sh pricing`.
+
+The runner uses Compose's configured database connection without printing credentials. It rejects dirty or ambiguous Merchant migration metadata rather than forcing a version.
+
+## Merchant history reconciliation
+
+The original Merchant contributions contained two different version-2 migrations. The canonical root retains `000001_initial_schema` and `000002_tables`; the original alternative versions 1–5 are preserved byte-for-byte under `merchant/legacy`. Do not apply both histories to one database.
+
+`scripts/migrate.sh` detects a canonical fresh/version-1/version-2 schema or the original legacy version-2/version-3/version-4/version-5 schema. For a legacy database it assembles the matching historical migration source before upgrading. New migration `000006_reconcile_baseline` preserves rows and legacy constraints, restores UUID defaults, and adds the missing baseline webhook tables and triggers. Version 6 is the common continuation point. Future Merchant changes start at `000007`; other owners continue above their latest applied version (at least `000003`).
+
+Migration 6 is forward-only. `make migrate-down` is disabled to prevent partial batch rollback or accidental data deletion. Investigate migration failures and add a forward correction; never edit an applied migration or use `force` to conceal a mismatch.
+
+## Verification
+
+Run the isolated migration scenarios against local PostgreSQL:
+
+```sh
+bash scripts/test-migrations.sh
+```
+
+The script checks historical SQL against the frozen Git blob hashes in `merchant/legacy/git-blob-hashes.txt`, so the check remains valid after the files move out of the canonical source. It upgrades canonical, legacy-2, and legacy-5 fixtures in uniquely named disposable databases, verifies version 6, table/default counts and preservation of an existing row, then checks repeat execution. Cleanup drops only databases created by that invocation. It never resets application volumes.
+
+For direct inspection of an individual canonical service, the equivalent CLI pattern is:
 
 ```sh
 DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/swiftdrop?sslmode=disable'
@@ -64,15 +86,15 @@ migrate \
 
 The migration version tables live in the default `public` schema. Service-owned tables must always use their service schema explicitly.
 
-No service connects to PostgreSQL yet. HTTP services load `DATABASE_URL` for future use, but application code does not open a database connection. These migrations create the service schemas only; they do not create business tables or seed data.
+HTTP services open a PostgreSQL pool when `DATABASE_URL` is configured and report connectivity through `/ready`. Baseline migrations create business tables and reference seed data from `docs/db.sql`; Pricing and public tracking use their owning schemas.
 
-Verify the schemas after applying:
+Do not use a reset as a verification command. `make db-reset` deliberately deletes local PostgreSQL and RabbitMQ volumes and requires explicit authorization.
 
 ```sh
-make db-reset
+docker compose ps
 ```
 
-`make db-reset` runs `docker compose down -v`, which deletes the PostgreSQL and RabbitMQ volumes. Confirm the target database before running it.
+Use the migration tests and readiness endpoints to verify setup without deleting data.
 
 ## Manual commands
 

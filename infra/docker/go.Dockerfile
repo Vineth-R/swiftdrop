@@ -1,16 +1,18 @@
 FROM golang:1.27-alpine AS build
 
-ARG SERVICE
 WORKDIR /src
 ENV GOFLAGS="-p=1"
 ENV GOMEMLIMIT="1500MiB"
 ENV GOGC="50"
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,id=swiftdrop-go-modules,target=/go/pkg/mod go mod download
 
 COPY . .
-RUN test -n "$SERVICE" \
+ARG SERVICE
+RUN --mount=type=cache,id=swiftdrop-go-modules,target=/go/pkg/mod \
+    --mount=type=cache,id=swiftdrop-go-build,target=/root/.cache/go-build \
+    test -n "$SERVICE" \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/service ./apps/services/${SERVICE}
 
 FROM alpine:3.22
