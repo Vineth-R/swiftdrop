@@ -115,7 +115,7 @@ There is no distinct response for an unknown email. A mail-server outage is also
 
 ### 6.5.5 What was checked
 
-Run with `go test ./apps/services/identity/... ./packages/go-common/mailer/...` (all pass). Tests marked ◇ are written but need PostgreSQL (`TEST_DATABASE_URL`) and have not been run yet.
+Executed locally with `go test` and `go test -race` for the identity and mailer packages, and with `go test -tags=integration` against PostgreSQL 14.17 using `TEST_DATABASE_URL` (isolated databases). The new commit has not been pushed, so CI for it has not run. Tests marked ◇ are PostgreSQL integration tests and ran locally. Mailpit delivery and browser-level reset remain unverified.
 
 | Requirement (task sheet M3.3 test)                   | Test                                                                                                                                                   |
 | :--------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -125,6 +125,7 @@ Run with `go test ./apps/services/identity/... ./packages/go-common/mailer/...` 
 | The link works once                                  | `TestPasswordReset_ResetPassword_worksOnce`; ◇ `TestRepository_ResetPasswordWithToken_concurrentUseSucceedsOnce`                                         |
 | An expired or used link returns 400                  | `_expired`, `_stillValidJustBeforeExpiry`, `TestResetPassword_errors`, `TestResetPassword_sameMessageForEveryBadToken`; ◇ `_rejectsBadTokens`           |
 | A reset logs out all sessions                        | `TestResetPassword_success` (cookies cleared); ◇ `TestRepository_ResetPasswordWithToken_changesPasswordAndEndsSessions` (other users untouched)          |
+| A reset restores password login after Google linking | ◇ `TestRepository_LinkGoogleAccount_thenPasswordResetRestoresPassword`, `TestGoogleFlow_passwordResetRestoresPasswordAfterLinking`                        |
 | Weak password does not spend the token               | `TestPasswordReset_ResetPassword_validation`                                                                                                            |
 | Token checked before password (API 2.17 order)      | `TestPasswordReset_ResetPassword_tokenIsCheckedBeforeThePassword`, `_neverHashesForABadToken`; ◇ `TestRepository_PasswordResetTokenUsable`                 |
 | Rate limits                                          | `TestForgotPassword_rateLimitedPerIP`, `_rateLimitedPerEmailAcrossAddresses`, `TestResetPassword_rateLimitedPerIP`                                      |
@@ -141,3 +142,4 @@ Run with `go test ./apps/services/identity/... ./packages/go-common/mailer/...` 
 - "Local account with a password" in the draft is now precisely "active local account with a password".
 - Request time still differs by a few milliseconds between a known and an unknown email (the known one writes a row). The email delivery time, the large difference, is hidden.
 - The recommended daily clean-up of expired reset tokens (Database Design v1.1, section 11) is not built; expired rows are harmless because the token check uses `expires_at`.
+- A password reset is also the recovery path after a Google link clears the password of an unverified existing account. Once the reset succeeds, password login works again; the account stays linked to the Google identity.

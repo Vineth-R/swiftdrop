@@ -729,7 +729,11 @@ Response 302 redirect to https://accounts.google.com/o/oauth2/v2/auth with
 
  client_id , redirect_uri , response_type=code , scope=openid email profile and a
 
-random state .
+random state . The response also sets a short-lived HttpOnly browser-binding cookie
+
+( sd_oauth_binding_<state prefix> , SameSite=Lax, Path=/api/v1/auth/google, about 10
+
+minutes, Secure in production) that the callback must present.
 
 
 
@@ -745,15 +749,23 @@ Purpose: Handles Google's redirect after consent and signs the user in.
 
 
 
-Query parameters: code and state (both required). On error Google sends error .
+Query parameters: code and state (both required). On error Google sends error . The
+
+request must also send the browser-binding cookie set by 2.5.
 
 
 
-Behaviour: validates state , exchanges the code, verifies the ID token, finds or creates a
+Behaviour: validates the state and browser binding, exchanges the code, verifies the ID
 
-CUSTOMER user (matching on google_sub , then email), sets the sd_access and
+token, finds or creates a CUSTOMER user (matching on google_sub , then email), sets the
 
- sd_refresh cookies.
+ sd_access and sd_refresh cookies. If the matched account's email was not verified, the
+
+link clears its existing password and revokes its refresh tokens; a password reset restores
+
+password login. A missing or mismatched browser binding is rejected without consuming the
+
+state.
 
 
 

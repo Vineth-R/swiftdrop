@@ -51,8 +51,7 @@ or a stricter reading, and each is explained in the report sections or the hando
 
 ## 3. Database design
 
-No migration was added or changed. The existing `migrations/identity/000002_tables.up.sql` already creates
-every table the features use.
+The original M3 PR added no migration because `migrations/identity/000002_tables.up.sql` already created every table the features use. The security remediation adds identity `000003_oauth_states_browser_binding` for the nullable `browser_binding_hash` column; it does not recreate `oauth_states`.
 
 | Table / rule (Database Design v1.1)                                             | Used how                                                                                                              | Result |
 | :------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------- | :----- |
@@ -60,7 +59,7 @@ every table the features use.
 | 3.2 `email_verified`: "Set true for Google sign-ups"                             | Also set when an existing account is linked, because Google just verified the address                                | Consistent |
 | 3.3 `courier_profiles` (`vehicle_type` 30, `vehicle_number` 20, `home_zone_id` no FK, `is_available`) | Created with a COURIER; partial updates use an upsert; zone is not checked against Pricing (no cross-service FK by design) | Matches (SQL); zone existence is **not** validated |
 | 3.4 `refresh_tokens` stored as SHA-256 hashes, `revoked_at`                      | Google login reuses the M2 helpers; deactivation and reset revoke every active token of the user                      | Matches (SQL) |
-| 3.5 `oauth_states` (`state` 64, `code_verifier`, relative `redirect_to`, expiry about 10 minutes) | 43-character state and verifier; 10 minute expiry; consumed by a single `DELETE ... RETURNING`; expired rows purged on each login start | Matches (SQL) |
+| 3.5 `oauth_states` (`state` 64, `code_verifier`, relative `redirect_to`, `browser_binding_hash`, expiry about 10 minutes) | 43-character state and verifier; 10 minute expiry; the SHA-256 browser-binding hash, state and expiry are consumed by a single `DELETE ... RETURNING`; expired rows purged on each login start | Matches (SQL) |
 | 3.6 `audit_logs` (actor, action, `entity_type`, `entity_id`, JSONB details; **no secrets or personal data**) | Actions `USER_CREATED`, `USER_UPDATED`, `USER_ACTIVATED`, `USER_DEACTIVATED`, entity type `user`, written in the same transaction as the change. Details hold changed field names and role/status before and after; never phone, name, password or token | Matches (SQL) |
 | 3.7 `password_reset_tokens` (hash, 30 minutes, `used_at`, `requested_ip`; one unused token per user) | Older tokens marked used before the insert, with the user row locked; consume in one transaction with the password update and session revocation | Matches (SQL) |
 | 11 retention clean-up (daily)                                                   | `oauth_states`: expired rows deleted on each login start. `refresh_tokens` and `password_reset_tokens` older than 7 days: **not implemented** | Partly. Recommendation only; harmless because validity is checked by `expires_at` |
@@ -90,21 +89,31 @@ every table the features use.
   is refused there at once. Other services (`parcel`, `pricing`, `merchant`) and Identity's own `/users/me` endpoints still
   honour the token until it expires, and a password reset does not end an access token already issued. Closing this for the whole
   system needs a team decision (shorter `ACCESS_TOKEN_TTL`, or a shared revocation check); see the completion report.
-- **Linking a Google account by email** can inherit a password set by someone who pre-registered the victim's address (report
-  section 6.4.6). Registration does not verify email ownership, so Identity cannot tell. Awaiting a decision.
+- **Linking a Google account by email (fixed).** When the existing account's email was not verified, the linking transaction
+  clears `password_hash` and revokes every active refresh token; the legitimate owner restores password login through the reset
+  flow. A verified account keeps its password. See report sections 6.4.2 and 6.4.4.
+- **OAuth login CSRF (fixed).** A per-attempt HttpOnly `SameSite=Lax` cookie carries a random binding value; only its SHA-256
+  hash is stored. The callback must present the matching cookie, and a missing or mismatched binding is rejected without
+  consuming the legitimate state. See report section 6.4.
 - Request time for `forgot-password` differs by a few milliseconds between known and unknown emails (a database write);
   the large difference, email delivery, is hidden by sending in the background.
 
 ## 6. What has not been verified
 
-Nothing below could be run on the M3 machine (no PostgreSQL, Docker daemon not running, no browser session).
+The SQL integration tests, unit tests and race tests now run locally against PostgreSQL 14.17 with `TEST_DATABASE_URL` (isolated databases). CI for the remediation commit has not run because the branch was not pushed; the earlier CI result at `cf60e8f` predates these changes.
 
 | Not verified                                                                                  | Needs                                           |
 | :-------------------------------------------------------------------------------------------- | :---------------------------------------------- |
-| All SQL: `oauth_states`, user linking/creation, reset tokens, admin list/create/update/status, courier list, internal queries (integration tests exist and are skipped) | PostgreSQL via `TEST_DATABASE_URL` or Docker Compose |
+| PostgreSQL integration on the CI database version (PostgreSQL 16)                             | Push the branch and run CI                      |
 | A real Google sign-in; the redirect URI registered in Google Cloud matching `GOOGLE_REDIRECT_URI` | Docker Compose, real credentials, a browser     |
 | A reset email arriving in Mailpit; Gmail STARTTLS delivery                                    | Docker Compose with Mailpit                     |
 | Internal endpoints from `parcel` / `notification-worker`; `/internal` returning `404` through the gateway | Docker Compose                                  |
 | Login with a deactivated user rejected end to end                                             | Docker Compose                                  |
+| `nginx -t` and live gateway access-log output                                                 | Docker daemon / a running gateway               |
 | Figures 14 to 17 opened and rendered in draw.io; the OpenAPI files in a rendering tool        | draw.io / an OpenAPI viewer                     |
-| `nx` targets and the `-race` flag (needs `node_modules` and cgo)                              | `pnpm install`, a C toolchain                   |
+
+## 7. M4 report review status
+
+No M4 report sections or diagrams exist in the repository, its branches, or PR #16 as of this review. M3 therefore could not
+review them. This is an outstanding dependency, not a completed review. When M4 publishes its sections, M3 should review them
+and record the outcome here.
