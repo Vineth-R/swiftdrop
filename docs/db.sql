@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS identity.oauth_states (
   redirect_to          VARCHAR(255),
   browser_binding_hash CHAR(64),                         -- SHA-256 of the browser-binding cookie; NULL on pre-000003 rows
   expires_at           TIMESTAMPTZ  NOT NULL,
-  created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
   -- ADDED: only relative paths, so the login cannot redirect to another site
   CONSTRAINT oauth_redirect_relative CHECK (redirect_to IS NULL OR (redirect_to LIKE '/%' AND redirect_to NOT LIKE '//%'))
 );
