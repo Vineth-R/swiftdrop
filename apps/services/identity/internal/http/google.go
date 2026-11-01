@@ -27,7 +27,7 @@ const (
 // GoogleService is the Google sign-in use cases the handlers call.
 // *service.GoogleAuth satisfies it.
 type GoogleService interface {
-	StartGoogleLogin(ctx context.Context, redirectTo string) (string, error)
+	StartGoogleLogin(ctx context.Context, redirectTo string) (service.GoogleLoginStart, error)
 	CompleteGoogleLogin(ctx context.Context, input service.GoogleCallbackInput) (service.GoogleLoginResult, error)
 }
 
@@ -71,12 +71,13 @@ func registerGoogleRoutes(router *gin.Engine, routes GoogleRoutes, logger *slog.
 // login handles GET /auth/google/login (API v1.1 section 2.5): it sends the
 // browser to Google's consent page.
 func (h *googleHandlers) login(c *gin.Context) {
-	target, err := h.service.StartGoogleLogin(c.Request.Context(), c.Query("redirectTo"))
+	start, err := h.service.StartGoogleLogin(c.Request.Context(), c.Query("redirectTo"))
 	if err != nil {
 		h.fail(c, err)
 		return
 	}
-	c.Redirect(http.StatusFound, target)
+	h.cookies.SetOAuthBinding(c, start.BindingCookieName, start.BindingValue)
+	c.Redirect(http.StatusFound, start.AuthURL)
 }
 
 // callback handles GET /auth/google/callback (API v1.1 section 2.6). A browser
@@ -90,12 +91,27 @@ func (h *googleHandlers) callback(c *gin.Context) {
 		code = ""
 	}
 
+	state := c.Query("state")
+	cookieName, hasCookieName := service.OAuthBindingCookieName(state)
+	binding := ""
+	if hasCookieName {
+		if value, err := c.Cookie(cookieName); err == nil {
+			binding = value
+		}
+	}
+
 	result, err := h.service.CompleteGoogleLogin(c.Request.Context(), service.GoogleCallbackInput{
-		Code:      code,
-		State:     c.Query("state"),
-		UserAgent: c.Request.UserAgent(),
-		IP:        clientAddress(c),
+		Code:           code,
+		State:          state,
+		BrowserBinding: binding,
+		UserAgent:      c.Request.UserAgent(),
+		IP:             clientAddress(c),
 	})
+	if hasCookieName {
+		// The binding is single-use; remove it whether the callback succeeded
+		// or failed.
+		h.cookies.ClearOAuthBinding(c, cookieName)
+	}
 	if err != nil {
 		h.callbackFailed(c, err)
 		return

@@ -27,6 +27,7 @@ type User struct {
 	Phone            *string
 	Role             auth.Role
 	AuthProvider     string
+	EmailVerified    bool
 	IsActive         bool
 	FailedLoginCount int
 	LockedUntil      *time.Time
@@ -48,19 +49,20 @@ type CreateUserParams struct {
 }
 
 const userColumns = `u.id, u.email, u.password_hash, u.full_name, u.phone, r.name,
-	u.auth_provider, u.is_active, u.failed_login_count, u.locked_until, u.created_at`
+	u.auth_provider, u.email_verified, u.is_active, u.failed_login_count, u.locked_until, u.created_at`
 
 // CreateUser inserts a LOCAL account. It returns ErrEmailTaken when the email is
 // already registered in any letter case.
 func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (User, error) {
 	user := User{
-		Email:        params.Email,
-		PasswordHash: &params.PasswordHash,
-		FullName:     params.FullName,
-		Phone:        &params.Phone,
-		Role:         params.Role,
-		AuthProvider: "LOCAL",
-		IsActive:     true,
+		Email:         params.Email,
+		PasswordHash:  &params.PasswordHash,
+		FullName:      params.FullName,
+		Phone:         &params.Phone,
+		Role:          params.Role,
+		AuthProvider:  "LOCAL",
+		EmailVerified: false,
+		IsActive:      true,
 	}
 
 	err := r.db.QueryRow(ctx, `
@@ -110,6 +112,7 @@ func (r *Repository) queryUser(ctx context.Context, condition string, arg any) (
 		&user.Phone,
 		&role,
 		&user.AuthProvider,
+		&user.EmailVerified,
 		&user.IsActive,
 		&user.FailedLoginCount,
 		&user.LockedUntil,

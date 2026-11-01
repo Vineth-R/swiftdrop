@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -32,6 +34,19 @@ const (
 
 	// maxGoogleSubjectLength is the users.google_sub column size.
 	maxGoogleSubjectLength = 100
+
+	// oauthBindingCookiePrefix names the per-attempt browser-binding cookie.
+	// The state prefix keeps concurrent login attempts in separate tabs usable.
+	oauthBindingCookiePrefix = "sd_oauth_binding_"
+
+	// oauthBindingStatePrefixLength is how much of the state appears in the
+	// cookie name. The state itself is public (it is in Google's redirect URL);
+	// the binding value inside the cookie is the secret.
+	oauthBindingStatePrefixLength = 8
+
+	// maxOAuthBindingLength bounds the work done on untrusted cookie input. A
+	// real binding is 43 base64url characters.
+	maxOAuthBindingLength = 128
 )
 
 var (
@@ -71,23 +86,46 @@ type GoogleProvider interface {
 // satisfies it.
 type GoogleStore interface {
 	CreateOAuthState(ctx context.Context, state repository.NewOAuthState) error
-	ConsumeOAuthState(ctx context.Context, state string, now time.Time) (repository.OAuthState, error)
+	ConsumeOAuthState(ctx context.Context, state, browserBindingHash string, now time.Time) (repository.OAuthState, error)
 	PurgeExpiredOAuthStates(ctx context.Context, now time.Time) error
 	UserByGoogleSub(ctx context.Context, googleSub string) (repository.User, error)
 	UserByEmail(ctx context.Context, email string) (repository.User, error)
 	CreateGoogleUser(ctx context.Context, params repository.CreateGoogleUserParams) (repository.User, error)
-	LinkGoogleAccount(ctx context.Context, userID, googleSub string) error
+	LinkGoogleAccount(ctx context.Context, userID, googleSub string, now time.Time) (bool, error)
 	RecordSuccessfulLogin(ctx context.Context, userID string, now time.Time) error
 	CreateRefreshToken(ctx context.Context, token repository.NewRefreshToken) (string, error)
 }
 
-// GoogleCallbackInput is what Google's redirect delivers, plus request details
-// stored with the new refresh token.
+// GoogleCallbackInput is what Google's redirect delivers, plus the browser
+// binding cookie value and request details stored with the new refresh token.
 type GoogleCallbackInput struct {
-	Code      string
-	State     string
-	UserAgent string
-	IP        netip.Addr
+	Code           string
+	State          string
+	BrowserBinding string
+	UserAgent      string
+	IP             netip.Addr
+}
+
+// GoogleLoginStart is a started login: where to send the browser and the
+// short-lived cookie that binds the attempt to that browser.
+type GoogleLoginStart struct {
+	AuthURL           string
+	BindingCookieName string
+	BindingValue      string
+}
+
+// OAuthBindingCookieName returns the browser-binding cookie name for a state.
+// It reports false when the state cannot safely appear in a cookie name.
+func OAuthBindingCookieName(state string) (string, bool) {
+	if len(state) < oauthBindingStatePrefixLength || len(state) > maxOAuthStateLength {
+		return "", false
+	}
+	for _, r := range state {
+		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') && r != '-' && r != '_' {
+			return "", false
+		}
+	}
+	return oauthBindingCookiePrefix + state[:oauthBindingStatePrefixLength], true
 }
 
 // GoogleLoginResult is a finished Google sign-in. RedirectTo is the relative
@@ -115,20 +153,29 @@ func NewGoogleAuth(base *Service, store GoogleStore, provider GoogleProvider) (*
 }
 
 // StartGoogleLogin remembers a new login attempt and returns the Google URL to
-// send the browser to. redirectTo is optional; when given it must be a safe
-// relative path, otherwise a *ValidationError is returned.
-func (g *GoogleAuth) StartGoogleLogin(ctx context.Context, redirectTo string) (string, error) {
+// send the browser to, plus the browser-binding cookie the handler must set.
+// redirectTo is optional; when given it must be a safe relative path, otherwise
+// a *ValidationError is returned.
+func (g *GoogleAuth) StartGoogleLogin(ctx context.Context, redirectTo string) (GoogleLoginStart, error) {
 	if redirectTo != "" && !ValidRedirectPath(redirectTo) {
-		return "", &ValidationError{Issues: []Issue{{Field: "redirectTo", Issue: "must be a relative path such as /dashboard"}}}
+		return GoogleLoginStart{}, &ValidationError{Issues: []Issue{{Field: "redirectTo", Issue: "must be a relative path such as /dashboard"}}}
 	}
 
 	state, err := randomURLSafe()
 	if err != nil {
-		return "", fmt.Errorf("start google login: %w", err)
+		return GoogleLoginStart{}, fmt.Errorf("start google login: %w", err)
 	}
 	verifier, err := randomURLSafe()
 	if err != nil {
-		return "", fmt.Errorf("start google login: %w", err)
+		return GoogleLoginStart{}, fmt.Errorf("start google login: %w", err)
+	}
+	binding, err := randomURLSafe()
+	if err != nil {
+		return GoogleLoginStart{}, fmt.Errorf("start google login: %w", err)
+	}
+	cookieName, ok := OAuthBindingCookieName(state)
+	if !ok {
+		return GoogleLoginStart{}, errors.New("start google login: generated state cannot be bound to a cookie")
 	}
 
 	now := g.base.now()
@@ -138,14 +185,19 @@ func (g *GoogleAuth) StartGoogleLogin(ctx context.Context, redirectTo string) (s
 	}
 
 	if err := g.store.CreateOAuthState(ctx, repository.NewOAuthState{
-		State:        state,
-		CodeVerifier: verifier,
-		RedirectTo:   redirectTo,
-		ExpiresAt:    now.Add(oauthStateTTL),
+		State:              state,
+		CodeVerifier:       verifier,
+		RedirectTo:         redirectTo,
+		BrowserBindingHash: hashOAuthBinding(binding),
+		ExpiresAt:          now.Add(oauthStateTTL),
 	}); err != nil {
-		return "", fmt.Errorf("start google login: %w", err)
+		return GoogleLoginStart{}, fmt.Errorf("start google login: %w", err)
 	}
-	return g.provider.AuthURL(state, verifier), nil
+	return GoogleLoginStart{
+		AuthURL:           g.provider.AuthURL(state, verifier),
+		BindingCookieName: cookieName,
+		BindingValue:      binding,
+	}, nil
 }
 
 // CompleteGoogleLogin finishes a login after Google redirects back. It checks
@@ -158,11 +210,17 @@ func (g *GoogleAuth) CompleteGoogleLogin(ctx context.Context, input GoogleCallba
 	if input.State == "" || len(input.State) > maxOAuthStateLength {
 		return GoogleLoginResult{}, ErrOAuthStateInvalid
 	}
+	// A missing binding is rejected before the database is touched, so a
+	// callback without the initiating browser's cookie cannot burn the state.
+	if input.BrowserBinding == "" || len(input.BrowserBinding) > maxOAuthBindingLength {
+		return GoogleLoginResult{}, ErrOAuthStateInvalid
+	}
 	now := g.base.now()
 
 	// The state is consumed before anything else, so it works exactly once even
-	// if the rest of the login fails.
-	saved, err := g.store.ConsumeOAuthState(ctx, input.State, now)
+	// if the rest of the login fails. The binding hash is part of the atomic
+	// DELETE, so a wrong binding does not consume the legitimate state.
+	saved, err := g.store.ConsumeOAuthState(ctx, input.State, hashOAuthBinding(input.BrowserBinding), now)
 	if errors.Is(err, repository.ErrOAuthStateInvalid) {
 		return GoogleLoginResult{}, ErrOAuthStateInvalid
 	}
@@ -186,7 +244,7 @@ func (g *GoogleAuth) CompleteGoogleLogin(ctx context.Context, input GoogleCallba
 		return GoogleLoginResult{}, ErrGoogleEmailNotVerified
 	}
 
-	user, err := g.resolveUser(ctx, profile, email)
+	user, err := g.resolveUser(ctx, profile, email, now)
 	if err != nil {
 		return GoogleLoginResult{}, err
 	}
@@ -219,7 +277,7 @@ func (g *GoogleAuth) CompleteGoogleLogin(ctx context.Context, input GoogleCallba
 
 // resolveUser finds the account for a verified Google profile: by google_sub,
 // then by email (linking the Google account), otherwise it creates a CUSTOMER.
-func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, email string) (repository.User, error) {
+func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, email string, now time.Time) (repository.User, error) {
 	user, err := g.store.UserByGoogleSub(ctx, profile.Subject)
 	if err == nil {
 		return user, nil
@@ -230,20 +288,7 @@ func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, ema
 
 	user, err = g.store.UserByEmail(ctx, email)
 	if err == nil {
-		if !user.IsActive {
-			// The caller refuses a disabled account; do not link it first.
-			return user, nil
-		}
-		// Google verified this email, so the owner of the Google account owns the
-		// SwiftDrop account. Link them so the next login matches on google_sub.
-		if err := g.store.LinkGoogleAccount(ctx, user.ID, profile.Subject); err != nil {
-			if errors.Is(err, repository.ErrGoogleAccountConflict) {
-				return repository.User{}, fmt.Errorf("google login: %w: account linked to another google account", ErrOAuthProvider)
-			}
-			return repository.User{}, fmt.Errorf("google login: %w", err)
-		}
-		g.base.logger.InfoContext(ctx, "google account linked to existing user", "user_id", user.ID)
-		return user, nil
+		return g.linkExisting(ctx, user, profile.Subject, now)
 	}
 	if !errors.Is(err, repository.ErrNotFound) {
 		return repository.User{}, fmt.Errorf("google login: %w", err)
@@ -255,10 +300,63 @@ func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, ema
 		GoogleSub: profile.Subject,
 		Role:      auth.RoleCustomer,
 	})
+	if errors.Is(err, repository.ErrEmailTaken) || errors.Is(err, repository.ErrGoogleAccountConflict) {
+		// Another request created or linked the account between our lookup and
+		// the insert. Re-read and take the safe linking path once.
+		return g.resolveAfterCreationRace(ctx, profile, email, now)
+	}
 	if err != nil {
 		return repository.User{}, fmt.Errorf("google login: %w", err)
 	}
 	return user, nil
+}
+
+// linkExisting links a Google identity to an account matched by email. The
+// repository clears the password and revokes sessions when the existing email
+// was not verified, so an attacker who pre-registered the address cannot keep
+// password access.
+func (g *GoogleAuth) linkExisting(ctx context.Context, user repository.User, googleSub string, now time.Time) (repository.User, error) {
+	if !user.IsActive {
+		// The caller refuses a disabled account; do not link it first.
+		return user, nil
+	}
+	passwordCleared, err := g.store.LinkGoogleAccount(ctx, user.ID, googleSub, now)
+	if errors.Is(err, repository.ErrGoogleAccountConflict) {
+		return repository.User{}, fmt.Errorf("google login: %w: account linked to another google account", ErrOAuthProvider)
+	}
+	if err != nil {
+		return repository.User{}, fmt.Errorf("google login: %w", err)
+	}
+	user.EmailVerified = true
+	if passwordCleared {
+		user.PasswordHash = nil
+	}
+	g.base.logger.InfoContext(ctx, "google account linked to existing user",
+		"user_id", user.ID,
+		"password_cleared", passwordCleared,
+	)
+	return user, nil
+}
+
+// resolveAfterCreationRace handles a concurrent first login. It never attaches
+// the Google subject to a different user: a conflict is reported instead.
+func (g *GoogleAuth) resolveAfterCreationRace(ctx context.Context, profile GoogleProfile, email string, now time.Time) (repository.User, error) {
+	user, err := g.store.UserByGoogleSub(ctx, profile.Subject)
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, repository.ErrNotFound) {
+		return repository.User{}, fmt.Errorf("google login: %w", err)
+	}
+
+	user, err = g.store.UserByEmail(ctx, email)
+	if err == nil {
+		return g.linkExisting(ctx, user, profile.Subject, now)
+	}
+	if !errors.Is(err, repository.ErrNotFound) {
+		return repository.User{}, fmt.Errorf("google login: %w", err)
+	}
+	return repository.User{}, fmt.Errorf("google login: %w: account creation race", ErrOAuthProvider)
 }
 
 // googleDisplayName fits Google's name into the 2 to 150 character full_name
@@ -282,6 +380,13 @@ func truncateRunes(value string, limit int) string {
 		return value
 	}
 	return string([]rune(value)[:limit])
+}
+
+// hashOAuthBinding is the SHA-256 hex digest stored in oauth_states. The raw
+// cookie value never reaches PostgreSQL or the logs.
+func hashOAuthBinding(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func randomURLSafe() (string, error) {

@@ -14,14 +14,16 @@ import (
 
 // googleMemoryStore is an in-memory GoogleStore.
 type googleMemoryStore struct {
-	states map[string]repository.NewOAuthState
-	users  map[string]*repository.User
-	subs   map[string]string // google_sub -> user ID
-	tokens []repository.NewRefreshToken
-	logins []string
-	nextID int
+	states         map[string]repository.NewOAuthState
+	users          map[string]*repository.User
+	subs           map[string]string // google_sub -> user ID
+	tokens         []repository.NewRefreshToken
+	logins         []string
+	revokedUserIDs []string
+	nextID         int
 
-	failOn map[string]error
+	failOn       map[string]error
+	beforeCreate func()
 }
 
 func newGoogleMemoryStore() *googleMemoryStore {
@@ -37,7 +39,8 @@ func (s *googleMemoryStore) addUser(email string, active bool, provider string) 
 	s.nextID++
 	user := &repository.User{
 		ID: "user-" + string(rune('0'+s.nextID)), Email: email, FullName: "Existing User",
-		Role: auth.RoleCustomer, AuthProvider: provider, IsActive: active,
+		Role: auth.RoleCustomer, AuthProvider: provider,
+		EmailVerified: provider == "GOOGLE", IsActive: active,
 	}
 	s.users[user.ID] = user
 	return user
@@ -51,12 +54,12 @@ func (s *googleMemoryStore) CreateOAuthState(_ context.Context, state repository
 	return nil
 }
 
-func (s *googleMemoryStore) ConsumeOAuthState(_ context.Context, state string, now time.Time) (repository.OAuthState, error) {
+func (s *googleMemoryStore) ConsumeOAuthState(_ context.Context, state, browserBindingHash string, now time.Time) (repository.OAuthState, error) {
 	if err := s.failOn["ConsumeOAuthState"]; err != nil {
 		return repository.OAuthState{}, err
 	}
 	saved, ok := s.states[state]
-	if !ok || !now.Before(saved.ExpiresAt) {
+	if !ok || !now.Before(saved.ExpiresAt) || saved.BrowserBindingHash == "" || browserBindingHash != saved.BrowserBindingHash {
 		return repository.OAuthState{}, repository.ErrOAuthStateInvalid
 	}
 	delete(s.states, state)
@@ -92,6 +95,9 @@ func (s *googleMemoryStore) UserByEmail(_ context.Context, email string) (reposi
 }
 
 func (s *googleMemoryStore) CreateGoogleUser(_ context.Context, params repository.CreateGoogleUserParams) (repository.User, error) {
+	if s.beforeCreate != nil {
+		s.beforeCreate()
+	}
 	if err := s.failOn["CreateGoogleUser"]; err != nil {
 		return repository.User{}, err
 	}
@@ -101,12 +107,27 @@ func (s *googleMemoryStore) CreateGoogleUser(_ context.Context, params repositor
 	return *user, nil
 }
 
-func (s *googleMemoryStore) LinkGoogleAccount(_ context.Context, userID, sub string) error {
+func (s *googleMemoryStore) LinkGoogleAccount(_ context.Context, userID, sub string, _ time.Time) (bool, error) {
 	if err := s.failOn["LinkGoogleAccount"]; err != nil {
-		return err
+		return false, err
 	}
+	user, ok := s.users[userID]
+	if !ok {
+		return false, repository.ErrNotFound
+	}
+	for existingSub, id := range s.subs {
+		if id == userID && existingSub != sub {
+			return false, repository.ErrGoogleAccountConflict
+		}
+	}
+	cleared := !user.EmailVerified
+	if cleared {
+		user.PasswordHash = nil
+		s.revokedUserIDs = append(s.revokedUserIDs, userID)
+	}
+	user.EmailVerified = true
 	s.subs[sub] = userID
-	return nil
+	return cleared, nil
 }
 
 func (s *googleMemoryStore) RecordSuccessfulLogin(_ context.Context, userID string, _ time.Time) error {
@@ -161,18 +182,29 @@ func newGoogleFixture(t *testing.T) *googleFixture {
 	return &googleFixture{fixture: base, google: google, store: store, provider: provider}
 }
 
-// begin starts a login and returns the saved state value.
-func (f *googleFixture) begin(t *testing.T, redirectTo string) string {
-	t.Helper()
-	if _, err := f.google.StartGoogleLogin(context.Background(), redirectTo); err != nil {
-		t.Fatalf("StartGoogleLogin returned error: %v", err)
-	}
-	return f.provider.gotState
+// startedLogin is a login attempt plus its browser binding.
+type startedLogin struct {
+	state   string
+	binding string
 }
 
-func (f *googleFixture) callback(state string) (GoogleLoginResult, error) {
+// begin starts a login and returns the saved state and binding value.
+func (f *googleFixture) begin(t *testing.T, redirectTo string) startedLogin {
+	t.Helper()
+	start, err := f.google.StartGoogleLogin(context.Background(), redirectTo)
+	if err != nil {
+		t.Fatalf("StartGoogleLogin returned error: %v", err)
+	}
+	return startedLogin{state: f.provider.gotState, binding: start.BindingValue}
+}
+
+func (f *googleFixture) callback(start startedLogin) (GoogleLoginResult, error) {
+	return f.callbackRaw(start.state, start.binding)
+}
+
+func (f *googleFixture) callbackRaw(state, binding string) (GoogleLoginResult, error) {
 	return f.google.CompleteGoogleLogin(context.Background(), GoogleCallbackInput{
-		Code: "auth-code", State: state, UserAgent: "test-agent", IP: netip.MustParseAddr("203.0.113.5"),
+		Code: "auth-code", State: state, BrowserBinding: binding, UserAgent: "test-agent", IP: netip.MustParseAddr("203.0.113.5"),
 	})
 }
 
@@ -192,7 +224,7 @@ func TestNewGoogleAuth(t *testing.T) {
 func TestGoogleAuth_StartGoogleLogin(t *testing.T) {
 	f := newGoogleFixture(t)
 
-	url, err := f.google.StartGoogleLogin(context.Background(), "/parcels")
+	start, err := f.google.StartGoogleLogin(context.Background(), "/parcels")
 	if err != nil {
 		t.Fatalf("StartGoogleLogin returned error: %v", err)
 	}
@@ -200,8 +232,15 @@ func TestGoogleAuth_StartGoogleLogin(t *testing.T) {
 	if len(state) < 43 || len(state) > maxOAuthStateLength {
 		t.Fatalf("state length = %d, want 43 to %d", len(state), maxOAuthStateLength)
 	}
-	if !strings.Contains(url, state) {
+	if !strings.Contains(start.AuthURL, state) {
 		t.Fatal("authorization URL does not carry the state")
+	}
+	if len(start.BindingValue) < 43 {
+		t.Fatalf("binding length = %d, want at least 43", len(start.BindingValue))
+	}
+	wantCookie, ok := OAuthBindingCookieName(state)
+	if !ok || start.BindingCookieName != wantCookie {
+		t.Fatalf("binding cookie = %q, want %q", start.BindingCookieName, wantCookie)
 	}
 
 	saved, ok := f.store.states[state]
@@ -211,15 +250,18 @@ func TestGoogleAuth_StartGoogleLogin(t *testing.T) {
 	if saved.RedirectTo != "/parcels" || len(saved.CodeVerifier) < 43 {
 		t.Fatalf("saved state = %+v", saved)
 	}
+	if saved.BrowserBindingHash != hashOAuthBinding(start.BindingValue) {
+		t.Fatal("saved binding hash does not match the cookie value")
+	}
 	if want := f.now.Add(oauthStateTTL); !saved.ExpiresAt.Equal(want) {
 		t.Fatalf("state expires at %v, want %v", saved.ExpiresAt, want)
 	}
-	if !strings.Contains(url, saved.CodeVerifier) {
+	if !strings.Contains(start.AuthURL, saved.CodeVerifier) {
 		t.Fatal("provider was not given the saved PKCE verifier")
 	}
 
 	t.Run("two logins never share a state", func(t *testing.T) {
-		if second := f.begin(t, ""); second == state {
+		if second := f.begin(t, ""); second.state == state {
 			t.Fatal("state was reused")
 		}
 	})
@@ -266,10 +308,10 @@ func TestGoogleAuth_StartGoogleLogin_storeFailure(t *testing.T) {
 
 func TestGoogleAuth_CompleteGoogleLogin_createsCustomer(t *testing.T) {
 	f := newGoogleFixture(t)
-	state := f.begin(t, "/parcels")
-	verifier := f.store.states[state].CodeVerifier
+	start := f.begin(t, "/parcels")
+	verifier := f.store.states[start.state].CodeVerifier
 
-	result, err := f.callback(state)
+	result, err := f.callback(start)
 	if err != nil {
 		t.Fatalf("CompleteGoogleLogin returned error: %v", err)
 	}
@@ -313,12 +355,12 @@ func TestGoogleAuth_CompleteGoogleLogin_createsCustomer(t *testing.T) {
 
 func TestGoogleAuth_CompleteGoogleLogin_stateIsSingleUse(t *testing.T) {
 	f := newGoogleFixture(t)
-	state := f.begin(t, "")
+	start := f.begin(t, "")
 
-	if _, err := f.callback(state); err != nil {
+	if _, err := f.callback(start); err != nil {
 		t.Fatalf("first callback returned error: %v", err)
 	}
-	if _, err := f.callback(state); !errors.Is(err, ErrOAuthStateInvalid) {
+	if _, err := f.callback(start); !errors.Is(err, ErrOAuthStateInvalid) {
 		t.Fatalf("replayed state error = %v, want ErrOAuthStateInvalid", err)
 	}
 	if len(f.store.tokens) != 1 {
@@ -338,12 +380,12 @@ func TestGoogleAuth_CompleteGoogleLogin_rejectsBadState(t *testing.T) {
 		{name: "empty", state: ""},
 		{name: "never issued", state: "not-a-real-state"},
 		{name: "too long", state: strings.Repeat("a", maxOAuthStateLength+1)},
-		{name: "expired", state: valid, wait: oauthStateTTL},
+		{name: "expired", state: valid.state, wait: oauthStateTTL},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			f.advance(test.wait)
-			if _, err := f.callback(test.state); !errors.Is(err, ErrOAuthStateInvalid) {
+			if _, err := f.callbackRaw(test.state, valid.binding); !errors.Is(err, ErrOAuthStateInvalid) {
 				t.Fatalf("error = %v, want ErrOAuthStateInvalid", err)
 			}
 		})
@@ -353,26 +395,67 @@ func TestGoogleAuth_CompleteGoogleLogin_rejectsBadState(t *testing.T) {
 	}
 }
 
+func TestGoogleAuth_CompleteGoogleLogin_missingBindingDoesNotBurnState(t *testing.T) {
+	f := newGoogleFixture(t)
+	start := f.begin(t, "")
+
+	if _, err := f.callbackRaw(start.state, ""); !errors.Is(err, ErrOAuthStateInvalid) {
+		t.Fatalf("error = %v, want ErrOAuthStateInvalid", err)
+	}
+	if _, err := f.callback(start); err != nil {
+		t.Fatalf("the legitimate callback after a missing binding failed: %v", err)
+	}
+}
+
+func TestGoogleAuth_CompleteGoogleLogin_mismatchedBindingDoesNotBurnState(t *testing.T) {
+	f := newGoogleFixture(t)
+	start := f.begin(t, "")
+
+	if _, err := f.callbackRaw(start.state, "not-the-binding-value"); !errors.Is(err, ErrOAuthStateInvalid) {
+		t.Fatalf("error = %v, want ErrOAuthStateInvalid", err)
+	}
+	if _, err := f.callback(start); err != nil {
+		t.Fatalf("the legitimate callback after a mismatched binding failed: %v", err)
+	}
+	if f.provider.gotCode != "auth-code" {
+		t.Fatal("Google was not contacted for the legitimate retry")
+	}
+}
+
+func TestOAuthBindingCookieName(t *testing.T) {
+	valid := strings.Repeat("a", 43)
+	name, ok := OAuthBindingCookieName(valid)
+	if !ok || name != "sd_oauth_binding_aaaaaaaa" {
+		t.Fatalf("OAuthBindingCookieName(%q) = %q, %t", valid, name, ok)
+	}
+
+	for _, state := range []string{"", "short", strings.Repeat("a", maxOAuthStateLength+1), "bad/state/with/slashes", "bad state"} {
+		if _, ok := OAuthBindingCookieName(state); ok {
+			t.Fatalf("OAuthBindingCookieName(%q) accepted an unsafe state", state)
+		}
+	}
+}
+
 func TestGoogleAuth_CompleteGoogleLogin_stateIsBurnedEvenWhenGoogleFails(t *testing.T) {
 	f := newGoogleFixture(t)
-	state := f.begin(t, "")
+	start := f.begin(t, "")
 	f.provider.err = errors.New("google is down")
 
-	if _, err := f.callback(state); !errors.Is(err, ErrOAuthProvider) {
+	if _, err := f.callback(start); !errors.Is(err, ErrOAuthProvider) {
 		t.Fatalf("error = %v, want ErrOAuthProvider", err)
 	}
 	f.provider.err = nil
-	if _, err := f.callback(state); !errors.Is(err, ErrOAuthStateInvalid) {
+	if _, err := f.callback(start); !errors.Is(err, ErrOAuthStateInvalid) {
 		t.Fatalf("retry with the same state error = %v, want ErrOAuthStateInvalid", err)
 	}
 }
 
 func TestGoogleAuth_CompleteGoogleLogin_storeFailureOnState(t *testing.T) {
 	f := newGoogleFixture(t)
-	state := f.begin(t, "")
+	start := f.begin(t, "")
 	f.store.failOn["ConsumeOAuthState"] = errStore
 
-	_, err := f.callback(state)
+	_, err := f.callback(start)
 	if !errors.Is(err, errStore) || errors.Is(err, ErrOAuthStateInvalid) {
 		t.Fatalf("error = %v, want the store error, not an invalid state", err)
 	}
@@ -380,9 +463,11 @@ func TestGoogleAuth_CompleteGoogleLogin_storeFailureOnState(t *testing.T) {
 
 func TestGoogleAuth_CompleteGoogleLogin_missingCode(t *testing.T) {
 	f := newGoogleFixture(t)
-	state := f.begin(t, "")
+	start := f.begin(t, "")
 
-	_, err := f.google.CompleteGoogleLogin(context.Background(), GoogleCallbackInput{State: state})
+	_, err := f.google.CompleteGoogleLogin(context.Background(), GoogleCallbackInput{
+		State: start.state, BrowserBinding: start.binding,
+	})
 	if !errors.Is(err, ErrOAuthProvider) {
 		t.Fatalf("error = %v, want ErrOAuthProvider", err)
 	}
@@ -404,9 +489,9 @@ func TestGoogleAuth_CompleteGoogleLogin_unusableProfiles(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			f := newGoogleFixture(t)
 			f.provider.profile = test.profile
-			state := f.begin(t, "")
+			start := f.begin(t, "")
 
-			if _, err := f.callback(state); !errors.Is(err, test.want) {
+			if _, err := f.callback(start); !errors.Is(err, test.want) {
 				t.Fatalf("error = %v, want %v", err, test.want)
 			}
 			if len(f.store.users) != 0 || len(f.store.tokens) != 0 {
@@ -437,6 +522,7 @@ func TestGoogleAuth_CompleteGoogleLogin_linksExistingEmailAccount(t *testing.T) 
 	f := newGoogleFixture(t)
 	existing := f.store.addUser("nimal@example.com", true, "LOCAL")
 	existing.Role = auth.RoleMerchant
+	existing.PasswordHash = stringPtr("attacker-chosen-hash")
 
 	result, err := f.callback(f.begin(t, ""))
 	if err != nil {
@@ -448,8 +534,58 @@ func TestGoogleAuth_CompleteGoogleLogin_linksExistingEmailAccount(t *testing.T) 
 	if f.store.subs["google-sub-1"] != existing.ID {
 		t.Fatal("Google account was not linked")
 	}
+	if existing.PasswordHash != nil {
+		t.Fatal("an unverified account kept its password after Google linking")
+	}
+	if !existing.EmailVerified {
+		t.Fatal("the linked account was not marked email verified")
+	}
+	if len(f.store.revokedUserIDs) != 1 || f.store.revokedUserIDs[0] != existing.ID {
+		t.Fatalf("revoked users = %v, want the linked user", f.store.revokedUserIDs)
+	}
 	if len(f.store.users) != 1 {
 		t.Fatal("a duplicate account was created")
+	}
+}
+
+func TestGoogleAuth_CompleteGoogleLogin_keepsVerifiedPassword(t *testing.T) {
+	f := newGoogleFixture(t)
+	existing := f.store.addUser("nimal@example.com", true, "LOCAL")
+	existing.EmailVerified = true
+	existing.PasswordHash = stringPtr("legitimate-hash")
+
+	if _, err := f.callback(f.begin(t, "")); err != nil {
+		t.Fatalf("CompleteGoogleLogin returned error: %v", err)
+	}
+	if existing.PasswordHash == nil {
+		t.Fatal("a verified account lost its password on Google linking")
+	}
+	if len(f.store.revokedUserIDs) != 0 {
+		t.Fatalf("sessions were revoked for a verified account: %v", f.store.revokedUserIDs)
+	}
+}
+
+func TestGoogleAuth_CompleteGoogleLogin_creationRaceRelinks(t *testing.T) {
+	f := newGoogleFixture(t)
+	f.store.failOn["CreateGoogleUser"] = repository.ErrEmailTaken
+	var winner *repository.User
+	f.store.beforeCreate = func() {
+		winner = f.store.addUser("nimal@example.com", true, "GOOGLE")
+		f.store.subs["google-sub-1"] = winner.ID
+	}
+
+	result, err := f.callback(f.begin(t, ""))
+	if err != nil {
+		t.Fatalf("CompleteGoogleLogin returned error: %v", err)
+	}
+	if winner == nil || result.Session.Account.ID != winner.ID {
+		t.Fatalf("signed in as %v, want the account created by the winning request", result.Session.Account.ID)
+	}
+	if len(f.store.users) != 1 {
+		t.Fatal("the race created a duplicate account")
+	}
+	if len(f.store.tokens) != 1 {
+		t.Fatal("the losing request did not receive a session")
 	}
 }
 
@@ -505,6 +641,8 @@ func TestGoogleAuth_CompleteGoogleLogin_storeFailures(t *testing.T) {
 		})
 	}
 }
+
+func stringPtr(value string) *string { return &value }
 
 func TestGoogleDisplayName(t *testing.T) {
 	tests := []struct {

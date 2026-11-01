@@ -35,6 +35,7 @@ Health endpoints are not public except `/healthz` at the gateway. `/health` and 
 ## Operational notes
 
 - `X-Request-Id` is forwarded. Nginx generates one when the client does not supply it.
+- `/api/v1/auth/` uses the `swiftdrop_no_query` access-log format: it records the method, URI path, status and timing but never the query string. This keeps OAuth authorization codes and state values out of the gateway logs. Other routes keep the default combined log.
 - `/internal` is explicitly blocked so internal service-to-service APIs never reach browsers.
 - `/ws` enables WebSocket upgrade headers, disables proxy buffering, and uses a long read timeout.
 - Local development uses plain HTTP. Production TLS should terminate at a load balancer or a separately managed Nginx configuration with real certificates. No certificates are committed to this repository.
