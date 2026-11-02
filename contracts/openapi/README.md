@@ -14,7 +14,7 @@ The public base paths are the Nginx routes. Nginx strips the `/api/v1` prefix be
 
 All specifications use OpenAPI 3.0.3 and are maintained by hand. When an endpoint is added or changed, update the specification, the Gin route, and the Nginx mapping together. No code-generation pipeline is used during initialization.
 
-The current specifications intentionally describe only the operational health and readiness endpoints. Business endpoints will be added by their owning services as they are implemented; this repository does not invent them in advance.
+The specifications describe the operational health and readiness endpoints. The identity specification also describes register, login, refresh and logout (API v1.1 sections 2.1 to 2.4), Google sign-in (2.5, 2.6), the admin user endpoints and the courier list (2.10 to 2.15) and forgot and reset password (2.16, 2.17). The service-to-service `/internal` endpoints are in the separate `identity-internal.yaml` because the gateway never routes them (API v1.1 section 13). Other business endpoints will be added by their owning services as they are implemented; this repository does not invent them in advance.
 
 ## Actual HTTP behavior
 

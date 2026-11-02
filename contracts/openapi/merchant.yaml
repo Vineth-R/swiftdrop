@@ -5,11 +5,17 @@ info:
   description: >-
     Merchant account management, integration settings, and future API
     credentials. This specification currently covers only the operational
-    health endpoints. Every response uses either the success shape shown below
-    or the standard error envelope
-    `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`. Unmatched routes return
-    `404 NOT_FOUND`, disallowed methods return `405 METHOD_NOT_ALLOWED` with an
-    `Allow` header, and unexpected failures return `500 INTERNAL_ERROR`.
+    health endpoints. Successful merchant responses use the API v1.1 success
+    envelope
+    `{ "data": ..., "meta": { "requestId": "...", "timestamp": "..." } }`.
+    Errors use the standard error envelope
+    `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`.
+    Error codes are the uppercase API v1.1 values, for example
+    `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`,
+    `MERCHANT_NOT_APPROVED`, `KEY_LIMIT_REACHED`, and
+    `INVALID_MERCHANT_STATE`. Unmatched routes return `404 NOT_FOUND`,
+    disallowed methods return `405 METHOD_NOT_ALLOWED` with an `Allow` header,
+    and unexpected failures return `500 INTERNAL_ERROR`.
 servers:
   - url: /api/v1/merchants
   - url: /api/v1/merchant

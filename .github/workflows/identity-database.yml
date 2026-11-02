@@ -1,0 +1,98 @@
+name: Identity database
+
+on:
+  push:
+    branches:
+      - development
+      - main
+  pull_request:
+    branches:
+      - development
+      - main
+    paths:
+      - 'apps/services/identity/**'
+      - 'packages/go-common/**'
+      - 'migrations/identity/**'
+      - 'infra/docker/postgres/init/01-schemas.sql'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/identity-database.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: identity-database-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    name: Identity repository tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: swiftdrop
+          POSTGRES_PASSWORD: swiftdrop
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U swiftdrop -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Wait for PostgreSQL
+        run: timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5432) 2>/dev/null; do sleep 1; done'
+
+      - name: Run identity repository integration tests
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -tags=integration -v ./apps/services/identity/... | tee identity-database.log
+
+          if grep -q -- '--- SKIP' identity-database.log; then
+            echo "::error::Identity PostgreSQL integration tests were skipped; the database must be reachable."
+            exit 1
+          fi
+
+      - name: Migration smoke (up, down, up)
+        run: |
+          set -euo pipefail
+          SMOKE_DB="swiftdrop_migrate_smoke_${GITHUB_RUN_ID}_${GITHUB_JOB}"
+          cleanup() {
+            psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
+              -c "DROP DATABASE IF EXISTS \"$SMOKE_DB\" WITH (FORCE)" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$SMOKE_DB\""
+          SMOKE_URL="$(printf '%s' "$TEST_DATABASE_URL" | sed "s#/postgres?#/${SMOKE_DB}?#")"
+          psql "$SMOKE_URL" -v ON_ERROR_STOP=1 -f infra/docker/postgres/init/01-schemas.sql
+
+          MIGRATE_IMAGE="migrate/migrate:v4.18.3"
+          MIGRATE_URL="${SMOKE_URL}&x-migrations-table=identity_schema_migrations"
+          docker run --rm --network host -v "$PWD/migrations:/migrations:ro" "$MIGRATE_IMAGE" \
+            -path /migrations/identity -database "$MIGRATE_URL" up
+          docker run --rm --network host -v "$PWD/migrations:/migrations:ro" "$MIGRATE_IMAGE" \
+            -path /migrations/identity -database "$MIGRATE_URL" down 1
+          docker run --rm --network host -v "$PWD/migrations:/migrations:ro" "$MIGRATE_IMAGE" \
+            -path /migrations/identity -database "$MIGRATE_URL" up
+
+          psql "$SMOKE_URL" -v ON_ERROR_STOP=1 -tAc "
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'identity'
+              AND table_name = 'oauth_states'
+              AND column_name = 'browser_binding_hash'" | grep -qx 1

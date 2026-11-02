@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +10,7 @@ import (
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/config"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/worker"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
 
@@ -17,7 +18,7 @@ const serviceName = "notification-worker"
 
 func main() {
 	if err := run(); err != nil {
-		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("worker stopped", "service", serviceName, "error", err)
+		logging.NewBootstrap(serviceName).Error("worker stopped", "error", err)
 		os.Exit(1)
 	}
 }
@@ -31,6 +32,11 @@ func run() error {
 	logger, err := logging.New(serviceName, config.AppEnv, config.LogLevel)
 	if err != nil {
 		return err
+	}
+
+	sender, err := mailer.NewSMTP(config.SMTP)
+	if err != nil {
+		return fmt.Errorf("create smtp mailer: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -84,7 +90,7 @@ func run() error {
 		RetryDelay:     config.RetryDelay,
 		ReconnectMin:   config.ReconnectMin,
 		ReconnectMax:   config.ReconnectMax,
-	}, worker.New(logger), logger)
+	}, worker.New(logger, sender), logger)
 	close(stopped)
 	return err
 }

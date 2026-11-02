@@ -49,6 +49,7 @@ services:
     entrypoint: ['migrate']
     volumes:
       - ./migrations:/migrations:ro
+      - ./scripts/migrate.sh:/usr/local/bin/migrate-all:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,10 +99,14 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
       ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
       REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-168h}
+      OAUTH_STATE_TTL: ${OAUTH_STATE_TTL:-10m}
+      PASSWORD_RESET_TOKEN_TTL: ${PASSWORD_RESET_TOKEN_TTL:-30m}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       COOKIE_REFRESH_NAME: ${COOKIE_REFRESH_NAME:-sd_refresh}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-5}
+      LOGIN_LOCKOUT_DURATION: ${LOGIN_LOCKOUT_DURATION:-15m}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
@@ -207,7 +212,7 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f /usr/local/bin/service > /dev/null']
+      test: ['CMD-SHELL', 'pgrep -x /usr/local/bin/service > /dev/null']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -226,7 +231,7 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f /usr/local/bin/service > /dev/null']
+      test: ['CMD-SHELL', 'pgrep -x /usr/local/bin/service > /dev/null']
       interval: 10s
       timeout: 5s
       retries: 5

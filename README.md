@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-This branch adds exact delivery quotes, pricing administration APIs, and database-backed public parcel tracking. See [backend details](docs/pricing-and-tracking.md) for contracts and verification. UI and submission report work remain deferred. Authentication issuance, parcel lifecycle writes, notification delivery, webhook delivery and realtime subscriptions remain separate work.
+Business functionality such as parcel lifecycles, pricing rules, merchant onboarding, live tracking, SMS notification delivery, and webhook delivery is intentionally not implemented yet. See [Current scope](#current-scope) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
@@ -23,7 +23,7 @@ This branch adds exact delivery quotes, pricing administration APIs, and databas
 | `pricing`             | Future delivery fee calculation and pricing configuration   | 8083          |
 | `merchant`            | Future merchant accounts, settings, and API credentials     | 8084          |
 | `realtime`            | Future live tracking over WebSocket or Server-Sent Events   | 8085          |
-| `notification-worker` | Future notification event consumption and delivery          | no HTTP port  |
+| `notification-worker` | Notification event consumption and email delivery           | no HTTP port  |
 | `webhook-worker`      | Future outgoing webhook delivery                            | no HTTP port  |
 | `@org/web`            | Next.js frontend                                            | 3000          |
 | Nginx                 | Public HTTP entry point                                     | 8080          |
@@ -54,7 +54,7 @@ infra/
   docker/                   Go and Next.js Dockerfiles
   nginx/                    Local reverse proxy configuration
 docs/                       Architecture documentation
-tests/integration/          Broker-backed RabbitMQ integration tests
+tests/integration/          RabbitMQ and PostgreSQL integration tests
 .github/workflows/          CI
 ```
 
@@ -98,48 +98,77 @@ set +a
 
 The integration branch is `development`. Create feature branches from it and open pull requests into `development`. Do not push directly to `development` or `main`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the branch, pull request, review, and merge workflow.
 
-## Local dependencies
+## Quick start
 
-Copy the environment template first:
+Prerequisites: Docker with Compose v2 and `make`. Go, Node.js, pnpm, and Playwright are only needed for host-side development and tests.
 
 ```sh
+git clone https://github.com/Vineth-R/swiftdrop.git
+cd swiftdrop
 cp .env.example .env
+# edit .env only if your local configuration differs
+make up-build
 ```
 
-Start the whole stack:
+`make up-build` builds all images and then runs the full startup workflow. `make up`:
 
-```sh
-docker compose up --build -d
-docker compose ps
-```
+1. validates configuration (`preflight`);
+2. starts the existing images and waits for health checks;
+3. applies all five service migrations;
+4. runs `scripts/check-routes.sh` against the actual published Nginx port.
 
-The stack runs PostgreSQL 16, RabbitMQ 4.1, Mailpit (local email sink), five HTTP services, two workers, the Next.js web app, and the Nginx gateway. All long-running containers have health checks. HTTP services report database connectivity through `/ready`; workers require RabbitMQ.
+Open <http://localhost:8080/>. Mailpit is at <http://localhost:8025/> and RabbitMQ management at <http://localhost:15672/>. The first build can take several minutes.
+
+**Subsequent startups:** use `make up`. It reuses the existing images and does not rebuild them.
+
+**After changing application source code:** use `make up-build` so the images are rebuilt before startup.
+
+Running `make up` again is safe: Compose is a no-op, migrations report `no change`, and routes are re-verified.
+
+If `.env` is missing and `POSTGRES_USER`/`POSTGRES_DB` are not exported, `make up` fails with a clear error instead of silently using defaults.
+
+### Command reference
+
+| Command                        | What it does                                                     |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `make build`                   | Build all application images; does not start containers          |
+| `make up`                      | Start existing images, wait for health, migrate, verify routes   |
+| `make up-build`                | Build images, then run the full `make up` workflow               |
+| `docker compose up --build -d` | Start only; **builds but does not migrate**                      |
+| `make migrate`                 | Apply all service migrations                                     |
+| `make migrate-down`            | Roll back **one migration per service** (destructive; see below) |
+| `make check-routes`            | Verify gateway routing against the running stack                 |
+| `make logs`                    | Follow logs                                                      |
+| `make down`                    | Stop containers; keeps volumes and data                          |
+| `make db-reset`                | Delete local volumes and rebuild (destructive)                   |
 
 Start only what you need:
 
 ```sh
 docker compose up -d postgres        # database and migrations
 docker compose up -d rabbitmq        # workers and broker-backed integration tests
-docker compose up -d mailpit         # local email UI on http://localhost:8025
+docker compose up -d mailpit         # local email UI
 ```
 
-RabbitMQ management is available at <http://localhost:15672/> with the credentials from `.env`. Mailpit SMTP listens on `1025` and its UI on `8025`.
+PostgreSQL is internal to the Compose network and does not publish a host port. `make migrate` runs inside the Compose network. To run Go services or PostgreSQL integration tests on the host, point `DATABASE_URL`/`TEST_DATABASE_URL` at a PostgreSQL instance you run separately (for example a local PostgreSQL install on `localhost:5432`); do not add a host port to `docker-compose.yml` just for local tests.
 
 ## Sending email
 
-Mailpit is the local email sink and is always available at <http://localhost:8025> (SMTP on `1025`). Gmail SMTP relay is configured in `.env.example` for real delivery.
+Mailpit is the local email sink and is always available at <http://localhost:8025> (SMTP on `1025`). `.env.example` defaults to Mailpit, so no credentials are required for local email.
 
-### Gmail SMTP
+### Gmail SMTP (opt-in)
 
 1. Enable 2-Step Verification on the Google account.
 2. Create an App Password at Google Account → Security → App Passwords (choose "Mail"). Google shows a 16-character password; the normal account password will not work.
-3. Create `.env` from the template and set the credentials:
+3. Create `.env` from the template and set your own credentials in the untracked file:
    ```sh
    cp .env.example .env
-   # edit .env:
-   # SMTP_USER=vineth.ranathunga@gmail.com
-   # SMTP_PASSWORD=<16-character App Password>
-   # SMTP_FROM=vineth.ranathunga@gmail.com
+   # edit .env and uncomment the Gmail block:
+   # SMTP_HOST=smtp.gmail.com
+   # SMTP_PORT=587
+   # SMTP_USER=your-account@gmail.com
+   # SMTP_PASSWORD=your-16-character-app-password
+   # SMTP_FROM=your-account@gmail.com
    # SMTP_FROM_NAME=Swift Drop Support
    ```
 4. Recreate the services that receive mail configuration:
@@ -158,41 +187,67 @@ Gmail settings used by the template:
 | From      | the same Gmail address           |
 | From name | `Swift Drop Support`             |
 
-To use Mailpit locally instead, set `SMTP_HOST=mailpit` and `SMTP_PORT=1025`; Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`.
+Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`. To switch back from Gmail, set `SMTP_HOST=mailpit`, `SMTP_PORT=1025`, and leave `SMTP_USER`/`SMTP_PASSWORD` empty.
 
 **Security and scope**
 
 - The App Password belongs only in `.env`, which is untracked. Never commit it, paste it into chat, or log it. Revoke it from the Google account if exposed.
 - TLS certificate verification stays enabled. Certificate revocation checking (`CheckCertificateRevocation`) is not implemented in the sender.
-- No service sends email yet. This configuration is prepared for M2's password-reset flow and the future notification worker; delivery is not claimed to work in this revision.
+- The identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. The notification worker requires `SMTP_HOST` and fails startup when SMTP is not configured. Delivery is at-least-once; a duplicate email is possible if a crash or connection loss happens between an SMTP send and the broker acknowledgement.
 - Gmail SMTP is suitable for development and small volumes. Production email should use a transactional provider with SPF/DKIM/DMARC.
 
 ## Database migrations
 
-Migrations live under `migrations/<service>/` and use `NNNNNN_description.up.sql` and `.down.sql`. `000001` creates the service schema. `000002_tables` is reserved by the platform foundation for the baseline tables in [`docs/db.sql`](docs/db.sql). Owners add new migrations from `000003`.
+Migrations live under `migrations/<service>/` and use `NNNNNN_description.up.sql` / `.down.sql`. Applied migrations are immutable.
 
-Apply every service's migrations with one command (PostgreSQL must be running):
+- `000001_initial_schema` creates the schema.
+- `000002_tables` is the M1 baseline from [`docs/db.sql`](docs/db.sql) (26 tables, triggers, seeds).
+- `000006_merchant_constraints` is the merchant-specific forward migration that preserves the merchant checks after the duplicate merchant migration files were removed. Versions `000003`–`000005` are intentionally absent for merchant; the runner accepts gaps.
+- New migrations start at the next unused version (merchant: `000007`).
+
+Apply migrations (PostgreSQL must be running):
 
 ```sh
 docker compose up -d postgres
 make migrate
 ```
 
-`make migrate` bootstraps the shared `public.set_updated_at()` function and applies identity, pricing, parcel, merchant, and notification in order, each with its own version table. It creates 26 tables and the reference seed data (5 roles, 5 zones, 25 pricing rules, 4 weight bands, 4 size surcharges).
+`make migrate` runs `scripts/migrate.sh` inside the pinned `migrate/migrate:v4.18.3` container. It uses the Compose-resolved `DATABASE_URL` (from `.env` or exported variables), so custom credentials are honored, and it never prints the URL. It bootstraps `public.set_updated_at()` and applies identity → pricing → parcel → merchant → notification, each with its own `<service>_schema_migrations` version table.
 
-Roll back the latest migration for every service:
+Expected result: 26 tables and seeds `5/5/25/4/4`.
+
+**Windows and line endings.** Git for Windows may convert shell scripts to CRLF, which breaks execution in the Linux migration container. `.gitattributes` forces LF for `*.sh` and `Makefile`; do not override it. If an existing clone still fails with `bad interpreter: /bin/sh^M` or `$'\r': command not found`, preserve any local edits and re-checkout only the affected scripts:
+
+```sh
+git stash push -- scripts/migrate.sh scripts/check-routes.sh
+rm scripts/migrate.sh scripts/check-routes.sh
+git checkout -- scripts/migrate.sh scripts/check-routes.sh
+git stash pop
+```
+
+A fresh clone also works. Do not run `git checkout -- scripts/` to fix this: it rewrites every file under `scripts/` and can discard unrelated local changes.
+
+Roll back:
 
 ```sh
 make migrate-down
 ```
 
-Reset local data, recreate the database, and migrate again (destructive; only with explicit approval):
+This rolls back **one migration per service** in reverse order. On services currently at version 2 this drops their schema and tables. Use it only on a disposable database. Migrations never run automatically at application startup.
+
+Destructive reset (local only, explicit use):
 
 ```sh
 make db-reset
 ```
 
-`make db-reset` runs `docker compose down -v`, which deletes local PostgreSQL and RabbitMQ volumes. Services never run migrations automatically at startup. Full conventions and manual commands are in [`migrations/README.md`](migrations/README.md).
+`make db-reset` runs `docker compose down -v`, deleting local PostgreSQL and RabbitMQ volumes. Never use it on shared data.
+
+### Custom database credentials
+
+Set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in `.env` (or export them). Migrations and services use the same values. Passwords containing URL-reserved characters (`@ : / ? # [ ] %`) are a known limitation because Compose builds the connection URL from these values; use URL-safe credentials for now.
+
+`make migrate` fails clearly if the database is unreachable or credentials are wrong. Inspect with `docker compose ps postgres` and `docker compose logs postgres`. The migration runner never prints the connection URL.
 
 ## Run the frontend
 
@@ -245,9 +300,11 @@ set +a
 go run ./apps/services/notification-worker
 ```
 
+The notification worker also requires SMTP configuration. `.env.example` defaults to Mailpit (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`), so start Mailpit with `docker compose up -d mailpit` and view delivered mail at <http://localhost:8025>. A missing or invalid SMTP configuration fails startup.
+
 Workers reconnect with capped exponential backoff and jitter when the broker is unavailable, and reset the backoff after a session reaches the consume phase. They acknowledge a message only after the handler succeeds or after a retry/dead-letter publication is confirmed. Unclassified handler failures are retried up to `RABBITMQ_MAX_RETRIES` (default `3`) with `RABBITMQ_RETRY_DELAY` (default `30s`) and then dead-lettered; malformed or unsupported messages are dead-lettered immediately. A second termination signal forces exit if graceful shutdown does not finish.
 
-Delivery is at-least-once. Duplicate or redelivered messages are normal, including after reconnects and retries; future state-changing handlers must deduplicate by `event_id` and be idempotent. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API.
+Notification delivery is at-least-once. The worker acknowledges only after the SMTP send succeeds, but delivery and acknowledgement cannot be atomic, so a duplicate email is possible after a crash or connection loss between them. A delivery failure is retried and eventually dead-lettered. Invalid payloads and unsupported channels such as `sms` are permanent failures. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API.
 
 ## Tests and checks
 
@@ -270,10 +327,21 @@ Broker-backed messaging integration tests live in [`tests/integration`](tests/in
 ```sh
 docker compose up -d rabbitmq
 RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
-  go test -tags=integration ./tests/integration/...
+  go test -tags=integration ./tests/integration
 ```
 
 Tests skip when `RABBITMQ_URL` is unset. CI sets it and fails the job if any integration test is skipped. Each test creates uniquely named exchanges and queues and removes them during cleanup. See [`tests/integration/README.md`](tests/integration/README.md).
+
+### PostgreSQL integration tests
+
+Dispatch database tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel baseline and dispatch migrations to a uniquely named, isolated database, then verify assignments, outbox behavior, constraints, indexes, triggers, upgrade paths, and rollback/reapply.
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  make test-db
+```
+
+`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
 
 ### Nx and frontend checks
 
@@ -305,10 +373,11 @@ Go targets run from the repository root so the single root module and shared pac
 ## Run the integrated environment
 
 ```sh
-docker compose up --build
+make up-build    # first run or after changing source code
+make up          # subsequent runs, reusing built images
 ```
 
-Nginx waits for its web and HTTP service dependencies to become healthy before starting. Endpoints:
+`make up-build` builds the images and then runs the full startup workflow. `make up` starts the existing images, waits for health checks, applies migrations, and verifies gateway routes without rebuilding. Plain `docker compose up --build -d` starts the same stack but does **not** migrate; run `make migrate` afterwards. Nginx waits for its web and HTTP service dependencies to become healthy before starting. Endpoints:
 
 - Gateway (only public application port): <http://localhost:8080/>
 - Frontend through the gateway: <http://localhost:8080/>
@@ -319,20 +388,26 @@ Nginx waits for its web and HTTP service dependencies to become healthy before s
 - WebSocket: `ws://localhost:8080/ws`
 - `/internal/*` is blocked at the gateway (JSON `404`); `/api/v1/ai` is a TODO and returns JSON `404`.
 
+### Docker build cache
+
+The Go image copies only `go.mod`, `go.sum`, `packages/`, and the selected service. The web image copies the pnpm/Nx manifests, `nx.json`, TypeScript configs, `apps/web`, `apps/web-e2e`, and `packages`, instead of the whole repository. Backend-only changes therefore do not invalidate the web build, and documentation, migration, Makefile, and Compose changes do not invalidate Go builds. If a JavaScript package is added under `packages/`, add its manifest to the `pnpm install` layer in `infra/docker/web.Dockerfile`.
+
 ## Demo login
 
-Authentication is owned by M2 and is **not implemented in this revision**. The infrastructure is ready for it: the gateway forwards the identity auth groups, Compose passes `DATABASE_URL`, JWT, cookie, Google, SMTP, and internal-token placeholders, and the shared error/request-ID/logging middleware is in place.
-
-Intended flow once M2 lands it (API v1.1 section 2.2):
+Email and password authentication is implemented in the identity service (API v1.1 sections 2.1 to 2.4): register, login, refresh and logout. Google login, password reset, admin user management, the courier list and two internal lookup APIs are also implemented in the identity service (sections 2.5, 2.6, 2.10 to 2.17 and 13); profiles are still planned. Demo users and password seeding are also pending, so register an account first:
 
 ```sh
+curl -i -X POST http://localhost:8080/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"Str0ngPass!","fullName":"Your Name","phone":"+94771234567"}'
+
 curl -i -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -H 'X-Token-Mode: body' \
-  -d '{"email":"admin@swiftdrop.local","password":"<seeded password>"}'
+  -d '{"email":"you@example.com","password":"Str0ngPass!"}'
 ```
 
-The response sets `sd_access` and `sd_refresh` cookies and, in token mode, returns `accessToken` and `refreshToken`. Demo users and password seeding are also pending M2. Do not treat login as working until the identity service implements and tests it.
+Login sets the HttpOnly `sd_access` (15 minutes) and `sd_refresh` (7 days) cookies and, in token mode, also returns `accessToken` and `refreshToken` in the body. Five wrong passwords lock the account for 15 minutes (`423 ACCOUNT_LOCKED`), and login and register are limited to 10 requests per minute per client address. `JWT_ACCESS_SECRET` is required; outside development it must be at least 32 random bytes.
 
 Stop containers without deleting data:
 
@@ -346,14 +421,15 @@ docker compose down
 
 GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pull requests to `development` and `main`, on pushes to those branches, and on `v*` tags. The current jobs are:
 
-| Job                      | What it runs                                                                                                                                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Go checks**            | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, and `docker compose config --quiet`.               |
-| **RabbitMQ integration** | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration/...`, and fails if any test is skipped. |
-| **Frontend checks**      | Installs dependencies with pnpm, runs `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. Nx runs only configured targets.                          |
-| **Playwright E2E**       | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                             |
-| **Docker builds**        | Detects changed projects with `dorny/paths-filter` and builds only the affected Go service images and the web image.                                                                                   |
-| **Release smoke (tags)** | On `v*` tags, builds every image, starts the full Compose stack with `--wait`, runs `scripts/check-routes.sh`, and stops the stack.                                                                    |
+| Job                        | What it runs                                                                                                                                                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Go checks**              | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, `docker compose config --quiet`, and the worker-healthcheck guard. |
+| **RabbitMQ integration**   | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration`, and fails if any test is skipped.                     |
+| **PostgreSQL integration** | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch database tests under `tests/integration/database`; fails if any test is skipped.                                |
+| **Frontend checks**        | Installs dependencies with pnpm, runs `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. Nx runs only configured targets.                                          |
+| **Playwright E2E**         | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                                             |
+| **Docker builds**          | Detects changed projects with `dorny/paths-filter` and builds only the affected Go service images and the web image.                                                                                                   |
+| **Release smoke (tags)**   | On `v*` tags, prepares `.env` from `.env.example`, builds every image, starts the full Compose stack with `--wait`, applies migrations with `make migrate`, runs `scripts/check-routes.sh`, and stops the stack.       |
 
 The workflow does not deploy, publish images, or use deployment credentials. This documentation does not claim that CI has passed for a given revision; check the Actions run for the branch or pull request.
 
@@ -361,12 +437,13 @@ The workflow does not deploy, publish images, or use deployment credentials. Thi
 
 - **Port already in use:** change `NGINX_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `MAILPIT_SMTP_PORT`, or `MAILPIT_UI_PORT` in `.env` and restart Compose. `SMTP_PORT` is the outbound provider port, not a published port. Service and web ports are internal and are not published.
 - **Environment variables missing for a host process:** Go services do not load `.env`. Export it with `set -a; . ./.env; set +a` before `go run` or `nx serve`.
-- **Migrations cannot connect:** run `docker compose up -d postgres`, then `docker compose ps postgres`. Confirm `DATABASE_URL` matches the configured user, password, database, and host port.
-- **Nginx returns 502 or will not start:** Nginx resolves upstreams at startup. Start the full stack with `docker compose up --build` rather than starting Nginx alone. Check `docker compose ps` for unhealthy services.
+- **Migrations cannot connect:** run `docker compose up -d postgres`, then `docker compose ps postgres`. Confirm `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` match your `.env`. `make migrate` reads the Compose-resolved `DATABASE_URL`, not a hardcoded one. URL-reserved password characters are a known limitation (use URL-safe credentials).
+- **Nginx returns 502 or will not start:** Nginx resolves upstreams at startup. Start the full stack with `make up` rather than starting Nginx alone. Check `docker compose ps` for unhealthy services.
+- **Images are missing or stale (`make up` starts old code):** run `make up-build` to rebuild before starting.
 - **Worker keeps reconnecting:** confirm RabbitMQ is healthy and `RABBITMQ_URL` points at the broker. For containers use the `rabbitmq` service name; use `localhost` only from the host. Reconnect attempts are logged with the next delay.
 - **Integration tests skip:** `RABBITMQ_URL` is unset or empty. Set it to the Compose broker URL. CI treats skips as failures.
 - **Playwright cannot launch a browser:** run `pnpm exec playwright install chromium` (add `--with-deps` on Linux if system libraries are missing).
-- **Docker runs out of memory while building every Go image:** the Go Dockerfile bounds compiler memory (`GOFLAGS=-p=1`, `GOMEMLIMIT`, `GOGC`). Build sequentially with `COMPOSE_PARALLEL_LIMIT=1 docker compose build`, then start the stack.
+- **Docker runs out of memory while building every Go image:** the Go Dockerfile bounds compiler memory (`GOFLAGS=-p=1`, `GOMEMLIMIT`, `GOGC`) and the Makefile serializes builds with `COMPOSE_PARALLEL_LIMIT=1`. Build sequentially with `make build`, then start with `make up`.
 
   ```sh
   docker compose build identity
@@ -381,6 +458,8 @@ The workflow does not deploy, publish images, or use deployment credentials. Thi
   docker compose up -d
   ```
 
+- **Migration fails with a duplicate version:** check `migrations/<service>/` for repeated six-digit versions. Applied migrations are immutable; add a new forward migration instead of renumbering an applied one.
+- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
 - **CI fails on formatting:** run `gofmt -w` on the changed Go files and `pnpm exec prettier --write` on changed documentation or frontend files.
 
 ## Branching and pull requests
@@ -405,19 +484,22 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 - [`docs/db.sql`](docs/db.sql): canonical database definition (26 tables, five schemas, triggers, seeds).
 - [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md) and [`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md): product API and database design sources.
 - [`docs/how-to-error-logging.md`](docs/how-to-error-logging.md): adopting the shared error envelope and safe logging.
+- [`docs/follow-ups/merchant-database-integration.md`](docs/follow-ups/merchant-database-integration.md): merchant-owner database integration review.
 - [`contracts/events/README.md`](contracts/events/README.md): event naming, envelope, framing, and failure rules.
 - [`contracts/openapi/README.md`](contracts/openapi/README.md): HTTP contracts and shared error behavior.
 - [`migrations/README.md`](migrations/README.md): migration conventions and commands.
 - [`infra/nginx/README.md`](infra/nginx/README.md): local edge routing.
-- [`tests/integration/README.md`](tests/integration/README.md): broker-backed test setup.
+- [`tests/integration/README.md`](tests/integration/README.md): RabbitMQ and PostgreSQL integration test setup.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): development and review workflow.
 
 ## Current scope
 
 Implemented: repository structure, service entry points, health and readiness endpoints, environment configuration with case-insensitive and trimmed values, structured logging, request IDs, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB HTTP header limit, shared infrastructure, event envelope and message framing validation, bounded RabbitMQ retry and dead-letter routing with publisher confirms, reconnect backoff with jitter, unit and broker-backed messaging integration tests, one Playwright example test run Chromium-only in CI, Dockerfiles, Compose infrastructure, Nginx routing, migration and event conventions, Nx targets, CI, and documentation.
 
-Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), Mailpit, gateway-only published ports, API v1.1 error envelope with request IDs, redacting logs, and the API v1.1 gateway route groups.
+Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), forward merchant constraints, Mailpit, gateway-only published ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
 
-M4 backend: Pricing estimates and active zones, authenticated internal quote/zone handoffs, ADMIN pricing configuration with transactional audit records, and anonymous public tracking with a restricted field projection and rate limiting. See [Pricing and public tracking](docs/pricing-and-tracking.md). ADMIN token validation is implemented; login and token issuance remain M2's responsibility.
+Notification email delivery is implemented in the notification worker: `notification.requested.v1` is validated, the `email` channel is sent through the shared SMTP mailer, `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker is stateless and does not persist notification status.
 
-Not implemented by this slice: login, sessions, Google OAuth, password reset, parcel lifecycle writes, notification delivery, outgoing webhook delivery, realtime subscriptions, the AI assistant, payments, production TLS or deployment automation. Business UI and submission reports remain deferred. No event producers are added here.
+Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
+
+Not implemented: authentication (owned by M2), JWT, cookies/sessions, parcels, pricing formulas, merchant onboarding, API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Business tables exist, but no business endpoints or event producers are implemented yet.

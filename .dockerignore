@@ -29,3 +29,9 @@ out-tsc
 *.log
 logs
 .DS_Store
+migrations
+contracts
+docs
+tests
+scripts
+infra/nginx

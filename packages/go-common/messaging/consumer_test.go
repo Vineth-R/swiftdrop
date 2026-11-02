@@ -709,3 +709,46 @@ func TestDeliveryProcessorRequeuesWhenHandlerInterruptedByShutdown(t *testing.T)
 		t.Fatalf("publisher calls = %d, want 0", len(publisher.calls))
 	}
 }
+
+func TestRedactAMQPError(t *testing.T) {
+	rawURL := "amqp://swiftdrop:s3cret-password@rabbitmq:5672/"
+
+	if err := redactAMQPError(fmt.Errorf("dial failed for %s", rawURL), rawURL); err == nil {
+		t.Fatal("redactAMQPError returned nil")
+	} else if strings.Contains(err.Error(), "s3cret-password") || strings.Contains(err.Error(), rawURL) {
+		t.Fatalf("redactAMQPError leaked the URL: %v", err)
+	}
+
+	parseURL := "amqp://swiftdrop:s3cret-password@%zz"
+	if err := redactAMQPError(fmt.Errorf("parse %q: invalid URL escape", parseURL), parseURL); err == nil {
+		t.Fatal("redactAMQPError returned nil")
+	} else if strings.Contains(err.Error(), "s3cret-password") {
+		t.Fatalf("redactAMQPError leaked the password: %v", err)
+	}
+
+	plain := errors.New("connection refused")
+	if got := redactAMQPError(plain, rawURL); got != plain {
+		t.Fatalf("redactAMQPError changed an unrelated error: %v", got)
+	}
+	if got := redactAMQPError(nil, rawURL); got != nil {
+		t.Fatalf("redactAMQPError(nil) = %v, want nil", got)
+	}
+}
+
+func TestDialAMQPDoesNotLeakCredentialsInParseErrors(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rawURL := "amqp://swiftdrop:s3cret-password@%zz"
+	connection, err := dialAMQP(ctx, rawURL)
+	if connection != nil {
+		_ = connection.Close()
+		t.Fatal("dialAMQP returned a connection for an invalid URL")
+	}
+	if err == nil {
+		t.Fatal("dialAMQP should fail for an invalid URL")
+	}
+	if strings.Contains(err.Error(), "s3cret-password") {
+		t.Fatalf("dialAMQP error leaked the password: %v", err)
+	}
+}

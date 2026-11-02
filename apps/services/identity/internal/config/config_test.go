@@ -37,6 +37,70 @@ func TestLoadFrom(t *testing.T) {
 	}
 }
 
+func TestLoadFromGoogleOAuthConfig(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		values := map[string]string{
+			"GOOGLE_CLIENT_ID":     "client-id-example",
+			"GOOGLE_CLIENT_SECRET": "test-only-secret",
+			"GOOGLE_REDIRECT_URI":  "http://localhost:8080/api/v1/auth/google/callback",
+		}
+		value, ok := values[key]
+		return value, ok
+	})
+
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+
+	if config.GoogleClientID != "client-id-example" {
+		t.Fatal("GoogleClientID was not loaded")
+	}
+	if config.GoogleClientSecret != "test-only-secret" {
+		t.Fatal("GoogleClientSecret was not loaded")
+	}
+	if config.GoogleRedirectURI != "http://localhost:8080/api/v1/auth/google/callback" {
+		t.Fatal("GoogleRedirectURI was not loaded")
+	}
+}
+
+func TestLoadFromGoogleOAuthConfigIsOptional(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{
+			name: "missing",
+		},
+		{
+			name: "blank",
+			values: map[string]string{
+				"GOOGLE_CLIENT_ID":     " ",
+				"GOOGLE_CLIENT_SECRET": "\t",
+				"GOOGLE_REDIRECT_URI":  "  ",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := test.values[key]
+				return value, ok
+			})
+
+			config, err := LoadFrom(loader)
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+
+			if config.GoogleClientID != "" || config.GoogleClientSecret != "" || config.GoogleRedirectURI != "" {
+				t.Fatal("Google OAuth settings should be empty when missing or blank")
+			}
+		})
+	}
+}
+
 func TestLoadFromRejectsInvalidConfig(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		if key == "APP_ENV" {

@@ -34,12 +34,12 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 
 ## Service boundaries
 
-- **Identity** owns authentication, authorization, and identity profiles in a future phase. It does not issue tokens yet.
+- **Identity** owns authentication, authorization, and user accounts. It issues the access and refresh tokens for email and password login and for Google sign-in, handles password reset, user management for administrators and the courier list, and exposes two service-to-service `/internal` lookups. Profile endpoints are still planned.
 - **Parcel** owns parcel lifecycle, status, and tracking in a future phase.
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
-- **Notification worker** will consume notification events and call external providers in a future phase.
+- **Notification worker** consumes `notification.requested.v1` and delivers the email channel through the shared SMTP mailer. SMS has no provider yet and is a permanent failure. The worker is stateless and does not persist delivery status.
 - **Webhook worker** will deliver outgoing merchant webhooks and eventually manage retries.
 
 A service owns its data. The local environment uses one PostgreSQL instance with separate schemas:
@@ -109,7 +109,7 @@ The Next.js application serves `/` and its own routes, including `/api/hello`. N
 
 ## Configuration
 
-Configuration is environment-based. Values are matched case-insensitively and trimmed by the shared loader. Invalid required values fail startup clearly. `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host; validation errors never include the URL. The root `.env.example` documents local development values. Docker Compose passes container-network addresses such as `postgres` and `rabbitmq`; `localhost` is used only for host-to-container access.
+Configuration is environment-based. Values are matched case-insensitively and trimmed by the shared loader. Invalid required values fail startup clearly. `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host; validation errors never include the URL. The root `.env.example` documents local development values. Docker Compose passes container-network addresses such as `postgres` and `rabbitmq`; `localhost` is used only for host-to-container access. PostgreSQL is internal to the Compose network and publishes no host port. Host-run services and host-run PostgreSQL integration tests need a separately running PostgreSQL instance; they must not depend on a Compose port mapping.
 
 HTTP services read:
 
@@ -124,7 +124,7 @@ Workers read:
 - required `RABBITMQ_URL`
 - `RABBITMQ_EXCHANGE`, queue, routing key, prefetch, handler timeout, retry limit, retry delay, and reconnect bounds
 
-Email delivery is configured through `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. No service sends email yet; the configuration is reserved for M2's password-reset flow and the future notification worker. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
+The notification worker also requires `SMTP_HOST` and reads `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. The Identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. Identity also exposes the service-to-service `/internal` endpoints (`X-Internal-Token`), described in `docs/identity-internal-api.md`. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
 
 The maximum RabbitMQ message body size is 1 MiB and is fixed in `messaging.MaxMessageBytes`; it is not configurable in this phase. Secrets and connection strings are never logged.
 
@@ -135,7 +135,7 @@ Every HTTP service exposes:
 - `GET /health` — liveness, `{"status":"ok"}`. `/healthz` remains a deprecated alias.
 - `GET /ready` — readiness. Returns `200 {"status":"ready","checks":{"database":"ok"}}` after a bounded-context database ping, or `503` with `"database":"down"` when `DATABASE_URL` is unset or unreachable. `/readyz` remains a deprecated alias.
 
-Compose healthchecks use `/ready`, so a service with no database connectivity is reported unhealthy. The gateway exposes only `/healthz` publicly. Readiness does not currently check RabbitMQ; workers remain log-driven.
+HTTP service healthchecks use `/ready`, so a service with no database connectivity is reported unhealthy. Worker healthchecks match the service process by executable path (`pgrep -x /usr/local/bin/service`), so a crashed worker cannot be reported healthy by the healthcheck shell's own command line. The gateway exposes only `/healthz` publicly. Readiness does not currently check RabbitMQ; workers remain log-driven.
 
 Workers do not expose public HTTP endpoints. Their lifecycle is log-driven: they connect, declare the durable main and failure-routing topology, consume with explicit acknowledgements, retry retryable failures with a bounded delay, dead-letter permanent or exhausted failures, and reconnect with capped exponential backoff and jitter. In-flight messages are requeued on shutdown, and a second termination signal forces exit if graceful shutdown does not finish.
 
@@ -143,7 +143,7 @@ Workers do not expose public HTTP endpoints. Their lifecycle is log-driven: they
 
 PostgreSQL is the primary relational store. SQL migrations live under `migrations/<service>/` and are applied with `golang-migrate`. Each service uses a distinct migration version table in the shared local database. Services never run migrations at startup.
 
-`000001` creates each service schema. `000002_tables` is reserved by the platform foundation for the baseline tables in [`db.sql`](db.sql) (26 tables across five schemas). Owners add new migrations from `000003`. `make migrate` bootstraps the shared `public.set_updated_at()` function and applies all five services in order; `make migrate-down` rolls back `000002` in reverse order.
+`000001` creates each service schema. `000002_tables` is reserved by the platform foundation for the baseline tables in [`db.sql`](db.sql) (26 tables across five schemas). Owners add new migrations from `000003`. Parcel `000003_dispatch_foundations` extends the baseline `parcel_assignments` and `outbox_events` tables without recreating them. `make migrate` bootstraps the shared `public.set_updated_at()` function and applies all five services in order; `make migrate-down` rolls back one migration per service in reverse order.
 
 Mailpit provides local SMTP (`1025`, published as `MAILPIT_SMTP_PORT`) and a web UI (`8025`). Gmail SMTP relay can replace it for real delivery; the mailbox provider is configuration, not part of the schema. Compose publishes only the gateway (`8080`), RabbitMQ (`5672`/`15672`), and Mailpit (`1025`/`8025`).
 
@@ -176,11 +176,18 @@ Broker-backed messaging tests require RabbitMQ:
 ```sh
 docker compose up -d rabbitmq
 RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
-  go test -tags=integration ./tests/integration/...
+  go test -tags=integration ./tests/integration
 ```
 
-CI runs the checks in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml): Go formatting, vet, race tests, build, and Compose config validation; a separate RabbitMQ integration job that fails on skipped tests; frontend lint, typecheck, and build; Chromium-only Playwright E2E; and representative `identity` and web Docker image builds. See the [README](../README.md#ci) for the job summary and [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the contribution workflow.
+Dispatch database tests require PostgreSQL and create isolated test databases. Compose PostgreSQL is not published, so point `TEST_DATABASE_URL` at a separately running local PostgreSQL instance (or a temporary published test instance):
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  make test-db
+```
+
+CI runs the checks in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml): Go formatting, vet, race tests, build, and Compose config validation; separate RabbitMQ and PostgreSQL integration jobs that fail on skipped tests; frontend lint, typecheck, and build; Chromium-only Playwright E2E; and representative `identity` and web Docker image builds. See the [README](../README.md#ci) for the job summary and [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the contribution workflow.
 
 ## Deliberate omissions
 
-The foundation does not include authentication, JWT, parcel workflows, pricing formulas, merchant onboarding, API key management, notification delivery, webhook signing or webhook delivery retries, realtime subscriptions, payments, production TLS, Kubernetes, Terraform, or deployment automation.
+The foundation does not include authentication, JWT, parcel workflows, pricing formulas, merchant onboarding, API key management, SMS notification delivery, webhook signing or webhook delivery retries, realtime subscriptions, payments, production TLS, Kubernetes, Terraform, or deployment automation.

@@ -6,11 +6,13 @@ import (
 	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 )
 
 type Config struct {
 	AppEnv         string
 	LogLevel       string
+	SMTP           mailer.Config
 	RabbitMQURL    string
 	Exchange       string
 	Queue          string
@@ -36,6 +38,14 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	logLevel, err := loader.EnumFold("LOG_LEVEL", "info", "debug", "info", "warn", "warning", "error")
 	if err != nil {
 		return Config{}, err
+	}
+
+	smtp, err := mailer.LoadConfig(loader)
+	if err != nil {
+		return Config{}, fmt.Errorf("SMTP configuration: %w", err)
+	}
+	if err := smtp.Validate(); err != nil {
+		return Config{}, fmt.Errorf("SMTP configuration: %w", err)
 	}
 
 	rabbitMQURL, err := loader.Required("RABBITMQ_URL")
@@ -93,6 +103,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	return Config{
 		AppEnv:         appEnv,
 		LogLevel:       logLevel,
+		SMTP:           smtp,
 		RabbitMQURL:    rabbitMQURL,
 		Exchange:       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
 		Queue:          queue,

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,7 +22,7 @@ const serviceName = "pricing"
 
 func main() {
 	if err := run(); err != nil {
-		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("service stopped", "service", serviceName, "error", err)
+		logging.NewBootstrap(serviceName).Error("service stopped", "error", err)
 		os.Exit(1)
 	}
 }
