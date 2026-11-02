@@ -14,6 +14,8 @@ func newLoader(values map[string]string) sharedconfig.Loader {
 			return value, true
 		}
 		switch key {
+		case "DATABASE_URL":
+			return "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable", true
 		case "SMTP_HOST":
 			return "mailpit", true
 		case "SMTP_PORT":
@@ -53,6 +55,9 @@ func TestLoadFrom(t *testing.T) {
 	}
 	if config.RetryDelay != 30*time.Second {
 		t.Fatalf("RetryDelay = %v, want 30s", config.RetryDelay)
+	}
+	if config.DatabaseURL != "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable" {
+		t.Fatalf("DatabaseURL = %q", config.DatabaseURL)
 	}
 	if config.SMTP.Host != "mailpit" || config.SMTP.Port != 1025 {
 		t.Fatalf("SMTP = %+v, want mailpit:1025", config.SMTP)
@@ -99,9 +104,30 @@ func TestLoadFromRejectsInvalidRetryConfig(t *testing.T) {
 	}
 }
 
+func TestLoadFromRequiresDatabaseURL(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		switch key {
+		case "RABBITMQ_URL":
+			return "amqp://swiftdrop:swiftdrop@rabbitmq:5672/", true
+		case "SMTP_HOST":
+			return "mailpit", true
+		case "SMTP_PORT":
+			return "1025", true
+		default:
+			return "", false
+		}
+	})
+
+	if _, err := LoadFrom(loader); err == nil {
+		t.Fatal("LoadFrom() should fail without DATABASE_URL")
+	}
+}
+
 func TestLoadFromRequiresRabbitMQURL(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		switch key {
+		case "DATABASE_URL":
+			return "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable", true
 		case "SMTP_HOST":
 			return "mailpit", true
 		case "SMTP_PORT":
@@ -118,10 +144,14 @@ func TestLoadFromRequiresRabbitMQURL(t *testing.T) {
 
 func TestLoadFromRequiresSMTPHost(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		if key == "RABBITMQ_URL" {
+		switch key {
+		case "DATABASE_URL":
+			return "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable", true
+		case "RABBITMQ_URL":
 			return "amqp://swiftdrop:swiftdrop@rabbitmq:5672/", true
+		default:
+			return "", false
 		}
-		return "", false
 	})
 
 	if _, err := LoadFrom(loader); err == nil {

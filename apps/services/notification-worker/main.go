@@ -8,10 +8,12 @@ import (
 	"syscall"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/config"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/worker"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
 const serviceName = "notification-worker"
@@ -41,6 +43,17 @@ func run() error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	databaseConfig := postgres.DefaultConfig()
+	databaseConfig.URL = config.DatabaseURL
+	database, err := postgres.Open(ctx, databaseConfig)
+	if err != nil {
+		return fmt.Errorf("connect database: %w", err)
+	}
+	defer database.Close()
+	logger.Info("database connection established")
+
+	store := idempotency.NewPostgres(database, idempotency.ConsumerName)
 
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -90,7 +103,7 @@ func run() error {
 		RetryDelay:     config.RetryDelay,
 		ReconnectMin:   config.ReconnectMin,
 		ReconnectMax:   config.ReconnectMax,
-	}, worker.New(logger, sender), logger)
+	}, worker.New(logger, sender, store), logger)
 	close(stopped)
 	return err
 }

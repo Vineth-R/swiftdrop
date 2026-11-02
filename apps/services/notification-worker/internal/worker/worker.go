@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/mail"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -16,6 +17,15 @@ import (
 )
 
 const EventType = "notification.requested.v1"
+
+var eventIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// ProcessedStore suppresses duplicate notification events. The worker checks it
+// before delivery and records an event only after successful delivery.
+type ProcessedStore interface {
+	IsProcessed(ctx context.Context, eventID string) (bool, error)
+	MarkProcessed(ctx context.Context, eventID string) error
+}
 
 const (
 	maxVariables    = 64
@@ -27,10 +37,11 @@ const (
 type Handler struct {
 	logger *slog.Logger
 	sender mailer.Mailer
+	store  ProcessedStore
 }
 
-func New(logger *slog.Logger, sender mailer.Mailer) *Handler {
-	return &Handler{logger: logger, sender: sender}
+func New(logger *slog.Logger, sender mailer.Mailer, store ProcessedStore) *Handler {
+	return &Handler{logger: logger, sender: sender, store: store}
 }
 
 type payload struct {
@@ -58,6 +69,10 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		return messaging.Permanent(fmt.Errorf("unsupported event version %d", envelope.Version))
 	}
 
+	if !eventIDPattern.MatchString(envelope.ID) {
+		return messaging.Permanent(errors.New("event_id must be a UUID"))
+	}
+
 	var data payload
 	if err := json.Unmarshal(envelope.Data, &data); err != nil {
 		return messaging.Permanent(fmt.Errorf("decode notification data: %w", err))
@@ -68,6 +83,28 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 	}
 	if err := validate(data, variables); err != nil {
 		return messaging.Permanent(err)
+	}
+
+	if h.store == nil {
+		return errors.New("processed-event store is not configured")
+	}
+
+	processed, err := h.store.IsProcessed(ctx, envelope.ID)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "processed-event lookup failed",
+			"event_id", envelope.ID,
+			"correlation_id", envelope.CorrelationID,
+			"error", err,
+		)
+		return fmt.Errorf("check processed event: %w", err)
+	}
+	if processed {
+		h.logger.InfoContext(ctx, "notification already processed",
+			"event_id", envelope.ID,
+			"correlation_id", envelope.CorrelationID,
+			"channel", data.Channel,
+		)
+		return nil
 	}
 
 	email := mailer.Message{
@@ -89,6 +126,15 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 			"error", safeErr.Error(),
 		)
 		return safeErr
+	}
+
+	if err := h.store.MarkProcessed(ctx, envelope.ID); err != nil {
+		h.logger.ErrorContext(ctx, "record processed event failed",
+			"event_id", envelope.ID,
+			"correlation_id", envelope.CorrelationID,
+			"error", err,
+		)
+		return fmt.Errorf("record processed event: %w", err)
 	}
 
 	h.logger.InfoContext(ctx, "notification delivered",

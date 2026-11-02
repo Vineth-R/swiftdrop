@@ -39,7 +39,7 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
-- **Notification worker** consumes `notification.requested.v1` and delivers the email channel through the shared SMTP mailer. SMS has no provider yet and is a permanent failure. The worker is stateless and does not persist delivery status.
+- **Notification worker** consumes `notification.requested.v1` and delivers the email channel through the shared SMTP mailer. SMS has no provider yet and is a permanent failure. The worker records successfully processed event IDs in `notification.processed_events` to suppress duplicates; delivery status is not persisted.
 - **Webhook worker** will deliver outgoing merchant webhooks and eventually manage retries.
 
 A service owns its data. The local environment uses one PostgreSQL instance with separate schemas:

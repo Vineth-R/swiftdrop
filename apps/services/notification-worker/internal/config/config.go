@@ -12,6 +12,7 @@ import (
 type Config struct {
 	AppEnv         string
 	LogLevel       string
+	DatabaseURL    string
 	SMTP           mailer.Config
 	RabbitMQURL    string
 	Exchange       string
@@ -46,6 +47,11 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 	if err := smtp.Validate(); err != nil {
 		return Config{}, fmt.Errorf("SMTP configuration: %w", err)
+	}
+
+	databaseURL := loader.String("DATABASE_URL", "")
+	if databaseURL == "" {
+		return Config{}, errors.New("DATABASE_URL is required")
 	}
 
 	rabbitMQURL, err := loader.Required("RABBITMQ_URL")
@@ -103,6 +109,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	return Config{
 		AppEnv:         appEnv,
 		LogLevel:       logLevel,
+		DatabaseURL:    databaseURL,
 		SMTP:           smtp,
 		RabbitMQURL:    rabbitMQURL,
 		Exchange:       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
