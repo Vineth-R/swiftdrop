@@ -109,7 +109,7 @@ The Next.js application serves `/` and its own routes, including `/api/hello`. N
 
 ## Configuration
 
-Configuration is environment-based. Values are matched case-insensitively and trimmed by the shared loader. Invalid required values fail startup clearly. `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host; validation errors never include the URL. The root `.env.example` documents local development values. Docker Compose passes container-network addresses such as `postgres` and `rabbitmq`; `localhost` is used only for host-to-container access.
+Configuration is environment-based. Values are matched case-insensitively and trimmed by the shared loader. Invalid required values fail startup clearly. `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host; validation errors never include the URL. The root `.env.example` documents local development values. Docker Compose passes container-network addresses such as `postgres` and `rabbitmq`; `localhost` is used only for host-to-container access. PostgreSQL is internal to the Compose network and publishes no host port. Host-run services and host-run PostgreSQL integration tests need a separately running PostgreSQL instance; they must not depend on a Compose port mapping.
 
 HTTP services read:
 
@@ -179,7 +179,7 @@ RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
   go test -tags=integration ./tests/integration
 ```
 
-Dispatch database tests require PostgreSQL and create isolated test databases:
+Dispatch database tests require PostgreSQL and create isolated test databases. Compose PostgreSQL is not published, so point `TEST_DATABASE_URL` at a separately running local PostgreSQL instance (or a temporary published test instance):
 
 ```sh
 TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
