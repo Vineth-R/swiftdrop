@@ -504,7 +504,7 @@ Platform foundation implemented: shared PostgreSQL pool and database-backed read
 
 M4 implemented: `POST /pricing/estimate`, `GET /zones`, authenticated internal quote/zone lookups, ADMIN pricing configuration with transactional audit logging, exact decimal LKR calculations, bounded public rate limiting, trusted-proxy handling, and anonymous `GET /tracking/{trackingNumber}` backed by real parcel/status-history rows. The internal quote is available to M5, but M5's parcel-creation consumer and camelCase-to-snake_case `price_breakdown` mapping are not implemented in this branch.
 
-Notification email delivery is implemented in the notification worker: `notification.requested.v1` is validated, the `email` channel is sent through the shared SMTP mailer, `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker is stateless and does not persist notification status.
+Notification email delivery is implemented in the notification worker: `notification.requested.v1` is validated (including the required `parcel_id`), the `email` channel is sent through the shared SMTP mailer, `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`); the success log and processed-event writes share one transaction. Delivery remains at-least-once, not exactly-once, and no event producer exists yet.
 
 Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
 

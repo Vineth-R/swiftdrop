@@ -205,10 +205,13 @@ services:
         SERVICE: notification-worker
     environment:
       <<: [*app-env, *rabbitmq-env, *mail-env]
+      DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification.requested.v1}
       NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-notification.requested.v1}
     stop_grace_period: 35s
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     healthcheck:

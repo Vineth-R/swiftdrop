@@ -38,22 +38,20 @@
     "data": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "recipient",
-        "channel",
-        "template"
-      ],
+      "required": ["parcel_id", "recipient", "channel", "template"],
       "properties": {
+        "parcel_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Parcel the notification belongs to. Also stored in notification.notification_logs.parcel_id."
+        },
         "recipient": {
           "type": "string",
           "minLength": 1
         },
         "channel": {
           "type": "string",
-          "enum": [
-            "email",
-            "sms"
-          ]
+          "enum": ["email", "sms"]
         },
         "template": {
           "type": "string",
