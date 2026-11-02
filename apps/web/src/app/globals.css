@@ -126,6 +126,16 @@
   --text-caption--letter-spacing: 0.01em;
   --text-overline--letter-spacing: 0.09em;
   --text-overline--font-weight: 600;
+
+  /* Buttons are 14px at medium size (Buttons board), which the handoff scale lacks. */
+  --text-button: 0.875rem;
+  --text-button--line-height: 1.25rem;
+  --text-button--font-weight: 600;
+  /* On phones, inputs and buttons are 16px so iOS does not zoom on focus (Login board). */
+  --text-body-lg: 1rem;
+  --text-body-lg--line-height: 1.5rem;
+
+  --tracking-wordmark: -0.028em;
 }
 
 /*
@@ -149,6 +159,7 @@
   --color-surface-3: #e5e2d8; /* pressed ghost and secondary buttons, skeletons */
   --color-interactive-border: #b7d8d6;
   --color-scrim: rgb(20 23 26 / 0.44);
+  --color-route-node: #14171a; /* origin node and destination ring of the route line */
 
   /* Parcel statuses: Colour boards, label and shape always accompany them. */
   --color-status-created-fg: #41464e;
@@ -169,6 +180,42 @@
   --color-status-failed-fg: #c23b2e;
   --color-status-failed-bg: #fbe9e6;
   --color-status-failed-bd: #efc4bd;
+}
+
+/*
+ * ADDITION — motion. The travelling node is the one piece of looping motion
+ * in the system (Layout, shape, icons, motion board). Position is animated on
+ * left or top so the node always ends at the far end of whatever width the
+ * line has. Reduced motion parks it at the destination (see the base layer).
+ */
+@theme static {
+  --animate-route-x: route-x 2600ms var(--ease-out-sd) infinite;
+  --animate-route-y: route-y 2600ms var(--ease-out-sd) infinite;
+  --animate-node-spin: node-spin 900ms linear infinite;
+
+  @keyframes route-x {
+    0% {
+      left: 0;
+    }
+    72%,
+    100% {
+      left: calc(100% - var(--route-node, 9px));
+    }
+  }
+  @keyframes route-y {
+    0% {
+      top: 0;
+    }
+    72%,
+    100% {
+      top: calc(100% - var(--route-node, 9px));
+    }
+  }
+  @keyframes node-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 }
 
 /* dark theme: same token names, new values */
@@ -211,6 +258,7 @@
     --color-surface-3: #272d31; /* derived */
     --color-interactive-border: #1f4a47;
     --color-scrim: rgb(0 0 0 / 0.6); /* derived */
+    --color-route-node: #868c93;
 
     --color-status-created-fg: #b9bec4;
     --color-status-created-bg: #22272b;
@@ -270,6 +318,18 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    [data-route-dot] {
+      animation: none;
+    }
+    [data-route-dot][data-axis='x'] {
+      left: calc(100% - var(--route-node, 9px));
+    }
+    [data-route-dot][data-axis='y'] {
+      top: calc(100% - var(--route-node, 9px));
+    }
+    [data-spinner-node] {
+      animation: none;
+    }
     *,
     *::before,
     *::after {
