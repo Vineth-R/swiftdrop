@@ -16,6 +16,8 @@ type routerOptions struct {
 	google *GoogleRoutes
 	reset  *PasswordResetRoutes
 
+	profile *ProfileRoutes
+
 	internal *InternalRoutes
 	admin    *AdminRoutes
 }
@@ -45,6 +47,9 @@ func New(logger *slog.Logger, opts ...Option) *gin.Engine {
 	}
 	if options.reset != nil {
 		registerPasswordResetRoutes(router, *options.reset, logger)
+	}
+	if options.profile != nil {
+		registerProfileRoutes(router, *options.profile, logger)
 	}
 	if options.internal != nil {
 		registerInternalRoutes(router, *options.internal, logger)

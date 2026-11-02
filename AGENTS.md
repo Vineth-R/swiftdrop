@@ -35,20 +35,20 @@ The repository is intentionally a production-oriented foundation. Do not describ
 | Area           | Current state                                                                                                                                                                                                                                                                                                                                       |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Frontend       | Next.js App Router starter page and `/api/hello` example route. No SwiftDrop business UI.                                                                                                                                                                                                                                                           |
-| Frontend E2E   | Playwright configuration with one example title test.                                                                                                                                                                                                                                                                                               |
-| HTTP services  | Gin servers with configuration, structured logging, request IDs, health and readiness endpoints, timeouts, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB header limit, and debug-level probe logs. Identity auth only.                                                                                              |
+| Frontend E2E   | Playwright covers the starter page, the `/design` token page, and the auth UI kit.                                                                                                                                                                                                                                                                  |
+| HTTP services  | Gin servers with configuration, structured logging, request IDs, health and readiness endpoints, timeouts, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB header limit, and debug-level probe logs. Identity auth and own-profile endpoints only.                                                                    |
 | Workers        | RabbitMQ consumers that validate message framing and the shared event envelope, log non-sensitive identifiers, reconnect with jittered backoff, force exit on a second termination signal, and route failures through bounded retry or dead-letter handling. The notification worker delivers email over SMTP; webhook delivery is not implemented. |
 | Shared Go      | `packages/go-common` provides config and credential-safe AMQP URL validation, logging, HTTP helpers, request IDs, HTTP lifecycle, event envelopes, message framing validation, failure classification, publisher-confirmed retry/dead-letter routing, and a RabbitMQ consumer.                                                                      |
 | PostgreSQL     | Compose runs PostgreSQL 16 with Mailpit for local email. Migrations create the five service schemas and their baseline tables from `docs/db.sql`. HTTP services open a shared pgx pool and expose `/health` and `/ready`; `/ready` reports database connectivity.                                                                                   |
 | RabbitMQ       | Compose runs RabbitMQ 4.1 management. Workers declare the durable main exchange, queue, and binding plus retry and dead-letter exchanges and queues. No event producers or outbox implementation yet.                                                                                                                                               |
 | Contracts      | OpenAPI specs cover health and readiness plus shared 404/405/500 error responses. One example event schema exists for `notification.requested.v1`; the webhook payload schema is an open decision.                                                                                                                                                  |
 | Realtime       | Health endpoints and Nginx WebSocket/SSE settings exist. No WebSocket or SSE handler or subscription engine exists.                                                                                                                                                                                                                                 |
-| Tests          | Go unit tests exist, including the parcel dispatch state machine; eight broker-backed messaging scenarios and isolated PostgreSQL dispatch migration tests live under `tests/integration`. Playwright covers the starter page and dispatch preview.                                                                                                 |
+| Tests          | Go unit tests exist, including the parcel dispatch state machine; eight broker-backed messaging scenarios and isolated PostgreSQL dispatch migration tests live under `tests/integration`. Playwright covers the starter page, the `/design` token page, and the auth UI kit.                                                                       |
 | Infrastructure | Docker Compose, Go and web Dockerfiles, Nginx, migrations, event contracts, and CI exist. No Kubernetes, Terraform, cloud deployment, or production TLS.                                                                                                                                                                                            |
 
 Planned responsibilities:
 
-- `identity`: email and password authentication (register, login, refresh, logout), Google login, password reset, admin users, the courier list and the internal courier-eligibility and user-contact lookups are implemented; profiles are planned.
+- `identity`: email and password authentication (register, login, refresh, logout), Google login, password reset, admin users, the courier list, the internal courier-eligibility and user-contact lookups, and the signed-in user's own profile (`GET /users/me`) are implemented; profile updates and password changes are planned.
 - `parcel`: future parcel lifecycle, status, and tracking.
 - `pricing`: future delivery fee calculation and pricing configuration.
 - `merchant`: future merchant accounts, integration settings, and API credentials.
@@ -61,7 +61,7 @@ Planned responsibilities:
 - Go `1.27.3`, one root module: `github.com/Vineth-R/swiftdrop`.
 - Gin `v1.12.0` for HTTP services.
 - RabbitMQ client `github.com/rabbitmq/amqp091-go v1.16.0`.
-- Next.js 16 App Router, React 19, TypeScript 6, and CSS modules/global CSS.
+- Next.js 16 App Router, React 19, TypeScript 6, and Tailwind CSS v4 with the SwiftDrop design tokens.
 - Nx `24.0.0` with pnpm `12.15.0`; CI uses Node.js 24.
 - PostgreSQL 16, RabbitMQ 4.1 management, Nginx 1.27, Alpine 3.22 runtime.
 - GitHub Actions CI in `.github/workflows/ci.yml`.
@@ -72,9 +72,9 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 
 | Path                                | Purpose                                                                                                                                                                                                          |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web`                          | Next.js App Router frontend. Currently the Nx starter plus `/api/hello`.                                                                                                                                         |
-| `apps/web-e2e`                      | Playwright end-to-end tests. Currently one example test.                                                                                                                                                         |
-| `apps/services/identity`            | Identity HTTP service skeleton. Future auth and profiles.                                                                                                                                                        |
+| `apps/web`                          | Next.js App Router frontend. Currently the design-token foundation, `/design` token page, and auth UI kit; no SwiftDrop business screens.                                                                        |
+| `apps/web-e2e`                      | Playwright end-to-end tests covering the starter page, `/design` token page, and auth UI kit.                                                                                                                    |
+| `apps/services/identity`            | Identity HTTP service with authentication, admin users, couriers, internal lookups, and `GET /users/me`. Profile updates and password changes are planned.                                                       |
 | `apps/services/parcel`              | Parcel HTTP service skeleton. Future parcels and tracking.                                                                                                                                                       |
 | `apps/services/pricing`             | Pricing HTTP service skeleton. Future fee calculation.                                                                                                                                                           |
 | `apps/services/merchant`            | Merchant HTTP service skeleton. Future accounts and credentials.                                                                                                                                                 |
@@ -275,11 +275,11 @@ Email and password authentication is implemented in the identity service, and `p
 - Do not duplicate backend business logic in the frontend. The backend remains authoritative for validation, authorization, pricing, and state transitions.
 - Validate user-facing forms and handle loading, error, empty, and success states.
 - Follow accessibility practices and responsive design. The existing ESLint setup includes `jsx-a11y`.
-- Reuse existing CSS modules and global CSS. Do not introduce a new styling system, component library, or state-management library without approval.
+- Style with Tailwind v4 utilities against the design tokens in `apps/web/src/app/globals.css`. Use tokens only: no raw hex values, off-scale spacing or second icon family (Lucide only). `/design` shows every token in light and dark. Do not introduce a component library or state-management library without approval.
 - Avoid unnecessary client-side JavaScript and dependencies.
 - The existing `/api/hello` route is an example. Do not confuse it with the Go `/api/v1/` namespace.
-- `apps/web` currently contains the Nx starter UI, not SwiftDrop business screens.
-- `apps/web-e2e` currently contains one example Playwright test. Extend it for meaningful user journeys when those journeys exist.
+- `apps/web` currently contains the design-token foundation and the `/design` token page, not SwiftDrop business screens.
+- `apps/web-e2e` currently covers the starter page, `/design` token page, and auth UI kit. Extend it for meaningful user journeys when those journeys exist.
 
 ## Testing requirements
 
