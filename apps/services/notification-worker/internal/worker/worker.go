@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,10 +34,10 @@ func New(logger *slog.Logger, sender mailer.Mailer) *Handler {
 }
 
 type payload struct {
-	Recipient string            `json:"recipient"`
-	Channel   string            `json:"channel"`
-	Template  string            `json:"template"`
-	Variables map[string]string `json:"variables"`
+	Recipient string          `json:"recipient"`
+	Channel   string          `json:"channel"`
+	Template  string          `json:"template"`
+	Variables json.RawMessage `json:"variables"`
 }
 
 func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
@@ -61,14 +62,18 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 	if err := json.Unmarshal(envelope.Data, &data); err != nil {
 		return messaging.Permanent(fmt.Errorf("decode notification data: %w", err))
 	}
-	if err := validate(data); err != nil {
+	variables, err := parseVariables(data.Variables)
+	if err != nil {
+		return messaging.Permanent(fmt.Errorf("decode notification data: %w", err))
+	}
+	if err := validate(data, variables); err != nil {
 		return messaging.Permanent(err)
 	}
 
 	email := mailer.Message{
 		To:      strings.TrimSpace(data.Recipient),
 		Subject: strings.TrimSpace(data.Template),
-		Text:    renderText(strings.TrimSpace(data.Template), data.Variables),
+		Text:    renderText(strings.TrimSpace(data.Template), variables),
 	}
 
 	if err := h.sender.Send(ctx, email); err != nil {
@@ -94,7 +99,23 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 	return nil
 }
 
-func validate(data payload) error {
+func parseVariables(raw json.RawMessage) (map[string]string, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return nil, errors.New("variables must be an object with string values")
+	}
+
+	var variables map[string]string
+	if err := json.Unmarshal(trimmed, &variables); err != nil {
+		return nil, errors.New("variables must be an object with string values")
+	}
+	return variables, nil
+}
+
+func validate(data payload, variables map[string]string) error {
 	recipient := strings.TrimSpace(data.Recipient)
 	address, err := mail.ParseAddress(recipient)
 	if err != nil || address.Address != recipient || strings.ContainsAny(recipient, "\r\n") {
@@ -104,9 +125,9 @@ func validate(data payload) error {
 	switch data.Channel {
 	case "email":
 	case "sms":
-		return errors.New("unsupported notification channel: sms")
+		return errors.New("unsupported notification channel")
 	default:
-		return fmt.Errorf("unsupported notification channel %q", data.Channel)
+		return errors.New("unsupported notification channel")
 	}
 
 	template := strings.TrimSpace(data.Template)
@@ -114,18 +135,20 @@ func validate(data payload) error {
 		return fmt.Errorf("template must be 1 to %d characters on one line", mailer.MaxSubjectLength)
 	}
 
-	if len(data.Variables) > maxVariables {
+	if len(variables) > maxVariables {
 		return fmt.Errorf("variables must contain at most %d entries", maxVariables)
 	}
 
 	total := 0
-	for key, value := range data.Variables {
-		key = strings.TrimSpace(key)
+	for key, value := range variables {
+		if key != strings.TrimSpace(key) {
+			return errors.New("variable names must not have leading or trailing whitespace")
+		}
 		if key == "" || len(key) > maxVariableKey || strings.ContainsAny(key, "\r\n") {
 			return errors.New("variable names must be 1 to 64 characters on one line")
 		}
 		if len(value) > maxVariableVal {
-			return fmt.Errorf("variable %q must be at most %d bytes", key, maxVariableVal)
+			return fmt.Errorf("variable values must be at most %d bytes", maxVariableVal)
 		}
 		total += len(key) + len(value)
 	}

@@ -149,6 +149,12 @@ func TestHandleRejectsInvalidMessages(t *testing.T) {
 		"too many variables":         `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":{` + manyVariables(65) + `}}`,
 		"overlong variable key":      `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":{"` + strings.Repeat("k", maxVariableKey+1) + `":"v"}}`,
 		"overlong variable value":    `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":{"key":"` + strings.Repeat("v", maxVariableVal+1) + `"}}`,
+		"null variables":             `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":null}`,
+		"array variables":            `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":[]}`,
+		"string variables":           `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":"not-an-object"}`,
+		"number variables":           `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":7}`,
+		"non-string variable value":  `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":{"key":7}}`,
+		"variable key whitespace":    `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":{" key ":"value"}}`,
 	}
 
 	for name, data := range invalidData {
@@ -259,5 +265,40 @@ func TestHandleLogsOutcomeWithoutSensitivePayload(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("success log missing %q: %s", expected, output)
 		}
+	}
+}
+
+func TestHandleDoesNotEchoUntrustedPayloadValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		data   string
+		secret string
+	}{
+		{
+			name:   "unknown channel",
+			data:   `{"recipient":"customer@example.com","channel":"secret-channel","template":"hello"}`,
+			secret: "secret-channel",
+		},
+		{
+			name:   "overlong variable value",
+			data:   `{"recipient":"customer@example.com","channel":"email","template":"hello","variables":{"secret-var-key":"` + strings.Repeat("v", maxVariableVal+1) + `"}}`,
+			secret: "secret-var-key",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, sender := newHandler()
+			err := handler.Handle(context.Background(), messaging.Message{Body: envelopeBody(t, test.data)})
+			if err == nil || !messaging.IsPermanent(err) {
+				t.Fatalf("Handle() error = %v, want a permanent error", err)
+			}
+			if strings.Contains(err.Error(), test.secret) {
+				t.Fatalf("validation error echoed untrusted payload value %q: %v", test.secret, err)
+			}
+			if len(sender.Sent()) != 0 {
+				t.Fatal("invalid payload triggered delivery")
+			}
+		})
 	}
 }

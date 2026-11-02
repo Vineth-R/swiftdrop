@@ -100,7 +100,9 @@ The notification worker delivers the `email` channel through the shared SMTP mai
 - If `variables` is absent or empty, the body is the template text.
 - Otherwise the body is the template, a blank line, then one `key: value` line per variable sorted by key.
 
-`sms` is accepted by the schema but has no provider in this phase, so it is a permanent failure and is dead-lettered without retrying. Recipient addresses, message bodies, and SMTP credentials are never logged.
+`variables`, when present, must be a JSON object whose values are strings. Explicit `null`, arrays, scalars, and objects with non-string values are permanent failures. Validation errors name the failing field only; they do not echo channel values, variable keys, recipients, or other payload data.
+
+`sms` is accepted by the schema but has no provider in this phase, so it is a permanent failure and is dead-lettered without retrying. Recipient addresses, message bodies, templates, and SMTP credentials are never logged.
 
 Dispatches are at-least-once. A message is acknowledged only after the SMTP send succeeds; a failed send is retried by the shared consumer and eventually dead-lettered. SMTP delivery and acknowledgement are separate operations, so a duplicate email is possible after a crash or connection loss between them. The worker is stateless and does not write `notification.notification_logs` or `notification.processed_events`; the event has no `parcel_id`, which the baseline `notification_logs` table requires.
 
