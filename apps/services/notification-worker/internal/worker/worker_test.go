@@ -12,20 +12,32 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
 
-const testEventID = "11111111-1111-4111-8111-111111111111"
+const (
+	testEventID  = "11111111-1111-4111-8111-111111111111"
+	testParcelID = "22222222-2222-4222-8222-222222222222"
+)
 
 type fakeStore struct {
-	mu        sync.Mutex
+	mu sync.Mutex
+
 	processed map[string]bool
-	lookupErr error
-	markErr   error
-	lookups   int
-	marks     int
+	delivered []idempotency.LogEntry
+	failures  []idempotency.LogEntry
+
+	lookupErr  error
+	deliverErr error
+	failureErr error
+
+	lookups      int
+	deliverCalls int
+	failureCalls int
 }
 
 func newFakeStore() *fakeStore {
@@ -42,21 +54,25 @@ func (s *fakeStore) IsProcessed(_ context.Context, eventID string) (bool, error)
 	return s.processed[eventID], nil
 }
 
-func (s *fakeStore) MarkProcessed(_ context.Context, eventID string) error {
+func (s *fakeStore) RecordDelivered(_ context.Context, entry idempotency.LogEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.marks++
-	if s.markErr != nil {
-		return s.markErr
+	s.deliverCalls++
+	entry.Status = idempotency.StatusSent
+	s.delivered = append(s.delivered, entry)
+	if s.deliverErr != nil {
+		return s.deliverErr
 	}
-	s.processed[eventID] = true
+	s.processed[entry.EventID] = true
 	return nil
 }
 
-func (s *fakeStore) has(eventID string) bool {
+func (s *fakeStore) RecordFailure(_ context.Context, entry idempotency.LogEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.processed[eventID]
+	s.failureCalls++
+	s.failures = append(s.failures, entry)
+	return s.failureErr
 }
 
 func (s *fakeStore) setProcessed(eventID string) {
@@ -65,16 +81,34 @@ func (s *fakeStore) setProcessed(eventID string) {
 	s.processed[eventID] = true
 }
 
+func (s *fakeStore) has(eventID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.processed[eventID]
+}
+
 func (s *fakeStore) recordCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.processed)
 }
 
-func (s *fakeStore) calls() (lookups, marks int) {
+func (s *fakeStore) calls() (lookups, delivered, failures int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.lookups, s.marks
+	return s.lookups, s.deliverCalls, s.failureCalls
+}
+
+func (s *fakeStore) deliveredEntries() []idempotency.LogEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]idempotency.LogEntry(nil), s.delivered...)
+}
+
+func (s *fakeStore) failureEntries() []idempotency.LogEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]idempotency.LogEntry(nil), s.failures...)
 }
 
 func newFakeHandler() (*Handler, *mailer.Mock, *fakeStore) {
@@ -95,6 +129,11 @@ func envelopeBody(t *testing.T, data string) []byte {
 
 func envelopeBodyWithID(t *testing.T, eventID, data string) []byte {
 	t.Helper()
+	return envelopeBodyWithData(t, eventID, addParcelID(t, data))
+}
+
+func envelopeBodyWithData(t *testing.T, eventID, data string) []byte {
+	t.Helper()
 
 	body, err := json.Marshal(messaging.Envelope{
 		ID:         eventID,
@@ -110,7 +149,24 @@ func envelopeBodyWithID(t *testing.T, eventID, data string) []byte {
 	return body
 }
 
-func TestHandleDeliversEmail(t *testing.T) {
+func addParcelID(t *testing.T, data string) string {
+	t.Helper()
+
+	var object map[string]any
+	if err := json.Unmarshal([]byte(data), &object); err != nil {
+		return data
+	}
+	if _, ok := object["parcel_id"]; !ok {
+		object["parcel_id"] = testParcelID
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		t.Fatalf("add parcel_id: %v", err)
+	}
+	return string(encoded)
+}
+
+func TestHandleDeliversEmailAndPersistsSentLog(t *testing.T) {
 	handler, sender, store := newFakeHandler()
 	body := envelopeBody(t, `{
 		"recipient":"customer@example.com",
@@ -137,6 +193,27 @@ func TestHandleDeliversEmail(t *testing.T) {
 	if sent[0].Text != wantText {
 		t.Fatalf("Text = %q, want %q", sent[0].Text, wantText)
 	}
+
+	delivered := store.deliveredEntries()
+	if len(delivered) != 1 {
+		t.Fatalf("delivered entries = %d, want 1", len(delivered))
+	}
+	entry := delivered[0]
+	if entry.EventID != testEventID || entry.ParcelID != testParcelID {
+		t.Fatalf("entry identifiers = %s/%s", entry.EventID, entry.ParcelID)
+	}
+	if entry.Channel != "EMAIL" {
+		t.Fatalf("channel = %q, want EMAIL", entry.Channel)
+	}
+	if entry.Status != idempotency.StatusSent {
+		t.Fatalf("status = %q, want SENT", entry.Status)
+	}
+	if entry.Recipient != "customer@example.com" || entry.Subject != "Your parcel has shipped" {
+		t.Fatalf("entry = %+v", entry)
+	}
+	if failures := store.failureEntries(); len(failures) != 0 {
+		t.Fatalf("failure entries = %d, want 0", len(failures))
+	}
 	if !store.has(testEventID) {
 		t.Fatal("successful delivery was not recorded as processed")
 	}
@@ -155,7 +232,7 @@ func TestHandleAcceptsTemplateWithoutVariables(t *testing.T) {
 }
 
 func TestHandleRejectsInvalidMessages(t *testing.T) {
-	validData := `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`
+	validData := `{"parcel_id":"` + testParcelID + `","recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`
 
 	envelopes := map[string]messaging.Envelope{
 		"wrong event type": {
@@ -215,7 +292,6 @@ func TestHandleRejectsInvalidMessages(t *testing.T) {
 		"invalid recipient":          `{"recipient":"not-an-email","channel":"email","template":"hello"}`,
 		"recipient display name":     `{"recipient":"Customer <customer@example.com>","channel":"email","template":"hello"}`,
 		"recipient header injection": `{"recipient":"customer@example.com\r\nBcc: victim@example.com","channel":"email","template":"hello"}`,
-		"sms channel":                `{"recipient":"customer@example.com","channel":"sms","template":"hello"}`,
 		"unknown channel":            `{"recipient":"customer@example.com","channel":"push","template":"hello"}`,
 		"missing template":           `{"recipient":"customer@example.com","channel":"email"}`,
 		"blank template":             `{"recipient":"customer@example.com","channel":"email","template":"  "}`,
@@ -234,13 +310,16 @@ func TestHandleRejectsInvalidMessages(t *testing.T) {
 
 	for name, data := range invalidData {
 		t.Run(name, func(t *testing.T) {
-			handler, sender := newHandler()
+			handler, sender, store := newFakeHandler()
 			err := handler.Handle(context.Background(), messaging.Message{Body: envelopeBody(t, data)})
 			if err == nil || !messaging.IsPermanent(err) {
 				t.Fatalf("Handle() error = %v, want a permanent error", err)
 			}
 			if len(sender.Sent()) != 0 {
 				t.Fatal("invalid data triggered delivery")
+			}
+			if lookups, delivered, failures := store.calls(); lookups != 0 || delivered != 0 || failures != 0 {
+				t.Fatalf("invalid data touched the store: %d/%d/%d", lookups, delivered, failures)
 			}
 		})
 	}
@@ -262,7 +341,7 @@ func (s failingSender) Send(context.Context, mailer.Message) error {
 	return s.err
 }
 
-func TestHandleRetryableDeliveryFailure(t *testing.T) {
+func TestHandleRetryableDeliveryFailurePersistsPending(t *testing.T) {
 	var logs bytes.Buffer
 	store := newFakeStore()
 	handler := New(
@@ -285,13 +364,28 @@ func TestHandleRetryableDeliveryFailure(t *testing.T) {
 	if store.has(testEventID) {
 		t.Fatal("a failed delivery was recorded as processed")
 	}
+
+	failures := store.failureEntries()
+	if len(failures) != 1 {
+		t.Fatalf("failure entries = %d, want 1", len(failures))
+	}
+	if failures[0].Status != idempotency.StatusPending {
+		t.Fatalf("status = %q, want PENDING", failures[0].Status)
+	}
+	if failures[0].Channel != "EMAIL" {
+		t.Fatalf("channel = %q, want EMAIL", failures[0].Channel)
+	}
+	if len(store.deliveredEntries()) != 0 {
+		t.Fatal("retryable failure recorded a SENT log")
+	}
 }
 
-func TestHandleInvalidMessageIsPermanent(t *testing.T) {
+func TestHandlePermanentDeliveryFailurePersistsFailed(t *testing.T) {
+	store := newFakeStore()
 	handler := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		failingSender{err: mailer.ErrInvalidMessage},
-		newFakeStore(),
+		store,
 	)
 	body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
 
@@ -299,14 +393,51 @@ func TestHandleInvalidMessageIsPermanent(t *testing.T) {
 	if err == nil || !messaging.IsPermanent(err) {
 		t.Fatalf("Handle() error = %v, want a permanent error", err)
 	}
+	failures := store.failureEntries()
+	if len(failures) != 1 {
+		t.Fatalf("failure entries = %d, want 1", len(failures))
+	}
+	if failures[0].Status != idempotency.StatusFailed {
+		t.Fatalf("status = %q, want FAILED", failures[0].Status)
+	}
+	if store.has(testEventID) {
+		t.Fatal("a permanent failure was recorded as processed")
+	}
+}
+
+func TestHandlePersistsFailedForUnsupportedSMS(t *testing.T) {
+	handler, sender, store := newFakeHandler()
+	body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"sms","template":"Your parcel has shipped"}`)
+
+	err := handler.Handle(context.Background(), messaging.Message{Body: body})
+	if err == nil || !messaging.IsPermanent(err) {
+		t.Fatalf("Handle() error = %v, want a permanent error", err)
+	}
+	if len(sender.Sent()) != 0 {
+		t.Fatal("SMS triggered an email delivery")
+	}
+	failures := store.failureEntries()
+	if len(failures) != 1 {
+		t.Fatalf("failure entries = %d, want 1", len(failures))
+	}
+	if failures[0].Channel != "SMS" || failures[0].Status != idempotency.StatusFailed {
+		t.Fatalf("entry = %+v, want SMS/FAILED", failures[0])
+	}
+	if failures[0].ErrorMessage != "unsupported notification channel" {
+		t.Fatalf("error = %q, want a generic unsupported-channel message", failures[0].ErrorMessage)
+	}
+	if store.has(testEventID) {
+		t.Fatal("an unsupported channel was recorded as processed")
+	}
 }
 
 func TestHandleRedactsRecipientFromDeliveryErrors(t *testing.T) {
 	var logs bytes.Buffer
+	store := newFakeStore()
 	handler := New(
 		slog.New(slog.NewJSONHandler(&logs, nil)),
 		failingSender{err: errors.New("550 customer@example.com rejected")},
-		newFakeStore(),
+		store,
 	)
 	body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
 
@@ -319,6 +450,13 @@ func TestHandleRedactsRecipientFromDeliveryErrors(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "customer@example.com") {
 		t.Fatalf("delivery log leaked the recipient: %s", logs.String())
+	}
+	failures := store.failureEntries()
+	if len(failures) != 1 || strings.Contains(failures[0].ErrorMessage, "customer@example.com") {
+		t.Fatalf("persisted error leaked the recipient: %+v", failures)
+	}
+	if !strings.Contains(failures[0].ErrorMessage, "[REDACTED]") {
+		t.Fatalf("persisted error did not mark the redaction: %q", failures[0].ErrorMessage)
 	}
 }
 
@@ -343,7 +481,7 @@ func TestHandleLogsOutcomeWithoutSensitivePayload(t *testing.T) {
 			t.Fatalf("success log leaked %q: %s", sensitive, output)
 		}
 	}
-	for _, expected := range []string{"notification delivered", testEventID, `"channel":"email"`} {
+	for _, expected := range []string{"notification delivered", testEventID, `"channel":"EMAIL"`} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("success log missing %q: %s", expected, output)
 		}
@@ -370,7 +508,7 @@ func TestHandleDoesNotEchoUntrustedPayloadValues(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			handler, sender := newHandler()
+			handler, sender, store := newFakeHandler()
 			err := handler.Handle(context.Background(), messaging.Message{Body: envelopeBody(t, test.data)})
 			if err == nil || !messaging.IsPermanent(err) {
 				t.Fatalf("Handle() error = %v, want a permanent error", err)
@@ -380,6 +518,9 @@ func TestHandleDoesNotEchoUntrustedPayloadValues(t *testing.T) {
 			}
 			if len(sender.Sent()) != 0 {
 				t.Fatal("invalid payload triggered delivery")
+			}
+			if lookups, delivered, failures := store.calls(); lookups != 0 || delivered != 0 || failures != 0 {
+				t.Fatalf("invalid payload touched the store: %d/%d/%d", lookups, delivered, failures)
 			}
 		})
 	}
@@ -396,9 +537,8 @@ func TestHandleSkipsAlreadyProcessedEvent(t *testing.T) {
 	if len(sender.Sent()) != 0 {
 		t.Fatal("a duplicate event triggered a second delivery")
 	}
-	_, marks := store.calls()
-	if marks != 0 {
-		t.Fatalf("duplicate event marked processed %d times, want 0", marks)
+	if len(store.deliveredEntries()) != 0 || len(store.failureEntries()) != 0 {
+		t.Fatal("a duplicate event wrote a notification log")
 	}
 }
 
@@ -417,33 +557,14 @@ func TestHandleRetriesWhenLookupFails(t *testing.T) {
 	if len(sender.Sent()) != 0 {
 		t.Fatal("a lookup failure triggered delivery")
 	}
-	_, marks := store.calls()
-	if marks != 0 {
-		t.Fatalf("lookup failure marked processed %d times, want 0", marks)
+	if lookups, delivered, failures := store.calls(); lookups != 1 || delivered != 0 || failures != 0 {
+		t.Fatalf("store calls = %d/%d/%d, want 1/0/0", lookups, delivered, failures)
 	}
 }
 
-func TestHandleDoesNotMarkProcessedWhenDeliveryFails(t *testing.T) {
-	store := newFakeStore()
-	handler := New(
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		failingSender{err: errors.New("smtp connection refused")},
-		store,
-	)
-	body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
-
-	if err := handler.Handle(context.Background(), messaging.Message{Body: body}); err == nil {
-		t.Fatal("Handle() should have failed")
-	}
-	_, marks := store.calls()
-	if marks != 0 {
-		t.Fatalf("failed delivery marked processed %d times, want 0", marks)
-	}
-}
-
-func TestHandleRetriesWhenMarkFails(t *testing.T) {
+func TestHandleRetriesWhenDeliveredLogFails(t *testing.T) {
 	handler, sender, store := newFakeHandler()
-	store.markErr = errors.New("database unavailable")
+	store.deliverErr = errors.New("database unavailable")
 	body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
 
 	err := handler.Handle(context.Background(), messaging.Message{Body: body})
@@ -456,12 +577,36 @@ func TestHandleRetriesWhenMarkFails(t *testing.T) {
 	if len(sender.Sent()) != 1 {
 		t.Fatalf("sent messages = %d, want 1", len(sender.Sent()))
 	}
-	_, marks := store.calls()
-	if marks != 1 {
-		t.Fatalf("mark calls = %d, want 1", marks)
+	if lookups, delivered, _ := store.calls(); lookups != 1 || delivered != 1 {
+		t.Fatalf("store calls = %d/%d, want 1/1", lookups, delivered)
 	}
 	if store.has(testEventID) {
 		t.Fatal("a failed record was treated as processed")
+	}
+}
+
+func TestHandleRetriesWhenFailureLogFails(t *testing.T) {
+	store := newFakeStore()
+	store.failureErr = errors.New("database unavailable")
+	handler := New(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		failingSender{err: errors.New("smtp connection refused")},
+		store,
+	)
+	body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
+
+	err := handler.Handle(context.Background(), messaging.Message{Body: body})
+	if err == nil {
+		t.Fatal("Handle() should have failed when the failure log could not be written")
+	}
+	if messaging.IsPermanent(err) {
+		t.Fatalf("failure-log error was classified as permanent: %v", err)
+	}
+	if store.has(testEventID) {
+		t.Fatal("a failed log write recorded the event as processed")
+	}
+	if _, _, failures := store.calls(); failures != 1 {
+		t.Fatalf("failure-log calls = %d, want 1", failures)
 	}
 }
 
@@ -477,9 +622,50 @@ func TestHandleRejectsNonUUIDEventID(t *testing.T) {
 	if len(sender.Sent()) != 0 {
 		t.Fatal("a non-UUID event ID triggered delivery")
 	}
-	lookups, marks := store.calls()
-	if lookups != 0 || marks != 0 {
-		t.Fatalf("store calls = %d lookups/%d marks, want 0/0", lookups, marks)
+	if lookups, delivered, failures := store.calls(); lookups != 0 || delivered != 0 || failures != 0 {
+		t.Fatalf("store calls = %d/%d/%d, want 0/0/0", lookups, delivered, failures)
+	}
+}
+
+func TestHandleRejectsInvalidParcelID(t *testing.T) {
+	tests := map[string]string{
+		"missing": `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`,
+		"invalid": `{"parcel_id":"not-a-uuid","recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`,
+	}
+
+	for name, data := range tests {
+		t.Run(name, func(t *testing.T) {
+			handler, sender, store := newFakeHandler()
+			body := envelopeBodyWithData(t, testEventID, data)
+
+			err := handler.Handle(context.Background(), messaging.Message{Body: body})
+			if err == nil || !messaging.IsPermanent(err) {
+				t.Fatalf("Handle() error = %v, want a permanent error", err)
+			}
+			if len(sender.Sent()) != 0 {
+				t.Fatal("an invalid parcel_id triggered delivery")
+			}
+			if lookups, delivered, failures := store.calls(); lookups != 0 || delivered != 0 || failures != 0 {
+				t.Fatalf("store calls = %d/%d/%d, want 0/0/0", lookups, delivered, failures)
+			}
+		})
+	}
+}
+
+func TestHandleRejectsOverlongRecipient(t *testing.T) {
+	handler, sender, store := newFakeHandler()
+	recipient := strings.Repeat("a", 250) + "@example.com"
+	body := envelopeBody(t, `{"recipient":"`+recipient+`","channel":"email","template":"Your parcel has shipped"}`)
+
+	err := handler.Handle(context.Background(), messaging.Message{Body: body})
+	if err == nil || !messaging.IsPermanent(err) {
+		t.Fatalf("Handle() error = %v, want a permanent error", err)
+	}
+	if len(sender.Sent()) != 0 {
+		t.Fatal("an overlong recipient triggered delivery")
+	}
+	if lookups, delivered, failures := store.calls(); lookups != 0 || delivered != 0 || failures != 0 {
+		t.Fatalf("store calls = %d/%d/%d, want 0/0/0", lookups, delivered, failures)
 	}
 }
 
@@ -511,4 +697,36 @@ func TestHandleConcurrentDuplicatesRecordOnce(t *testing.T) {
 	if len(sender.Sent()) < 1 {
 		t.Fatal("no email was delivered")
 	}
+}
+
+func TestSanitizeErrorMessage(t *testing.T) {
+	t.Run("redacts recipient and control characters", func(t *testing.T) {
+		got := sanitizeErrorMessage("550 customer@example.com\r\nrejected\x00 now", "customer@example.com")
+		if strings.Contains(got, "customer@example.com") {
+			t.Fatalf("recipient was not redacted: %q", got)
+		}
+		if strings.ContainsAny(got, "\r\n\x00") {
+			t.Fatalf("control characters were not removed: %q", got)
+		}
+		if !strings.Contains(got, "[REDACTED]") {
+			t.Fatalf("redaction marker missing: %q", got)
+		}
+	})
+
+	t.Run("truncates to the database limit without splitting UTF-8", func(t *testing.T) {
+		value := strings.Repeat("é", 200)
+		got := sanitizeErrorMessage(value, "")
+		if len(got) > 255 {
+			t.Fatalf("length = %d, want at most 255", len(got))
+		}
+		if !utf8.ValidString(got) {
+			t.Fatalf("truncated value is not valid UTF-8: %q", got)
+		}
+	})
+
+	t.Run("collapses whitespace", func(t *testing.T) {
+		if got := sanitizeErrorMessage("  a\t\tb  ", ""); got != "a b" {
+			t.Fatalf("got %q, want %q", got, "a b")
+		}
+	})
 }

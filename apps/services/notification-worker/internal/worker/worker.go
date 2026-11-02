@@ -11,20 +11,28 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
 
 const EventType = "notification.requested.v1"
 
-var eventIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+const (
+	maxRecipientLength   = 255
+	maxErrorMessageBytes = 255
+)
 
-// ProcessedStore suppresses duplicate notification events. The worker checks it
-// before delivery and records an event only after successful delivery.
-type ProcessedStore interface {
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// DeliveryStore records idempotency and delivery outcomes. The worker checks it
+// before delivery and records an event only after a delivery attempt.
+type DeliveryStore interface {
 	IsProcessed(ctx context.Context, eventID string) (bool, error)
-	MarkProcessed(ctx context.Context, eventID string) error
+	RecordDelivered(ctx context.Context, entry idempotency.LogEntry) error
+	RecordFailure(ctx context.Context, entry idempotency.LogEntry) error
 }
 
 const (
@@ -37,14 +45,15 @@ const (
 type Handler struct {
 	logger *slog.Logger
 	sender mailer.Mailer
-	store  ProcessedStore
+	store  DeliveryStore
 }
 
-func New(logger *slog.Logger, sender mailer.Mailer, store ProcessedStore) *Handler {
+func New(logger *slog.Logger, sender mailer.Mailer, store DeliveryStore) *Handler {
 	return &Handler{logger: logger, sender: sender, store: store}
 }
 
 type payload struct {
+	ParcelID  string          `json:"parcel_id"`
 	Recipient string          `json:"recipient"`
 	Channel   string          `json:"channel"`
 	Template  string          `json:"template"`
@@ -69,7 +78,7 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		return messaging.Permanent(fmt.Errorf("unsupported event version %d", envelope.Version))
 	}
 
-	if !eventIDPattern.MatchString(envelope.ID) {
+	if !uuidPattern.MatchString(envelope.ID) {
 		return messaging.Permanent(errors.New("event_id must be a UUID"))
 	}
 
@@ -107,41 +116,75 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		return nil
 	}
 
+	entry := idempotency.LogEntry{
+		EventID:   envelope.ID,
+		ParcelID:  strings.TrimSpace(data.ParcelID),
+		Channel:   strings.ToUpper(data.Channel),
+		Recipient: strings.TrimSpace(data.Recipient),
+		Subject:   strings.TrimSpace(data.Template),
+	}
+
+	if entry.Channel == "SMS" {
+		entry.Status = idempotency.StatusFailed
+		entry.ErrorMessage = "unsupported notification channel"
+		if err := h.recordFailure(ctx, entry, envelope.CorrelationID); err != nil {
+			return err
+		}
+		return messaging.Permanent(errors.New("unsupported notification channel"))
+	}
+
 	email := mailer.Message{
-		To:      strings.TrimSpace(data.Recipient),
-		Subject: strings.TrimSpace(data.Template),
-		Text:    renderText(strings.TrimSpace(data.Template), variables),
+		To:      entry.Recipient,
+		Subject: entry.Subject,
+		Text:    renderText(entry.Subject, variables),
 	}
 
 	if err := h.sender.Send(ctx, email); err != nil {
 		if errors.Is(err, mailer.ErrInvalidMessage) {
+			entry.Status = idempotency.StatusFailed
+			entry.ErrorMessage = sanitizeErrorMessage(err.Error(), email.To)
+			if logErr := h.recordFailure(ctx, entry, envelope.CorrelationID); logErr != nil {
+				return logErr
+			}
 			return messaging.Permanent(fmt.Errorf("invalid notification message: %w", err))
 		}
 
 		safeErr := safeDeliveryError(err, email.To)
-		h.logger.ErrorContext(ctx, "notification delivery failed",
-			"event_id", envelope.ID,
-			"correlation_id", envelope.CorrelationID,
-			"channel", data.Channel,
-			"error", safeErr.Error(),
-		)
+		entry.Status = idempotency.StatusPending
+		entry.ErrorMessage = safeErr.Error()
+		if logErr := h.recordFailure(ctx, entry, envelope.CorrelationID); logErr != nil {
+			return logErr
+		}
 		return safeErr
 	}
 
-	if err := h.store.MarkProcessed(ctx, envelope.ID); err != nil {
-		h.logger.ErrorContext(ctx, "record processed event failed",
+	if err := h.store.RecordDelivered(ctx, entry); err != nil {
+		h.logger.ErrorContext(ctx, "record delivered notification failed",
 			"event_id", envelope.ID,
 			"correlation_id", envelope.CorrelationID,
 			"error", err,
 		)
-		return fmt.Errorf("record processed event: %w", err)
+		return fmt.Errorf("record delivered notification: %w", err)
 	}
 
 	h.logger.InfoContext(ctx, "notification delivered",
 		"event_id", envelope.ID,
 		"correlation_id", envelope.CorrelationID,
-		"channel", data.Channel,
+		"channel", entry.Channel,
 	)
+	return nil
+}
+
+func (h *Handler) recordFailure(ctx context.Context, entry idempotency.LogEntry, correlationID string) error {
+	if err := h.store.RecordFailure(ctx, entry); err != nil {
+		h.logger.ErrorContext(ctx, "record failed notification failed",
+			"event_id", entry.EventID,
+			"correlation_id", correlationID,
+			"status", entry.Status,
+			"error", err,
+		)
+		return fmt.Errorf("record failed notification: %w", err)
+	}
 	return nil
 }
 
@@ -162,16 +205,21 @@ func parseVariables(raw json.RawMessage) (map[string]string, error) {
 }
 
 func validate(data payload, variables map[string]string) error {
+	if !uuidPattern.MatchString(strings.TrimSpace(data.ParcelID)) {
+		return errors.New("parcel_id must be a UUID")
+	}
+
 	recipient := strings.TrimSpace(data.Recipient)
 	address, err := mail.ParseAddress(recipient)
 	if err != nil || address.Address != recipient || strings.ContainsAny(recipient, "\r\n") {
 		return errors.New("recipient must be a plain email address")
 	}
+	if utf8.RuneCountInString(recipient) > maxRecipientLength {
+		return fmt.Errorf("recipient must be at most %d characters", maxRecipientLength)
+	}
 
 	switch data.Channel {
-	case "email":
-	case "sms":
-		return errors.New("unsupported notification channel")
+	case "email", "sms":
 	default:
 		return errors.New("unsupported notification channel")
 	}
@@ -231,9 +279,40 @@ func renderText(template string, variables map[string]string) string {
 // safeDeliveryError keeps server failures useful without echoing the recipient
 // address into logs when an SMTP server quotes it back.
 func safeDeliveryError(err error, recipient string) error {
-	message := err.Error()
+	return errors.New(sanitizeErrorMessage(err.Error(), recipient))
+}
+
+// sanitizeErrorMessage redacts the recipient, removes control characters,
+// collapses whitespace and truncates to the notification_logs.error_message
+// limit without splitting a UTF-8 character.
+func sanitizeErrorMessage(message, recipient string) string {
 	if recipient != "" {
 		message = strings.ReplaceAll(message, recipient, "[REDACTED]")
 	}
-	return errors.New(message)
+
+	var builder strings.Builder
+	for _, char := range message {
+		switch {
+		case char == '\r' || char == '\n' || char == '\t':
+			builder.WriteByte(' ')
+		case char < 0x20 || char == 0x7f:
+			continue
+		default:
+			builder.WriteRune(char)
+		}
+	}
+
+	return truncateUTF8(strings.Join(strings.Fields(builder.String()), " "), maxErrorMessageBytes)
+}
+
+func truncateUTF8(value string, maximum int) string {
+	if len(value) <= maximum {
+		return value
+	}
+
+	end := maximum
+	for end > 0 && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end]
 }

@@ -1,12 +1,13 @@
-// Package idempotency records which notification events the worker has already
-// processed so that redeliveries can be suppressed. It stores only the consumer
-// name and event ID, never recipients or message contents.
+// Package idempotency records notification delivery outcomes and the event IDs
+// the worker has already processed. It stores only identifiers, delivery status
+// and safe error text, never message bodies or other sensitive payload data.
 package idempotency
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -14,6 +15,13 @@ import (
 
 // ConsumerName is the value this worker writes to processed_events.consumer.
 const ConsumerName = "notification-worker"
+
+// Delivery statuses accepted by notification.notification_logs.
+const (
+	StatusPending = "PENDING"
+	StatusSent    = "SENT"
+	StatusFailed  = "FAILED"
+)
 
 // ErrUnavailable reports that the store has no database to query. It is a
 // transient condition: callers must retry rather than acknowledge the message.
@@ -23,9 +31,32 @@ var ErrUnavailable = errors.New("processed-event store unavailable")
 type DB interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// Postgres records processed event IDs in notification.processed_events.
+// LogEntry is one notification delivery outcome.
+type LogEntry struct {
+	EventID      string
+	ParcelID     string
+	Channel      string
+	Recipient    string
+	Subject      string
+	Status       string
+	ErrorMessage string
+}
+
+const logUpsertSQL = `
+	INSERT INTO notification.notification_logs
+		(event_id, parcel_id, channel, recipient, subject, status, error_message, sent_at)
+	VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
+	ON CONFLICT (event_id, channel, recipient) DO UPDATE SET
+		status        = EXCLUDED.status,
+		subject       = EXCLUDED.subject,
+		error_message = EXCLUDED.error_message,
+		sent_at       = EXCLUDED.sent_at`
+
+// Postgres records processed event IDs and delivery outcomes in the
+// notification schema.
 type Postgres struct {
 	db       DB
 	consumer string
@@ -70,6 +101,58 @@ func (p *Postgres) MarkProcessed(ctx context.Context, eventID string) error {
 		ON CONFLICT (consumer, event_id) DO NOTHING`, p.consumer, eventID)
 	if err != nil {
 		return fmt.Errorf("record processed event: %w", err)
+	}
+
+	return nil
+}
+
+// RecordDelivered atomically records a SENT notification log and the processed
+// event. It commits only after both writes succeed.
+func (p *Postgres) RecordDelivered(ctx context.Context, entry LogEntry) error {
+	if p == nil || p.db == nil {
+		return ErrUnavailable
+	}
+
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delivery transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, logUpsertSQL,
+		entry.EventID, entry.ParcelID, entry.Channel, entry.Recipient, entry.Subject,
+		StatusSent, nil, time.Now().UTC()); err != nil {
+		return fmt.Errorf("upsert sent notification log: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO notification.processed_events (consumer, event_id)
+		VALUES ($1, $2::uuid)
+		ON CONFLICT (consumer, event_id) DO NOTHING`, p.consumer, entry.EventID); err != nil {
+		return fmt.Errorf("record processed event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delivery transaction: %w", err)
+	}
+
+	return nil
+}
+
+// RecordFailure records a PENDING (retryable) or FAILED (permanent) delivery
+// outcome. It never records the event as processed.
+func (p *Postgres) RecordFailure(ctx context.Context, entry LogEntry) error {
+	if p == nil || p.db == nil {
+		return ErrUnavailable
+	}
+	if entry.Status != StatusPending && entry.Status != StatusFailed {
+		return fmt.Errorf("invalid failure status %q", entry.Status)
+	}
+
+	if _, err := p.db.Exec(ctx, logUpsertSQL,
+		entry.EventID, entry.ParcelID, entry.Channel, entry.Recipient, entry.Subject,
+		entry.Status, entry.ErrorMessage, nil); err != nil {
+		return fmt.Errorf("upsert failed notification log: %w", err)
 	}
 
 	return nil

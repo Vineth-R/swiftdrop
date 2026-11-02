@@ -95,6 +95,8 @@ An example schema exists at `contracts/events/notification.requested.v1.schema.j
 
 ### Notification rendering (implemented)
 
+The notification worker requires `data.parcel_id` as a UUID. It is the parcel the notification belongs to and is stored in `notification.notification_logs.parcel_id`, which is `NOT NULL`. A missing or malformed `parcel_id` is a permanent failure and does not trigger delivery or a delivery-log write.
+
 The notification worker delivers the `email` channel through the shared SMTP mailer. It treats `data.template` as the email subject and builds a deterministic plain-text body:
 
 - If `variables` is absent or empty, the body is the template text.
@@ -104,7 +106,19 @@ The notification worker delivers the `email` channel through the shared SMTP mai
 
 `sms` is accepted by the schema but has no provider in this phase, so it is a permanent failure and is dead-lettered without retrying. Recipient addresses, message bodies, templates, and SMTP credentials are never logged.
 
-Dispatches are at-least-once. A message is acknowledged only after the SMTP send succeeds and the processed-event record commits; a failed send is retried by the shared consumer and eventually dead-lettered. The worker records successfully processed `event_id` values in `notification.processed_events` to suppress duplicates. It does not write `notification.notification_logs` or delivery status. SMTP delivery and the database record are separate operations, so a duplicate email is still possible after a crash between SMTP acceptance and the processed-event commit, when a database write fails after delivery, or when two instances process the same event concurrently. The event has no `parcel_id`, which the baseline `notification_logs` table requires.
+Dispatches are at-least-once. A message is acknowledged only after the SMTP send succeeds and the delivery transaction commits. The transaction upserts `notification.notification_logs` with `status = 'SENT'`, sets `sent_at`, and inserts the event into `notification.processed_events`; both writes are atomic. A duplicate `event_id` is skipped before delivery and does not create another log row or send another email.
+
+Delivery outcomes use the database's uppercase values:
+
+- `SENT` after a successful SMTP delivery.
+- `PENDING` for a retryable delivery failure; the shared consumer retries it.
+- `FAILED` for a permanent delivery failure, such as an invalid message or unsupported channel.
+
+A retryable failure is not recorded as processed. If the failure log cannot be written, the worker returns a retryable database error because the outcome could not be recorded; this can retry an event whose original delivery error was permanent.
+
+SMTP delivery and the database transaction are separate operations. A duplicate email is still possible after a crash between SMTP acceptance and the transaction commit, when the database write fails after delivery, or when two instances process the same event concurrently. This is at-least-once delivery, not exactly-once delivery.
+
+The event has no producer in this phase, so end-to-end production remains blocked until the producing owner populates the required `parcel_id`. The notification event, queue and routing key are unchanged by this requirement.
 
 Per-event schemas may be closed for their specific payload, as the notification example is. Additive changes are still compatible for consumers that ignore unknown fields; update the schema within the same major version when adding optional fields. Adding a required field, removing a field, changing a type, or changing semantics is a breaking change that requires a new major version.
 
