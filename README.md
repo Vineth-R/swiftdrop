@@ -150,21 +150,25 @@ docker compose up -d rabbitmq        # workers and broker-backed integration tes
 docker compose up -d mailpit         # local email UI
 ```
 
+PostgreSQL is internal to the Compose network and does not publish a host port. `make migrate` runs inside the Compose network. To run Go services or PostgreSQL integration tests on the host, point `DATABASE_URL`/`TEST_DATABASE_URL` at a PostgreSQL instance you run separately (for example a local PostgreSQL install on `localhost:5432`); do not add a host port to `docker-compose.yml` just for local tests.
+
 ## Sending email
 
-Mailpit is the local email sink and is always available at <http://localhost:8025> (SMTP on `1025`). Gmail SMTP relay is configured in `.env.example` for real delivery.
+Mailpit is the local email sink and is always available at <http://localhost:8025> (SMTP on `1025`). `.env.example` defaults to Mailpit, so no credentials are required for local email.
 
-### Gmail SMTP
+### Gmail SMTP (opt-in)
 
 1. Enable 2-Step Verification on the Google account.
 2. Create an App Password at Google Account → Security → App Passwords (choose "Mail"). Google shows a 16-character password; the normal account password will not work.
-3. Create `.env` from the template and set the credentials:
+3. Create `.env` from the template and set your own credentials in the untracked file:
    ```sh
    cp .env.example .env
-   # edit .env:
-   # SMTP_USER=vineth.ranathunga@gmail.com
-   # SMTP_PASSWORD=<16-character App Password>
-   # SMTP_FROM=vineth.ranathunga@gmail.com
+   # edit .env and uncomment the Gmail block:
+   # SMTP_HOST=smtp.gmail.com
+   # SMTP_PORT=587
+   # SMTP_USER=your-account@gmail.com
+   # SMTP_PASSWORD=your-16-character-app-password
+   # SMTP_FROM=your-account@gmail.com
    # SMTP_FROM_NAME=Swift Drop Support
    ```
 4. Recreate the services that receive mail configuration:
@@ -183,7 +187,7 @@ Gmail settings used by the template:
 | From      | the same Gmail address           |
 | From name | `Swift Drop Support`             |
 
-To use Mailpit locally instead, set `SMTP_HOST=mailpit` and `SMTP_PORT=1025`; Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`.
+Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`. To switch back from Gmail, set `SMTP_HOST=mailpit`, `SMTP_PORT=1025`, and leave `SMTP_USER`/`SMTP_PASSWORD` empty.
 
 **Security and scope**
 
@@ -335,7 +339,7 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
   make test-db
 ```
 
-`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. CI runs the same tests against PostgreSQL 16.
+`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
 
 ### Nx and frontend checks
 
