@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://swiftdrop.local/events/notification.requested.v1",
   "title": "notification.requested.v1",
-  "description": "Requests delivery of a notification through a future external channel provider.",
+  "description": "Requests delivery of a notification. The notification worker delivers the email channel over SMTP and dead-letters unsupported channels.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -57,10 +57,12 @@
         },
         "template": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Email subject line and first line of the plain-text body."
         },
         "variables": {
           "type": "object",
+          "description": "Optional values appended to the body as sorted key: value lines. Must be an object with string values when present.",
           "additionalProperties": {
             "type": "string"
           }

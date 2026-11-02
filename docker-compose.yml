@@ -207,7 +207,7 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f /usr/local/bin/service > /dev/null']
+      test: ['CMD-SHELL', 'pgrep -x /usr/local/bin/service > /dev/null']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -226,7 +226,7 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f /usr/local/bin/service > /dev/null']
+      test: ['CMD-SHELL', 'pgrep -x /usr/local/bin/service > /dev/null']
       interval: 10s
       timeout: 5s
       retries: 5

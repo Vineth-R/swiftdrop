@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -38,10 +39,11 @@ func identityFrom(c *gin.Context) (Identity, bool) {
 
 type merchantHandler struct {
 	repository *repository.Repository
+	logger     *slog.Logger
 }
 
-func registerMerchantRoutes(router *gin.Engine, repo *repository.Repository) {
-	h := &merchantHandler{repository: repo}
+func registerMerchantRoutes(router *gin.Engine, repo *repository.Repository, logger *slog.Logger) {
+	h := &merchantHandler{repository: repo, logger: logger}
 	merchants := router.Group("/merchants")
 	merchants.GET("/me", h.profile)
 	merchants.PATCH("/me", h.updateProfile)
@@ -62,14 +64,14 @@ func (h *merchantHandler) listKeys(c *gin.Context) {
 	}
 	keys, err := h.repository.APIClientsByMerchant(c.Request.Context(), identity.MerchantID)
 	if err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
 	data := make([]gin.H, 0, len(keys))
 	for _, key := range keys {
 		data = append(data, gin.H{"id": key.ID, "name": key.Name, "keyPrefix": key.KeyPrefix, "status": key.Status, "lastUsedAt": key.LastUsedAt, "createdAt": key.CreatedAt, "revokedAt": key.RevokedAt})
 	}
-	respond(c, http.StatusOK, data)
+	httpx.Success(c, http.StatusOK, data)
 }
 
 type keyRequest struct {
@@ -83,37 +85,37 @@ func (h *merchantHandler) createKey(c *gin.Context) {
 	}
 	merchant, err := h.repository.MerchantByID(c.Request.Context(), identity.MerchantID)
 	if err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
 	if merchant.Status != repository.MerchantStatusApproved {
-		httpx.Error(c, http.StatusForbidden, "merchant_not_approved", "merchant approval is required")
+		httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_APPROVED", "merchant approval is required")
 		return
 	}
 	var request keyRequest
 	if c.ShouldBindJSON(&request) != nil || strings.TrimSpace(request.Name) == "" {
-		httpx.Error(c, http.StatusUnprocessableEntity, "validation_error", "a key name is required")
+		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a key name is required")
 		return
 	}
 	key, err := apikey.Generate()
 	if err != nil {
-		httpx.Error(c, http.StatusInternalServerError, "internal_error", "could not generate API key")
+		h.internalError(c, "generate_api_key", "could not generate API key", err)
 		return
 	}
 	clientID, err := randomUUID()
 	if err != nil {
-		httpx.Error(c, http.StatusInternalServerError, "internal_error", "could not generate API key identifier")
+		h.internalError(c, "generate_api_key_id", "could not generate API key identifier", err)
 		return
 	}
 	if err := h.repository.CreateAPIClient(c.Request.Context(), repository.CreateAPIClientParams{ID: clientID, MerchantID: identity.MerchantID, Name: strings.TrimSpace(request.Name), KeyPrefix: key.KeyPrefix, LookupID: key.LookupID, KeyHash: key.Hash}); err != nil {
 		if errors.Is(err, repository.ErrKeyLimit) {
-			httpx.Error(c, http.StatusConflict, "key_limit_reached", "maximum active API keys reached")
+			httpx.Error(c, http.StatusConflict, "KEY_LIMIT_REACHED", "maximum active API keys reached")
 			return
 		}
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
-	respond(c, http.StatusCreated, gin.H{"id": clientID, "name": strings.TrimSpace(request.Name), "apiKey": key.Full, "keyPrefix": key.KeyPrefix})
+	httpx.Success(c, http.StatusCreated, gin.H{"id": clientID, "name": strings.TrimSpace(request.Name), "apiKey": key.Full, "keyPrefix": key.KeyPrefix})
 }
 
 func randomUUID() (string, error) {
@@ -132,7 +134,7 @@ func (h *merchantHandler) revokeKey(c *gin.Context) {
 		return
 	}
 	if err := h.repository.RevokeAPIClient(c.Request.Context(), identity.MerchantID, c.Param("keyId")); err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -141,7 +143,7 @@ func (h *merchantHandler) revokeKey(c *gin.Context) {
 func merchantIdentity(c *gin.Context) (Identity, bool) {
 	identity, ok := identityFrom(c)
 	if !ok || identity.MerchantID == "" || identity.Role != "MERCHANT" {
-		httpx.Error(c, http.StatusUnauthorized, "unauthorized", "merchant authentication required")
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "merchant authentication required")
 		return Identity{}, false
 	}
 	return identity, true
@@ -150,15 +152,15 @@ func merchantIdentity(c *gin.Context) (Identity, bool) {
 func (h *merchantHandler) profile(c *gin.Context) {
 	identity, ok := identityFrom(c)
 	if !ok || identity.MerchantID == "" || identity.Role != "MERCHANT" {
-		httpx.Error(c, http.StatusUnauthorized, "unauthorized", "merchant authentication required")
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "merchant authentication required")
 		return
 	}
 	merchant, err := h.repository.MerchantByID(c.Request.Context(), identity.MerchantID)
 	if err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
-	respond(c, http.StatusOK, merchantResponse(merchant))
+	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
 }
 
 type profileRequest struct {
@@ -171,12 +173,12 @@ type profileRequest struct {
 func (h *merchantHandler) updateProfile(c *gin.Context) {
 	identity, ok := identityFrom(c)
 	if !ok || identity.MerchantID == "" || identity.Role != "MERCHANT" {
-		httpx.Error(c, http.StatusUnauthorized, "unauthorized", "merchant authentication required")
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "merchant authentication required")
 		return
 	}
 	var request profileRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		httpx.Error(c, http.StatusUnprocessableEntity, "validation_error", "invalid merchant profile")
+		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid merchant profile")
 		return
 	}
 	merchant, err := h.repository.UpdateProfile(c.Request.Context(), identity.MerchantID, repository.ProfileUpdate{
@@ -184,10 +186,10 @@ func (h *merchantHandler) updateProfile(c *gin.Context) {
 		PickupAddress: strings.TrimSpace(request.PickupAddress), PickupZoneID: strings.TrimSpace(request.PickupZoneID),
 	})
 	if err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
-	respond(c, http.StatusOK, merchantResponse(merchant))
+	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
 }
 
 func (h *merchantHandler) adminDetail(c *gin.Context) {
@@ -196,10 +198,10 @@ func (h *merchantHandler) adminDetail(c *gin.Context) {
 	}
 	merchant, err := h.repository.MerchantByID(c.Request.Context(), c.Param("merchantId"))
 	if err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
-	respond(c, http.StatusOK, merchantResponse(merchant))
+	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
 }
 
 func (h *merchantHandler) approve(c *gin.Context) {
@@ -209,10 +211,10 @@ func (h *merchantHandler) approve(c *gin.Context) {
 	}
 	merchant, err := h.repository.ApproveMerchant(c.Request.Context(), c.Param("merchantId"), identity.UserID)
 	if err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
-	respond(c, http.StatusOK, merchantResponse(merchant))
+	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
 }
 
 type reasonRequest struct {
@@ -226,15 +228,15 @@ func (h *merchantHandler) reject(c *gin.Context) {
 	}
 	var request reasonRequest
 	if c.ShouldBindJSON(&request) != nil || strings.TrimSpace(request.Reason) == "" {
-		httpx.Error(c, http.StatusUnprocessableEntity, "validation_error", "a rejection reason is required")
+		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a rejection reason is required")
 		return
 	}
 	merchant, err := h.repository.RejectMerchant(c.Request.Context(), c.Param("merchantId"), identity.UserID, strings.TrimSpace(request.Reason))
 	if err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
-	respond(c, http.StatusOK, merchantResponse(merchant))
+	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
 }
 
 func (h *merchantHandler) suspend(c *gin.Context) {
@@ -244,36 +246,48 @@ func (h *merchantHandler) suspend(c *gin.Context) {
 	}
 	var request reasonRequest
 	if c.ShouldBindJSON(&request) != nil || strings.TrimSpace(request.Reason) == "" {
-		httpx.Error(c, http.StatusUnprocessableEntity, "validation_error", "a suspension reason is required")
+		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a suspension reason is required")
 		return
 	}
 	merchant, err := h.repository.SuspendMerchant(c.Request.Context(), c.Param("merchantId"), identity.UserID, strings.TrimSpace(request.Reason))
 	if err != nil {
-		handleRepositoryError(c, err)
+		h.handleRepositoryError(c, err)
 		return
 	}
-	respond(c, http.StatusOK, merchantResponse(merchant))
+	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
 }
 
 func requireAdmin(c *gin.Context) bool { _, ok := requireAdminIdentity(c); return ok }
 func requireAdminIdentity(c *gin.Context) (Identity, bool) {
 	identity, ok := identityFrom(c)
 	if !ok || identity.Role != "ADMIN" {
-		httpx.Error(c, http.StatusForbidden, "forbidden", "administrator access required")
+		httpx.Error(c, http.StatusForbidden, "FORBIDDEN", "administrator access required")
 		return Identity{}, false
 	}
 	return identity, true
 }
 
-func handleRepositoryError(c *gin.Context, err error) {
+func (h *merchantHandler) handleRepositoryError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
-		httpx.Error(c, http.StatusNotFound, "not_found", "merchant not found")
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
 	case errors.Is(err, repository.ErrInvalidState):
-		httpx.Error(c, http.StatusConflict, "invalid_merchant_state", "merchant state transition is not allowed")
+		httpx.Error(c, http.StatusConflict, "INVALID_MERCHANT_STATE", "merchant state transition is not allowed")
 	default:
-		httpx.Error(c, http.StatusInternalServerError, "internal_error", "merchant operation failed")
+		h.internalError(c, "merchant_repository", "merchant operation failed", err)
 	}
+}
+
+func (h *merchantHandler) internalError(c *gin.Context, operation, message string, err error) {
+	if h.logger != nil {
+		h.logger.ErrorContext(c.Request.Context(), "merchant request failed",
+			"request_id", requestid.FromGin(c),
+			"path", c.FullPath(),
+			"operation", operation,
+			"error", err.Error(),
+		)
+	}
+	httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)
 }
 
 type merchantDTO struct {
@@ -296,7 +310,4 @@ type merchantDTO struct {
 
 func merchantResponse(merchant repository.Merchant) merchantDTO {
 	return merchantDTO{ID: merchant.ID, OwnerUserID: merchant.OwnerUserID, BusinessName: merchant.BusinessName, BusinessRegNo: merchant.BusinessRegNo, ContactEmail: merchant.ContactEmail, ContactPhone: merchant.ContactPhone, PickupAddress: merchant.PickupAddress, PickupZoneID: merchant.PickupZoneID, Status: merchant.Status, ApprovedBy: merchant.ApprovedBy, ApprovedAt: merchant.ApprovedAt, RejectionReason: merchant.RejectionReason, SuspensionReason: merchant.SuspensionReason, CreatedAt: merchant.CreatedAt, UpdatedAt: merchant.UpdatedAt}
-}
-func respond(c *gin.Context, status int, data any) {
-	c.JSON(status, gin.H{"data": data, "meta": gin.H{"requestId": requestid.FromGin(c)}})
 }

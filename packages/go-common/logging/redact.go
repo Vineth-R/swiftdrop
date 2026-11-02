@@ -28,9 +28,17 @@ var (
 		"secret",
 		"apikey",
 		"api_key",
+		"api-key",
 		"authorization",
 		"cookie",
 		"credential",
+		"dsn",
+		"database_url",
+		"rabbitmq_url",
+		"amqp_url",
+		"connection_string",
+		"connectionstring",
+		"smtp_user",
 	}
 )
 
