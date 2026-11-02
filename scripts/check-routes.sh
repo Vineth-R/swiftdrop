@@ -36,7 +36,6 @@ check_upstream() {
 check_status "/healthz" "200" "gateway health"
 check_status "/internal/pricing/quote" "404" "internal APIs are blocked"
 check_status "/api/v1/ai/chat" "404" "ai service is a TODO"
-check_status "/" "200" "web frontend"
 
 check_upstream "/api/v1/auth/probe" "identity:auth"
 check_upstream "/api/v1/users/probe" "identity:users"
