@@ -18,7 +18,10 @@ test.describe('Button', () => {
     const loading = page.locator('button[aria-busy="true"]').first();
     await expect(loading).toHaveAttribute('aria-disabled', 'true');
     await expect(loading).toHaveAttribute('type', 'button');
-    await expect(loading).toBeEnabled();
+    // toBeEnabled() would fail here: Playwright treats aria-disabled as disabled.
+    await expect(loading).not.toHaveAttribute('disabled');
+    await loading.focus();
+    await expect(loading).toBeFocused();
   });
 
   test('buttons are 8px radius and 40px high at medium size', async ({
