@@ -1,10 +1,13 @@
 package servicehttp
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -49,8 +52,10 @@ func TestRepositoryErrorsUseAPIv11Codes(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			handler := &merchantHandler{logger: slog.New(slog.NewJSONHandler(&logs, nil))}
 			router := newErrorTestRouter(func(c *gin.Context) {
-				handleRepositoryError(c, test.err)
+				handler.handleRepositoryError(c, test.err)
 			})
 
 			recorder := httptest.NewRecorder()
@@ -62,6 +67,14 @@ func TestRepositoryErrorsUseAPIv11Codes(t *testing.T) {
 			body := decodeErrorResponse(t, recorder)
 			if body.Error.Code != test.wantCode {
 				t.Fatalf("error code = %q, want %q", body.Error.Code, test.wantCode)
+			}
+
+			if test.wantStatus == http.StatusInternalServerError {
+				if !strings.Contains(logs.String(), "merchant request failed") || !strings.Contains(logs.String(), "merchant_repository") {
+					t.Fatalf("unexpected repository error was not logged: %s", logs.String())
+				}
+			} else if strings.Contains(logs.String(), "merchant request failed") {
+				t.Fatalf("expected error was logged as unexpected: %s", logs.String())
 			}
 		})
 	}
