@@ -8,15 +8,27 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
-func TestLoadFrom(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		values := map[string]string{
-			"APP_ENV":      "production",
-			"LOG_LEVEL":    "warn",
-			"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+func newLoader(values map[string]string) sharedconfig.Loader {
+	return sharedconfig.NewLoader(func(key string) (string, bool) {
+		if value, ok := values[key]; ok {
+			return value, true
 		}
-		value, ok := values[key]
-		return value, ok
+		switch key {
+		case "SMTP_HOST":
+			return "mailpit", true
+		case "SMTP_PORT":
+			return "1025", true
+		default:
+			return "", false
+		}
+	})
+}
+
+func TestLoadFrom(t *testing.T) {
+	loader := newLoader(map[string]string{
+		"APP_ENV":      "production",
+		"LOG_LEVEL":    "warn",
+		"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
 	})
 
 	config, err := LoadFrom(loader)
@@ -42,17 +54,19 @@ func TestLoadFrom(t *testing.T) {
 	if config.RetryDelay != 30*time.Second {
 		t.Fatalf("RetryDelay = %v, want 30s", config.RetryDelay)
 	}
+	if config.SMTP.Host != "mailpit" || config.SMTP.Port != 1025 {
+		t.Fatalf("SMTP = %+v, want mailpit:1025", config.SMTP)
+	}
+	if err := config.SMTP.Validate(); err != nil {
+		t.Fatalf("SMTP config does not validate: %v", err)
+	}
 }
 
 func TestLoadFromParsesRetryConfig(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		values := map[string]string{
-			"RABBITMQ_URL":         "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
-			"RABBITMQ_MAX_RETRIES": "5",
-			"RABBITMQ_RETRY_DELAY": "2s",
-		}
-		value, ok := values[key]
-		return value, ok
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL":         "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+		"RABBITMQ_MAX_RETRIES": "5",
+		"RABBITMQ_RETRY_DELAY": "2s",
 	})
 
 	config, err := LoadFrom(loader)
@@ -78,12 +92,7 @@ func TestLoadFromRejectsInvalidRetryConfig(t *testing.T) {
 	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
 			values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
-			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-				value, ok := values[key]
-				return value, ok
-			})
-
-			if _, err := LoadFrom(loader); err == nil {
+			if _, err := LoadFrom(newLoader(values)); err == nil {
 				t.Fatal("LoadFrom() should have failed")
 			}
 		})
@@ -91,8 +100,15 @@ func TestLoadFromRejectsInvalidRetryConfig(t *testing.T) {
 }
 
 func TestLoadFromRequiresRabbitMQURL(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(string) (string, bool) {
-		return "", false
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		switch key {
+		case "SMTP_HOST":
+			return "mailpit", true
+		case "SMTP_PORT":
+			return "1025", true
+		default:
+			return "", false
+		}
 	})
 
 	if _, err := LoadFrom(loader); err == nil {
@@ -100,12 +116,43 @@ func TestLoadFromRequiresRabbitMQURL(t *testing.T) {
 	}
 }
 
-func TestLoadFromRejectsInvalidRabbitMQURL(t *testing.T) {
+func TestLoadFromRequiresSMTPHost(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		if key == "RABBITMQ_URL" {
-			return "http://rabbitmq:5672", true
+			return "amqp://swiftdrop:swiftdrop@rabbitmq:5672/", true
 		}
 		return "", false
+	})
+
+	if _, err := LoadFrom(loader); err == nil {
+		t.Fatal("LoadFrom() should fail without SMTP_HOST")
+	}
+}
+
+func TestLoadFromRejectsInvalidSMTPConfig(t *testing.T) {
+	tests := map[string]map[string]string{
+		"invalid port":       {"SMTP_PORT": "not-a-port"},
+		"port out of range":  {"SMTP_PORT": "70000"},
+		"user without pass":  {"SMTP_USER": "user@example.com"},
+		"pass without user":  {"SMTP_PASSWORD": "secret"},
+		"sender with a name": {"SMTP_FROM": "Support <no-reply@swiftdrop.local>"},
+		"from name newline":  {"SMTP_FROM_NAME": "Evil\r\nBcc: victim@example.com"},
+	}
+
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
+			values["SMTP_HOST"] = "mailpit"
+			if _, err := LoadFrom(newLoader(values)); err == nil {
+				t.Fatal("LoadFrom() should have failed")
+			}
+		})
+	}
+}
+
+func TestLoadFromRejectsInvalidRabbitMQURL(t *testing.T) {
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL": "http://rabbitmq:5672",
 	})
 
 	if _, err := LoadFrom(loader); err == nil {
@@ -114,11 +161,8 @@ func TestLoadFromRejectsInvalidRabbitMQURL(t *testing.T) {
 }
 
 func TestLoadFromDoesNotLeakRabbitMQCredentials(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		if key == "RABBITMQ_URL" {
-			return "amqp://swiftdrop:s3cr3t-password@rabbitmq:5672/%zz", true
-		}
-		return "", false
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL": "amqp://swiftdrop:s3cr3t-password@rabbitmq:5672/%zz",
 	})
 
 	_, err := LoadFrom(loader)
@@ -133,15 +177,29 @@ func TestLoadFromDoesNotLeakRabbitMQCredentials(t *testing.T) {
 	}
 }
 
+func TestLoadFromDoesNotLeakSMTPPassword(t *testing.T) {
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL":  "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+		"SMTP_HOST":     "smtp.example.com",
+		"SMTP_USER":     "mailer@example.com",
+		"SMTP_PASSWORD": "s3cr3t-smtp-password",
+		"SMTP_FROM":     "not-an-address",
+	})
+
+	_, err := LoadFrom(loader)
+	if err == nil {
+		t.Fatal("LoadFrom() should fail for an invalid SMTP configuration")
+	}
+	if strings.Contains(err.Error(), "s3cr3t-smtp-password") {
+		t.Fatalf("error leaked the SMTP password: %q", err.Error())
+	}
+}
+
 func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		values := map[string]string{
-			"APP_ENV":      " PRODUCTION ",
-			"LOG_LEVEL":    "WARNING",
-			"RABBITMQ_URL": " amqp://swiftdrop:swiftdrop@rabbitmq:5672/ ",
-		}
-		value, ok := values[key]
-		return value, ok
+	loader := newLoader(map[string]string{
+		"APP_ENV":      " PRODUCTION ",
+		"LOG_LEVEL":    "WARNING",
+		"RABBITMQ_URL": " amqp://swiftdrop:swiftdrop@rabbitmq:5672/ ",
 	})
 
 	config, err := LoadFrom(loader)

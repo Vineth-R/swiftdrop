@@ -90,7 +90,18 @@ Unclassified handler errors are retryable and use the bounded retry policy. Only
 
 ## Event payload schemas
 
-An example schema exists at `contracts/events/notification.requested.v1.schema.json`. It is the documented shape for that event, but the current notification worker does not validate `data` against it yet; it validates the envelope and the event type/version only. Payload validation is required before a worker acts on payload fields.
+An example schema exists at `contracts/events/notification.requested.v1.schema.json`. The notification worker validates the envelope, the event type and version, and the `data` fields it uses before delivering anything. Invalid `data` is a permanent failure.
+
+### Notification rendering (implemented)
+
+The notification worker delivers the `email` channel through the shared SMTP mailer. It treats `data.template` as the email subject and builds a deterministic plain-text body:
+
+- If `variables` is absent or empty, the body is the template text.
+- Otherwise the body is the template, a blank line, then one `key: value` line per variable sorted by key.
+
+`sms` is accepted by the schema but has no provider in this phase, so it is a permanent failure and is dead-lettered without retrying. Recipient addresses, message bodies, and SMTP credentials are never logged.
+
+Dispatches are at-least-once. A message is acknowledged only after the SMTP send succeeds; a failed send is retried by the shared consumer and eventually dead-lettered. SMTP delivery and acknowledgement are separate operations, so a duplicate email is possible after a crash or connection loss between them. The worker is stateless and does not write `notification.notification_logs` or `notification.processed_events`; the event has no `parcel_id`, which the baseline `notification_logs` table requires.
 
 Per-event schemas may be closed for their specific payload, as the notification example is. Additive changes are still compatible for consumers that ignore unknown fields; update the schema within the same major version when adding optional fields. Adding a required field, removing a field, changing a type, or changing semantics is a breaking change that requires a new major version.
 

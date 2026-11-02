@@ -39,7 +39,7 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
-- **Notification worker** will consume notification events and call external providers in a future phase.
+- **Notification worker** consumes `notification.requested.v1` and delivers the email channel through the shared SMTP mailer. SMS has no provider yet and is a permanent failure. The worker is stateless and does not persist delivery status.
 - **Webhook worker** will deliver outgoing merchant webhooks and eventually manage retries.
 
 A service owns its data. The local environment uses one PostgreSQL instance with separate schemas:
@@ -124,7 +124,7 @@ Workers read:
 - required `RABBITMQ_URL`
 - `RABBITMQ_EXCHANGE`, queue, routing key, prefetch, handler timeout, retry limit, retry delay, and reconnect bounds
 
-Email delivery is configured through `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. The Identity service sends password-reset email through the shared mailer in `packages/go-common/mailer`, which reads this configuration; the notification worker is meant to use the same package. Identity also exposes the service-to-service `/internal` endpoints (`X-Internal-Token`), described in `docs/identity-internal-api.md`. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
+The notification worker also requires `SMTP_HOST` and reads `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. The Identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. Identity also exposes the service-to-service `/internal` endpoints (`X-Internal-Token`), described in `docs/identity-internal-api.md`. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
 
 The maximum RabbitMQ message body size is 1 MiB and is fixed in `messaging.MaxMessageBytes`; it is not configurable in this phase. Secrets and connection strings are never logged.
 
@@ -190,4 +190,4 @@ CI runs the checks in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
 ## Deliberate omissions
 
-The foundation does not include authentication, JWT, parcel workflows, pricing formulas, merchant onboarding, API key management, notification delivery, webhook signing or webhook delivery retries, realtime subscriptions, payments, production TLS, Kubernetes, Terraform, or deployment automation.
+The foundation does not include authentication, JWT, parcel workflows, pricing formulas, merchant onboarding, API key management, SMS notification delivery, webhook signing or webhook delivery retries, realtime subscriptions, payments, production TLS, Kubernetes, Terraform, or deployment automation.

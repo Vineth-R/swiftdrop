@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/config"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/worker"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
 
@@ -31,6 +33,11 @@ func run() error {
 	logger, err := logging.New(serviceName, config.AppEnv, config.LogLevel)
 	if err != nil {
 		return err
+	}
+
+	sender, err := mailer.NewSMTP(config.SMTP)
+	if err != nil {
+		return fmt.Errorf("create smtp mailer: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -84,7 +91,7 @@ func run() error {
 		RetryDelay:     config.RetryDelay,
 		ReconnectMin:   config.ReconnectMin,
 		ReconnectMax:   config.ReconnectMax,
-	}, worker.New(logger), logger)
+	}, worker.New(logger, sender), logger)
 	close(stopped)
 	return err
 }

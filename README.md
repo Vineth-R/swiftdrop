@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Business functionality such as parcel lifecycles, pricing rules, merchant onboarding, live tracking, notification delivery, and webhook delivery is intentionally not implemented yet. See [Current scope](#current-scope) and [`docs/architecture.md`](docs/architecture.md).
+Business functionality such as parcel lifecycles, pricing rules, merchant onboarding, live tracking, SMS notification delivery, and webhook delivery is intentionally not implemented yet. See [Current scope](#current-scope) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
@@ -23,7 +23,7 @@ Business functionality such as parcel lifecycles, pricing rules, merchant onboar
 | `pricing`             | Future delivery fee calculation and pricing configuration   | 8083          |
 | `merchant`            | Future merchant accounts, settings, and API credentials     | 8084          |
 | `realtime`            | Future live tracking over WebSocket or Server-Sent Events   | 8085          |
-| `notification-worker` | Future notification event consumption and delivery          | no HTTP port  |
+| `notification-worker` | Notification event consumption and email delivery           | no HTTP port  |
 | `webhook-worker`      | Future outgoing webhook delivery                            | no HTTP port  |
 | `@org/web`            | Next.js frontend                                            | 3000          |
 | Nginx                 | Public HTTP entry point                                     | 8080          |
@@ -189,7 +189,7 @@ To use Mailpit locally instead, set `SMTP_HOST=mailpit` and `SMTP_PORT=1025`; Ma
 
 - The App Password belongs only in `.env`, which is untracked. Never commit it, paste it into chat, or log it. Revoke it from the Google account if exposed.
 - TLS certificate verification stays enabled. Certificate revocation checking (`CheckCertificateRevocation`) is not implemented in the sender.
-- The identity service sends password-reset email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. The notification worker does not send email yet; it is expected to use the same package. Delivery has been tested against a fake SMTP server only, not yet against Mailpit or Gmail.
+- The identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. The notification worker requires `SMTP_HOST` and fails startup when SMTP is not configured. Delivery is at-least-once; a duplicate email is possible if a crash or connection loss happens between an SMTP send and the broker acknowledgement.
 - Gmail SMTP is suitable for development and small volumes. Production email should use a transactional provider with SPF/DKIM/DMARC.
 
 ## Database migrations
@@ -296,9 +296,11 @@ set +a
 go run ./apps/services/notification-worker
 ```
 
+The notification worker also requires SMTP configuration. `.env.example` defaults to Mailpit (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`), so start Mailpit with `docker compose up -d mailpit` and view delivered mail at <http://localhost:8025>. A missing or invalid SMTP configuration fails startup.
+
 Workers reconnect with capped exponential backoff and jitter when the broker is unavailable, and reset the backoff after a session reaches the consume phase. They acknowledge a message only after the handler succeeds or after a retry/dead-letter publication is confirmed. Unclassified handler failures are retried up to `RABBITMQ_MAX_RETRIES` (default `3`) with `RABBITMQ_RETRY_DELAY` (default `30s`) and then dead-lettered; malformed or unsupported messages are dead-lettered immediately. A second termination signal forces exit if graceful shutdown does not finish.
 
-Delivery is at-least-once. Duplicate or redelivered messages are normal, including after reconnects and retries; future state-changing handlers must deduplicate by `event_id` and be idempotent. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API.
+Notification delivery is at-least-once. The worker acknowledges only after the SMTP send succeeds, but delivery and acknowledgement cannot be atomic, so a duplicate email is possible after a crash or connection loss between them. A delivery failure is retried and eventually dead-lettered. Invalid payloads and unsupported channels such as `sms` are permanent failures. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API.
 
 ## Tests and checks
 
@@ -492,6 +494,8 @@ Implemented: repository structure, service entry points, health and readiness en
 
 Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), forward merchant constraints, Mailpit, gateway-only published ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
 
+Notification email delivery is implemented in the notification worker: `notification.requested.v1` is validated, the `email` channel is sent through the shared SMTP mailer, `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker is stateless and does not persist notification status.
+
 Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
 
-Not implemented: authentication (owned by M2), JWT, cookies/sessions, parcels, pricing formulas, merchant onboarding, API keys, notification delivery, webhook signing and delivery retries, realtime subscriptions, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Business tables exist, but no business endpoints or event producers are implemented yet.
+Not implemented: authentication (owned by M2), JWT, cookies/sessions, parcels, pricing formulas, merchant onboarding, API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Business tables exist, but no business endpoints or event producers are implemented yet.
