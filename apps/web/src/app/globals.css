@@ -1,0 +1,281 @@
+@import 'tailwindcss';
+
+/*
+ * SwiftDrop design tokens (Tailwind v4, CSS-first).
+ *
+ * Source: the "Handoff — tokens" board of the SwiftDrop design system. The
+ * block marked HANDOFF below carries the exported values unchanged; tokens
+ * added on top of it are marked ADDITION and say where each value comes from. Dark mode only
+ * changes --color-* values, via data-theme on <html> (see lib/theme.ts).
+ *
+ * The token blocks are `@theme static`, so every variable is always emitted,
+ * even when no utility uses it yet. Pages such as /design read them through
+ * var().
+ *
+ * Rule 06 of the design language: tokens only, no raw values. The reset below
+ * removes Tailwind's default palette, type sizes, radii, shadows and
+ * breakpoints, so a stray `bg-red-500` or `rounded-lg` produces no style and
+ * shows up in review instead of quietly drifting from the design.
+ */
+@theme {
+  --color-*: initial;
+  --text-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+  --breakpoint-*: initial;
+}
+
+/* HANDOFF — tokens: start */
+@theme static {
+  /* fonts come from next/font via CSS variables */
+  --font-display: var(--font-bricolage), 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: var(--font-instrument), 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, Menlo, monospace;
+
+  --text-display: 3.5rem;
+  --text-display--line-height: 3.75rem;
+  --text-display--letter-spacing: -0.03em;
+  --text-display--font-weight: 700;
+  --text-h1: 2.25rem;
+  --text-h1--line-height: 2.625rem;
+  --text-h2: 1.75rem;
+  --text-h2--line-height: 2.125rem;
+  --text-h3: 1.375rem;
+  --text-h3--line-height: 1.75rem;
+  --text-h4: 1.125rem;
+  --text-h4--line-height: 1.5rem;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.4375rem;
+  --text-body-sm: 0.8125rem;
+  --text-body-sm--line-height: 1.25rem;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-overline: 0.6875rem;
+  --text-overline--line-height: 0.875rem;
+
+  --color-ink: #14171a;
+  --color-paper: #f6f4ef;
+  --color-surface: #ffffff;
+  --color-surface-2: #efede6;
+  --color-line: #dad6cb;
+  --color-line-strong: #bdb8aa;
+  --color-line-control: #8e897b;
+  --color-text: #14171a;
+  --color-text-muted: #5c6068;
+  --color-text-faint: #686c74;
+  --color-text-disabled: #8a8d93;
+  --color-accent: #d6f04a;
+  --color-accent-hover: #c8e43a;
+  --color-on-accent: #14171a;
+  --color-interactive: #0f6b6b;
+  --color-interactive-hover: #0b5555;
+  --color-interactive-tint: #e2f0ef;
+  --color-success: #1e7a4c;
+  --color-success-tint: #e4f1e9;
+  --color-success-border: #b5d8c4;
+  --color-warning: #9a5b00;
+  --color-warning-tint: #fbf0dc;
+  --color-warning-border: #ead3a6;
+  --color-danger: #c23b2e;
+  --color-danger-tint: #fbe9e6;
+  --color-danger-border: #efc4bd;
+  --color-info: #2a5fa8;
+  --color-info-tint: #e8eff9;
+  --color-info-border: #bdd0ec;
+
+  --spacing: 0.25rem; /* p-6 = 24px, the 4px base */
+  --radius-chip: 6px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-splash: 20px;
+
+  --shadow-popover:
+    0 1px 2px rgb(20 23 26 / 0.06), 0 6px 16px -4px rgb(20 23 26 / 0.12);
+  --shadow-modal:
+    0 2px 4px rgb(20 23 26 / 0.08), 0 24px 48px -12px rgb(20 23 26 / 0.22);
+
+  --ease-out-sd: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --duration-slow: 200ms;
+
+  --breakpoint-sm: 375px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1440px;
+  --container-content: 1200px;
+}
+/* HANDOFF — tokens: end */
+
+/*
+ * ADDITION — type details. The handoff CSS only carries tracking and weight
+ * for `display`; the JSON half of the same board has them for the rest.
+ */
+@theme static {
+  --text-h1--letter-spacing: -0.02em;
+  --text-h1--font-weight: 600;
+  --text-h2--letter-spacing: -0.015em;
+  --text-h2--font-weight: 600;
+  --text-h3--letter-spacing: -0.01em;
+  --text-h3--font-weight: 600;
+  --text-h4--letter-spacing: -0.005em;
+  --text-h4--font-weight: 600;
+  --text-label--font-weight: 500;
+  --text-caption--letter-spacing: 0.01em;
+  --text-overline--letter-spacing: 0.09em;
+  --text-overline--font-weight: 600;
+}
+
+/*
+ * ADDITION — states and roles that the component boards use but the handoff
+ * CSS leaves out. Light values are read from the Buttons, Colour and Feedback
+ * boards. Values marked "derived" are not on any board and need a design
+ * check before they ship.
+ */
+@theme static {
+  /* Primary action: Ink fill in light, Ink-on-paper-dark in dark (style guide). */
+  --color-primary: #14171a;
+  --color-primary-hover: #22262a;
+  --color-primary-active: #000000;
+  --color-on-primary: #f6f4ef;
+
+  --color-danger-hover: #a93026;
+  --color-danger-active: #8f271f;
+  --color-on-danger: #ffffff;
+
+  --color-accent-active: #bbd72e;
+  --color-surface-3: #e5e2d8; /* pressed ghost and secondary buttons, skeletons */
+  --color-interactive-border: #b7d8d6;
+  --color-scrim: rgb(20 23 26 / 0.44);
+
+  /* Parcel statuses: Colour boards, label and shape always accompany them. */
+  --color-status-created-fg: #41464e;
+  --color-status-created-bg: #eceae3;
+  --color-status-created-bd: #cfc9ba;
+  --color-status-picked-up-fg: #2a5fa8;
+  --color-status-picked-up-bg: #e8eff9;
+  --color-status-picked-up-bd: #bdd0ec;
+  --color-status-in-transit-fg: #0f6b6b;
+  --color-status-in-transit-bg: #e2f0ef;
+  --color-status-in-transit-bd: #b7d8d6;
+  --color-status-out-fg: #9a5b00;
+  --color-status-out-bg: #fbf0dc;
+  --color-status-out-bd: #ead3a6;
+  --color-status-delivered-fg: #1e7a4c;
+  --color-status-delivered-bg: #e4f1e9;
+  --color-status-delivered-bd: #b5d8c4;
+  --color-status-failed-fg: #c23b2e;
+  --color-status-failed-bg: #fbe9e6;
+  --color-status-failed-bd: #efc4bd;
+}
+
+/* dark theme: same token names, new values */
+@layer base {
+  [data-theme='dark'] {
+    --color-paper: #0e1113;
+    --color-surface: #171b1e;
+    --color-surface-2: #1f2427;
+    --color-line: #2b3135;
+    --color-line-strong: #3c4347;
+    --color-line-control: #5a6165;
+    --color-text: #eceae4;
+    --color-text-muted: #a8adb4;
+    --color-text-faint: #868c93;
+    --color-text-disabled: #6b7177;
+    --color-interactive: #4fc8c0;
+    --color-interactive-hover: #7fdcd5;
+    --color-interactive-tint: #16302f;
+    --color-success: #4fb87c;
+    --color-success-tint: #122018;
+    --color-success-border: #1f3a2a;
+    --color-warning: #e09a3c;
+    --color-warning-tint: #241b0c;
+    --color-warning-border: #40301a;
+    --color-danger: #f2705f;
+    --color-danger-tint: #2a1512;
+    --color-danger-border: #4a2620;
+    --color-info: #6e9fe0;
+    --color-info-tint: #131d2b;
+    --color-info-border: #22334a;
+
+    /* ADDITION — dark values for the additions above. */
+    --color-primary: #eceae4; /* style guide, dark primary button */
+    --color-primary-hover: #ffffff; /* derived */
+    --color-primary-active: #d8d5cc; /* derived */
+    --color-on-primary: #14171a;
+    --color-danger-hover: #f58a7c; /* derived */
+    --color-danger-active: #f9a79c; /* derived */
+    --color-on-danger: #14171a; /* derived */
+    --color-surface-3: #272d31; /* derived */
+    --color-interactive-border: #1f4a47;
+    --color-scrim: rgb(0 0 0 / 0.6); /* derived */
+
+    --color-status-created-fg: #b9bec4;
+    --color-status-created-bg: #22272b;
+    --color-status-created-bd: #3c4347;
+    --color-status-picked-up-fg: #6e9fe0;
+    --color-status-picked-up-bg: #131d2b;
+    --color-status-picked-up-bd: #22334a;
+    --color-status-in-transit-fg: #4fc8c0;
+    --color-status-in-transit-bg: #16302f;
+    --color-status-in-transit-bd: #1f4a47;
+    --color-status-out-fg: #e09a3c;
+    --color-status-out-bg: #241b0c;
+    --color-status-out-bd: #40301a;
+    --color-status-delivered-fg: #4fb87c;
+    --color-status-delivered-bg: #122018;
+    --color-status-delivered-bd: #1f3a2a;
+    --color-status-failed-fg: #f2705f;
+    --color-status-failed-bg: #2a1512;
+    --color-status-failed-bd: #4a2620;
+  }
+
+  html {
+    color-scheme: light;
+  }
+  html[data-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  /* Tailwind v4 borders default to currentColor; every SwiftDrop hairline is Line. */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-line);
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-text-disabled);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-interactive);
+    outline-offset: 2px;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
