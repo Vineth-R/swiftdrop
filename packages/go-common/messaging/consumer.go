@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net"
+	"net/url"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -216,7 +218,7 @@ func dialAMQP(ctx context.Context, url string) (*amqp.Connection, error) {
 		KeepAlive: 30 * time.Second,
 	}
 
-	return amqp.DialConfig(url, amqp.Config{
+	connection, err := amqp.DialConfig(url, amqp.Config{
 		Heartbeat: 10 * time.Second,
 		Locale:    "en_US",
 		Dial: func(network, addr string) (net.Conn, error) {
@@ -233,6 +235,33 @@ func dialAMQP(ctx context.Context, url string) (*amqp.Connection, error) {
 			return conn, nil
 		},
 	})
+	if err != nil {
+		return nil, redactAMQPError(err, url)
+	}
+	return connection, nil
+}
+
+// redactAMQPError removes connection URL credentials from errors returned by
+// the AMQP client. Some URL parse errors embed the raw URL, including its
+// userinfo, so the error is replaced with a generic message in that case.
+func redactAMQPError(err error, rawURL string) error {
+	if err == nil {
+		return nil
+	}
+
+	message := err.Error()
+	if rawURL != "" && strings.Contains(message, rawURL) {
+		return errors.New("connect to rabbitmq: invalid connection URL")
+	}
+
+	parsed, parseErr := url.Parse(rawURL)
+	if parseErr == nil && parsed.User != nil {
+		if password, ok := parsed.User.Password(); ok && password != "" && strings.Contains(message, password) {
+			return errors.New("connect to rabbitmq: connection URL credentials must not be logged")
+		}
+	}
+
+	return err
 }
 
 func waitContext(ctx context.Context, delay time.Duration) error {

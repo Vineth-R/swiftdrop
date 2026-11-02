@@ -156,17 +156,20 @@ Tests call `t.Skip` when `RABBITMQ_URL` is unset. A skip is expected for local r
 
 ### Messaging scenarios
 
-`messaging_test.go` currently exercises five scenarios:
+`messaging_test.go` currently exercises eight scenarios:
 
-| Scenario                   | Expected behavior                                                                                                                          |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Successful acknowledgement | A handler succeeds, the message is acknowledged, and the main queue drains.                                                                |
-| Retry then success         | A retryable handler failure is republished through the retry queue; the next attempt succeeds and no dead letter is produced.              |
-| Permanent failure          | A `messaging.Permanent` failure goes directly to the dead-letter queue with the failure reason and original message metadata preserved.    |
-| Retry exhaustion           | A handler that keeps failing is attempted up to the configured retry limit, then dead-lettered with `retry_exhausted` and the retry count. |
-| Panic recovery             | A handler panic is recovered, treated as retryable, retried, and can succeed without producing a dead letter.                              |
+| Scenario                       | Expected behavior                                                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Successful acknowledgement     | A handler succeeds, the message is acknowledged, and the main queue drains.                                                                |
+| Retry then success             | A retryable handler failure is republished through the retry queue; the next attempt succeeds and no dead letter is produced.              |
+| Permanent failure              | A `messaging.Permanent` failure goes directly to the dead-letter queue with the failure reason and original message metadata preserved.    |
+| Retry exhaustion               | A handler that keeps failing is attempted up to the configured retry limit, then dead-lettered with `retry_exhausted` and the retry count. |
+| Panic recovery                 | A handler panic is recovered, treated as retryable, retried, and can succeed without producing a dead letter.                              |
+| Shutdown requeue               | A message in flight when the consumer stops is requeued and processed by the next consumer.                                                |
+| Oversized message              | A body above `messaging.MaxMessageBytes` is dead-lettered as permanent without invoking the handler.                                       |
+| Unsupported content type       | A non-JSON content type is dead-lettered as permanent without invoking the handler.                                                        |
 
-Reconnect behavior is not exercised here. Forcing broker disconnects against shared infrastructure would be disruptive; bounded backoff, jitter, backoff reset, and context-cancelled waits and dials are covered by deterministic unit tests in `packages/go-common/messaging`.
+Reconnect behavior is not exercised here. Forcing broker disconnects against shared infrastructure would be disruptive; bounded backoff, jitter, backoff reset, context-cancelled waits and dials, and AMQP URL redaction are covered by deterministic unit tests in `packages/go-common/messaging`.
 
 ### Isolated topology and cleanup
 
