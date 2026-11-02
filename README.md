@@ -421,15 +421,15 @@ docker compose down
 
 GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pull requests to `development` and `main`, on pushes to those branches, and on `v*` tags. The current jobs are:
 
-| Job                        | What it runs                                                                                                                                                                                       |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Go checks**              | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, and `docker compose config --quiet`.           |
-| **RabbitMQ integration**   | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration`, and fails if any test is skipped. |
-| **PostgreSQL integration** | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch database tests under `tests/integration/database`; fails if any test is skipped.            |
-| **Frontend checks**        | Installs dependencies with pnpm, runs `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. Nx runs only configured targets.                      |
-| **Playwright E2E**         | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                         |
-| **Docker builds**          | Detects changed projects with `dorny/paths-filter` and builds only the affected Go service images and the web image.                                                                               |
-| **Release smoke (tags)**   | On `v*` tags, builds every image, starts the full Compose stack with `--wait`, runs `scripts/check-routes.sh`, and stops the stack.                                                                |
+| Job                        | What it runs                                                                                                                                                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Go checks**              | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, `docker compose config --quiet`, and the worker-healthcheck guard. |
+| **RabbitMQ integration**   | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration`, and fails if any test is skipped.                     |
+| **PostgreSQL integration** | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch database tests under `tests/integration/database`; fails if any test is skipped.                                |
+| **Frontend checks**        | Installs dependencies with pnpm, runs `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. Nx runs only configured targets.                                          |
+| **Playwright E2E**         | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                                             |
+| **Docker builds**          | Detects changed projects with `dorny/paths-filter` and builds only the affected Go service images and the web image.                                                                                                   |
+| **Release smoke (tags)**   | On `v*` tags, prepares `.env` from `.env.example`, builds every image, starts the full Compose stack with `--wait`, applies migrations with `make migrate`, runs `scripts/check-routes.sh`, and stops the stack.       |
 
 The workflow does not deploy, publish images, or use deployment credentials. This documentation does not claim that CI has passed for a given revision; check the Actions run for the branch or pull request.
 

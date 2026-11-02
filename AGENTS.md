@@ -396,7 +396,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 - Keep project-wide agent rules in this file. Do not create competing root instruction files that duplicate this guidance.
 - Document environment variables in `.env.example`.
 - Mark planned features as planned. Do not describe future business behavior as implemented.
-- The CI workflow file is the source of truth for CI. It runs Go formatting, vet, race tests with a coverage artifact, build, and Compose config validation; a separate RabbitMQ integration job that fails on skipped tests; frontend lint/build and E2E typecheck; Chromium-only Playwright E2E; changed-service Docker image builds; and a `v*` tag release job that builds every image and runs a Compose smoke test. Do not repeat stale CI summaries, and do not claim a CI run passed unless its result was observed.
+- The CI workflow file is the source of truth for CI. It runs Go formatting, vet, race tests with a coverage artifact, build, Compose config validation, and a worker-healthcheck guard; a separate RabbitMQ integration job that fails on skipped tests; frontend lint/build and E2E typecheck; Chromium-only Playwright E2E; changed-service Docker image builds; and a `v*` tag release job that prepares `.env` from `.env.example`, builds every image, starts the Compose stack with `--wait`, applies migrations with `make migrate`, runs route checks, and stops the stack. Do not repeat stale CI summaries, and do not claim a CI run passed unless its result was observed.
 
 ## Agent workflow
 

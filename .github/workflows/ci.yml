@@ -73,6 +73,15 @@ jobs:
       - name: Validate Docker Compose configuration
         run: docker compose config --quiet
 
+      - name: Validate worker healthchecks
+        run: |
+          set -euo pipefail
+          if grep -n 'pgrep -f /usr/local/bin/service' docker-compose.yml; then
+            echo "::error::Worker healthchecks must match the service process, not the healthcheck shell command line."
+            exit 1
+          fi
+          test "$(grep -c 'pgrep -x /usr/local/bin/service' docker-compose.yml)" -ge 2
+
   hygiene:
     name: Repository hygiene
     runs-on: ubuntu-latest
@@ -360,10 +369,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Prepare local environment
+        run: cp .env.example .env
+
       - name: Build all images and start the stack
         env:
           COMPOSE_PARALLEL_LIMIT: 1
         run: docker compose up -d --build --wait --wait-timeout 600
+
+      - name: Apply database migrations
+        run: make migrate
 
       - name: Verify routes
         run: ./scripts/check-routes.sh

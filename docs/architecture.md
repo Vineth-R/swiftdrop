@@ -135,7 +135,7 @@ Every HTTP service exposes:
 - `GET /health` — liveness, `{"status":"ok"}`. `/healthz` remains a deprecated alias.
 - `GET /ready` — readiness. Returns `200 {"status":"ready","checks":{"database":"ok"}}` after a bounded-context database ping, or `503` with `"database":"down"` when `DATABASE_URL` is unset or unreachable. `/readyz` remains a deprecated alias.
 
-Compose healthchecks use `/ready`, so a service with no database connectivity is reported unhealthy. The gateway exposes only `/healthz` publicly. Readiness does not currently check RabbitMQ; workers remain log-driven.
+HTTP service healthchecks use `/ready`, so a service with no database connectivity is reported unhealthy. Worker healthchecks match the service process by executable path (`pgrep -x /usr/local/bin/service`), so a crashed worker cannot be reported healthy by the healthcheck shell's own command line. The gateway exposes only `/healthz` publicly. Readiness does not currently check RabbitMQ; workers remain log-driven.
 
 Workers do not expose public HTTP endpoints. Their lifecycle is log-driven: they connect, declare the durable main and failure-routing topology, consume with explicit acknowledgements, retry retryable failures with a bounded delay, dead-letter permanent or exhausted failures, and reconnect with capped exponential backoff and jitter. In-flight messages are requeued on shutdown, and a second termination signal forces exit if graceful shutdown does not finish.
 
