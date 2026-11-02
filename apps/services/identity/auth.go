@@ -61,6 +61,7 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 	}
 	options := []servicehttp.Option{
 		servicehttp.WithAuth(servicehttp.AuthRoutes{Service: identity, Verifier: tokens, Cookies: cookies}),
+		servicehttp.WithProfile(servicehttp.ProfileRoutes{Service: identity, Verifier: tokens, Cookies: cookies}),
 	}
 
 	googleOption, err := googleRouterOption(logger, config, repo, identity, cookies, authConfig.OAuthStateTTL)

@@ -27,6 +27,7 @@ func TestRouter_everyOptionTogether(t *testing.T) {
 		WithPasswordReset(PasswordResetRoutes{Service: &fakeResetService{}, Cookies: cookies}),
 		WithInternal(InternalRoutes{Service: &fakeInternalService{}, Token: testInternalToken}),
 		WithAdminUsers(AdminRoutes{Service: &fakeAdminService{}, Verifier: tokens, Cookies: cookies}),
+		WithProfile(ProfileRoutes{Service: &fakeProfileService{}, Verifier: tokens, Cookies: cookies}),
 	)
 
 	var got []string
@@ -40,6 +41,7 @@ func TestRouter_everyOptionTogether(t *testing.T) {
 		"GET /auth/google/callback", "GET /auth/google/login",
 		"GET /couriers", "GET /couriers/",
 		"GET /internal/couriers/:courierId/eligibility", "GET /internal/users/:userId/contact",
+		"GET /users/me",
 		"PATCH /admin/users/:userId", "PATCH /admin/users/:userId/status",
 		"POST /admin/users", "POST /admin/users/",
 		"POST /auth/forgot-password", "POST /auth/login", "POST /auth/logout", "POST /auth/refresh",
@@ -55,10 +57,10 @@ func TestRouter_everyOptionTogether(t *testing.T) {
 		}
 	}
 
-	// PUT /users/me/password belongs to M2 and must not be claimed here.
+	// PATCH /users/me and PUT /users/me/password are not built yet.
 	for _, route := range got {
-		if route == "PUT /users/me/password" {
-			t.Errorf("route %q must not be registered by M3", route)
+		if route == "PUT /users/me/password" || route == "PATCH /users/me" {
+			t.Errorf("route %q must not be registered yet", route)
 		}
 	}
 
