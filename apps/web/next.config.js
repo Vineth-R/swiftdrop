@@ -2,10 +2,31 @@
 
 const { join } = require('node:path');
 
+/**
+ * `nx dev` serves the app on :3000 while the API lives behind the Nginx
+ * gateway on :8080. Proxying /api/v1 through Next keeps the browser on one
+ * origin, so the HttpOnly session cookies are first-party and the code never
+ * needs a different URL in development. Behind the gateway (production and
+ * Docker) Nginx already routes /api/v1 to the services, so nothing is added.
+ * Set API_PROXY_TARGET to point development somewhere else.
+ */
+const apiProxyTarget =
+  process.env.API_PROXY_TARGET ||
+  (process.env.NODE_ENV === 'production' ? '' : 'http://127.0.0.1:8080');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   outputFileTracingRoot: join(__dirname, '../..'),
+  async rewrites() {
+    if (!apiProxyTarget) return [];
+    return [
+      {
+        source: '/api/v1/:path*',
+        destination: `${apiProxyTarget}/api/v1/:path*`,
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;
