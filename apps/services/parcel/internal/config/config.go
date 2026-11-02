@@ -7,10 +7,11 @@ import (
 )
 
 type Config struct {
-	Port        int
-	AppEnv      string
-	LogLevel    string
-	DatabaseURL string
+	Port           int
+	AppEnv         string
+	LogLevel       string
+	DatabaseURL    string
+	TrustedProxies []string
 }
 
 func Load() (Config, error) {
@@ -32,12 +33,17 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	proxies, err := loader.CIDRs("HTTP_TRUSTED_PROXIES")
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
-		Port:        port,
-		AppEnv:      appEnv,
-		LogLevel:    logLevel,
-		DatabaseURL: loader.String("DATABASE_URL", ""),
+		Port:           port,
+		AppEnv:         appEnv,
+		LogLevel:       logLevel,
+		DatabaseURL:    loader.String("DATABASE_URL", ""),
+		TrustedProxies: proxies,
 	}, nil
 }
 

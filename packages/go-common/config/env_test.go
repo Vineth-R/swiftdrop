@@ -1,9 +1,34 @@
 package config
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestLoaderCIDRs(t *testing.T) {
+	for _, test := range []struct {
+		name, raw string
+		want      []string
+		invalid   bool
+	}{
+		{name: "unset"},
+		{name: "trim and mask", raw: " 10.1.2.3/8 , 2001:db8::1/32 ", want: []string{"10.0.0.0/8", "2001:db8::/32"}},
+		{name: "invalid address", raw: "not-a-network", invalid: true},
+		{name: "missing prefix", raw: "127.0.0.1", invalid: true},
+		{name: "empty entry", raw: "127.0.0.0/8,", invalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := testLoader(map[string]string{"PROXIES": test.raw}).CIDRs("PROXIES")
+			if (err != nil) != test.invalid {
+				t.Fatalf("error %v", err)
+			}
+			if !test.invalid && !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("got %v want %v", got, test.want)
+			}
+		})
+	}
+}
 
 func testLoader(values map[string]string) Loader {
 	return NewLoader(func(key string) (string, bool) {

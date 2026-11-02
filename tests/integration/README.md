@@ -89,6 +89,26 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
 
 Tests skip when `TEST_DATABASE_URL` is unset. CI starts a PostgreSQL 16 service container, sets the variable, and fails the job if any database test is skipped.
 
+## M4 pricing and public tracking
+
+`tests/integration/database/pricing_migrations_test.go` applies `pricing/000001` and `pricing/000002` to a uniquely named disposable database, then verifies the seed, `(min, max]` boundaries, foreign keys, unique/check/exclusion constraints, repeated execution, and down/reapply behavior.
+
+`apps/services/pricing/internal/http/pricing_integration_test.go` uses the same isolated-database convention and exercises the real HTTP router and PostgreSQL-backed repository: the Colombo-to-Kandy 2 kg SMALL 550.00 LKR quote, every seeded weight boundary, above-maximum and gap `WEIGHT_NOT_PRICED`, unpriced-route precedence, unknown zones, invalid input, active/inactive/empty zones, and a real closed-connection server error.
+
+`tests/integration/pricing_tracking_test.go` (tags `integration,backendintegration`) is a manual gateway suite. It requires a running disposable Compose stack with `JWT_ACCESS_SECRET`; it uses shared-auth admin tokens and UUID-scoped fixtures. Its cleanup disables trigger firing only for its own cleanup session because `parcel.parcel_status_history` is append-only.
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  go test -race -count=1 -tags=integration \
+  ./tests/integration/database/... \
+  ./apps/services/pricing/internal/http/...
+
+TEST_BASE_URL=http://localhost:8080 \
+  go test -tags=integration,backendintegration -run TestPricingTrackingBackend ./tests/integration/...
+```
+
+The CI database job runs the migration and pricing HTTP integration tests with the PostgreSQL service and fails on skips. The manual gateway suite is not part of CI.
+
 ## Optional Go proof-photo validator verification
 
 The service-owned [validator](../../apps/services/parcel/internal/proof/photo.go) and [unit tests](../../apps/services/parcel/internal/proof/photo_test.go) are separate from M7.1 database verification. They use only the Go standard library and do not implement the HTTP upload endpoint.

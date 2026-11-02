@@ -73,3 +73,30 @@ func TestLoadFromRejectsInvalidConfig(t *testing.T) {
 		t.Fatal("LoadFrom() should fail for an unsupported APP_ENV")
 	}
 }
+
+func TestLoadFromInternalTokenMinimumLength(t *testing.T) {
+	for _, test := range []struct {
+		name, value, want string
+	}{
+		{name: "unset", want: ""},
+		{name: "fifteen characters", value: "123456789012345", want: ""},
+		{name: "sixteen characters", value: "1234567890123456", want: "1234567890123456"},
+		{name: "longer", value: "change-me-internal-token", want: "change-me-internal-token"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				if key == "INTERNAL_TOKEN" && test.value != "" {
+					return test.value, true
+				}
+				return "", false
+			})
+			config, err := LoadFrom(loader)
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.InternalToken != test.want {
+				t.Fatalf("InternalToken = %q, want %q", config.InternalToken, test.want)
+			}
+		})
+	}
+}

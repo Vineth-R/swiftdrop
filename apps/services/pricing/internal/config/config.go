@@ -6,11 +6,19 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
+// MinInternalTokenLength matches the identity service. An unset or shorter
+// token is treated as not configured so internal endpoints stay fail-closed.
+const MinInternalTokenLength = 16
+
 type Config struct {
-	Port        int
-	AppEnv      string
-	LogLevel    string
-	DatabaseURL string
+	Port           int
+	AppEnv         string
+	LogLevel       string
+	DatabaseURL    string
+	InternalToken  string
+	AccessSecret   string
+	CookieName     string
+	TrustedProxies []string
 }
 
 func Load() (Config, error) {
@@ -32,12 +40,25 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	proxies, err := loader.CIDRs("HTTP_TRUSTED_PROXIES")
+	if err != nil {
+		return Config{}, err
+	}
+
+	internalToken := loader.String("INTERNAL_TOKEN", "")
+	if len(internalToken) < MinInternalTokenLength {
+		internalToken = ""
+	}
 
 	return Config{
-		Port:        port,
-		AppEnv:      appEnv,
-		LogLevel:    logLevel,
-		DatabaseURL: loader.String("DATABASE_URL", ""),
+		Port:           port,
+		AppEnv:         appEnv,
+		LogLevel:       logLevel,
+		DatabaseURL:    loader.String("DATABASE_URL", ""),
+		InternalToken:  internalToken,
+		AccessSecret:   loader.String("JWT_ACCESS_SECRET", ""),
+		CookieName:     loader.String("COOKIE_NAME", "sd_access"),
+		TrustedProxies: proxies,
 	}, nil
 }
 

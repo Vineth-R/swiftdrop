@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Business functionality such as parcel lifecycles, pricing rules, merchant onboarding, live tracking, SMS notification delivery, and webhook delivery is intentionally not implemented yet. See [Current scope](#current-scope) and [`docs/architecture.md`](docs/architecture.md).
+Identity authentication, pricing estimates/zones/internal quote and admin configuration, and anonymous public parcel tracking are implemented. Parcel lifecycle writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
@@ -16,17 +16,17 @@ Business functionality such as parcel lifecycles, pricing rules, merchant onboar
 
 ## Architecture
 
-| Service               | Responsibility                                              | Internal port |
-| --------------------- | ----------------------------------------------------------- | ------------- |
-| `identity`            | Future authentication, authorization, and identity profiles | 8081          |
-| `parcel`              | Future parcel lifecycle, status, and tracking               | 8082          |
-| `pricing`             | Future delivery fee calculation and pricing configuration   | 8083          |
-| `merchant`            | Future merchant accounts, settings, and API credentials     | 8084          |
-| `realtime`            | Future live tracking over WebSocket or Server-Sent Events   | 8085          |
-| `notification-worker` | Notification event consumption and email delivery           | no HTTP port  |
-| `webhook-worker`      | Future outgoing webhook delivery                            | no HTTP port  |
-| `@org/web`            | Next.js frontend                                            | 3000          |
-| Nginx                 | Public HTTP entry point                                     | 8080          |
+| Service               | Responsibility                                            | Internal port |
+| --------------------- | --------------------------------------------------------- | ------------- |
+| `identity`            | Authentication, admin users, couriers, internal lookups   | 8081          |
+| `parcel`              | Anonymous public tracking; lifecycle writes are planned   | 8082          |
+| `pricing`             | Delivery quotes, zones, and ADMIN pricing configuration   | 8083          |
+| `merchant`            | Future merchant accounts, settings, and API credentials   | 8084          |
+| `realtime`            | Future live tracking over WebSocket or Server-Sent Events | 8085          |
+| `notification-worker` | Notification event consumption and email delivery         | no HTTP port  |
+| `webhook-worker`      | Future outgoing webhook delivery                          | no HTTP port  |
+| `@org/web`            | Next.js frontend                                          | 3000          |
+| Nginx                 | Public HTTP entry point                                   | 8080          |
 
 Only the gateway (`http://localhost:8080`) is published. Service ports below are internal to the Compose network. Services communicate synchronously over HTTP when a caller needs an immediate result. Asynchronous work uses RabbitMQ. Each persisting service owns its PostgreSQL schema and must not modify another service's tables. Realtime currently has no schema or persistence. Read [`docs/architecture.md`](docs/architecture.md) for service boundaries, routing, event conventions, lifecycle behavior, and readiness semantics; this README does not repeat the full architecture.
 
@@ -88,7 +88,7 @@ pnpm install --frozen-lockfile
 
 `.env.example` contains safe local placeholders only. Do not commit `.env`, credentials, private keys, or production secrets. Docker Compose reads `.env` automatically. Go services read process environment variables directly and do not load `.env`; export it before running a service or worker on the host.
 
-The template documents every variable currently used: PostgreSQL, RabbitMQ, gateway, Mailpit, Gmail SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`), and pool overrides. It also includes placeholders reserved for M2's identity work (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, token TTLs, cookie names and flags, Google OAuth client settings, `FRONTEND_BASE_URL`) and `INTERNAL_TOKEN` for internal service calls. Placeholders do not enable authentication.
+The template documents every variable currently used: PostgreSQL, RabbitMQ, gateway, Mailpit, Gmail SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`), pool overrides, and the M4 pricing/tracking settings (`HTTP_TRUSTED_PROXIES` for Pricing and Parcel, plus `INTERNAL_TOKEN`, `JWT_ACCESS_SECRET` and `COOKIE_NAME` for Pricing). It also includes identity settings (`JWT_REFRESH_SECRET`, token TTLs, cookie names and flags, Google OAuth client settings, `FRONTEND_BASE_URL`). An unset or shorter-than-16-character `INTERNAL_TOKEN` keeps the internal pricing endpoints fail-closed. Never commit real credentials.
 
 ```sh
 set -a
@@ -334,14 +334,14 @@ Tests skip when `RABBITMQ_URL` is unset. CI sets it and fails the job if any int
 
 ### PostgreSQL integration tests
 
-Dispatch database tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel baseline and dispatch migrations to a uniquely named, isolated database, then verify assignments, outbox behavior, constraints, indexes, triggers, upgrade paths, and rollback/reapply.
+Dispatch and pricing migration tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel/pricing baseline and dispatch migrations to a uniquely named, isolated database, then verify constraints, indexes, triggers, seed data, upgrade paths, and rollback/reapply. The pricing HTTP integration test in `apps/services/pricing/internal/http` exercises the real router, repository and seeded PostgreSQL data.
 
 ```sh
 TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
   make test-db
 ```
 
-`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
+`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. `make test-db` runs the migration suite and the pricing HTTP integration tests. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
 
 ### Nx and frontend checks
 
@@ -498,8 +498,12 @@ Implemented: repository structure, service entry points, health and readiness en
 
 Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), forward merchant constraints, Mailpit, gateway-only published ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
 
+M4 implemented: `POST /pricing/estimate`, `GET /zones`, authenticated internal quote/zone lookups, ADMIN pricing configuration with transactional audit logging, exact decimal LKR calculations, bounded public rate limiting, trusted-proxy handling, and anonymous `GET /tracking/{trackingNumber}` backed by real parcel/status-history rows. The internal quote is available to M5, but M5's parcel-creation consumer and camelCase-to-snake_case `price_breakdown` mapping are not implemented in this branch.
+
 Notification email delivery is implemented in the notification worker: `notification.requested.v1` is validated, the `email` channel is sent through the shared SMTP mailer, `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker is stateless and does not persist notification status.
 
 Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
 
-Not implemented: authentication (owned by M2), JWT, cookies/sessions, parcels, pricing formulas, merchant onboarding, API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Business tables exist, but no business endpoints or event producers are implemented yet.
+Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups and `GET /users/me`; profile updates and password changes remain planned. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads.
+
+Not implemented: parcel lifecycle and dispatch write APIs, M5's parcel-creation consumer, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the pricing administration UI, the optional `/track` mobile UI, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
