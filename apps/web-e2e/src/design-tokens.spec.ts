@@ -48,11 +48,33 @@ test.describe('design tokens', () => {
 
     await expect(
       page.getByRole('heading', { level: 1, name: 'Design tokens' }),
-    ).toHaveCSS('font-family', /Bricolage/);
+    ).toHaveCSS('font-family', /bricolage/i);
     await expect(page.getByText('Switch the theme')).toHaveCSS(
       'font-family',
-      /Instrument/,
+      /instrument/i,
     );
+    await expect(page.locator('code').first()).toHaveCSS(
+      'font-family',
+      /jetbrains/i,
+    );
+  });
+
+  test('fonts are served by the app, never by Google', async ({ page }) => {
+    const external: string[] = [];
+    page.on('request', (request) => {
+      const { hostname } = new URL(request.url());
+      if (/googleapis|gstatic/.test(hostname)) external.push(request.url());
+    });
+
+    await page.goto('/design');
+    // Run as page source: this project's tsconfig has no DOM types.
+    await page.evaluate('document.fonts.ready.then(() => undefined)');
+
+    const loaded = await page.evaluate<number>(
+      "[...document.fonts].filter((f) => f.status === 'loaded').length",
+    );
+    expect(loaded).toBeGreaterThanOrEqual(3);
+    expect(external).toEqual([]);
   });
 
   test('focus is a 2px outline on every interactive element', async ({
