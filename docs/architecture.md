@@ -34,7 +34,7 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 
 ## Service boundaries
 
-- **Identity** owns authentication, authorization, and identity profiles in a future phase. It does not issue tokens yet.
+- **Identity** owns authentication, authorization, and user accounts. It issues the access and refresh tokens for email and password login and for Google sign-in, handles password reset, user management for administrators and the courier list, and exposes two service-to-service `/internal` lookups. Profile endpoints are still planned.
 - **Parcel** owns parcel lifecycle, status, and tracking in a future phase.
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
@@ -124,7 +124,7 @@ Workers read:
 - required `RABBITMQ_URL`
 - `RABBITMQ_EXCHANGE`, queue, routing key, prefetch, handler timeout, retry limit, retry delay, and reconnect bounds
 
-Email delivery is configured through `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. No service sends email yet; the configuration is reserved for M2's password-reset flow and the future notification worker. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
+Email delivery is configured through `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. The Identity service sends password-reset email through the shared mailer in `packages/go-common/mailer`, which reads this configuration; the notification worker is meant to use the same package. Identity also exposes the service-to-service `/internal` endpoints (`X-Internal-Token`), described in `docs/identity-internal-api.md`. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
 
 The maximum RabbitMQ message body size is 1 MiB and is fixed in `messaging.MaxMessageBytes`; it is not configurable in this phase. Secrets and connection strings are never logged.
 

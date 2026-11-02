@@ -12,7 +12,12 @@ import (
 type Option func(*routerOptions)
 
 type routerOptions struct {
-	auth *AuthRoutes
+	auth   *AuthRoutes
+	google *GoogleRoutes
+	reset  *PasswordResetRoutes
+
+	internal *InternalRoutes
+	admin    *AdminRoutes
 }
 
 // WithAuth mounts the authentication endpoints (API v1.1 sections 2.1 to 2.4).
@@ -34,6 +39,18 @@ func New(logger *slog.Logger, opts ...Option) *gin.Engine {
 
 	if options.auth != nil {
 		registerAuthRoutes(router, *options.auth, logger)
+	}
+	if options.google != nil {
+		registerGoogleRoutes(router, *options.google, logger)
+	}
+	if options.reset != nil {
+		registerPasswordResetRoutes(router, *options.reset, logger)
+	}
+	if options.internal != nil {
+		registerInternalRoutes(router, *options.internal, logger)
+	}
+	if options.admin != nil {
+		registerAdminRoutes(router, *options.admin, logger)
 	}
 	return router
 }

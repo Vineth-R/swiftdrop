@@ -7,10 +7,13 @@ import (
 )
 
 type Config struct {
-	Port        int
-	AppEnv      string
-	LogLevel    string
-	DatabaseURL string
+	Port               int
+	AppEnv             string
+	LogLevel           string
+	DatabaseURL        string
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleRedirectURI  string
 }
 
 func Load() (Config, error) {
@@ -34,10 +37,13 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 
 	return Config{
-		Port:        port,
-		AppEnv:      appEnv,
-		LogLevel:    logLevel,
-		DatabaseURL: loader.String("DATABASE_URL", ""),
+		Port:               port,
+		AppEnv:             appEnv,
+		LogLevel:           logLevel,
+		DatabaseURL:        loader.String("DATABASE_URL", ""),
+		GoogleClientID:     loader.String("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: loader.String("GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURI:  loader.String("GOOGLE_REDIRECT_URI", ""),
 	}, nil
 }
 

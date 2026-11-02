@@ -3,11 +3,14 @@ module github.com/Vineth-R/swiftdrop
 go 1.27.3
 
 require (
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/gin-gonic/gin v1.12.0
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/rabbitmq/amqp091-go v1.16.0
 	golang.org/x/crypto v0.48.0
+	golang.org/x/oauth2 v0.37.0
 )
 
 require (

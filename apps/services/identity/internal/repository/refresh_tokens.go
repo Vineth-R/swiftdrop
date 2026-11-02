@@ -39,7 +39,7 @@ func (r *Repository) CreateRefreshToken(ctx context.Context, token NewRefreshTok
 		INSERT INTO identity.refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id`,
-		token.UserID, token.TokenHash, token.ExpiresAt, truncateUserAgent(token.UserAgent), token.IPAddress,
+		token.UserID, token.TokenHash, token.ExpiresAt.UTC(), truncateUserAgent(token.UserAgent), token.IPAddress,
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("creating refresh token: %w", err)
@@ -96,7 +96,7 @@ func (r *Repository) RotateRefreshToken(
 		INSERT INTO identity.refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id`,
-		userID, next.TokenHash, next.ExpiresAt, truncateUserAgent(next.UserAgent), next.IPAddress,
+		userID, next.TokenHash, next.ExpiresAt.UTC(), truncateUserAgent(next.UserAgent), next.IPAddress,
 	).Scan(&newID)
 	if err != nil {
 		return "", fmt.Errorf("rotating refresh token: %w", err)
@@ -106,7 +106,7 @@ func (r *Repository) RotateRefreshToken(
 		UPDATE identity.refresh_tokens
 		SET revoked_at = $2, replaced_by = $3
 		WHERE id = $1`,
-		oldID, now, newID,
+		oldID, now.UTC(), newID,
 	); err != nil {
 		return "", fmt.Errorf("rotating refresh token: %w", err)
 	}
@@ -124,7 +124,7 @@ func (r *Repository) RevokeRefreshToken(ctx context.Context, userID, tokenHash s
 		UPDATE identity.refresh_tokens
 		SET revoked_at = $3
 		WHERE user_id = $1 AND token_hash = $2 AND revoked_at IS NULL`,
-		userID, tokenHash, now,
+		userID, tokenHash, now.UTC(),
 	); err != nil {
 		return fmt.Errorf("revoking refresh token: %w", err)
 	}

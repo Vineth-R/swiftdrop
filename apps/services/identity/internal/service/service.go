@@ -51,6 +51,7 @@ type Config struct {
 type Option func(*Service)
 
 // WithClock replaces the time source. It exists so tests can control time.
+// Callers should use nowUTC, which normalizes the instant to UTC.
 func WithClock(now func() time.Time) Option {
 	return func(s *Service) {
 		if now != nil {
@@ -104,6 +105,10 @@ func New(store Store, hasher Hasher, tokens TokenIssuer, config Config, opts ...
 	}
 	return service, nil
 }
+
+// nowUTC returns the configured clock's instant in UTC. Every persisted
+// expiration value goes through this method.
+func (s *Service) nowUTC() time.Time { return s.now().UTC() }
 
 // Account is the public view of a user.
 type Account struct {
@@ -184,7 +189,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (Account, e
 // ErrAccountLocked, ErrAccountDisabled. A disabled account is reported only
 // after the correct password, so the status is not exposed to guessers.
 func (s *Service) Login(ctx context.Context, input LoginInput) (Session, error) {
-	now := s.now()
+	now := s.nowUTC()
 
 	user, err := s.store.UserByEmail(ctx, normalizeEmail(input.Email))
 	if errors.Is(err, repository.ErrNotFound) {
@@ -253,7 +258,7 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (Session, err
 	if !plausibleRefreshToken(input.RefreshToken) {
 		return Session{}, ErrRefreshTokenInvalid
 	}
-	now := s.now()
+	now := s.nowUTC()
 
 	refresh, err := s.newRefreshRecord(input.UserAgent, input.IP, now)
 	if err != nil {
@@ -289,7 +294,7 @@ func (s *Service) Logout(ctx context.Context, userID, refreshToken string) error
 	if !plausibleRefreshToken(refreshToken) {
 		return nil
 	}
-	if err := s.store.RevokeRefreshToken(ctx, userID, hashRefreshToken(refreshToken), s.now()); err != nil {
+	if err := s.store.RevokeRefreshToken(ctx, userID, hashRefreshToken(refreshToken), s.nowUTC()); err != nil {
 		return fmt.Errorf("logout: %w", err)
 	}
 	return nil

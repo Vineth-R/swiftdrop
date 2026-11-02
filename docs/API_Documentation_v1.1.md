@@ -174,7 +174,13 @@ Item                                        Value
 
 JWT access token claims: sub (user ID), role , exp , iat , jti . Access token lifetime is
 
-15 minutes. Refresh token lifetime is 7 days and is rotated on every use.
+15 minutes by default ( ACCESS_TOKEN_TTL ). Refresh token lifetime is 7 days by default
+
+( REFRESH_TOKEN_TTL ) and is rotated on every use. The Google OAuth state lifetime is 10
+
+minutes by default ( OAUTH_STATE_TTL ). Password reset links expire after 30 minutes by
+
+default ( PASSWORD_RESET_TOKEN_TTL ). All four values are validated at startup. Access-token expiry is carried in the JWT exp claim; refresh-token, reset-token and OAuth-state expiries are stored as TIMESTAMPTZ and checked by the service.
 
 
 <!-- PDF page 3 -->
@@ -729,7 +735,13 @@ Response 302 redirect to https://accounts.google.com/o/oauth2/v2/auth with
 
  client_id , redirect_uri , response_type=code , scope=openid email profile and a
 
-random state .
+random state . The response also sets a short-lived HttpOnly browser-binding cookie
+
+( sd_oauth_binding_<state prefix> , SameSite=Lax, Path=/api/v1/auth/google, the configured
+
+ OAUTH_STATE_TTL , default 10 minutes, Secure in production) that the callback must
+
+present.
 
 
 
@@ -745,15 +757,23 @@ Purpose: Handles Google's redirect after consent and signs the user in.
 
 
 
-Query parameters: code and state (both required). On error Google sends error .
+Query parameters: code and state (both required). On error Google sends error . The
+
+request must also send the browser-binding cookie set by 2.5.
 
 
 
-Behaviour: validates state , exchanges the code, verifies the ID token, finds or creates a
+Behaviour: validates the state and browser binding, exchanges the code, verifies the ID
 
-CUSTOMER user (matching on google_sub , then email), sets the sd_access and
+token, finds or creates a CUSTOMER user (matching on google_sub , then email), sets the
 
- sd_refresh cookies.
+ sd_access and sd_refresh cookies. If the matched account's email was not verified, the
+
+link clears its existing password and revokes its refresh tokens; a password reset restores
+
+password login. A missing or mismatched browser binding is rejected without consuming the
+
+state.
 
 
 
@@ -1096,7 +1116,9 @@ Behaviour:
 
 ## 2. If an account is eligible for password reset, create a random, high-entropy token with a
 
-       short expiry and store only a hash of the token with the user ID and expiry.
+       short expiry ( PASSWORD_RESET_TOKEN_TTL , default 30 minutes) and store only a hash of
+
+       the token with the user ID and expiry.
 
 ## 3. Email a link such as https://swiftdrop.example/reset-password?token=<token> to
 
@@ -1215,7 +1237,7 @@ Reset-link and token rules
 
        Generate tokens with a cryptographically secure random generator. Tokens are single-
 
-       use and expire after a short period (recommended: 30 minutes).
+       use and expire after a short period ( PASSWORD_RESET_TOKEN_TTL , default 30 minutes).
 
        Store a hash of each token, never the raw token. The raw token exists only in the
 

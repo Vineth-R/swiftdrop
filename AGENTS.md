@@ -48,7 +48,7 @@ The repository is intentionally a production-oriented foundation. Do not describ
 
 Planned responsibilities:
 
-- `identity`: email and password authentication (register, login, refresh, logout) is implemented; profiles, Google login, password reset, and admin users are planned.
+- `identity`: email and password authentication (register, login, refresh, logout), Google login, password reset, admin users, the courier list and the internal courier-eligibility and user-contact lookups are implemented; profiles are planned.
 - `parcel`: future parcel lifecycle, status, and tracking.
 - `pricing`: future delivery fee calculation and pricing configuration.
 - `merchant`: future merchant accounts, integration settings, and API credentials.

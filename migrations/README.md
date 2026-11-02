@@ -23,6 +23,7 @@ Current chain:
 
 - `000001_initial_schema` creates the service schema.
 - `000002_tables` is the M1 baseline from [`docs/db.sql`](../docs/db.sql): 26 tables, triggers, indexes, and reference seeds.
+- `000003_oauth_states_browser_binding` (identity) adds the nullable `oauth_states.browser_binding_hash` column used to bind a Google login attempt to the browser that started it. Existing rows keep `NULL` and expire normally.
 - `000003_dispatch_foundations` (parcel) extends the baseline `parcel_assignments` and `parcel.outbox_events` tables with reassignment metadata, an assignment `updated_at` trigger, and outbox aggregate metadata. It uses additive `ALTER TABLE` statements and does not recreate the baseline tables.
 - `000006_merchant_constraints` is the merchant service's forward migration. It adds the stricter merchant CHECK constraints through additive `ALTER TABLE` statements.
 

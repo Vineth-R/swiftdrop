@@ -27,6 +27,7 @@ type User struct {
 	Phone            *string
 	Role             auth.Role
 	AuthProvider     string
+	EmailVerified    bool
 	IsActive         bool
 	FailedLoginCount int
 	LockedUntil      *time.Time
@@ -48,19 +49,20 @@ type CreateUserParams struct {
 }
 
 const userColumns = `u.id, u.email, u.password_hash, u.full_name, u.phone, r.name,
-	u.auth_provider, u.is_active, u.failed_login_count, u.locked_until, u.created_at`
+	u.auth_provider, u.email_verified, u.is_active, u.failed_login_count, u.locked_until, u.created_at`
 
 // CreateUser inserts a LOCAL account. It returns ErrEmailTaken when the email is
 // already registered in any letter case.
 func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (User, error) {
 	user := User{
-		Email:        params.Email,
-		PasswordHash: &params.PasswordHash,
-		FullName:     params.FullName,
-		Phone:        &params.Phone,
-		Role:         params.Role,
-		AuthProvider: "LOCAL",
-		IsActive:     true,
+		Email:         params.Email,
+		PasswordHash:  &params.PasswordHash,
+		FullName:      params.FullName,
+		Phone:         &params.Phone,
+		Role:          params.Role,
+		AuthProvider:  "LOCAL",
+		EmailVerified: false,
+		IsActive:      true,
 	}
 
 	err := r.db.QueryRow(ctx, `
@@ -110,6 +112,7 @@ func (r *Repository) queryUser(ctx context.Context, condition string, arg any) (
 		&user.Phone,
 		&role,
 		&user.AuthProvider,
+		&user.EmailVerified,
 		&user.IsActive,
 		&user.FailedLoginCount,
 		&user.LockedUntil,
@@ -128,6 +131,7 @@ func (r *Repository) queryUser(ctx context.Context, condition string, arg any) (
 // RecordSuccessfulLogin clears the failure counter and any lock, and stamps
 // last_login_at.
 func (r *Repository) RecordSuccessfulLogin(ctx context.Context, userID string, now time.Time) error {
+	now = now.UTC()
 	tag, err := r.db.Exec(ctx, `
 		UPDATE identity.users
 		SET failed_login_count = 0, locked_until = NULL, last_login_at = $2
@@ -152,6 +156,7 @@ func (r *Repository) RecordFailedLogin(
 	policy lockout.Policy,
 	now time.Time,
 ) (lockout.State, error) {
+	now = now.UTC()
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return lockout.State{}, fmt.Errorf("recording failed login: %w", err)
