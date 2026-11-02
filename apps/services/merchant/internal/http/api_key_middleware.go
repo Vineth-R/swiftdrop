@@ -17,25 +17,25 @@ func MerchantAPIKey(repo *repository.Repository) gin.HandlerFunc {
 		provided := c.GetHeader("X-API-Key")
 		lookupID, err := apikey.Parse(provided)
 		if err != nil {
-			httpx.Error(c, http.StatusUnauthorized, "invalid_api_key", "invalid merchant API key")
+			httpx.Error(c, http.StatusUnauthorized, "INVALID_API_KEY", "invalid merchant API key")
 			return
 		}
 		client, storedHash, err := repo.APIClientByLookup(c.Request.Context(), lookupID)
 		if errors.Is(err, repository.ErrNotFound) || err != nil {
-			httpx.Error(c, http.StatusUnauthorized, "invalid_api_key", "invalid merchant API key")
+			httpx.Error(c, http.StatusUnauthorized, "INVALID_API_KEY", "invalid merchant API key")
 			return
 		}
 		if !apikey.EqualHash(storedHash, apikey.Hash(provided)) || client.Status != "ACTIVE" {
-			httpx.Error(c, http.StatusUnauthorized, "invalid_api_key", "invalid merchant API key")
+			httpx.Error(c, http.StatusUnauthorized, "INVALID_API_KEY", "invalid merchant API key")
 			return
 		}
 		merchant, err := repo.MerchantByID(c.Request.Context(), client.MerchantID)
 		if err != nil {
-			httpx.Error(c, http.StatusUnauthorized, "invalid_api_key", "invalid merchant API key")
+			httpx.Error(c, http.StatusUnauthorized, "INVALID_API_KEY", "invalid merchant API key")
 			return
 		}
 		if merchant.Status != repository.MerchantStatusApproved {
-			httpx.Error(c, http.StatusForbidden, "merchant_not_approved", "merchant approval is required")
+			httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_APPROVED", "merchant approval is required")
 			return
 		}
 		_ = repo.TouchAPIClient(c.Request.Context(), client.ID)
