@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
 
 // Run only against a disposable local Compose stack. Fixtures use fresh UUIDs;
@@ -56,8 +56,11 @@ func TestPricingTrackingBackend(t *testing.T) {
 		t.Fatal("configure JWT_ACCESS_SECRET for admin integration fixtures")
 	}
 	actor := backendUUID(t)
-	claims := jwt.MapClaims{"sub": actor, "role": "ADMIN", "jti": backendUUID(t), "iat": time.Now().Add(-time.Minute).Unix(), "exp": time.Now().Add(30 * time.Minute).Unix()}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	manager, err := auth.NewTokenManager(secret, 30*time.Minute)
+	if err != nil {
+		t.Fatal("configure JWT_ACCESS_SECRET for admin integration fixtures")
+	}
+	token, _, err := manager.Issue(actor, auth.RoleAdmin)
 	if err != nil {
 		t.Fatal("cannot sign test identity")
 	}
@@ -99,14 +102,20 @@ func TestPricingTrackingBackend(t *testing.T) {
 	parcelIDs := []string{}
 	// Register cleanup before inserting, so a partially created fixture is scoped safely.
 	t.Cleanup(func() {
-		cleanup := fmt.Sprintf("DELETE FROM pricing.audit_logs WHERE actor_user_id='%s'; DELETE FROM pricing.pricing_rules WHERE id='%s';", actor, rule)
-		for _, id := range parcelIDs {
-			cleanup += fmt.Sprintf("DELETE FROM parcel.parcel_status_history WHERE parcel_id='%s'; DELETE FROM parcel.parcels WHERE id='%s';", id, id)
+		// parcel_status_history is append-only in production. Disable trigger
+		// firing for this disposable cleanup session only; the SET expires with
+		// the psql session and does not change any persistent database setting.
+		cleanup := "SET session_replication_role = replica;\n"
+		if len(parcelIDs) > 0 {
+			cleanup += fmt.Sprintf("DELETE FROM parcel.parcel_status_history WHERE parcel_id IN (%s);\n", quotedUUIDList(parcelIDs))
+			cleanup += fmt.Sprintf("DELETE FROM parcel.parcels WHERE id IN (%s);\n", quotedUUIDList(parcelIDs))
 		}
+		cleanup += fmt.Sprintf("DELETE FROM pricing.audit_logs WHERE actor_user_id='%s'; DELETE FROM pricing.pricing_rules WHERE id='%s';\n", actor, rule)
 		for _, id := range bandIDs {
-			cleanup += fmt.Sprintf("DELETE FROM pricing.weight_bands WHERE id='%s';", id)
+			cleanup += fmt.Sprintf("DELETE FROM pricing.weight_bands WHERE id='%s';\n", id)
 		}
-		cleanup += fmt.Sprintf("DELETE FROM pricing.zones WHERE id IN ('%s','%s');", origin, destination)
+		cleanup += fmt.Sprintf("DELETE FROM pricing.zones WHERE id IN ('%s','%s');\n", origin, destination)
+		cleanup += "RESET session_replication_role;"
 		sql(cleanup)
 	})
 	sql(fmt.Sprintf(`INSERT INTO pricing.zones(id,code,name,districts) VALUES
@@ -177,7 +186,7 @@ func TestPricingTrackingBackend(t *testing.T) {
 		if status != 409 || !bytes.Contains(data, []byte("BAND_OVERLAP")) {
 			t.Fatal(status, string(data))
 		}
-		for _, test := range []struct{ weight, code string }{{weight: "50", code: "WEIGHT_NOT_PRICED"}, {weight: "52.01", code: "VALIDATION_ERROR"}} {
+		for _, test := range []struct{ weight, code string }{{weight: "50", code: "WEIGHT_NOT_PRICED"}, {weight: "52.01", code: "WEIGHT_NOT_PRICED"}} {
 			status, data := call("POST", "/api/v1/pricing/estimate", quoteBody(test.weight, "SMALL"), false)
 			if status != 422 || !bytes.Contains(data, []byte(test.code)) {
 				t.Fatal(status, string(data))
@@ -313,6 +322,14 @@ func TestPricingTrackingBackend(t *testing.T) {
 		}
 		t.Fatal("tracking rate limit bypassed")
 	})
+}
+
+func quotedUUIDList(ids []string) string {
+	quoted := make([]string, len(ids))
+	for index, id := range ids {
+		quoted[index] = "'" + id + "'"
+	}
+	return strings.Join(quoted, ",")
 }
 
 func backendUUID(t *testing.T) string {

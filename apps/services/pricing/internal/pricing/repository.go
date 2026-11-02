@@ -53,17 +53,17 @@ func (r *Repository) Quote(ctx context.Context, input Input) (Quote, error) {
 	if !*origin || !*destination {
 		return Quote{}, ErrZoneNotFound
 	}
+	if base == nil {
+		return Quote{}, ErrRouteNotServiceable
+	}
 	if maximum != nil {
 		maxWeight, err := ParseDecimal(*maximum)
 		if err != nil {
 			return Quote{}, fmt.Errorf("read maximum weight: %w", err)
 		}
 		if input.WeightKg > maxWeight {
-			return Quote{}, &Invalid{Field: "weightKg", Issue: "exceeds the maximum supported weight"}
+			return Quote{}, ErrWeightNotPriced
 		}
-	}
-	if base == nil {
-		return Quote{}, ErrRouteNotServiceable
 	}
 	if currency == nil || strings.TrimSpace(*currency) != "LKR" {
 		return Quote{}, errors.New("unsupported pricing currency configuration")

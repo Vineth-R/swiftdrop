@@ -147,9 +147,17 @@ func TestRepositoryQuote(t *testing.T) {
 			return testRow{values: []any{&active, &active, &base, &maximum, nil, &size, nil}}
 		}}
 		_, err := NewRepository(db).Quote(t.Context(), Input{OriginZoneID: originID, DestinationZoneID: destinationID, WeightKg: 2600, SizeCategory: "SMALL"})
-		var invalid *Invalid
-		if !errors.As(err, &invalid) || invalid.Field != "weightKg" {
-			t.Fatalf("error %v", err)
+		if !errors.Is(err, ErrWeightNotPriced) {
+			t.Fatalf("error %v, want %v", err, ErrWeightNotPriced)
+		}
+	})
+	t.Run("unpriced route takes precedence over weight", func(t *testing.T) {
+		db := &testDB{row: func(context.Context, string, ...any) pgx.Row {
+			return testRow{values: []any{&active, &active, nil, &maximum, nil, &size, nil}}
+		}}
+		_, err := NewRepository(db).Quote(t.Context(), Input{OriginZoneID: originID, DestinationZoneID: destinationID, WeightKg: 2600, SizeCategory: "SMALL"})
+		if !errors.Is(err, ErrRouteNotServiceable) {
+			t.Fatalf("error %v, want %v", err, ErrRouteNotServiceable)
 		}
 	})
 }

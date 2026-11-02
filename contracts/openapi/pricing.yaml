@@ -120,8 +120,9 @@ paths:
         '422': &a5
           description:
             VALIDATION_ERROR, ROUTE_NOT_SERVICEABLE or WEIGHT_NOT_PRICED.
-            Weight above the maximum active band is VALIDATION_ERROR; a gap is
-            WEIGHT_NOT_PRICED.
+            A weight above the maximum active band or in a gap between active
+            bands is WEIGHT_NOT_PRICED. An unpriced route is
+            ROUTE_NOT_SERVICEABLE and takes precedence over weight errors.
           content:
             application/json:
               schema:

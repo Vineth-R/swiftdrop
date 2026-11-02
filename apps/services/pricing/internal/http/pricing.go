@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/pricing"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 	"github.com/gin-gonic/gin"
@@ -35,7 +36,7 @@ type pricingHandler struct {
 	logger *slog.Logger
 }
 
-func registerPricing(router *gin.Engine, logger *slog.Logger, options Options) {
+func registerPricing(router *gin.Engine, logger *slog.Logger, options Options) error {
 	store := options.Store
 	if store == nil {
 		store = pricing.NewRepository(nil)
@@ -50,7 +51,18 @@ func registerPricing(router *gin.Engine, logger *slog.Logger, options Options) {
 	if cookie == "" {
 		cookie = "sd_access"
 	}
-	admin := router.Group("/admin", httpx.RequireRole(options.AccessSecret, cookie, "ADMIN"))
+	admin := router.Group("/admin")
+	if options.AccessSecret == "" {
+		admin.Use(func(c *gin.Context) {
+			httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "authentication is not configured")
+		})
+	} else {
+		manager, err := auth.NewTokenManager(options.AccessSecret, time.Minute)
+		if err != nil {
+			return err
+		}
+		admin.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleAdmin))
+	}
 	admin.POST("/zones", h.mutate("zones", true))
 	admin.PATCH("/zones/:id", h.mutate("zones", false))
 	for _, kind := range []string{"rules", "bands"} {
@@ -60,6 +72,7 @@ func registerPricing(router *gin.Engine, logger *slog.Logger, options Options) {
 	}
 	admin.GET("/pricing/surcharges", h.list("surcharges"))
 	admin.PUT("/pricing/surcharges/:id", h.mutate("surcharges", false))
+	return nil
 }
 
 func decodeBody(c *gin.Context, value any) error {
@@ -151,7 +164,12 @@ func (h *pricingHandler) mutate(kind string, creating bool) gin.HandlerFunc {
 			h.failure(c, &pricing.Invalid{Field: "sizeCategory", Issue: "unsupported category"})
 			return
 		}
-		actor := c.GetString("authenticated_subject")
+		claims, ok := auth.ClaimsFrom(c)
+		if !ok {
+			httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
+			return
+		}
+		actor := claims.UserID
 		if !pricing.ValidID(actor) {
 			httpx.Error(c, 401, "UNAUTHENTICATED", "invalid user identity")
 			return

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/pricing"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -40,10 +42,13 @@ func (s fixtureStore) Mutate(context.Context, string, string, string, pricing.Mu
 func (s fixtureStore) List(context.Context, string, pricing.Filter) ([]json.RawMessage, int, error) {
 	return []json.RawMessage{}, 0, nil
 }
-func adminToken(t *testing.T, role string) string {
+func adminToken(t *testing.T, role auth.Role) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": testOrigin, "role": role, "jti": "fixture", "iat": time.Now().Add(-time.Minute).Unix(), "exp": time.Now().Add(5 * time.Minute).Unix()})
-	raw, err := token.SignedString([]byte(testSecret))
+	manager, err := auth.NewTokenManager(testSecret, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := manager.Issue(testOrigin, role)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,21 +127,22 @@ func TestInternalQuoteAuthenticationAndParity(t *testing.T) {
 }
 func TestAdminPricingContracts(t *testing.T) {
 	for _, test := range []struct {
-		name, method, path, body, role string
-		status                         int
+		name, method, path, body string
+		role                     auth.Role
+		status                   int
 	}{
 		{name: "anonymous", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test"}`, status: 401},
-		{name: "customer denied", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test"}`, role: "CUSTOMER", status: 403},
-		{name: "create", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test"}`, role: "ADMIN", status: 201},
-		{name: "missing name", method: "POST", path: "/admin/zones", body: `{"code":"T"}`, role: "ADMIN", status: 422},
-		{name: "null", method: "POST", path: "/admin/zones", body: `{"code":"T","name":null}`, role: "ADMIN", status: 422},
-		{name: "unknown", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test","role":"ADMIN"}`, role: "ADMIN", status: 422},
-		{name: "empty update", method: "PATCH", path: "/admin/zones/" + testOrigin, body: `{}`, role: "ADMIN", status: 422},
-		{name: "invalid identifier", method: "PATCH", path: "/admin/zones/bad", body: `{"name":"Test"}`, role: "ADMIN", status: 422},
-		{name: "list rules", method: "GET", path: "/admin/pricing/rules", role: "ADMIN", status: 200},
-		{name: "pagination", method: "GET", path: "/admin/pricing/rules?pageSize=101", role: "ADMIN", status: 422},
-		{name: "surcharge", method: "PUT", path: "/admin/pricing/surcharges/SMALL", body: `{"surcharge":0}`, role: "ADMIN", status: 200},
-		{name: "negative fee", method: "POST", path: "/admin/pricing/rules", body: `{"originZoneId":"` + testOrigin + `","destinationZoneId":"` + testDestination + `","baseFee":-1}`, role: "ADMIN", status: 422},
+		{name: "customer denied", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test"}`, role: auth.RoleCustomer, status: 403},
+		{name: "create", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test"}`, role: auth.RoleAdmin, status: 201},
+		{name: "missing name", method: "POST", path: "/admin/zones", body: `{"code":"T"}`, role: auth.RoleAdmin, status: 422},
+		{name: "null", method: "POST", path: "/admin/zones", body: `{"code":"T","name":null}`, role: auth.RoleAdmin, status: 422},
+		{name: "unknown", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test","role":"ADMIN"}`, role: auth.RoleAdmin, status: 422},
+		{name: "empty update", method: "PATCH", path: "/admin/zones/" + testOrigin, body: `{}`, role: auth.RoleAdmin, status: 422},
+		{name: "invalid identifier", method: "PATCH", path: "/admin/zones/bad", body: `{"name":"Test"}`, role: auth.RoleAdmin, status: 422},
+		{name: "list rules", method: "GET", path: "/admin/pricing/rules", role: auth.RoleAdmin, status: 200},
+		{name: "pagination", method: "GET", path: "/admin/pricing/rules?pageSize=101", role: auth.RoleAdmin, status: 422},
+		{name: "surcharge", method: "PUT", path: "/admin/pricing/surcharges/SMALL", body: `{"surcharge":0}`, role: auth.RoleAdmin, status: 200},
+		{name: "negative fee", method: "POST", path: "/admin/pricing/rules", body: `{"originZoneId":"` + testOrigin + `","destinationZoneId":"` + testDestination + `","baseFee":-1}`, role: auth.RoleAdmin, status: 422},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
@@ -155,6 +161,76 @@ func TestAdminPricingContracts(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAdminPricingCookieAuthentication(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest("POST", "/admin/zones", strings.NewReader(`{"code":"T","name":"Test"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: "sd_access", Value: adminToken(t, auth.RoleAdmin)})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != 201 {
+		t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAdminPricingRequiresConfiguredSecret(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest("POST", "/admin/zones", strings.NewReader(`{"code":"T","name":"Test"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != 503 || !strings.Contains(recorder.Body.String(), "SERVICE_UNAVAILABLE") {
+		t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAdminPricingRejectsInvalidTokens(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		token string
+	}{
+		{name: "malformed", token: "not-a-token"},
+		{name: "wrong issuer", token: signedToken(t, jwt.MapClaims{
+			"iss": "other-issuer", "sub": testOrigin, "role": "ADMIN", "jti": "fixture",
+			"iat": time.Now().Add(-time.Minute).Unix(), "exp": time.Now().Add(5 * time.Minute).Unix(),
+		})},
+		{name: "expired", token: signedToken(t, jwt.MapClaims{
+			"iss": auth.Issuer, "sub": testOrigin, "role": "ADMIN", "jti": "fixture",
+			"iat": time.Now().Add(-2 * time.Hour).Unix(), "exp": time.Now().Add(-time.Hour).Unix(),
+		})},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest("POST", "/admin/zones", strings.NewReader(`{"code":"T","name":"Test"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Authorization", "Bearer "+test.token)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != 401 {
+				t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func signedToken(t *testing.T, claims jwt.MapClaims) string {
+	t.Helper()
+	raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 func TestPublicZoneProjection(t *testing.T) {
 	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}})

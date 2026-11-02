@@ -7,12 +7,12 @@ This is a document-based requirements analysis, not an audit of completed reposi
 
 The documents disagree:
 
-| Source | What it says about M4 and 1 November |
-| --- | --- |
-| M4.pdf, pp. 1–3 | Explicitly requires pricing AND actual public tracking by 1 November, with tests, integration evidence, documentation, PR and demo materials. Frontend is conditional on assigned scope. |
-| Nov 1 Submission Guide, p. 5 | Requires pricing migrations/seed, estimate and zones endpoints, Sections 6.1 and 8, Figures 8 and 9. A sample-data mobile tracking layout is optional. |
-| Milestone 2 Submission Plan, p. 3 | Same M4 Must/Should split as the guide. Its title calls this Milestone 2, but p. 1 says the earlier plan calls it Milestone 1 and full implementation is due 15 November. |
-| Team Task Sheet, pp. 10–12 | Seed and estimate due 1 November; initial pricing work continues to 4 November. Admin pricing is 4–9 November; actual tracking is 6–10 November; consolidated test report is 9–14 November. |
+| Source                            | What it says about M4 and 1 November                                                                                                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M4.pdf, pp. 1–3                   | Explicitly requires pricing AND actual public tracking by 1 November, with tests, integration evidence, documentation, PR and demo materials. Frontend is conditional on assigned scope.    |
+| Nov 1 Submission Guide, p. 5      | Requires pricing migrations/seed, estimate and zones endpoints, Sections 6.1 and 8, Figures 8 and 9. A sample-data mobile tracking layout is optional.                                      |
+| Milestone 2 Submission Plan, p. 3 | Same M4 Must/Should split as the guide. Its title calls this Milestone 2, but p. 1 says the earlier plan calls it Milestone 1 and full implementation is due 15 November.                   |
+| Team Task Sheet, pp. 10–12        | Seed and estimate due 1 November; initial pricing work continues to 4 November. Admin pricing is 4–9 November; actual tracking is 6–10 November; consolidated test report is 9–14 November. |
 
 No document establishes that it supersedes the others. Ask the team lead whether M4.pdf is the final scope. Until confirmed, complete the shared minimum first, then the actual tracking requirements in M4.pdf; do not silently drop that explicit deadline. This question does not block migrations, pricing, report writing or tests.
 
@@ -81,7 +81,7 @@ Source: Task Sheet M4.2 and M5 report task; Guide pp. 5–6; Design Report §6.1
 - [ ] Run configured Nx build/test/lint targets for affected projects through pnpm after inspecting the actual targets; do not guess commands or targets.
 - [ ] Check Compose integration and obtain a green real CI run for the submitted changes.
 
-Clarification to settle: API §3.1 calls a weight above the maximum band VALIDATION_ERROR, while the team acceptance text says a weight outside every band is WEIGHT_NOT_PRICED. Use a gap within the supported range to demonstrate WEIGHT_NOT_PRICED; agree and test the above-maximum rule separately.
+Contract decision: the team acceptance text is authoritative for this submission. Any weight not covered by an active band, including above the maximum band, returns 422 `WEIGHT_NOT_PRICED`; a gap within the supported range is used as an additional test case. An unpriced route returns 422 `ROUTE_NOT_SERVICEABLE` before weight errors. This deliberately differs from API v1.1 §3.1's above-maximum `VALIDATION_ERROR` wording and must be flagged to M5/M10.
 
 ## 3. Additional explicit requirements in M4.pdf
 
@@ -127,16 +127,16 @@ Source: M4.pdf pp. 1–3 and Task Sheet pp. 1–2.
 
 Suggested effort blocks below are planning estimates, not promises. Remaining time depends on current implementation progress, which has not been audited.
 
-| Order | Work block | Suggested effort | Completion gate / handoff |
-| --- | --- | --- | --- |
-| 1 | Resolve scope and contracts; inspect existing code/migrations | 20–30 min | Scope conflict recorded; M1 DB details and M5 quote contract agreed; no duplicate migration planned |
-| 2 | Draft Sections 6.1/8 and Figures 8/9 immediately | 60–90 min | Drafts/source figures committed; M3 can review and M10 can assemble without waiting for code |
-| 3 | Verify/fill pricing schema and seed | 45–90 min | Fresh DB applies; seed yields the documented components; constraints tested; M1/M5 receive handoff |
-| 4 | Implement pricing logic, estimate, zones and internal quote | 2–3 h | Shared calculation logic, contract responses, validation and repository tests pass |
-| 5 | Gateway/Compose/CI and evidence for core pricing | 45–60 min | 550 example and negative cases proven through the gateway; output saved; PR review requested |
-| 6 | Real tracking API if M4.pdf applies, or while awaiting scope resolution after core work | 1–2 h, dependent on Parcel readiness | Real public projection and history, privacy/unknown-number/rate-limit tests; owner-reviewed Parcel changes |
-| 7 | Tracking UI; admin management only if confirmed accelerated | UI 45–90 min; admin work materially longer | Real API integration and required UI tests; no claim that full scope fits one evening |
-| 8 | Fix report review comments, review M5, package and hand over | 45–60 min | Final sections/figures, actual code references, evidence and limitations sent to M10; PR/CI links sent to M1/M5 |
+| Order | Work block                                                                              | Suggested effort                           | Completion gate / handoff                                                                                       |
+| ----- | --------------------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| 1     | Resolve scope and contracts; inspect existing code/migrations                           | 20–30 min                                  | Scope conflict recorded; M1 DB details and M5 quote contract agreed; no duplicate migration planned             |
+| 2     | Draft Sections 6.1/8 and Figures 8/9 immediately                                        | 60–90 min                                  | Drafts/source figures committed; M3 can review and M10 can assemble without waiting for code                    |
+| 3     | Verify/fill pricing schema and seed                                                     | 45–90 min                                  | Fresh DB applies; seed yields the documented components; constraints tested; M1/M5 receive handoff              |
+| 4     | Implement pricing logic, estimate, zones and internal quote                             | 2–3 h                                      | Shared calculation logic, contract responses, validation and repository tests pass                              |
+| 5     | Gateway/Compose/CI and evidence for core pricing                                        | 45–60 min                                  | 550 example and negative cases proven through the gateway; output saved; PR review requested                    |
+| 6     | Real tracking API if M4.pdf applies, or while awaiting scope resolution after core work | 1–2 h, dependent on Parcel readiness       | Real public projection and history, privacy/unknown-number/rate-limit tests; owner-reviewed Parcel changes      |
+| 7     | Tracking UI; admin management only if confirmed accelerated                             | UI 45–90 min; admin work materially longer | Real API integration and required UI tests; no claim that full scope fits one evening                           |
+| 8     | Fix report review comments, review M5, package and hand over                            | 45–60 min                                  | Final sections/figures, actual code references, evidence and limitations sent to M10; PR/CI links sent to M1/M5 |
 
 Do report drafts early because their freeze can precede implementation completion. Finish technical code references after the implementation is known. If a dependency is unavailable, work on the report, pure calculation tests or contract fakes, and record the dependency; fakes are not final integration evidence.
 
@@ -144,15 +144,15 @@ Do report drafts early because their freeze can precede implementation completio
 
 The documents contain two schedules. The Task Sheet/Submission Plan specify report drafts at 3 pm and reviews by 7 pm. The evening Nov 1 Guide shifts drafts to 8 pm and reviews to 8:30 pm. Both retain the 9 pm report freeze. Treat the earlier checkpoints as missed if already elapsed and use the evening schedule for recovery, subject to team confirmation.
 
-| Deadline | Your action |
-| --- | --- |
-| Oct 31, immediately | Agree scope; send M5 the quote contract; start report drafts and migration verification |
-| Oct 31, 8 pm recovery checkpoint | Migration SQL and seed ready; section/figure drafts committed and sent to M10 |
-| Oct 31, 8:30 pm | M3 reviewing your report; your review of M5 returned |
-| Oct 31, 9 pm | All report review comments fixed; report frozen |
-| Oct 31, 9–11 pm | Support M10's assembly and M1's clean-clone test; deliver verified code/evidence for the tested commit |
-| Nov 1, 9 am | Check your sections/figures in the final PDF; confirm submitted repo includes your intended contribution |
-| Nov 1, by noon, or earlier if the portal requires | M10/M1 submit PDF + repository URL; obtain confirmation and retain links/evidence |
+| Deadline                                          | Your action                                                                                              |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Oct 31, immediately                               | Agree scope; send M5 the quote contract; start report drafts and migration verification                  |
+| Oct 31, 8 pm recovery checkpoint                  | Migration SQL and seed ready; section/figure drafts committed and sent to M10                            |
+| Oct 31, 8:30 pm                                   | M3 reviewing your report; your review of M5 returned                                                     |
+| Oct 31, 9 pm                                      | All report review comments fixed; report frozen                                                          |
+| Oct 31, 9–11 pm                                   | Support M10's assembly and M1's clean-clone test; deliver verified code/evidence for the tested commit   |
+| Nov 1, 9 am                                       | Check your sections/figures in the final PDF; confirm submitted repo includes your intended contribution |
+| Nov 1, by noon, or earlier if the portal requires | M10/M1 submit PDF + repository URL; obtain confirmation and retain links/evidence                        |
 
 Noon is the team's target, not a verified university portal cutoff. Confirm the actual portal time with the team.
 
@@ -160,17 +160,17 @@ Noon is the team's target, not a verified university portal cutoff. Confirm the 
 
 Do not confuse these with the shared Nov 1 minimum; the M4.pdf conflict remains relevant.
 
-| Dates | M4 responsibility |
-| --- | --- |
-| Through Nov 4 | Finish remaining M4.1 pricing/internal integration work |
-| Nov 5 checkpoint | Estimate → customer parcel creation works in the browser with saved data, jointly with M5 |
-| Nov 4–9 | Admin pricing endpoints and four screens |
-| Nov 6–10 | Full public tracking endpoint/page, mobile privacy and realtime integration with M10 |
-| Nov 9–14 | Own pricing/tracking tests; pricing coverage at least 70%; collect team test/coverage/event-flow results into a reproducible test report PDF linked from README |
-| By Nov 12 | Collect owners' results; feature freeze, then bug fixes |
-| By Nov 13 | Send as-built report updates to M10; prepare viva notes and contribution details |
-| Nov 14 | Final test report and two timed demo rehearsals |
-| Nov 15 | Final submission/demo; team contribution sheet, coverage summary and full feature demonstration |
+| Dates            | M4 responsibility                                                                                                                                               |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Through Nov 4    | Finish remaining M4.1 pricing/internal integration work                                                                                                         |
+| Nov 5 checkpoint | Estimate → customer parcel creation works in the browser with saved data, jointly with M5                                                                       |
+| Nov 4–9          | Admin pricing endpoints and four screens                                                                                                                        |
+| Nov 6–10         | Full public tracking endpoint/page, mobile privacy and realtime integration with M10                                                                            |
+| Nov 9–14         | Own pricing/tracking tests; pricing coverage at least 70%; collect team test/coverage/event-flow results into a reproducible test report PDF linked from README |
+| By Nov 12        | Collect owners' results; feature freeze, then bug fixes                                                                                                         |
+| By Nov 13        | Send as-built report updates to M10; prepare viva notes and contribution details                                                                                |
+| Nov 14           | Final test report and two timed demo rehearsals                                                                                                                 |
+| Nov 15           | Final submission/demo; team contribution sheet, coverage summary and full feature demonstration                                                                 |
 
 ## 7. Source map
 
