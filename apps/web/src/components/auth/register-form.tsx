@@ -284,19 +284,7 @@ export function RegisterForm() {
           isRequired
           isMono
           prefix="+94"
-          helper={
-            form.values.phone.trim() ? (
-              <>
-                Used for delivery calls. Stored as{' '}
-                <span className="font-mono">
-                  {toSriLankanE164(form.values.phone)}
-                </span>
-                .
-              </>
-            ) : (
-              'Used for delivery calls. Sri Lankan numbers only for now.'
-            )
-          }
+          helper="Used for delivery calls."
           value={form.values.phone}
           readOnly={isLoading}
           error={form.errors.phone}
@@ -352,10 +340,6 @@ export function RegisterForm() {
       <GoogleButton href={googleLoginUrl(next || '/dashboard')}>
         Sign up with Google
       </GoogleButton>
-      <p className="text-caption text-text-faint">
-        A Google account skips the password fields entirely. You can add a phone
-        number afterwards on your profile.
-      </p>
     </>
   );
 }

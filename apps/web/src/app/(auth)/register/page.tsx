@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: 'Create your account — SwiftDrop' }
 export default function RegisterPage() {
   return (
     <AuthLayout panel={<RegisterPanel />} width="wide">
-      <AuthHeading title="Create your account">
+      <AuthHeading eyebrow="New account" title="Create your account">
         Already have one?{' '}
         <Link
           href="/login"

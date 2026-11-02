@@ -129,7 +129,7 @@ export function ResetPasswordForm() {
           <Check size={24} strokeWidth={1.5} />
         </span>
         <div className="flex flex-col gap-2">
-          <h1 className="font-display text-h2">Password updated</h1>
+          <h1 className="font-display text-h2 md:text-h1">Password updated</h1>
           <p className="text-body text-text-muted">
             Log in with the new password. Every other session has been signed
             out, on every device.
@@ -148,7 +148,7 @@ export function ResetPasswordForm() {
 
   return (
     <>
-      <AuthHeading title="Set a new password">
+      <AuthHeading eyebrow="Account recovery" title="Set a new password">
         Choose a password you have not used before.
       </AuthHeading>
       {problem?.kind === 'rate-limited' && (

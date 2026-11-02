@@ -158,9 +158,6 @@ export function LoginForm() {
         <ButtonLink href="/" variant="secondary" size="lg" isFullWidth>
           Back to home
         </ButtonLink>
-        <p className="text-caption text-text-faint">
-          The form is removed, not disabled: there is nothing useful to type.
-        </p>
       </div>
     );
   }
@@ -228,10 +225,6 @@ export function LoginForm() {
       <GoogleButton href={googleLoginUrl(next || '/dashboard')}>
         Continue with Google
       </GoogleButton>
-      <p className="text-caption text-text-faint">
-        Signing in sets an HttpOnly session cookie. We never keep a token where
-        a script on the page could read it.
-      </p>
     </>
   );
 }

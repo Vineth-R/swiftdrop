@@ -4,30 +4,30 @@ import Link from 'next/link';
 import { cn } from '../../lib/cn';
 import { Logo } from '../ui/logo';
 import { RouteLine } from '../ui/route-line';
+import { ThemeSwitch } from '../ui/theme-switch';
 
 type AuthLayoutProps = {
-  /** What the dark panel says. Hidden below 768px, where only the header remains. */
+  /** A brand panel. Hidden below 768px, where only the header remains. */
   panel: ReactNode;
   /** Width of the form column: login and reset are narrower than register. */
   width?: 'narrow' | 'wide';
-  /** Draw the route line along the bottom of the panel. The login panel has its own. */
-  showRoute?: boolean;
   /** The form column's content. */
   children: ReactNode;
 };
 
+const cities = ['Colombo', 'Kandy', 'Galle', 'Jaffna', 'Negombo', 'Matara'];
+
 /**
- * Ink brand panel and a form. One column under 768px, where the panel shrinks
- * to a header with the logo and a short route line.
+ * A brand panel and a form. One column under 768px, where the panel shrinks to
+ * a header with the logo, a short route line and the theme switch.
  *
  * The panel is Ink in both themes, so it opts into the dark token values with
  * data-theme="dark": text, route and line colours then read correctly on it
- * even when the page itself is light.
+ * even when the page itself is light. The form side follows the theme.
  */
 export function AuthLayout({
   panel,
   width = 'narrow',
-  showRoute = true,
   children,
 }: AuthLayoutProps) {
   return (
@@ -41,49 +41,78 @@ export function AuthLayout({
 
       <aside
         data-theme="dark"
-        className="flex flex-col gap-4 bg-ink px-5 py-6 text-text md:flex-1 md:basis-96 md:justify-between md:gap-10 md:p-12"
+        className="relative isolate overflow-clip bg-ink text-text md:flex-1 md:basis-96"
       >
-        <Link
-          href="/"
-          aria-label="SwiftDrop home"
-          className="self-start text-text no-underline"
-        >
-          <Logo />
-        </Link>
-        <div className="hidden md:block">{panel}</div>
-        <RouteLine state="complete" nodeSize={8} className="md:hidden" />
-        {showRoute && (
-          <RouteLine state="complete" className="hidden w-full md:flex" />
-        )}
+        {/* On wide screens the panel stays in view while a long form scrolls. */}
+        <div className="flex flex-col px-5 py-6 md:sticky md:top-0 md:h-screen md:p-10 xl:p-12">
+          <div className="flex items-center justify-between gap-4">
+            <Link
+              href="/"
+              aria-label="SwiftDrop home"
+              className="text-text no-underline"
+            >
+              <Logo />
+            </Link>
+            <div className="md:hidden">
+              <ThemeSwitch variant="compact" />
+            </div>
+          </div>
+          <RouteLine state="complete" nodeSize={8} className="mt-4 md:hidden" />
+          <div className="hidden min-h-0 flex-1 flex-col pt-8 md:flex">
+            {panel}
+          </div>
+        </div>
       </aside>
 
       <main
         id="main"
-        className="flex flex-1 items-start justify-center px-4 py-10 md:basis-120 md:items-center md:px-6 md:py-12"
+        className="relative flex flex-1 flex-col md:basis-120 md:border-l md:border-line"
       >
-        <div
-          className={cn(
-            'flex w-full flex-col gap-6',
-            width === 'narrow' ? 'max-w-100' : 'max-w-115',
-          )}
-        >
-          {children}
+        <div className="absolute right-6 top-6 hidden md:block">
+          <ThemeSwitch variant="compact" />
         </div>
+        <div className="flex flex-1 items-start justify-center px-4 py-10 md:items-center md:px-6 md:py-16">
+          <div
+            className={cn(
+              'flex w-full flex-col gap-6',
+              width === 'narrow' ? 'max-w-100' : 'max-w-115',
+            )}
+          >
+            {children}
+          </div>
+        </div>
+        <footer className="flex flex-col items-center gap-3 px-4 pb-8 md:px-6">
+          <RouteLine state="idle" nodeSize={7} className="w-24" />
+          <p className="text-balance text-center text-overline uppercase text-text-faint">
+            {cities.join(' · ')}
+          </p>
+        </footer>
       </main>
     </div>
   );
 }
 
-/** The form column's heading and its one line of help. */
+/**
+ * The form column's heading. The eyebrow names the moment (welcome back, new
+ * account) in the small caps the system uses for labels; the line under the
+ * heading is the one thing the person needs to read before the fields.
+ */
 export function AuthHeading({
   title,
+  eyebrow,
   children,
 }: {
   title: string;
+  eyebrow?: string;
   children?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-2">
+      {eyebrow && (
+        <span className="text-overline uppercase text-text-faint">
+          {eyebrow}
+        </span>
+      )}
       <h1 className="font-display text-h2 md:text-h1">{title}</h1>
       {children && <p className="text-body text-text-muted">{children}</p>}
     </div>

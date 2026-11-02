@@ -423,7 +423,7 @@ test.describe('login', () => {
     await page.goto('/login');
 
     await expect(page.getByRole('heading', { name: 'Log in' })).toBeVisible();
-    await expect(page.getByText('Picked up at 14:02')).toBeHidden();
+    await expect(page.getByText('Every parcel, point to point.')).toBeHidden();
     const overflow = await page.evaluate(
       'document.documentElement.scrollWidth - document.documentElement.clientWidth',
     );
@@ -457,7 +457,6 @@ test.describe('register', () => {
     });
     await page.goto('/register');
     await fillValid(page);
-    await expect(page.getByText('+94771234567')).toBeVisible();
     await page.getByRole('button', { name: 'Create account' }).click();
 
     await expect(page.getByText('Account created')).toBeVisible();
@@ -663,6 +662,46 @@ test.describe('forgot and reset password', () => {
       'content',
       'no-referrer',
     );
+  });
+});
+
+test.describe('theme switch', () => {
+  test('every auth page can switch theme, and the brand panel stays ink', async ({
+    page,
+  }) => {
+    await mockApi(page, signedOut);
+    await page.goto('/login');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    const panel = page.locator('aside');
+    await expect(panel).toHaveCSS('background-color', 'rgb(20, 23, 26)');
+
+    await page.getByRole('button', { name: 'Dark' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveCSS(
+      'background-color',
+      'rgb(14, 17, 19)',
+    );
+    await expect(panel).toHaveCSS('background-color', 'rgb(20, 23, 26)');
+
+    await page.getByRole('button', { name: 'Light' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  });
+
+  test('the brand panel carries one line about the page and no technical wording', async ({
+    page,
+  }) => {
+    await mockApi(page, signedOut);
+    for (const [path, line] of [
+      ['/login', 'Every parcel, point to point.'],
+      ['/register', 'From first parcel to hundredth.'],
+      ['/forgot-password', 'Back on the route in a minute.'],
+    ] as const) {
+      await page.goto(path);
+      await expect(page.getByRole('heading', { name: line })).toBeVisible();
+      await expect(page.getByText(/cookie|token|HttpOnly|E\.164/i)).toHaveCount(
+        0,
+      );
+    }
   });
 });
 

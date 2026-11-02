@@ -113,7 +113,10 @@ export function RequestResetForm({
       <div className="flex flex-col gap-6">
         <RouteLine state="complete" />
         <div className="flex flex-col gap-2">
-          <h1 className="font-display text-h2">Check your email</h1>
+          <span className="text-overline uppercase text-text-faint">
+            Account recovery
+          </span>
+          <h1 className="font-display text-h2 md:text-h1">Check your email</h1>
           <p className="text-body text-text-muted">
             If an account exists for this email, a reset link is on its way. The
             link is valid for 30 minutes and can be used once.
@@ -163,7 +166,9 @@ export function RequestResetForm({
 
   return (
     <>
-      <AuthHeading title={title}>{intro}</AuthHeading>
+      <AuthHeading eyebrow="Account recovery" title={title}>
+        {intro}
+      </AuthHeading>
       {lead}
       {problem?.kind === 'rate-limited' && (
         <RateLimitedAlert alertRef={alertRef} remaining={waiting} />

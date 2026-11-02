@@ -13,8 +13,8 @@ export const metadata: Metadata = { title: 'Log in — SwiftDrop' };
 
 export default function LoginPage() {
   return (
-    <AuthLayout panel={<LoginPanel />} showRoute={false}>
-      <AuthHeading title="Log in">
+    <AuthLayout panel={<LoginPanel />}>
+      <AuthHeading eyebrow="Welcome back" title="Log in">
         No account?{' '}
         <Link
           href="/register"
