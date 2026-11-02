@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,7 +16,7 @@ const serviceName = "notification-worker"
 
 func main() {
 	if err := run(); err != nil {
-		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("worker stopped", "service", serviceName, "error", err)
+		logging.NewBootstrap(serviceName).Error("worker stopped", "error", err)
 		os.Exit(1)
 	}
 }
