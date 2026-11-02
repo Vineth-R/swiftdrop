@@ -255,7 +255,7 @@ func TestHandleLogsOutcomeWithoutSensitivePayload(t *testing.T) {
 			t.Fatalf("success log leaked %q: %s", sensitive, output)
 		}
 	}
-	for _, expected := range []string{"notification delivered", "event-1", "Your parcel has shipped"} {
+	for _, expected := range []string{"notification delivered", "event-1", `"channel":"email"`} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("success log missing %q: %s", expected, output)
 		}

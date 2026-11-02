@@ -81,7 +81,6 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 			"event_id", envelope.ID,
 			"correlation_id", envelope.CorrelationID,
 			"channel", data.Channel,
-			"template", email.Subject,
 			"error", safeErr.Error(),
 		)
 		return safeErr
@@ -91,7 +90,6 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		"event_id", envelope.ID,
 		"correlation_id", envelope.CorrelationID,
 		"channel", data.Channel,
-		"template", email.Subject,
 	)
 	return nil
 }
