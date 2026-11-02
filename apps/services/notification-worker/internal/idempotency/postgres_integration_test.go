@@ -134,6 +134,131 @@ func TestPostgresRecordsDeliveryOutcome(t *testing.T) {
 	}
 }
 
+func TestPostgresRecordDeliveredConcurrent(t *testing.T) {
+	ctx, db := openTestDatabase(t)
+	consumer := "notification-worker-test-" + randomHex(6)
+	eventID := randomUUID(t)
+	recipient := "m1." + randomHex(6) + "@example.invalid"
+	t.Cleanup(func() { cleanupOutcomes(t, db, consumer, eventID) })
+
+	store := NewPostgres(db, consumer)
+	entry := LogEntry{
+		EventID:   eventID,
+		ParcelID:  randomUUID(t),
+		Channel:   "EMAIL",
+		Recipient: recipient,
+		Subject:   "Your parcel has shipped",
+	}
+
+	const workers = 8
+	var wait sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			errs <- store.RecordDelivered(ctx, entry)
+		}()
+	}
+	wait.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent RecordDelivered() failed: %v", err)
+		}
+	}
+
+	var logCount int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*) FROM notification.notification_logs
+		WHERE event_id = $1::uuid AND channel = $2 AND recipient = $3`,
+		eventID, entry.Channel, recipient).Scan(&logCount); err != nil {
+		t.Fatalf("count notification logs: %v", err)
+	}
+	if logCount != 1 {
+		t.Fatalf("notification log rows = %d, want 1", logCount)
+	}
+
+	var processedCount int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*) FROM notification.processed_events
+		WHERE consumer = $1 AND event_id = $2::uuid`, consumer, eventID).Scan(&processedCount); err != nil {
+		t.Fatalf("count processed events: %v", err)
+	}
+	if processedCount != 1 {
+		t.Fatalf("processed rows = %d, want 1", processedCount)
+	}
+
+	status, _, sentAt := readLog(t, ctx, db, eventID, entry.Channel, recipient)
+	if status != StatusSent {
+		t.Fatalf("status = %q, want SENT", status)
+	}
+	if sentAt == nil {
+		t.Fatal("sent_at was not set")
+	}
+}
+
+func TestPostgresRecordFailurePreservesSentAt(t *testing.T) {
+	ctx, db := openTestDatabase(t)
+	consumer := "notification-worker-test-" + randomHex(6)
+	eventID := randomUUID(t)
+	recipient := "m1." + randomHex(6) + "@example.invalid"
+	t.Cleanup(func() { cleanupOutcomes(t, db, consumer, eventID) })
+
+	store := NewPostgres(db, consumer)
+	entry := LogEntry{
+		EventID:   eventID,
+		ParcelID:  randomUUID(t),
+		Channel:   "EMAIL",
+		Recipient: recipient,
+		Subject:   "Your parcel has shipped",
+	}
+
+	entry.Status = StatusFailed
+	entry.ErrorMessage = "first failure"
+	if err := store.RecordFailure(ctx, entry); err != nil {
+		t.Fatalf("first RecordFailure() returned error: %v", err)
+	}
+	status, _, sentAt := readLog(t, ctx, db, eventID, entry.Channel, recipient)
+	if status != StatusFailed {
+		t.Fatalf("status = %q, want FAILED", status)
+	}
+	if sentAt != nil {
+		t.Fatalf("first failure sent_at = %v, want nil", sentAt)
+	}
+
+	if err := store.RecordDelivered(ctx, entry); err != nil {
+		t.Fatalf("RecordDelivered() returned error: %v", err)
+	}
+	status, _, sentAt = readLog(t, ctx, db, eventID, entry.Channel, recipient)
+	if status != StatusSent {
+		t.Fatalf("status = %q, want SENT", status)
+	}
+	if sentAt == nil {
+		t.Fatal("sent_at was not set on delivery")
+	}
+	deliveredAt := *sentAt
+
+	entry.Status = StatusPending
+	entry.ErrorMessage = "later failure"
+	if err := store.RecordFailure(ctx, entry); err != nil {
+		t.Fatalf("later RecordFailure() returned error: %v", err)
+	}
+	status, errorMessage, sentAt := readLog(t, ctx, db, eventID, entry.Channel, recipient)
+	if status != StatusPending {
+		t.Fatalf("status after later failure = %q, want PENDING", status)
+	}
+	if errorMessage != "later failure" {
+		t.Fatalf("error message = %q", errorMessage)
+	}
+	if sentAt == nil {
+		t.Fatal("later failure erased sent_at")
+	}
+	if !sentAt.Equal(deliveredAt) {
+		t.Fatalf("sent_at = %v, want preserved %v", sentAt, deliveredAt)
+	}
+}
+
 func TestPostgresRecordDeliveredRollsBackWhenProcessedInsertFails(t *testing.T) {
 	ctx, db := openTestDatabase(t)
 	consumer := strings.Repeat("c", 41)

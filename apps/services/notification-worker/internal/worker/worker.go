@@ -103,9 +103,9 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		h.logger.ErrorContext(ctx, "processed-event lookup failed",
 			"event_id", envelope.ID,
 			"correlation_id", envelope.CorrelationID,
-			"error", err,
+			"operation", "lookup_processed_event",
 		)
-		return fmt.Errorf("check processed event: %w", err)
+		return errors.New("processed-event lookup failed")
 	}
 	if processed {
 		h.logger.InfoContext(ctx, "notification already processed",
@@ -162,9 +162,9 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		h.logger.ErrorContext(ctx, "record delivered notification failed",
 			"event_id", envelope.ID,
 			"correlation_id", envelope.CorrelationID,
-			"error", err,
+			"operation", "record_delivery",
 		)
-		return fmt.Errorf("record delivered notification: %w", err)
+		return errors.New("record delivered notification failed")
 	}
 
 	h.logger.InfoContext(ctx, "notification delivered",
@@ -181,9 +181,9 @@ func (h *Handler) recordFailure(ctx context.Context, entry idempotency.LogEntry,
 			"event_id", entry.EventID,
 			"correlation_id", correlationID,
 			"status", entry.Status,
-			"error", err,
+			"operation", "record_failure",
 		)
-		return fmt.Errorf("record failed notification: %w", err)
+		return errors.New("record failed notification failed")
 	}
 	return nil
 }

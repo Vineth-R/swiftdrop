@@ -699,6 +699,70 @@ func TestHandleConcurrentDuplicatesRecordOnce(t *testing.T) {
 	}
 }
 
+func TestHandleDoesNotLogStoreErrors(t *testing.T) {
+	const (
+		secret = "customer@example.com"
+		marker = "SD-SECRET"
+	)
+	driverText := "failing row contains (" + secret + ", " + marker + ")"
+
+	t.Run("lookup", func(t *testing.T) {
+		var logs bytes.Buffer
+		store := newFakeStore()
+		store.lookupErr = errors.New(driverText)
+		handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store)
+		body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
+
+		err := handler.Handle(context.Background(), messaging.Message{Body: body})
+		assertStoreFailureIsSafe(t, err, logs.String(), secret, marker)
+	})
+
+	t.Run("delivered", func(t *testing.T) {
+		var logs bytes.Buffer
+		store := newFakeStore()
+		store.deliverErr = errors.New(driverText)
+		handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store)
+		body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
+
+		err := handler.Handle(context.Background(), messaging.Message{Body: body})
+		assertStoreFailureIsSafe(t, err, logs.String(), secret, marker)
+	})
+
+	t.Run("failure record", func(t *testing.T) {
+		var logs bytes.Buffer
+		store := newFakeStore()
+		store.failureErr = errors.New(driverText)
+		handler := New(
+			slog.New(slog.NewJSONHandler(&logs, nil)),
+			failingSender{err: errors.New("smtp connection refused")},
+			store,
+		)
+		body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
+
+		err := handler.Handle(context.Background(), messaging.Message{Body: body})
+		assertStoreFailureIsSafe(t, err, logs.String(), secret, marker)
+	})
+}
+
+func assertStoreFailureIsSafe(t *testing.T, err error, logs, secret, marker string) {
+	t.Helper()
+
+	if err == nil {
+		t.Fatal("Handle() should have failed")
+	}
+	if messaging.IsPermanent(err) {
+		t.Fatalf("store failure was classified as permanent: %v", err)
+	}
+	for _, value := range []string{secret, marker} {
+		if strings.Contains(err.Error(), value) {
+			t.Fatalf("returned error leaked %q: %v", value, err)
+		}
+		if strings.Contains(logs, value) {
+			t.Fatalf("logs leaked %q: %s", value, logs)
+		}
+	}
+}
+
 func TestSanitizeErrorMessage(t *testing.T) {
 	t.Run("redacts recipient and control characters", func(t *testing.T) {
 		got := sanitizeErrorMessage("550 customer@example.com\r\nrejected\x00 now", "customer@example.com")

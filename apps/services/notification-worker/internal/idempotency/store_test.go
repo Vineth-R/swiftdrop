@@ -138,11 +138,8 @@ func TestPostgresIsProcessedWrapsError(t *testing.T) {
 	store := NewPostgres(&fakeDB{rowErr: errors.New("database unavailable")}, ConsumerName)
 
 	_, err := store.IsProcessed(context.Background(), testEventID)
-	if err == nil {
-		t.Fatal("IsProcessed() should have failed")
-	}
-	if !strings.Contains(err.Error(), "query processed event") {
-		t.Fatalf("error = %q, want context", err)
+	if err == nil || !errors.Is(err, ErrLookupFailed) {
+		t.Fatalf("IsProcessed() error = %v, want ErrLookupFailed", err)
 	}
 }
 
@@ -168,11 +165,8 @@ func TestPostgresMarkProcessedWrapsError(t *testing.T) {
 	store := NewPostgres(&fakeDB{execErr: errors.New("database unavailable")}, ConsumerName)
 
 	err := store.MarkProcessed(context.Background(), testEventID)
-	if err == nil {
-		t.Fatal("MarkProcessed() should have failed")
-	}
-	if !strings.Contains(err.Error(), "record processed event") {
-		t.Fatalf("error = %q, want context", err)
+	if err == nil || !errors.Is(err, ErrMarkProcessedFailed) {
+		t.Fatalf("MarkProcessed() error = %v, want ErrMarkProcessedFailed", err)
 	}
 }
 
@@ -204,8 +198,11 @@ func TestPostgresRecordDeliveredCommitsLogAndProcessedEvent(t *testing.T) {
 	if !strings.Contains(tx.sqls[0], "ON CONFLICT (event_id, channel, recipient)") {
 		t.Fatalf("log upsert does not use the dedupe key: %s", tx.sqls[0])
 	}
-	if len(tx.args[0]) != 8 || tx.args[0][5] != StatusSent || tx.args[0][6] != nil {
-		t.Fatalf("log args = %v, want SENT with a nil error", tx.args[0])
+	if !strings.Contains(tx.sqls[0], "'SENT'") || !strings.Contains(tx.sqls[0], "now()") {
+		t.Fatalf("delivered log does not use SENT and the database clock: %s", tx.sqls[0])
+	}
+	if len(tx.args[0]) != 5 {
+		t.Fatalf("log args = %v, want 5 values", tx.args[0])
 	}
 	if !strings.Contains(tx.sqls[1], "notification.processed_events") {
 		t.Fatalf("second write did not target processed_events: %s", tx.sqls[1])
@@ -220,17 +217,17 @@ func TestPostgresRecordDeliveredRollsBackWhenLogWriteFails(t *testing.T) {
 	store := NewPostgres(&fakeDB{tx: tx}, ConsumerName)
 
 	err := store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID})
-	if err == nil {
-		t.Fatal("RecordDelivered() should have failed")
+	if err == nil || !errors.Is(err, ErrRecordDeliveredFailed) {
+		t.Fatalf("RecordDelivered() error = %v, want ErrRecordDeliveredFailed", err)
+	}
+	if !strings.Contains(err.Error(), "upsert log") {
+		t.Fatalf("error = %q, want upsert-log context", err)
 	}
 	if tx.commits != 0 {
 		t.Fatalf("commits = %d, want 0", tx.commits)
 	}
 	if tx.rollbacks == 0 {
 		t.Fatal("transaction was not rolled back")
-	}
-	if !strings.Contains(err.Error(), "upsert sent notification log") {
-		t.Fatalf("error = %q, want log context", err)
 	}
 }
 
@@ -239,8 +236,11 @@ func TestPostgresRecordDeliveredRollsBackWhenProcessedWriteFails(t *testing.T) {
 	store := NewPostgres(&fakeDB{tx: tx}, ConsumerName)
 
 	err := store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID})
-	if err == nil {
-		t.Fatal("RecordDelivered() should have failed")
+	if err == nil || !errors.Is(err, ErrRecordDeliveredFailed) {
+		t.Fatalf("RecordDelivered() error = %v, want ErrRecordDeliveredFailed", err)
+	}
+	if !strings.Contains(err.Error(), "insert processed event") {
+		t.Fatalf("error = %q, want processed-event context", err)
 	}
 	if tx.commits != 0 {
 		t.Fatalf("commits = %d, want 0", tx.commits)
@@ -248,24 +248,29 @@ func TestPostgresRecordDeliveredRollsBackWhenProcessedWriteFails(t *testing.T) {
 	if tx.rollbacks == 0 {
 		t.Fatal("transaction was not rolled back")
 	}
-	if !strings.Contains(err.Error(), "record processed event") {
-		t.Fatalf("error = %q, want processed-event context", err)
-	}
 }
 
 func TestPostgresRecordDeliveredReturnsBeginAndCommitErrors(t *testing.T) {
 	t.Run("begin", func(t *testing.T) {
 		store := NewPostgres(&fakeDB{beginErr: errors.New("no connection")}, ConsumerName)
-		if err := store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID}); err == nil {
-			t.Fatal("RecordDelivered() should have failed")
+		err := store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID})
+		if err == nil || !errors.Is(err, ErrRecordDeliveredFailed) {
+			t.Fatalf("RecordDelivered() error = %v, want ErrRecordDeliveredFailed", err)
+		}
+		if !strings.Contains(err.Error(), "begin transaction") {
+			t.Fatalf("error = %q, want begin context", err)
 		}
 	})
 
 	t.Run("commit", func(t *testing.T) {
 		tx := &fakeTx{commitErr: errors.New("commit failed")}
 		store := NewPostgres(&fakeDB{tx: tx}, ConsumerName)
-		if err := store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID}); err == nil {
-			t.Fatal("RecordDelivered() should have failed")
+		err := store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID})
+		if err == nil || !errors.Is(err, ErrRecordDeliveredFailed) {
+			t.Fatalf("RecordDelivered() error = %v, want ErrRecordDeliveredFailed", err)
+		}
+		if !strings.Contains(err.Error(), "commit") {
+			t.Fatalf("error = %q, want commit context", err)
 		}
 	})
 }
@@ -293,11 +298,11 @@ func TestPostgresRecordFailureUsesOutcomeStatus(t *testing.T) {
 	if !strings.Contains(db.lastSQL, "notification.notification_logs") {
 		t.Fatalf("failure write did not target notification_logs: %s", db.lastSQL)
 	}
-	if len(db.lastArgs) != 8 || db.lastArgs[5] != StatusPending || db.lastArgs[6] != "smtp connection refused" {
-		t.Fatalf("failure args = %v, want PENDING with the error", db.lastArgs)
+	if !strings.Contains(db.lastSQL, "COALESCE(notification_logs.sent_at, EXCLUDED.sent_at)") {
+		t.Fatalf("failure upsert does not preserve sent_at: %s", db.lastSQL)
 	}
-	if db.lastArgs[7] != nil {
-		t.Fatalf("sent_at = %v, want nil", db.lastArgs[7])
+	if len(db.lastArgs) != 7 || db.lastArgs[5] != StatusPending || db.lastArgs[6] != "smtp connection refused" {
+		t.Fatalf("failure args = %v, want PENDING with the error", db.lastArgs)
 	}
 }
 
@@ -305,8 +310,8 @@ func TestPostgresRecordFailureRejectsInvalidStatus(t *testing.T) {
 	store := NewPostgres(&fakeDB{}, ConsumerName)
 
 	err := store.RecordFailure(context.Background(), LogEntry{EventID: testEventID, Status: StatusSent})
-	if err == nil {
-		t.Fatal("RecordFailure() accepted a non-failure status")
+	if err == nil || !errors.Is(err, ErrRecordFailureFailed) {
+		t.Fatalf("RecordFailure() error = %v, want ErrRecordFailureFailed", err)
 	}
 }
 
@@ -314,11 +319,74 @@ func TestPostgresRecordFailureWrapsError(t *testing.T) {
 	store := NewPostgres(&fakeDB{execErr: errors.New("database unavailable")}, ConsumerName)
 
 	err := store.RecordFailure(context.Background(), LogEntry{EventID: testEventID, Status: StatusFailed})
-	if err == nil {
-		t.Fatal("RecordFailure() should have failed")
+	if err == nil || !errors.Is(err, ErrRecordFailureFailed) {
+		t.Fatalf("RecordFailure() error = %v, want ErrRecordFailureFailed", err)
 	}
-	if !strings.Contains(err.Error(), "upsert failed notification log") {
-		t.Fatalf("error = %q, want log context", err)
+}
+
+// TestPostgresErrorsDoNotLeakDriverText proves that a driver message containing
+// row values (including a recipient) never appears in a returned error.
+func TestPostgresErrorsDoNotLeakDriverText(t *testing.T) {
+	const secret = "customer@example.com"
+	driverErr := errors.New("failing row contains (1111, 2222, EMAIL, " + secret + ", SD-SECRET)")
+
+	tests := map[string]struct {
+		store *Postgres
+		call  func(*Postgres) error
+	}{
+		"lookup": {
+			store: NewPostgres(&fakeDB{rowErr: driverErr}, ConsumerName),
+			call: func(store *Postgres) error {
+				_, err := store.IsProcessed(context.Background(), testEventID)
+				return err
+			},
+		},
+		"mark processed": {
+			store: NewPostgres(&fakeDB{execErr: driverErr}, ConsumerName),
+			call:  func(store *Postgres) error { return store.MarkProcessed(context.Background(), testEventID) },
+		},
+		"delivered begin": {
+			store: NewPostgres(&fakeDB{beginErr: driverErr}, ConsumerName),
+			call: func(store *Postgres) error {
+				return store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID})
+			},
+		},
+		"delivered log": {
+			store: NewPostgres(&fakeDB{tx: &fakeTx{logErr: driverErr}}, ConsumerName),
+			call: func(store *Postgres) error {
+				return store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID})
+			},
+		},
+		"delivered processed": {
+			store: NewPostgres(&fakeDB{tx: &fakeTx{processedErr: driverErr}}, ConsumerName),
+			call: func(store *Postgres) error {
+				return store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID})
+			},
+		},
+		"delivered commit": {
+			store: NewPostgres(&fakeDB{tx: &fakeTx{commitErr: driverErr}}, ConsumerName),
+			call: func(store *Postgres) error {
+				return store.RecordDelivered(context.Background(), LogEntry{EventID: testEventID})
+			},
+		},
+		"failure": {
+			store: NewPostgres(&fakeDB{execErr: driverErr}, ConsumerName),
+			call: func(store *Postgres) error {
+				return store.RecordFailure(context.Background(), LogEntry{EventID: testEventID, Status: StatusPending})
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := test.call(test.store)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "SD-SECRET") {
+				t.Fatalf("returned error leaked driver text: %v", err)
+			}
+		})
 	}
 }
 

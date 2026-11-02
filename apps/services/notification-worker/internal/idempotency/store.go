@@ -1,13 +1,14 @@
 // Package idempotency records notification delivery outcomes and the event IDs
-// the worker has already processed. It stores only identifiers, delivery status
-// and safe error text, never message bodies or other sensitive payload data.
+// the worker has already processed. The notification_logs schema requires the
+// recipient and subject, so those values are persisted; the worker sanitizes
+// the error text it stores. Database-driver errors are never logged or returned
+// from this package: it reports only stable operation errors.
 package idempotency
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -23,9 +24,15 @@ const (
 	StatusFailed  = "FAILED"
 )
 
-// ErrUnavailable reports that the store has no database to query. It is a
-// transient condition: callers must retry rather than acknowledge the message.
-var ErrUnavailable = errors.New("processed-event store unavailable")
+// Stable, non-sensitive errors. Driver messages are deliberately discarded so
+// a PostgreSQL failing-row detail can never reach logs or consumer error text.
+var (
+	ErrUnavailable           = errors.New("processed-event store unavailable")
+	ErrLookupFailed          = errors.New("processed-event lookup failed")
+	ErrMarkProcessedFailed   = errors.New("record processed event failed")
+	ErrRecordDeliveredFailed = errors.New("record delivered notification failed")
+	ErrRecordFailureFailed   = errors.New("record failed notification failed")
+)
 
 // DB is the subset of the shared PostgreSQL pool the store needs.
 type DB interface {
@@ -45,15 +52,34 @@ type LogEntry struct {
 	ErrorMessage string
 }
 
-const logUpsertSQL = `
+const processedInsertSQL = `
+	INSERT INTO notification.processed_events (consumer, event_id)
+	VALUES ($1, $2::uuid)
+	ON CONFLICT (consumer, event_id) DO NOTHING`
+
+// logDeliveredSQL uses the database clock for sent_at and preserves created_at
+// on conflict.
+const logDeliveredSQL = `
 	INSERT INTO notification.notification_logs
 		(event_id, parcel_id, channel, recipient, subject, status, error_message, sent_at)
-	VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
+	VALUES ($1, $2::uuid, $3, $4, $5, 'SENT', NULL, now())
+	ON CONFLICT (event_id, channel, recipient) DO UPDATE SET
+		status        = 'SENT',
+		subject       = EXCLUDED.subject,
+		error_message = NULL,
+		sent_at       = now()`
+
+// logFailureSQL preserves an existing successful timestamp when a later failure
+// is recorded for the same (event_id, channel, recipient).
+const logFailureSQL = `
+	INSERT INTO notification.notification_logs
+		(event_id, parcel_id, channel, recipient, subject, status, error_message, sent_at)
+	VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, NULL)
 	ON CONFLICT (event_id, channel, recipient) DO UPDATE SET
 		status        = EXCLUDED.status,
 		subject       = EXCLUDED.subject,
 		error_message = EXCLUDED.error_message,
-		sent_at       = EXCLUDED.sent_at`
+		sent_at       = COALESCE(notification_logs.sent_at, EXCLUDED.sent_at)`
 
 // Postgres records processed event IDs and delivery outcomes in the
 // notification schema.
@@ -81,7 +107,7 @@ func (p *Postgres) IsProcessed(ctx context.Context, eventID string) (bool, error
 			WHERE consumer = $1 AND event_id = $2::uuid
 		)`, p.consumer, eventID).Scan(&processed)
 	if err != nil {
-		return false, fmt.Errorf("query processed event: %w", err)
+		return false, fmt.Errorf("%w: query", ErrLookupFailed)
 	}
 
 	return processed, nil
@@ -95,12 +121,8 @@ func (p *Postgres) MarkProcessed(ctx context.Context, eventID string) error {
 		return ErrUnavailable
 	}
 
-	_, err := p.db.Exec(ctx, `
-		INSERT INTO notification.processed_events (consumer, event_id)
-		VALUES ($1, $2::uuid)
-		ON CONFLICT (consumer, event_id) DO NOTHING`, p.consumer, eventID)
-	if err != nil {
-		return fmt.Errorf("record processed event: %w", err)
+	if _, err := p.db.Exec(ctx, processedInsertSQL, p.consumer, eventID); err != nil {
+		return fmt.Errorf("%w: insert", ErrMarkProcessedFailed)
 	}
 
 	return nil
@@ -115,25 +137,21 @@ func (p *Postgres) RecordDelivered(ctx context.Context, entry LogEntry) error {
 
 	tx, err := p.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin delivery transaction: %w", err)
+		return fmt.Errorf("%w: begin transaction", ErrRecordDeliveredFailed)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, logUpsertSQL,
-		entry.EventID, entry.ParcelID, entry.Channel, entry.Recipient, entry.Subject,
-		StatusSent, nil, time.Now().UTC()); err != nil {
-		return fmt.Errorf("upsert sent notification log: %w", err)
+	if _, err := tx.Exec(ctx, logDeliveredSQL,
+		entry.EventID, entry.ParcelID, entry.Channel, entry.Recipient, entry.Subject); err != nil {
+		return fmt.Errorf("%w: upsert log", ErrRecordDeliveredFailed)
 	}
 
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO notification.processed_events (consumer, event_id)
-		VALUES ($1, $2::uuid)
-		ON CONFLICT (consumer, event_id) DO NOTHING`, p.consumer, entry.EventID); err != nil {
-		return fmt.Errorf("record processed event: %w", err)
+	if _, err := tx.Exec(ctx, processedInsertSQL, p.consumer, entry.EventID); err != nil {
+		return fmt.Errorf("%w: insert processed event", ErrRecordDeliveredFailed)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit delivery transaction: %w", err)
+		return fmt.Errorf("%w: commit", ErrRecordDeliveredFailed)
 	}
 
 	return nil
@@ -146,13 +164,13 @@ func (p *Postgres) RecordFailure(ctx context.Context, entry LogEntry) error {
 		return ErrUnavailable
 	}
 	if entry.Status != StatusPending && entry.Status != StatusFailed {
-		return fmt.Errorf("invalid failure status %q", entry.Status)
+		return fmt.Errorf("%w: invalid status", ErrRecordFailureFailed)
 	}
 
-	if _, err := p.db.Exec(ctx, logUpsertSQL,
+	if _, err := p.db.Exec(ctx, logFailureSQL,
 		entry.EventID, entry.ParcelID, entry.Channel, entry.Recipient, entry.Subject,
-		entry.Status, entry.ErrorMessage, nil); err != nil {
-		return fmt.Errorf("upsert failed notification log: %w", err)
+		entry.Status, entry.ErrorMessage); err != nil {
+		return fmt.Errorf("%w: upsert log", ErrRecordFailureFailed)
 	}
 
 	return nil

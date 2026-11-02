@@ -114,11 +114,15 @@ Delivery outcomes use the database's uppercase values:
 - `PENDING` for a retryable delivery failure; the shared consumer retries it.
 - `FAILED` for a permanent delivery failure, such as an invalid message or unsupported channel.
 
+A retryable failure is recorded as `PENDING`, but the handler cannot observe final retry exhaustion or dead-lettering. A `PENDING` row can therefore remain after retries are exhausted.
+
 A retryable failure is not recorded as processed. If the failure log cannot be written, the worker returns a retryable database error because the outcome could not be recorded; this can retry an event whose original delivery error was permanent.
+
+A later failure for the same `(event_id, channel, recipient)` preserves an existing `sent_at`; a first-time failure leaves it `NULL`. If `processed_events` is cleaned up while a `notification_logs` row remains, a redelivered event can be retried. Retention cleanup is not implemented.
 
 SMTP delivery and the database transaction are separate operations. A duplicate email is still possible after a crash between SMTP acceptance and the transaction commit, when the database write fails after delivery, or when two instances process the same event concurrently. This is at-least-once delivery, not exactly-once delivery.
 
-The event has no producer in this phase, so end-to-end production remains blocked until the producing owner populates the required `parcel_id`. The notification event, queue and routing key are unchanged by this requirement.
+The event has no producer in this phase, so end-to-end production remains blocked until the producing owner populates the required `parcel_id`. The notification event, queue and routing key are unchanged by this requirement. The API v1.1 `notification.queue` topology and this repository's `notification.requested.v1` contract remain unreconciled (D6).
 
 Per-event schemas may be closed for their specific payload, as the notification example is. Additive changes are still compatible for consumers that ignore unknown fields; update the schema within the same major version when adding optional fields. Adding a required field, removing a field, changing a type, or changing semantics is a breaking change that requires a new major version.
 
