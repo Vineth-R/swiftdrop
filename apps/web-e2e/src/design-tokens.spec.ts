@@ -1,0 +1,90 @@
+import { test, expect } from '@playwright/test';
+
+const PAPER_LIGHT = 'rgb(246, 244, 239)';
+const PAPER_DARK = 'rgb(14, 17, 19)';
+
+test.describe('design tokens', () => {
+  test.use({ colorScheme: 'light' });
+
+  test('light theme is the default and uses the paper token', async ({
+    page,
+  }) => {
+    await page.goto('/design');
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(page.locator('body')).toHaveCSS(
+      'background-color',
+      PAPER_LIGHT,
+    );
+  });
+
+  test('the theme switch flips every token and remembers the choice', async ({
+    page,
+  }) => {
+    await page.goto('/design');
+
+    await page.getByRole('button', { name: 'Dark' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveCSS(
+      'background-color',
+      PAPER_DARK,
+    );
+
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.getByRole('button', { name: 'Dark' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await page.getByRole('button', { name: 'System' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  });
+
+  test('uses the display font for headings and the interface font for text', async ({
+    page,
+  }) => {
+    await page.goto('/design');
+
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Design tokens' }),
+    ).toHaveCSS('font-family', /Bricolage/);
+    await expect(page.getByText('Switch the theme')).toHaveCSS(
+      'font-family',
+      /Instrument/,
+    );
+  });
+
+  test('focus is a 2px outline on every interactive element', async ({
+    page,
+  }) => {
+    await page.goto('/design');
+
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Light' })).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Light' })).toHaveCSS(
+      'outline-width',
+      '2px',
+    );
+    await expect(page.getByRole('button', { name: 'Light' })).toHaveCSS(
+      'outline-offset',
+      '2px',
+    );
+  });
+});
+
+test.describe('system dark preference', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('follows the operating system before any choice is stored', async ({
+    page,
+  }) => {
+    await page.goto('/design');
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveCSS(
+      'background-color',
+      PAPER_DARK,
+    );
+  });
+});

@@ -43,7 +43,7 @@ The repository is intentionally a production-oriented foundation. Do not describ
 | RabbitMQ       | Compose runs RabbitMQ 4.1 management. Workers declare the durable main exchange, queue, and binding plus retry and dead-letter exchanges and queues. No event producers or outbox implementation yet.                                                                                                      |
 | Contracts      | OpenAPI specs cover health and readiness plus shared 404/405/500 error responses. One example event schema exists for `notification.requested.v1`; the webhook payload schema is an open decision.                                                                                                         |
 | Realtime       | Health endpoints and Nginx WebSocket/SSE settings exist. No WebSocket or SSE handler or subscription engine exists.                                                                                                                                                                                        |
-| Tests          | Go unit tests exist, including the parcel dispatch state machine; five broker-backed messaging scenarios and isolated PostgreSQL dispatch migration tests live under `tests/integration`. Playwright covers the starter page and dispatch preview.                                                         |
+| Tests          | Go unit tests exist, including the parcel dispatch state machine; five broker-backed messaging scenarios and isolated PostgreSQL dispatch migration tests live under `tests/integration`. Playwright covers the starter page and the `/design` token page.                                                 |
 | Infrastructure | Docker Compose, Go and web Dockerfiles, Nginx, migrations, event contracts, and CI exist. No Kubernetes, Terraform, cloud deployment, or production TLS.                                                                                                                                                   |
 
 Planned responsibilities:
@@ -61,7 +61,7 @@ Planned responsibilities:
 - Go `1.27.3`, one root module: `github.com/Vineth-R/swiftdrop`.
 - Gin `v1.12.0` for HTTP services.
 - RabbitMQ client `github.com/rabbitmq/amqp091-go v1.16.0`.
-- Next.js 16 App Router, React 19, TypeScript 6, and CSS modules/global CSS.
+- Next.js 16 App Router, React 19, TypeScript 6, and Tailwind CSS v4 with the SwiftDrop design tokens.
 - Nx `24.0.0` with pnpm `12.15.0`; CI uses Node.js 24.
 - PostgreSQL 16, RabbitMQ 4.1 management, Nginx 1.27, Alpine 3.22 runtime.
 - GitHub Actions CI in `.github/workflows/ci.yml`.
@@ -275,10 +275,10 @@ Email and password authentication is implemented in the identity service, and `p
 - Do not duplicate backend business logic in the frontend. The backend remains authoritative for validation, authorization, pricing, and state transitions.
 - Validate user-facing forms and handle loading, error, empty, and success states.
 - Follow accessibility practices and responsive design. The existing ESLint setup includes `jsx-a11y`.
-- Reuse existing CSS modules and global CSS. Do not introduce a new styling system, component library, or state-management library without approval.
+- Style with Tailwind v4 utilities against the design tokens in `apps/web/src/app/globals.css`. Use tokens only: no raw hex values, off-scale spacing or second icon family (Lucide only). `/design` shows every token in light and dark. Do not introduce a component library or state-management library without approval.
 - Avoid unnecessary client-side JavaScript and dependencies.
 - The existing `/api/hello` route is an example. Do not confuse it with the Go `/api/v1/` namespace.
-- `apps/web` currently contains the Nx starter UI, not SwiftDrop business screens.
+- `apps/web` currently contains the design-token foundation and the `/design` token page, not SwiftDrop business screens.
 - `apps/web-e2e` currently contains one example Playwright test. Extend it for meaningful user journeys when those journeys exist.
 
 ## Testing requirements
