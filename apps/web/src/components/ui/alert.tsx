@@ -5,7 +5,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 
 import { cn } from '../../lib/cn';
 
@@ -41,6 +41,8 @@ type AlertProps = {
   /** Replaces the tone's icon, such as a lock for a locked account. */
   icon?: LucideIcon;
   className?: string;
+  /** Lets a form move focus here when a failed submit shows the alert. */
+  ref?: Ref<HTMLDivElement>;
 };
 
 /**
@@ -54,10 +56,13 @@ export function Alert({
   actions,
   icon,
   className,
+  ref,
 }: AlertProps) {
   const Icon = icon ?? icons[tone];
   return (
     <div
+      ref={ref}
+      tabIndex={ref ? -1 : undefined}
       role={tone === 'danger' ? 'alert' : 'status'}
       className={cn(
         'flex gap-3 rounded-card border px-4 py-3',
