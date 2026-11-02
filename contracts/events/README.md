@@ -73,6 +73,7 @@ The shared consumer invokes `messaging.ValidateMessage` before calling a handler
 - Retry and dead-letter resources are derived from the main exchange and queue: `<exchange>.retry`, `<queue>.retry`, `<exchange>.dlx`, and `<queue>.dlq`. Retry messages return to the original exchange and routing key after the delay.
 - A worker routing key must not fan out to multiple worker queues; retry re-entry routes through the original routing key.
 - Retry count, original exchange and routing key, failure reason, and failure time are carried in message headers. Do not use these headers as authorization or trust them as business data.
+- Connection URLs, passwords, and other credentials are never logged. AMQP URL parse and dial errors are redacted before they reach structured logs.
 - The dead-letter queue is for inspection and replay; no consumer is implemented in the foundation.
 - Do not require RabbitMQ to run ordinary unit tests; test handlers directly and reserve broker tests for integration tests.
 
