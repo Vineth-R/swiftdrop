@@ -4,7 +4,7 @@ COMPOSE ?= docker compose
 COMPOSE_PARALLEL_LIMIT ?= 1
 export COMPOSE_PARALLEL_LIMIT
 
-.PHONY: help build up up-build down logs preflight ensure-postgres bootstrap-db migrate migrate-down db-reset check-routes test-db
+.PHONY: help build up up-build down logs preflight ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test-db
 
 help:
 	@echo "Targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  make down           stop the stack without deleting data"
 	@echo "  make logs           follow service logs"
 	@echo "  make migrate        apply all service migrations"
+	@echo "  make seed           create the five deterministic demo users"
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
 	@echo "  make check-routes   verify gateway routing against the running stack"
 	@echo "  make db-reset       delete local volumes and rebuild (destructive)"
@@ -59,6 +60,13 @@ migrate: preflight bootstrap-db
 migrate-down: preflight bootstrap-db
 	$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate down
 
+seed:
+	@if [ -z "$${DATABASE_URL:-}" ]; then \
+		echo "error: DATABASE_URL is required. Export it or point it at a reachable disposable database." >&2; \
+		exit 1; \
+	fi
+	go run ./apps/services/identity/seed
+
 db-reset:
 	@echo "WARNING: this deletes local PostgreSQL and RabbitMQ volumes."
 	$(COMPOSE) down -v --remove-orphans
@@ -73,7 +81,7 @@ test-db:
 		echo "       The URL must allow CREATE DATABASE; tests create and drop isolated databases." >&2; \
 		exit 1; \
 	fi
-	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/notificationlog/...
+	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/...
 
 check-routes:
 	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \

@@ -74,7 +74,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/web`                          | Next.js App Router frontend. Currently the design-token foundation, `/design` token page, and auth UI kit; no SwiftDrop business screens.                                                                                                                                                    |
 | `apps/web-e2e`                      | Playwright end-to-end tests covering the starter page, `/design` token page, and auth UI kit.                                                                                                                                                                                                |
-| `apps/services/identity`            | Identity HTTP service with authentication, admin users, couriers, internal lookups, and `GET /users/me`. Profile updates and password changes are planned.                                                                                                                                   |
+| `apps/services/identity`            | Identity HTTP service with authentication, admin users, couriers, internal lookups, `GET /users/me`, and the local deterministic demo-user seed command. Profile updates and password changes are planned.                                                                                   |
 | `apps/services/parcel`              | Parcel HTTP service with anonymous public tracking. Parcel lifecycle/dispatch writes remain future work.                                                                                                                                                                                     |
 | `apps/services/pricing`             | Pricing HTTP service with estimate, zones, internal quote/zone lookups, and ADMIN configuration.                                                                                                                                                                                             |
 | `apps/services/merchant`            | Merchant HTTP service skeleton. Future accounts and credentials.                                                                                                                                                                                                                             |
@@ -169,6 +169,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 - Do not log connection strings, passwords, tokens, or other secrets.
 - Go services read process environment variables directly; they do not load `.env`. Docker Compose reads `.env` automatically.
 - `.env` is untracked. `.env.example` is the documented local template and must stay free of real credentials.
+- Demo users are seeded only by the local `apps/services/identity/seed` command through `make seed`. It reads `DATABASE_URL` and the ten `SEED_*` account variables, is idempotent, never overwrites existing users or profiles, and seeds only the five identity demo users plus two courier profiles. Its only cross-schema read is the lookup of active `pricing.zones` rows by code to resolve the two courier home zones; it does not write pricing data or create a runtime dependency. Do not run it at service startup, Compose startup, or during migrations.
 
 ## HTTP API standards
 
@@ -292,7 +293,7 @@ Add or update tests for every meaningful change.
 - HTTP handler and route tests.
 - Configuration and validation tests.
 - Repository tests when a database layer is added.
-- Integration tests for PostgreSQL and broker-backed RabbitMQ tests under `tests/integration`. PostgreSQL tests create and drop uniquely named databases and require `TEST_DATABASE_URL`. Pricing migration tests live in `tests/integration/database`; the pricing HTTP integration test lives beside the handler and is run with the integration tag. The notification-log repository integration test lives in `apps/services/notification-worker/internal/notificationlog` and also runs with the integration tag.
+- Integration tests for PostgreSQL and broker-backed RabbitMQ tests under `tests/integration`. PostgreSQL tests create and drop uniquely named databases and require `TEST_DATABASE_URL`. Pricing migration tests live in `tests/integration/database`; the pricing HTTP integration test lives beside the handler and is run with the integration tag. The notification-log repository integration test lives in `apps/services/notification-worker/internal/notificationlog` and also runs with the integration tag. The demo-user seed integration test lives in `apps/services/identity/internal/seed` and also runs with the integration tag.
 - Tests for validation, authorization, and failure paths.
 - Existing tests use the Go standard library testing package. Follow that style unless there is a clear reason to add another tool.
 - Unit tests must not require PostgreSQL or RabbitMQ. Use `//go:build integration` for infrastructure-backed tests under `tests/integration`.
@@ -345,7 +346,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
   pnpm exec nx run-many -t lint test build -p identity,parcel,pricing,merchant,notification-worker,webhook-worker,realtime,go-common
   RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' go test -tags=integration ./tests/integration
   TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' make test-db
-  TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' go test -tags=integration ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/notificationlog/...
+  TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' go test -tags=integration ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/...
   ```
 - `pnpm exec nx lint @org/web` and `pnpm exec nx build @org/web` are valid. `pnpm exec nx serve @org/web` is not; use `dev` or `start`.
 - The CI frontend command is `pnpm exec nx run-many -t lint typecheck build --projects=@org/web,@org/web-e2e`. Nx runs only targets that are configured for each project.

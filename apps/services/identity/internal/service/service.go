@@ -157,7 +157,7 @@ type RefreshInput struct {
 // Register creates a CUSTOMER account. It returns a *ValidationError for bad
 // input and ErrEmailAlreadyExists for a duplicate email.
 func (s *Service) Register(ctx context.Context, input RegisterInput) (Account, error) {
-	email := normalizeEmail(input.Email)
+	email := NormalizeEmail(input.Email)
 	if err := validateRegistration(input, email); err != nil {
 		return Account{}, err
 	}
@@ -191,7 +191,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (Account, e
 func (s *Service) Login(ctx context.Context, input LoginInput) (Session, error) {
 	now := s.nowUTC()
 
-	user, err := s.store.UserByEmail(ctx, normalizeEmail(input.Email))
+	user, err := s.store.UserByEmail(ctx, NormalizeEmail(input.Email))
 	if errors.Is(err, repository.ErrNotFound) {
 		s.hasher.Burn(input.Password)
 		return Session{}, ErrInvalidCredentials

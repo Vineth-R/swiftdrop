@@ -195,7 +195,7 @@ jobs:
       - name: Run database integration tests
         run: |
           set -euo pipefail
-          go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... | tee database.log
+          go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... | tee database.log
 
           if grep -q -- '--- SKIP' database.log; then
             echo "::error::PostgreSQL integration tests were skipped; the database must be reachable."

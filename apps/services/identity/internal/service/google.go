@@ -239,8 +239,8 @@ func (g *GoogleAuth) CompleteGoogleLogin(ctx context.Context, input GoogleCallba
 		return GoogleLoginResult{}, fmt.Errorf("google login: %w: %w", ErrOAuthProvider, err)
 	}
 
-	email := normalizeEmail(profile.Email)
-	if profile.Subject == "" || len(profile.Subject) > maxGoogleSubjectLength || !validEmail(email) {
+	email := NormalizeEmail(profile.Email)
+	if profile.Subject == "" || len(profile.Subject) > maxGoogleSubjectLength || !ValidEmail(email) {
 		return GoogleLoginResult{}, fmt.Errorf("google login: %w: incomplete profile", ErrOAuthProvider)
 	}
 	if !profile.EmailVerified {

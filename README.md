@@ -75,7 +75,7 @@ corepack enable
 corepack prepare pnpm@12.15.0 --activate
 ```
 
-`make` drives the database helpers (`make migrate`, `make migrate-down`, `make db-reset`, `make check-routes`). Nx and Go commands remain available for everything else.
+`make` drives the database helpers and local demo seed (`make migrate`, `make migrate-down`, `make db-reset`, `make seed`, `make check-routes`). Nx and Go commands remain available for everything else.
 
 ## Install and configure
 
@@ -136,6 +136,7 @@ If `.env` is missing and `POSTGRES_USER`/`POSTGRES_DB` are not exported, `make u
 | `make up-build`                | Build images, then run the full `make up` workflow               |
 | `docker compose up --build -d` | Start only; **builds but does not migrate**                      |
 | `make migrate`                 | Apply all service migrations                                     |
+| `make seed`                    | Create the five deterministic demo users                         |
 | `make migrate-down`            | Roll back **one migration per service** (destructive; see below) |
 | `make check-routes`            | Verify gateway routing against the running stack                 |
 | `make logs`                    | Follow logs                                                      |
@@ -308,7 +309,7 @@ The notification worker also requires SMTP configuration. `.env.example` default
 
 Workers reconnect with capped exponential backoff and jitter when the broker is unavailable, and reset the backoff after a session reaches the consume phase. They acknowledge a message only after the handler succeeds or after a retry/dead-letter publication is confirmed. Unclassified handler failures are retried up to `RABBITMQ_MAX_RETRIES` (default `3`) with `RABBITMQ_RETRY_DELAY` (default `30s`) and then dead-lettered; malformed or unsupported messages are dead-lettered immediately. A second termination signal forces exit if graceful shutdown does not finish.
 
-Notification delivery is at-least-once. The worker acknowledges only after the SMTP send succeeds, but delivery and acknowledgement cannot be atomic, so a duplicate email is possible after a crash or connection loss between them. A delivery failure is retried and eventually dead-lettered. Invalid payloads and unsupported channels such as `sms` are permanent failures. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API.
+Notification delivery is at-least-once. The worker acknowledges only after the SMTP send succeeds, but delivery and acknowledgement cannot be atomic, so a duplicate email is possible after a crash or connection loss between them. A delivery failure is retried and eventually dead-lettered. Invalid payloads and unsupported channels such as `sms` are permanent failures. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API, with one deliberate exception: the notification worker exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API on internal port `8086`, reachable only through the gateway.
 
 ## Tests and checks
 
@@ -345,7 +346,7 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
   make test-db
 ```
 
-`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. `make test-db` runs the migration suite, the pricing HTTP integration tests and the notification-log repository integration tests. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
+`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. `make test-db` runs the migration suite, the pricing HTTP integration tests, the notification-log repository integration tests and the demo-seed integration tests. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
 
 ### Nx and frontend checks
 
@@ -398,7 +399,7 @@ The Go image copies only `go.mod`, `go.sum`, `packages/`, and the selected servi
 
 ## Demo login
 
-Email and password authentication is implemented in the identity service (API v1.1 sections 2.1 to 2.4): register, login, refresh and logout. Google login, password reset, admin user management, the courier list and two internal lookup APIs are also implemented in the identity service (sections 2.5, 2.6, 2.10 to 2.17 and 13); profiles are still planned. Demo users and password seeding are also pending, so register an account first:
+Email and password authentication is implemented in the identity service (API v1.1 sections 2.1 to 2.4): register, login, refresh and logout. Google login, password reset, admin user management, the courier list and two internal lookup APIs are also implemented in the identity service (sections 2.5, 2.6, 2.10 to 2.17 and 13); profiles are still planned. Demo users are not created by migrations; seed them with `make seed` below, or register an account instead:
 
 ```sh
 curl -i -X POST http://localhost:8080/api/v1/auth/register \
@@ -411,7 +412,27 @@ curl -i -X POST http://localhost:8080/api/v1/auth/login \
   -d '{"email":"you@example.com","password":"Str0ngPass!"}'
 ```
 
-Login sets the HttpOnly `sd_access` (15 minutes) and `sd_refresh` (7 days) cookies and, in token mode, also returns `accessToken` and `refreshToken` in the body. Five wrong passwords lock the account for 15 minutes (`423 ACCOUNT_LOCKED`), and login and register are limited to 10 requests per minute per client address. `JWT_ACCESS_SECRET` is required; outside development it must be at least 32 random bytes. Admin endpoints require an ADMIN account; demo users are not seeded yet, so create an ADMIN through your seed process or database fixture before manual admin checks.
+Login sets the HttpOnly `sd_access` (15 minutes) and `sd_refresh` (7 days) cookies and, in token mode, also returns `accessToken` and `refreshToken` in the body. Five wrong passwords lock the account for 15 minutes (`423 ACCOUNT_LOCKED`), and login and register are limited to 10 requests per minute per client address. `JWT_ACCESS_SECRET` is required; outside development it must be at least 32 random bytes. Admin endpoints require an ADMIN account; use the demo ADMIN created by `make seed` or another ADMIN account.
+
+### Demo seed
+
+`make seed` creates one ADMIN, one DISPATCHER, two COURIER accounts with valid courier profiles, and one CUSTOMER. It is a local development tool and never runs during service startup, Compose startup, or migrations. It seeds identity users only; merchants, API keys, parcels, orders, notifications and delivery logs are intentionally excluded until their dependencies are ready.
+
+The command reads process environment variables; it does not load `.env` automatically. Export `DATABASE_URL` and all ten values before running it:
+
+```sh
+export DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/swiftdrop?sslmode=disable'
+export SEED_ADMIN_EMAIL='seed.admin@example.com'
+export SEED_ADMIN_PASSWORD='<your-admin-password>'
+# ...the remaining SEED_DISPATCHER, SEED_COURIER_1, SEED_COURIER_2 and SEED_CUSTOMER pairs
+make seed
+```
+
+The complete required set is `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_DISPATCHER_EMAIL`, `SEED_DISPATCHER_PASSWORD`, `SEED_COURIER_1_EMAIL`, `SEED_COURIER_1_PASSWORD`, `SEED_COURIER_2_EMAIL`, `SEED_COURIER_2_PASSWORD`, `SEED_CUSTOMER_EMAIL`, and `SEED_CUSTOMER_PASSWORD`.
+
+The addresses in `.env.example` use `example.com` and are placeholders, not real mailboxes. The seed is idempotent: existing emails are skipped, including accounts with a different role, and existing passwords, roles, user details and courier profiles are never overwritten. A rerun therefore creates zero users and skips the five existing accounts.
+
+Compose PostgreSQL is internal and does not publish a host port. To seed from the host, point `DATABASE_URL` at a reachable PostgreSQL instance. For isolated local testing, use a temporary disposable PostgreSQL database, apply all five service migrations to it, export that URL and the seed variables, then run `make seed`. Do not point the seed at production or a shared database.
 
 Stop containers without deleting data:
 
@@ -429,7 +450,7 @@ GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pu
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Go checks**              | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, `docker compose config --quiet`, and the worker-healthcheck guard. |
 | **RabbitMQ integration**   | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration`, and fails if any test is skipped.                     |
-| **PostgreSQL integration** | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch, notification-log and pricing database tests; fails if any test is skipped.                                     |
+| **PostgreSQL integration** | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch, notification-log, pricing and demo-seed database tests; fails if any test is skipped.                          |
 | **Frontend checks**        | Installs dependencies with pnpm, runs `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. Nx runs only configured targets.                                          |
 | **Playwright E2E**         | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                                             |
 | **Docker builds**          | Detects changed projects with `dorny/paths-filter` and builds only the affected Go service images and the web image.                                                                                                   |
@@ -508,6 +529,6 @@ Notification email delivery is implemented in the notification worker: `notifica
 
 Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
 
-Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups and `GET /users/me`; profile updates and password changes remain planned. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: ADMIN notification delivery-log reads with masked recipients and status filtering.
+Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups and `GET /users/me`; profile updates and password changes remain planned. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: ADMIN notification delivery-log reads with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`).
 
 Not implemented: parcel lifecycle and dispatch write APIs, M5's parcel-creation consumer, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the pricing administration UI, the optional `/track` mobile UI, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
