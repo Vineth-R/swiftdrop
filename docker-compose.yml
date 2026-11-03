@@ -81,7 +81,7 @@ services:
       - '${MAILPIT_SMTP_PORT:-1025}:1025'
       - '${MAILPIT_UI_PORT:-8025}:8025'
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8025/livez']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8025/readyz']
       interval: 10s
       timeout: 5s
       retries: 5
