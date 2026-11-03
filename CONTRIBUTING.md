@@ -159,6 +159,7 @@ Paste this into the pull request description of any change that adds or changes 
 - Coverage: <service %> unit only, <service %> with PostgreSQL tests; total <%>
 - Skipped tests and why: <none | list>
 - Behaviour not covered yet: <list what you know is untested>
+- Access cases added in `tests/access`: <names | none>
 ```
 
 Only report what you ran. A skipped test is not a pass.

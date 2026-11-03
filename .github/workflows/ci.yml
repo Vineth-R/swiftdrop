@@ -197,7 +197,7 @@ jobs:
       - name: Run database integration tests
         run: |
           set -euo pipefail
-          go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... | tee database.log
+          go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/... | tee database.log
 
           if grep -q -- '--- SKIP' database.log; then
             echo "::error::PostgreSQL integration tests were skipped; the database must be reachable."
@@ -365,6 +365,52 @@ jobs:
           load: false
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+
+  access:
+    name: Access tests (Compose stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: needs.changes.outputs.services != '[]' && needs.changes.outputs.services != ''
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare local environment
+        run: cp .env.example .env
+
+      - name: Build all images
+        run: make build
+
+      - name: Start the stack
+        run: docker compose up -d --no-build --wait --wait-timeout 600
+
+      - name: Apply database migrations
+        run: make migrate
+
+      - name: Run the access tests
+        env:
+          TEST_BASE_URL: http://localhost:8080
+        run: |
+          set -euo pipefail
+          go test -tags=access -count=1 -v ./tests/access/... | tee access.log
+
+          if ! grep -q -- '--- PASS: TestRoleMatrix' access.log; then
+            echo "::error::The role matrix did not run to a pass."
+            exit 1
+          fi
+
+      - name: Show service logs after a failure
+        if: failure()
+        run: docker compose logs --tail=100
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
 
   release:
     name: Release smoke test
