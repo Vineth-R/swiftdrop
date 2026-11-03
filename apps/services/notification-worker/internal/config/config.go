@@ -10,24 +10,31 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 )
 
+const (
+	defaultProcessedEventsRetention       = 30 * 24 * time.Hour
+	defaultProcessedEventsCleanupInterval = 24 * time.Hour
+)
+
 type Config struct {
-	Port           int
-	AppEnv         string
-	LogLevel       string
-	DatabaseURL    string
-	SMTP           mailer.Config
-	RabbitMQURL    string
-	Exchange       string
-	Queue          string
-	RoutingKey     string
-	Prefetch       int
-	HandlerTimeout time.Duration
-	MaxRetries     int
-	RetryDelay     time.Duration
-	ReconnectMin   time.Duration
-	ReconnectMax   time.Duration
-	AccessSecret   string
-	CookieName     string
+	Port                           int
+	AppEnv                         string
+	LogLevel                       string
+	DatabaseURL                    string
+	SMTP                           mailer.Config
+	RabbitMQURL                    string
+	Exchange                       string
+	Queue                          string
+	RoutingKey                     string
+	Prefetch                       int
+	HandlerTimeout                 time.Duration
+	MaxRetries                     int
+	RetryDelay                     time.Duration
+	ReconnectMin                   time.Duration
+	ReconnectMax                   time.Duration
+	AccessSecret                   string
+	CookieName                     string
+	ProcessedEventsRetention       time.Duration
+	ProcessedEventsCleanupInterval time.Duration
 }
 
 func Load() (Config, error) {
@@ -115,24 +122,36 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, errors.New("RABBITMQ_RECONNECT_MAX must be greater than or equal to RABBITMQ_RECONNECT_MIN")
 	}
 
+	retention, err := loader.Duration("NOTIFICATION_PROCESSED_EVENTS_RETENTION", defaultProcessedEventsRetention)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cleanupInterval, err := loader.Duration("NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL", defaultProcessedEventsCleanupInterval)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		Port:           port,
-		AppEnv:         appEnv,
-		LogLevel:       logLevel,
-		DatabaseURL:    databaseURL,
-		SMTP:           smtp,
-		RabbitMQURL:    rabbitMQURL,
-		Exchange:       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
-		Queue:          queue,
-		RoutingKey:     loader.String("NOTIFICATION_ROUTING_KEY", queue),
-		Prefetch:       prefetch,
-		HandlerTimeout: handlerTimeout,
-		MaxRetries:     maxRetries,
-		RetryDelay:     retryDelay,
-		ReconnectMin:   reconnectMin,
-		ReconnectMax:   reconnectMax,
-		AccessSecret:   loader.String("JWT_ACCESS_SECRET", ""),
-		CookieName:     loader.String("COOKIE_NAME", "sd_access"),
+		Port:                           port,
+		AppEnv:                         appEnv,
+		LogLevel:                       logLevel,
+		DatabaseURL:                    databaseURL,
+		SMTP:                           smtp,
+		RabbitMQURL:                    rabbitMQURL,
+		Exchange:                       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
+		Queue:                          queue,
+		RoutingKey:                     loader.String("NOTIFICATION_ROUTING_KEY", queue),
+		Prefetch:                       prefetch,
+		HandlerTimeout:                 handlerTimeout,
+		MaxRetries:                     maxRetries,
+		RetryDelay:                     retryDelay,
+		ReconnectMin:                   reconnectMin,
+		ReconnectMax:                   reconnectMax,
+		AccessSecret:                   loader.String("JWT_ACCESS_SECRET", ""),
+		CookieName:                     loader.String("COOKIE_NAME", "sd_access"),
+		ProcessedEventsRetention:       retention,
+		ProcessedEventsCleanupInterval: cleanupInterval,
 	}, nil
 }
 

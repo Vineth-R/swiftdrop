@@ -32,6 +32,7 @@ var (
 	ErrMarkProcessedFailed   = errors.New("record processed event failed")
 	ErrRecordDeliveredFailed = errors.New("record delivered notification failed")
 	ErrRecordFailureFailed   = errors.New("record failed notification failed")
+	ErrCleanupFailed         = errors.New("processed-event cleanup failed")
 )
 
 // DB is the subset of the shared PostgreSQL pool the store needs.

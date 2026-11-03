@@ -65,6 +65,12 @@ func TestLoadFrom(t *testing.T) {
 	if config.RetryDelay != 30*time.Second {
 		t.Fatalf("RetryDelay = %v, want 30s", config.RetryDelay)
 	}
+	if config.ProcessedEventsRetention != 30*24*time.Hour {
+		t.Fatalf("ProcessedEventsRetention = %v, want 720h", config.ProcessedEventsRetention)
+	}
+	if config.ProcessedEventsCleanupInterval != 24*time.Hour {
+		t.Fatalf("ProcessedEventsCleanupInterval = %v, want 24h", config.ProcessedEventsCleanupInterval)
+	}
 	if config.DatabaseURL != "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable" {
 		t.Fatalf("DatabaseURL = %q", config.DatabaseURL)
 	}
@@ -93,6 +99,45 @@ func TestLoadFromParsesHTTPConfig(t *testing.T) {
 	}
 	if config.AccessSecret != "shared-access-secret" || config.CookieName != "custom_access" {
 		t.Fatalf("HTTP auth config = %q / %q", config.AccessSecret, config.CookieName)
+	}
+}
+
+func TestLoadFromParsesProcessedEventRetentionConfig(t *testing.T) {
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+		"NOTIFICATION_PROCESSED_EVENTS_RETENTION":        "48h",
+		"NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL": "6h",
+	})
+
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+	if config.ProcessedEventsRetention != 48*time.Hour {
+		t.Fatalf("ProcessedEventsRetention = %v, want 48h", config.ProcessedEventsRetention)
+	}
+	if config.ProcessedEventsCleanupInterval != 6*time.Hour {
+		t.Fatalf("ProcessedEventsCleanupInterval = %v, want 6h", config.ProcessedEventsCleanupInterval)
+	}
+}
+
+func TestLoadFromRejectsInvalidProcessedEventRetentionConfig(t *testing.T) {
+	tests := map[string]map[string]string{
+		"zero retention":      {"NOTIFICATION_PROCESSED_EVENTS_RETENTION": "0s"},
+		"negative retention":  {"NOTIFICATION_PROCESSED_EVENTS_RETENTION": "-1h"},
+		"malformed retention": {"NOTIFICATION_PROCESSED_EVENTS_RETENTION": "not-a-duration"},
+		"zero interval":       {"NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL": "0s"},
+		"negative interval":   {"NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL": "-1h"},
+		"malformed interval":  {"NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL": "not-a-duration"},
+	}
+
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
+			if _, err := LoadFrom(newLoader(values)); err == nil {
+				t.Fatal("LoadFrom() should have failed")
+			}
+		})
 	}
 }
 
