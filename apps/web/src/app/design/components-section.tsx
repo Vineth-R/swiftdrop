@@ -1,16 +1,22 @@
-import { Lock, Plus } from 'lucide-react';
+import { Lock, PackageOpen, Plus } from 'lucide-react';
 
 import { SystemPage } from '../../components/layout/system-page';
 import { Alert } from '../../components/ui/alert';
 import { Avatar } from '../../components/ui/avatar';
 import { Banner } from '../../components/ui/banner';
 import { Button, ButtonLink } from '../../components/ui/button';
+import { EmptyState } from '../../components/ui/empty-state';
 import { ErrorSummary } from '../../components/ui/error-summary';
 import { TextField } from '../../components/ui/field';
 import { Logo, LogoMark } from '../../components/ui/logo';
 import { PasswordField } from '../../components/ui/password-field';
 import { RoleBadge } from '../../components/ui/role-badge';
 import { RouteLine } from '../../components/ui/route-line';
+import {
+  Skeleton,
+  SkeletonGroup,
+  SkeletonText,
+} from '../../components/ui/skeleton';
 import { Spinner } from '../../components/ui/spinner';
 import type { ButtonVariant } from '../../components/ui/button';
 import { roles } from '../../lib/tokens';
@@ -52,7 +58,7 @@ export function ComponentsSection() {
         Components
       </h2>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Panel title="Logo">
           <div className="flex flex-wrap items-center gap-6">
             <Logo size="lg" />
@@ -157,7 +163,7 @@ export function ComponentsSection() {
         </div>
       </Panel>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Panel title="Text fields">
           <TextField
             id="demo-name"
@@ -257,7 +263,7 @@ export function ComponentsSection() {
         </Alert>
       </Panel>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Panel title="Role badges and avatar">
           <div className="flex flex-wrap items-center gap-3">
             {roles.map((role) => (
@@ -290,6 +296,41 @@ export function ComponentsSection() {
               Contact support to reactivate.
             </Banner>
           </div>
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <Panel title="Skeleton (loading)">
+          <SkeletonGroup
+            label="Loading parcels"
+            className="flex flex-col gap-4"
+          >
+            <Skeleton className="h-5 w-1/3" />
+            <SkeletonText lines={3} />
+            <div className="flex gap-4">
+              <Skeleton className="h-10 w-24" />
+              <Skeleton className="h-10 w-24" />
+            </div>
+          </SkeletonGroup>
+          <span className="text-body-sm text-text-muted">
+            Still on purpose: only the spinner and the route line move.
+          </span>
+        </Panel>
+        <Panel title="Empty state">
+          <EmptyState
+            icon={PackageOpen}
+            title="No parcels yet"
+            action={
+              <Button iconLeading={<Plus size={16} strokeWidth={1.5} />}>
+                New delivery
+              </Button>
+            }
+          >
+            Create your first delivery and it will appear here.
+          </EmptyState>
+          <EmptyState title="No results for “Kandy”">
+            Try a different tracking number or clear the filter.
+          </EmptyState>
         </Panel>
       </div>
 
