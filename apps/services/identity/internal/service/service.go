@@ -255,7 +255,9 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (Session, error) 
 
 // Refresh exchanges a refresh token for a new access token and a rotated
 // refresh token. The presented token stops working. It returns
-// ErrRefreshTokenInvalid for any token that is not currently usable.
+// ErrRefreshTokenInvalid for any token that is not currently usable. Presenting
+// a token that was already rotated, after the short grace period, also revokes
+// the session it belonged to and logs a warning (repository.RefreshReuseGrace).
 func (s *Service) Refresh(ctx context.Context, input RefreshInput) (Session, error) {
 	if !plausibleRefreshToken(input.RefreshToken) {
 		return Session{}, ErrRefreshTokenInvalid
@@ -268,6 +270,11 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (Session, err
 	}
 
 	userID, err := s.store.RotateRefreshToken(ctx, hashRefreshToken(input.RefreshToken), refresh.record, now)
+	if errors.Is(err, repository.ErrRefreshTokenReused) {
+		// The caller still sees an ordinary invalid token, so it learns nothing
+		// about the session it tried to take over.
+		s.logger.WarnContext(ctx, "refresh token reuse detected, session revoked", "user_id", userID)
+	}
 	if errors.Is(err, repository.ErrRefreshTokenInvalid) {
 		return Session{}, ErrRefreshTokenInvalid
 	}

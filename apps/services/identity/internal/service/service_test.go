@@ -41,6 +41,11 @@ type storedToken struct {
 	userID    string
 	expiresAt time.Time
 	revoked   bool
+
+	// revokedAt and replacedBy are set when the token is rotated; a token that
+	// is revoked without a successor (logout) has no replacedBy.
+	revokedAt  time.Time
+	replacedBy string
 }
 
 func newMemoryStore() *memoryStore {
@@ -156,10 +161,24 @@ func (m *memoryStore) RotateRefreshToken(
 		return "", err
 	}
 	old, ok := m.tokens[oldHash]
-	if !ok || old.revoked || !now.Before(old.expiresAt) || !m.users[old.userID].IsActive {
+	if !ok {
+		return "", repository.ErrRefreshTokenInvalid
+	}
+	if old.revoked && old.replacedBy != "" && !now.Before(old.revokedAt.Add(repository.RefreshReuseGrace)) {
+		for hash := old.replacedBy; hash != ""; hash = m.tokens[hash].replacedBy {
+			if token := m.tokens[hash]; !token.revoked {
+				token.revoked = true
+				token.revokedAt = now
+			}
+		}
+		return old.userID, repository.ErrRefreshTokenReused
+	}
+	if old.revoked || !now.Before(old.expiresAt) || !m.users[old.userID].IsActive {
 		return "", repository.ErrRefreshTokenInvalid
 	}
 	old.revoked = true
+	old.revokedAt = now
+	old.replacedBy = next.TokenHash
 	m.tokens[next.TokenHash] = &storedToken{userID: old.userID, expiresAt: next.ExpiresAt}
 	return old.userID, nil
 }
@@ -709,6 +728,86 @@ func TestService_Refresh(t *testing.T) {
 
 		if _, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: second.RefreshToken}); err != nil {
 			t.Fatalf("Refresh with the rotated token returned error: %v", err)
+		}
+	})
+
+	t.Run("replaying a rotated token later ends the session it belonged to", func(t *testing.T) {
+		f := newFixture(t)
+		var logs strings.Builder
+		f.service.logger = newCapturingLogger(&logs)
+		first := login(t, f)
+
+		second, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: first.RefreshToken})
+		if err != nil {
+			t.Fatalf("first Refresh returned error: %v", err)
+		}
+		third, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: second.RefreshToken})
+		if err != nil {
+			t.Fatalf("second Refresh returned error: %v", err)
+		}
+
+		f.advance(repository.RefreshReuseGrace + time.Second)
+		_, err = f.service.Refresh(context.Background(), RefreshInput{RefreshToken: first.RefreshToken})
+		if !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("replayed Refresh error = %v, want ErrRefreshTokenInvalid", err)
+		}
+		if errors.Is(err, repository.ErrRefreshTokenReused) {
+			t.Fatal("the caller can tell a replayed token from an unknown one")
+		}
+
+		_, err = f.service.Refresh(context.Background(), RefreshInput{RefreshToken: third.RefreshToken})
+		if !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("the newest token still works after a replay: error = %v", err)
+		}
+		text := logs.String()
+		if !strings.Contains(text, "refresh token reuse detected") || !strings.Contains(text, first.Account.ID) {
+			t.Fatalf("reuse was not logged with the user ID: %q", text)
+		}
+		if strings.Contains(text, first.RefreshToken) || strings.Contains(text, third.RefreshToken) {
+			t.Fatalf("log leaks a refresh token: %q", text)
+		}
+	})
+
+	t.Run("a quick retry of the old token is refused but does not end the session", func(t *testing.T) {
+		f := newFixture(t)
+		var logs strings.Builder
+		f.service.logger = newCapturingLogger(&logs)
+		first := login(t, f)
+
+		second, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: first.RefreshToken})
+		if err != nil {
+			t.Fatalf("first Refresh returned error: %v", err)
+		}
+		f.advance(repository.RefreshReuseGrace - time.Second)
+		_, err = f.service.Refresh(context.Background(), RefreshInput{RefreshToken: first.RefreshToken})
+		if !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("retried Refresh error = %v, want ErrRefreshTokenInvalid", err)
+		}
+
+		if _, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: second.RefreshToken}); err != nil {
+			t.Fatalf("the newest token stopped working after a quick retry: %v", err)
+		}
+		if strings.Contains(logs.String(), "reuse detected") {
+			t.Fatalf("a quick retry was logged as reuse: %q", logs.String())
+		}
+	})
+
+	t.Run("a logged out token is refused without reuse handling", func(t *testing.T) {
+		f := newFixture(t)
+		var logs strings.Builder
+		f.service.logger = newCapturingLogger(&logs)
+		first := login(t, f)
+
+		if err := f.service.Logout(context.Background(), first.Account.ID, first.RefreshToken); err != nil {
+			t.Fatalf("Logout returned error: %v", err)
+		}
+		f.advance(time.Hour)
+		_, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: first.RefreshToken})
+		if !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("Refresh error = %v, want ErrRefreshTokenInvalid", err)
+		}
+		if strings.Contains(logs.String(), "reuse detected") {
+			t.Fatalf("logout was logged as reuse: %q", logs.String())
 		}
 	})
 

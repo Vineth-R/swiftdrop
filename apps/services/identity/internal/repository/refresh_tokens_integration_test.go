@@ -226,3 +226,124 @@ func TestRepository_RevokeRefreshToken(t *testing.T) {
 		}
 	})
 }
+
+func TestRepository_RotateRefreshToken_reuse(t *testing.T) {
+	repo, pool := newTestRepository(t)
+	ctx := context.Background()
+	user := createTestUser(t, repo, "reuse@example.com")
+	expiry := integrationNow.Add(7 * 24 * time.Hour)
+
+	create := func(t *testing.T, raw string) {
+		t.Helper()
+		if _, err := repo.CreateRefreshToken(ctx, newToken(user.ID, raw, expiry)); err != nil {
+			t.Fatalf("CreateRefreshToken(%s) returned error: %v", raw, err)
+		}
+	}
+	rotate := func(t *testing.T, from, to string, at time.Time) {
+		t.Helper()
+		if _, err := repo.RotateRefreshToken(ctx, sha256Hex(from), nextToken(to, expiry), at); err != nil {
+			t.Fatalf("RotateRefreshToken(%s -> %s) returned error: %v", from, to, err)
+		}
+	}
+	active := func(t *testing.T, raws ...string) int {
+		t.Helper()
+		hashes := make([]string, len(raws))
+		for i, raw := range raws {
+			hashes[i] = sha256Hex(raw)
+		}
+		var count int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM identity.refresh_tokens WHERE token_hash = ANY($1) AND revoked_at IS NULL`, hashes,
+		).Scan(&count); err != nil {
+			t.Fatalf("count active tokens: %v", err)
+		}
+		return count
+	}
+
+	t.Run("an old token replayed after the grace period revokes its whole chain", func(t *testing.T) {
+		create(t, "rt_a1")
+		create(t, "rt_other_device")
+		rotate(t, "rt_a1", "rt_a2", integrationNow)
+		rotate(t, "rt_a2", "rt_a3", integrationNow.Add(time.Minute))
+
+		replay := integrationNow.Add(2 * time.Minute)
+		userID, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_a1"), nextToken("rt_thief", expiry), replay)
+		if !errors.Is(err, ErrRefreshTokenReused) || !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("replay error = %v, want ErrRefreshTokenReused (an ErrRefreshTokenInvalid)", err)
+		}
+		if userID != user.ID {
+			t.Fatalf("replay reported user %q, want %q", userID, user.ID)
+		}
+
+		if got := active(t, "rt_a1", "rt_a2", "rt_a3"); got != 0 {
+			t.Fatalf("%d tokens of the replayed chain are still active, want 0", got)
+		}
+		if got := active(t, "rt_thief"); got != 0 {
+			t.Fatal("the refused replay stored a replacement token")
+		}
+		_, err = repo.RotateRefreshToken(ctx, sha256Hex("rt_a3"), nextToken("rt_a4", expiry), replay)
+		if !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("the newest token of the chain still rotates: error = %v", err)
+		}
+	})
+
+	t.Run("another login of the same user is left alone", func(t *testing.T) {
+		if got := active(t, "rt_other_device"); got != 1 {
+			t.Fatalf("the other device's token was revoked (active = %d)", got)
+		}
+		rotate(t, "rt_other_device", "rt_other_device_2", integrationNow.Add(3*time.Minute))
+	})
+
+	t.Run("a retry inside the grace period is refused but revokes nothing", func(t *testing.T) {
+		create(t, "rt_c1")
+		rotate(t, "rt_c1", "rt_c2", integrationNow)
+
+		_, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_c1"), nextToken("rt_c3", expiry), integrationNow.Add(RefreshReuseGrace-time.Second))
+		if !errors.Is(err, ErrRefreshTokenInvalid) || errors.Is(err, ErrRefreshTokenReused) {
+			t.Fatalf("retry error = %v, want a plain ErrRefreshTokenInvalid", err)
+		}
+		if got := active(t, "rt_c2"); got != 1 {
+			t.Fatal("a retry inside the grace period revoked the newest token")
+		}
+		rotate(t, "rt_c2", "rt_c3", integrationNow.Add(RefreshReuseGrace))
+	})
+
+	t.Run("the grace period ends exactly at its limit", func(t *testing.T) {
+		create(t, "rt_e1")
+		rotate(t, "rt_e1", "rt_e2", integrationNow)
+
+		_, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_e1"), nextToken("rt_e3", expiry), integrationNow.Add(RefreshReuseGrace))
+		if !errors.Is(err, ErrRefreshTokenReused) {
+			t.Fatalf("replay at the limit: error = %v, want ErrRefreshTokenReused", err)
+		}
+	})
+
+	t.Run("a token revoked by logout is not a reuse", func(t *testing.T) {
+		create(t, "rt_d1")
+		create(t, "rt_d_other")
+		if err := repo.RevokeRefreshToken(ctx, user.ID, sha256Hex("rt_d1"), integrationNow); err != nil {
+			t.Fatalf("RevokeRefreshToken returned error: %v", err)
+		}
+
+		_, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_d1"), nextToken("rt_d2", expiry), integrationNow.Add(time.Hour))
+		if !errors.Is(err, ErrRefreshTokenInvalid) || errors.Is(err, ErrRefreshTokenReused) {
+			t.Fatalf("error = %v, want a plain ErrRefreshTokenInvalid", err)
+		}
+		if got := active(t, "rt_d_other"); got != 1 {
+			t.Fatal("replaying a logged out token revoked another login")
+		}
+	})
+
+	t.Run("a replay of a chain that has already ended is still reported", func(t *testing.T) {
+		create(t, "rt_f1")
+		rotate(t, "rt_f1", "rt_f2", integrationNow)
+		if err := repo.RevokeRefreshToken(ctx, user.ID, sha256Hex("rt_f2"), integrationNow.Add(time.Minute)); err != nil {
+			t.Fatalf("RevokeRefreshToken returned error: %v", err)
+		}
+
+		_, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_f1"), nextToken("rt_f3", expiry), integrationNow.Add(time.Hour))
+		if !errors.Is(err, ErrRefreshTokenReused) {
+			t.Fatalf("error = %v, want ErrRefreshTokenReused", err)
+		}
+	})
+}

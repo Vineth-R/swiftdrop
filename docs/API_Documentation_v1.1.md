@@ -698,6 +698,18 @@ Response 200 (tokens appear in the body only in token mode):
 
 Errors: 401 REFRESH_TOKEN_INVALID (expired, revoked or already used).
 
+Reuse detection: a refresh token is single use. If a token that was already
+
+rotated is presented again more than 10 seconds after its rotation, the service
+
+treats it as stolen and revokes every token that descends from it, which ends
+
+that session. The response is the same 401 REFRESH_TOKEN_INVALID. Other logins of
+
+the same user are not affected. A repeat inside the 10 seconds (two tabs, or a
+
+retry after a lost response) is refused without revoking anything.
+
 
 
 

@@ -6,6 +6,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,6 +23,11 @@ var (
 	// rotated refresh token, and a token whose user is deactivated. The caller
 	// cannot tell these apart (API v1.1 section 2.3).
 	ErrRefreshTokenInvalid = errors.New("refresh token is not valid")
+
+	// ErrRefreshTokenReused means a refresh token that was already rotated came
+	// back after the grace period, so its chain was revoked. It is an
+	// ErrRefreshTokenInvalid for callers that do not care why.
+	ErrRefreshTokenReused = fmt.Errorf("%w: a rotated token was used again", ErrRefreshTokenInvalid)
 
 	// ErrPasswordMismatch means the stored password hash is no longer the one
 	// the caller checked, because the password was changed in the meantime.
