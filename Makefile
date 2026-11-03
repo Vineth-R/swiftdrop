@@ -81,7 +81,7 @@ test-db:
 		echo "       The URL must allow CREATE DATABASE; tests create and drop isolated databases." >&2; \
 		exit 1; \
 	fi
-	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/...
+	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/...
 
 check-routes:
 	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \

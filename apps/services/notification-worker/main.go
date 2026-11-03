@@ -14,6 +14,7 @@ import (
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/notificationlog"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/retention"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/worker"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
@@ -130,6 +131,16 @@ func run() error {
 		"address", config.Addr(),
 		"environment", config.AppEnv,
 	)
+	logger.Info("processed-event retention enabled",
+		"retention", config.ProcessedEventsRetention,
+		"cleanup_interval", config.ProcessedEventsCleanupInterval,
+	)
+
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		retention.Run(ctx, logger, store, config.ProcessedEventsRetention, config.ProcessedEventsCleanupInterval)
+	}()
 
 	results := make(chan error, 2)
 	go func() {
@@ -154,6 +165,7 @@ func run() error {
 	cancel()
 	second := <-results
 	close(stopped)
+	<-cleanupDone
 	if first != nil {
 		return first
 	}

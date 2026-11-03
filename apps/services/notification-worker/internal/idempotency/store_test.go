@@ -70,6 +70,7 @@ type fakeDB struct {
 	rowValue bool
 	rowErr   error
 	execErr  error
+	execTag  pgconn.CommandTag
 	beginErr error
 
 	queryCalls int
@@ -86,11 +87,14 @@ func (d *fakeDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	return fakeRow{value: d.rowValue, err: d.rowErr}
 }
 
-func (d *fakeDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+func (d *fakeDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	d.execCalls++
 	d.lastSQL = sql
 	d.lastArgs = args
-	return pgconn.CommandTag{}, d.execErr
+	if err := ctx.Err(); err != nil {
+		return pgconn.CommandTag{}, err
+	}
+	return d.execTag, d.execErr
 }
 
 func (d *fakeDB) Begin(context.Context) (pgx.Tx, error) {
