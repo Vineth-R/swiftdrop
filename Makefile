@@ -4,7 +4,7 @@ COMPOSE ?= docker compose
 BUILD_SERVICES ?= identity parcel pricing merchant realtime notification-worker webhook-worker web
 BUILD_FLAGS ?=
 
-.PHONY: help build up up-build down logs preflight require-images ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test-db
+.PHONY: help build up up-build down logs preflight require-images ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test test-db coverage
 
 help:
 	@echo "Targets:"
@@ -18,7 +18,9 @@ help:
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
 	@echo "  make check-routes   verify gateway routing against the running stack"
 	@echo "  make db-reset       delete local volumes and rebuild (destructive)"
+	@echo "  make test           run every Go test with the race detector (no database needed)"
 	@echo "  make test-db        run PostgreSQL integration tests against TEST_DATABASE_URL"
+	@echo "  make coverage       run the Go tests and print coverage per service and in total"
 
 preflight:
 	@if [ ! -f .env ] && { [ -z "$${POSTGRES_USER:-}" ] || [ -z "$${POSTGRES_DB:-}" ]; }; then \
@@ -95,6 +97,12 @@ db-reset:
 	@echo "waiting for postgres to become healthy"
 	@until [ "$$(docker inspect -f '{{.State.Health.Status}}' "$$($(COMPOSE) ps -q postgres)")" = "healthy" ]; do sleep 1; done
 	$(MAKE) migrate
+
+test:
+	go test -race -count=1 ./...
+
+coverage:
+	./scripts/coverage.sh
 
 test-db:
 	@if [ -z "$${TEST_DATABASE_URL:-}" ]; then \
