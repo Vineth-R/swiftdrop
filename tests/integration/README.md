@@ -107,7 +107,7 @@ TEST_BASE_URL=http://localhost:8080 \
   go test -tags=integration,backendintegration -run TestPricingTrackingBackend ./tests/integration/...
 ```
 
-The CI database job runs the migration, pricing HTTP and notification-log repository integration tests with the PostgreSQL service and fails on skips. The manual gateway suite is not part of CI.
+The CI database job runs the migration, pricing HTTP, notification-log repository and demo-seed integration tests with the PostgreSQL service and fails on skips. The manual gateway suite is not part of CI.
 
 ## Notification admin log
 
@@ -117,6 +117,16 @@ The CI database job runs the migration, pricing HTTP and notification-log reposi
 TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
   go test -race -count=1 -tags=integration -v \
   ./apps/services/notification-worker/internal/notificationlog/...
+```
+
+## Demo-user seed
+
+`apps/services/identity/internal/seed/postgres_integration_test.go` (tag `integration`) creates a uniquely named disposable database, applies the identity and pricing migrations, and runs the real seed orchestration. It verifies all five demo users and roles, the two courier profiles and their `CMB`/`KDY` zones, bcrypt password hashes, rerun idempotency, unchanged existing credentials, roles and profiles even when a rerun supplies different values, different-role skips, zone failures without partial users, forced-profile rollback, and concurrent executions. Cleanup drops only the database created by that test run.
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  go test -race -count=1 -tags=integration -v \
+  ./apps/services/identity/internal/seed/...
 ```
 
 ## Optional Go proof-photo validator verification
@@ -219,7 +229,7 @@ The `integration` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci
 go test -race -count=1 -tags=integration -v ./tests/integration
 ```
 
-The `database` job starts a PostgreSQL 16 service container, sets `TEST_DATABASE_URL`, and runs the dispatch, pricing and notification-log database tests. Both jobs fail if their dependency is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
+The `database` job starts a PostgreSQL 16 service container, sets `TEST_DATABASE_URL`, and runs the dispatch, pricing, notification-log and demo-seed database tests. Both jobs fail if their dependency is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
 
 ### Guidelines for new tests
 

@@ -201,7 +201,7 @@ type CreateStaffInput struct {
 // *ValidationError for bad input and ErrEmailAlreadyExists for a duplicate
 // email.
 func (a *AdminUsers) CreateStaffUser(ctx context.Context, actorID string, input CreateStaffInput) (AdminUser, error) {
-	email := normalizeEmail(input.Email)
+	email := NormalizeEmail(input.Email)
 
 	var issues []Issue
 	// The email, password, name and phone rules are the registration rules.

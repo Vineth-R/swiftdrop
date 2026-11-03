@@ -124,8 +124,8 @@ type ForgotPasswordInput struct {
 // cannot use a password (Google-only) and deactivated accounts silently get no
 // token and no email.
 func (p *PasswordReset) ForgotPassword(ctx context.Context, input ForgotPasswordInput) error {
-	email := normalizeEmail(input.Email)
-	if !validEmail(email) {
+	email := NormalizeEmail(input.Email)
+	if !ValidEmail(email) {
 		return &ValidationError{Issues: []Issue{{Field: "email", Issue: "must be a valid email address"}}}
 	}
 

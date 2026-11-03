@@ -20,15 +20,15 @@ const (
 // up to 15 digits in total.
 var e164 = regexp.MustCompile(`^\+[1-9][0-9]{1,14}$`)
 
-// normalizeEmail trims and lower-cases an email. Accounts are matched without
+// NormalizeEmail trims and lower-cases an email. Accounts are matched without
 // regard to letter case (DB v1.1 section 3.2).
-func normalizeEmail(email string) string {
+func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-// validEmail reports whether email is a plain address such as a@b.lk, without a
+// ValidEmail reports whether email is a plain address such as a@b.lk, without a
 // display name or angle brackets.
-func validEmail(email string) bool {
+func ValidEmail(email string) bool {
 	if email == "" || len(email) > maxEmailLength {
 		return false
 	}
@@ -43,7 +43,7 @@ func validEmail(email string) bool {
 func validateRegistration(input RegisterInput, email string) error {
 	var issues []Issue
 
-	if !validEmail(email) {
+	if !ValidEmail(email) {
 		issues = append(issues, Issue{Field: "email", Issue: "must be a valid email address"})
 	}
 

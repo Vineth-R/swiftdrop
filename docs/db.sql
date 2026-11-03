@@ -625,7 +625,7 @@ END $$;
 -- =====================================================================
 -- SEED DATA (document section 10)
 -- Demo users are NOT seeded here: passwords come from environment variables
--- and are hashed by the Go seed command (admin, dispatcher, 2 couriers, customer).
+-- and are hashed by the Go seed command (`make seed`: admin, dispatcher, 2 couriers, customer).
 -- =====================================================================
 
 
