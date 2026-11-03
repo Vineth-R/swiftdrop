@@ -2,6 +2,11 @@
 # Verifies that every public API v1.1 path group reaches its service through Nginx.
 set -u
 
+if ! command -v curl >/dev/null 2>&1; then
+  printf 'error: curl is required to verify gateway routes.\n' >&2
+  exit 1
+fi
+
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 failures=0
 
@@ -25,8 +30,12 @@ check_upstream() {
   body="$(curl -s --max-time 5 -w '\n%{http_code}' "$BASE_URL$path" || true)"
   code="$(printf '%s' "$body" | tail -n1)"
   # A route proves gateway forwarding when the upstream answers with its own
-  # JSON error: 404 for unimplemented paths, 401/403 for auth-protected paths.
-  if { [ "$code" = "404" ] && printf '%s' "$body" | grep -q '"code"'; } || [ "$code" = "401" ] || [ "$code" = "403" ]; then
+  # JSON error: 404 for unimplemented paths, 401/403 for auth-protected paths,
+  # and 405 with the upstream method-not-allowed code. Nginx-generated errors
+  # are HTML and do not carry a JSON error code.
+  if { [ "$code" = "404" ] && printf '%s' "$body" | grep -q '"code"'; } || \
+     { [ "$code" = "405" ] && printf '%s' "$body" | grep -q '"code":"METHOD_NOT_ALLOWED"'; } || \
+     [ "$code" = "401" ] || [ "$code" = "403" ]; then
     pass "$description ($path -> upstream $code)"
   else
     fail "$description ($path -> $code, expected an upstream JSON error)"

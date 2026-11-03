@@ -1,10 +1,10 @@
 SHELL := /bin/sh
 
 COMPOSE ?= docker compose
-COMPOSE_PARALLEL_LIMIT ?= 1
-export COMPOSE_PARALLEL_LIMIT
+BUILD_SERVICES ?= identity parcel pricing merchant realtime notification-worker webhook-worker web
+BUILD_FLAGS ?=
 
-.PHONY: help build up up-build down logs preflight ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test-db
+.PHONY: help build up up-build down logs preflight require-images ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test-db
 
 help:
 	@echo "Targets:"
@@ -27,6 +27,24 @@ preflight:
 		exit 1; \
 	fi
 	@$(COMPOSE) config --quiet
+	@jwt="$$($(COMPOSE) config 2>/dev/null | awk '/^[[:space:]]+JWT_ACCESS_SECRET:/{sub(/^[[:space:]]*JWT_ACCESS_SECRET:[[:space:]]*/, ""); print; exit}')"; \
+	jwt="$$(printf '%s' "$$jwt" | sed "s/^[[:space:]]*//;s/[[:space:]]*$$//;s/^[\"']//;s/[\"']$$//;s/^[[:space:]]*//;s/[[:space:]]*$$//")"; \
+	if [ -z "$$jwt" ]; then \
+		echo "error: JWT_ACCESS_SECRET is required. Set it in .env or export it." >&2; \
+		exit 1; \
+	fi
+
+require-images:
+	@images="$$($(COMPOSE) config --images 2>/dev/null)"; \
+	missing=0; \
+	for service in $(BUILD_SERVICES); do \
+		image="$$(printf '%s\n' "$$images" | grep -E "(^|/).*-$${service}$$" | head -n1)"; \
+		if [ -z "$$image" ] || ! docker image inspect "$$image" >/dev/null 2>&1; then \
+			echo "error: image for $$service is missing. Run 'make build' or 'make up-build'." >&2; \
+			missing=1; \
+		fi; \
+	done; \
+	test "$$missing" -eq 0
 
 ensure-postgres:
 	@$(COMPOSE) ps --status running --services 2>/dev/null | grep -qx postgres || { \
@@ -38,10 +56,13 @@ bootstrap-db: ensure-postgres
 	$(COMPOSE) exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -f /docker-entrypoint-initdb.d/01-schemas.sql'
 
 build: preflight
-	$(COMPOSE) build
+	@for service in $(BUILD_SERVICES); do \
+		echo "Building $$service"; \
+		$(COMPOSE) build $(BUILD_FLAGS) "$$service" || exit 1; \
+	done
 
-up: preflight
-	$(COMPOSE) up -d --wait --wait-timeout 300
+up: preflight require-images
+	$(COMPOSE) up -d --no-build --wait --wait-timeout 300
 	$(MAKE) migrate
 	$(MAKE) check-routes
 
