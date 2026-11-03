@@ -30,13 +30,13 @@ const variants: { variant: ButtonVariant; label: string; note: string }[] = [
   { variant: 'link', label: 'Resend', note: 'Inline, teal' },
 ];
 
-function Overline({ children }: { children: React.ReactNode }) {
+export function Overline({ children }: { children: React.ReactNode }) {
   return (
     <h3 className="text-overline uppercase text-text-faint">{children}</h3>
   );
 }
 
-function Panel({
+export function Panel({
   title,
   children,
 }: {

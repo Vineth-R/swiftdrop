@@ -11,7 +11,8 @@ import { cn } from '../../lib/cn';
 
 export type AlertTone = 'info' | 'success' | 'warning' | 'danger';
 
-const icons: Record<AlertTone, LucideIcon> = {
+/** The icon of each tone. Exported so a Toast shows the same shapes as an Alert. */
+export const alertIcons: Record<AlertTone, LucideIcon> = {
   info: Info,
   success: CircleCheck,
   warning: TriangleAlert,
@@ -19,7 +20,11 @@ const icons: Record<AlertTone, LucideIcon> = {
   danger: SquareX,
 };
 
-const toneClasses: Record<AlertTone, { box: string; icon: string }> = {
+/** The border, tint and icon colour of each tone. */
+export const alertToneClasses: Record<
+  AlertTone,
+  { box: string; icon: string }
+> = {
   info: { box: 'border-info-border bg-info-tint', icon: 'text-info' },
   success: {
     box: 'border-success-border bg-success-tint',
@@ -58,7 +63,7 @@ export function Alert({
   className,
   ref,
 }: AlertProps) {
-  const Icon = icon ?? icons[tone];
+  const Icon = icon ?? alertIcons[tone];
   return (
     <div
       ref={ref}
@@ -66,7 +71,7 @@ export function Alert({
       role={tone === 'danger' ? 'alert' : 'status'}
       className={cn(
         'flex gap-3 rounded-card border px-4 py-3',
-        toneClasses[tone].box,
+        alertToneClasses[tone].box,
         className,
       )}
     >
@@ -74,7 +79,7 @@ export function Alert({
         size={20}
         strokeWidth={1.5}
         aria-hidden="true"
-        className={cn('mt-0.5 shrink-0', toneClasses[tone].icon)}
+        className={cn('mt-0.5 shrink-0', alertToneClasses[tone].icon)}
       />
       <div className="flex min-w-0 flex-col gap-1">
         <div className="text-body-sm font-semibold text-text">{title}</div>
