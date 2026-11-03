@@ -90,6 +90,8 @@ See [`tests/integration/README.md`](tests/integration/README.md). CI sets `RABBI
 
 ### Frontend changes
 
+Read [`DESIGN.md`](DESIGN.md) before you build or change a screen, and follow it. It defines the design language, the allowed tokens, the component kit and the checklist to finish with.
+
 ```sh
 pnpm exec nx lint @org/web
 pnpm exec nx build @org/web

@@ -271,6 +271,7 @@ Email and password authentication is implemented in the identity service, and `p
 
 ## Frontend standards
 
+- Before you implement or change any frontend screen or component, read [`DESIGN.md`](DESIGN.md) in full and follow it. It is the design contract: the design language rules, the allowed tokens, the component kit, the app shell and role navigation, forms, API error handling, tests, and the checklist to finish with. Do not change the design foundation (tokens, kit components, shell, API client) unless the task is explicitly about it.
 - Preserve the Next.js App Router structure in `apps/web/src/app`.
 - Use TypeScript and preserve strict type checking. Do not loosen compiler strictness to bypass errors.
 - Prefer React Server Components by default. Add `'use client'` only when browser APIs, event handlers, or client-side state require it.
