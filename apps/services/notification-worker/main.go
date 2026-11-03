@@ -6,10 +6,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/config"
+	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/notificationlog"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/worker"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
@@ -36,6 +42,10 @@ func run() error {
 		return err
 	}
 
+	if config.AppEnv != "development" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	sender, err := mailer.NewSMTP(config.SMTP)
 	if err != nil {
 		return fmt.Errorf("create smtp mailer: %w", err)
@@ -54,6 +64,31 @@ func run() error {
 	logger.Info("database connection established")
 
 	store := idempotency.NewPostgres(database, idempotency.ConsumerName)
+
+	router, err := servicehttp.New(logger, servicehttp.Options{
+		Store:        notificationlog.NewRepository(database),
+		AccessSecret: config.AccessSecret,
+		CookieName:   config.CookieName,
+	})
+	if err != nil {
+		return fmt.Errorf("configure notification admin router: %w", err)
+	}
+	router.GET("/health", postgres.HealthHandler())
+	router.GET("/ready", postgres.ReadyHandler(database, postgres.DefaultReadyTimeout))
+
+	if config.AccessSecret == "" {
+		logger.Warn("JWT_ACCESS_SECRET is not set; the admin notification-log API will return 503")
+	}
+
+	server := httpx.NewServer(httpx.ServerConfig{
+		Addr:              config.Addr(),
+		Handler:           router,
+		Logger:            logger,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	})
 
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -91,19 +126,36 @@ func run() error {
 		"routing_key", config.RoutingKey,
 		"environment", config.AppEnv,
 	)
+	logger.Info("starting http service",
+		"address", config.Addr(),
+		"environment", config.AppEnv,
+	)
 
-	err = messaging.Run(ctx, messaging.ConsumerConfig{
-		URL:            config.RabbitMQURL,
-		Exchange:       config.Exchange,
-		Queue:          config.Queue,
-		RoutingKey:     config.RoutingKey,
-		Prefetch:       config.Prefetch,
-		HandlerTimeout: config.HandlerTimeout,
-		MaxRetries:     config.MaxRetries,
-		RetryDelay:     config.RetryDelay,
-		ReconnectMin:   config.ReconnectMin,
-		ReconnectMax:   config.ReconnectMax,
-	}, worker.New(logger, sender, store), logger)
+	results := make(chan error, 2)
+	go func() {
+		results <- httpx.Serve(ctx, server, 10*time.Second)
+	}()
+	go func() {
+		results <- messaging.Run(ctx, messaging.ConsumerConfig{
+			URL:            config.RabbitMQURL,
+			Exchange:       config.Exchange,
+			Queue:          config.Queue,
+			RoutingKey:     config.RoutingKey,
+			Prefetch:       config.Prefetch,
+			HandlerTimeout: config.HandlerTimeout,
+			MaxRetries:     config.MaxRetries,
+			RetryDelay:     config.RetryDelay,
+			ReconnectMin:   config.ReconnectMin,
+			ReconnectMax:   config.ReconnectMax,
+		}, worker.New(logger, sender, store), logger)
+	}()
+
+	first := <-results
+	cancel()
+	second := <-results
 	close(stopped)
-	return err
+	if first != nil {
+		return first
+	}
+	return second
 }

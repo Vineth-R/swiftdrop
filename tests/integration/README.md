@@ -107,7 +107,17 @@ TEST_BASE_URL=http://localhost:8080 \
   go test -tags=integration,backendintegration -run TestPricingTrackingBackend ./tests/integration/...
 ```
 
-The CI database job runs the migration and pricing HTTP integration tests with the PostgreSQL service and fails on skips. The manual gateway suite is not part of CI.
+The CI database job runs the migration, pricing HTTP and notification-log repository integration tests with the PostgreSQL service and fails on skips. The manual gateway suite is not part of CI.
+
+## Notification admin log
+
+`apps/services/notification-worker/internal/notificationlog/postgres_integration_test.go` (tag `integration`) creates a uniquely named disposable database, applies `infra/docker/postgres/init/01-schemas.sql` plus notification `000001` and `000002`, and exercises the real repository with the actual schema. It verifies newest-first ordering, status filtering, pagination/offset, nullable fields and empty-table results. Cleanup drops only the database created by that test run.
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  go test -race -count=1 -tags=integration -v \
+  ./apps/services/notification-worker/internal/notificationlog/...
+```
 
 ## Optional Go proof-photo validator verification
 
@@ -209,7 +219,7 @@ The `integration` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci
 go test -race -count=1 -tags=integration -v ./tests/integration
 ```
 
-The `database` job starts a PostgreSQL 16 service container, sets `TEST_DATABASE_URL`, and runs the database tests. Both jobs fail if their dependency is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
+The `database` job starts a PostgreSQL 16 service container, sets `TEST_DATABASE_URL`, and runs the dispatch, pricing and notification-log database tests. Both jobs fail if their dependency is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
 
 ### Guidelines for new tests
 

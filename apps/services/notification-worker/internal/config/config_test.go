@@ -38,6 +38,15 @@ func TestLoadFrom(t *testing.T) {
 		t.Fatalf("LoadFrom() returned error: %v", err)
 	}
 
+	if config.Port != 8086 {
+		t.Fatalf("Port = %d, want 8086", config.Port)
+	}
+	if config.AccessSecret != "" {
+		t.Fatalf("AccessSecret = %q, want empty", config.AccessSecret)
+	}
+	if config.CookieName != "sd_access" {
+		t.Fatalf("CookieName = %q, want sd_access", config.CookieName)
+	}
 	if config.Queue != "notification.requested.v1" {
 		t.Fatalf("Queue = %q", config.Queue)
 	}
@@ -64,6 +73,37 @@ func TestLoadFrom(t *testing.T) {
 	}
 	if err := config.SMTP.Validate(); err != nil {
 		t.Fatalf("SMTP config does not validate: %v", err)
+	}
+}
+
+func TestLoadFromParsesHTTPConfig(t *testing.T) {
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL":      "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+		"PORT":              "18086",
+		"JWT_ACCESS_SECRET": "shared-access-secret",
+		"COOKIE_NAME":       "custom_access",
+	})
+
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+	if config.Port != 18086 || config.Addr() != ":18086" {
+		t.Fatalf("Port = %d, Addr = %q", config.Port, config.Addr())
+	}
+	if config.AccessSecret != "shared-access-secret" || config.CookieName != "custom_access" {
+		t.Fatalf("HTTP auth config = %q / %q", config.AccessSecret, config.CookieName)
+	}
+}
+
+func TestLoadFromRejectsInvalidPort(t *testing.T) {
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+		"PORT":         "not-a-port",
+	})
+
+	if _, err := LoadFrom(loader); err == nil {
+		t.Fatal("LoadFrom() should fail for an invalid PORT")
 	}
 }
 

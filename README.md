@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Identity authentication, pricing estimates/zones/internal quote and admin configuration, and anonymous public parcel tracking are implemented. Parcel lifecycle writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md) and [`docs/architecture.md`](docs/architecture.md).
+Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, and ADMIN notification-log reads are implemented. Parcel lifecycle writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
@@ -16,17 +16,17 @@ Identity authentication, pricing estimates/zones/internal quote and admin config
 
 ## Architecture
 
-| Service               | Responsibility                                            | Internal port |
-| --------------------- | --------------------------------------------------------- | ------------- |
-| `identity`            | Authentication, admin users, couriers, internal lookups   | 8081          |
-| `parcel`              | Anonymous public tracking; lifecycle writes are planned   | 8082          |
-| `pricing`             | Delivery quotes, zones, and ADMIN pricing configuration   | 8083          |
-| `merchant`            | Future merchant accounts, settings, and API credentials   | 8084          |
-| `realtime`            | Future live tracking over WebSocket or Server-Sent Events | 8085          |
-| `notification-worker` | Notification event consumption and email delivery         | no HTTP port  |
-| `webhook-worker`      | Future outgoing webhook delivery                          | no HTTP port  |
-| `@org/web`            | Next.js frontend                                          | 3000          |
-| Nginx                 | Public HTTP entry point                                   | 8080          |
+| Service               | Responsibility                                             | Internal port |
+| --------------------- | ---------------------------------------------------------- | ------------- |
+| `identity`            | Authentication, admin users, couriers, internal lookups    | 8081          |
+| `parcel`              | Anonymous public tracking; lifecycle writes are planned    | 8082          |
+| `pricing`             | Delivery quotes, zones, and ADMIN pricing configuration    | 8083          |
+| `merchant`            | Future merchant accounts, settings, and API credentials    | 8084          |
+| `realtime`            | Future live tracking over WebSocket or Server-Sent Events  | 8085          |
+| `notification-worker` | Notification delivery, email, ADMIN notification-log reads | 8086          |
+| `webhook-worker`      | Future outgoing webhook delivery                           | no HTTP port  |
+| `@org/web`            | Next.js frontend                                           | 3000          |
+| Nginx                 | Public HTTP entry point                                    | 8080          |
 
 Only the gateway (`http://localhost:8080`) is published. Service ports below are internal to the Compose network. Services communicate synchronously over HTTP when a caller needs an immediate result. Asynchronous work uses RabbitMQ. Each persisting service owns its PostgreSQL schema and must not modify another service's tables. Realtime currently has no schema or persistence. Read [`docs/architecture.md`](docs/architecture.md) for service boundaries, routing, event conventions, lifecycle behavior, and readiness semantics; this README does not repeat the full architecture.
 
@@ -338,14 +338,14 @@ Tests skip when `RABBITMQ_URL` is unset. CI sets it and fails the job if any int
 
 ### PostgreSQL integration tests
 
-Dispatch and pricing migration tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel/pricing baseline and dispatch migrations to a uniquely named, isolated database, then verify constraints, indexes, triggers, seed data, upgrade paths, and rollback/reapply. The pricing HTTP integration test in `apps/services/pricing/internal/http` exercises the real router, repository and seeded PostgreSQL data.
+Dispatch and pricing migration tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel/pricing baseline and dispatch migrations to a uniquely named, isolated database, then verify constraints, indexes, triggers, seed data, upgrade paths, and rollback/reapply. The pricing HTTP integration test in `apps/services/pricing/internal/http` exercises the real router, repository and seeded PostgreSQL data. The notification-log integration test in `apps/services/notification-worker/internal/notificationlog` applies the real notification migrations to an isolated database and verifies filtering, pagination, ordering and empty results.
 
 ```sh
 TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
   make test-db
 ```
 
-`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. `make test-db` runs the migration suite and the pricing HTTP integration tests. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
+`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. `make test-db` runs the migration suite, the pricing HTTP integration tests and the notification-log repository integration tests. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
 
 ### Nx and frontend checks
 
@@ -388,7 +388,7 @@ make up          # subsequent runs, reusing built images
 - Gateway health: <http://localhost:8080/healthz>
 - Mailpit UI: <http://localhost:8025/>
 - RabbitMQ management: <http://localhost:15672/>
-- Public API groups: `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers`, `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports`, `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`
+- Public API groups: `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers`, `/api/v1/admin/notification-logs`, `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports`, `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`
 - WebSocket: `ws://localhost:8080/ws`
 - `/internal/*` is blocked at the gateway (JSON `404`); `/api/v1/ai` is a TODO and returns JSON `404`.
 
@@ -411,7 +411,7 @@ curl -i -X POST http://localhost:8080/api/v1/auth/login \
   -d '{"email":"you@example.com","password":"Str0ngPass!"}'
 ```
 
-Login sets the HttpOnly `sd_access` (15 minutes) and `sd_refresh` (7 days) cookies and, in token mode, also returns `accessToken` and `refreshToken` in the body. Five wrong passwords lock the account for 15 minutes (`423 ACCOUNT_LOCKED`), and login and register are limited to 10 requests per minute per client address. `JWT_ACCESS_SECRET` is required; outside development it must be at least 32 random bytes.
+Login sets the HttpOnly `sd_access` (15 minutes) and `sd_refresh` (7 days) cookies and, in token mode, also returns `accessToken` and `refreshToken` in the body. Five wrong passwords lock the account for 15 minutes (`423 ACCOUNT_LOCKED`), and login and register are limited to 10 requests per minute per client address. `JWT_ACCESS_SECRET` is required; outside development it must be at least 32 random bytes. Admin endpoints require an ADMIN account; demo users are not seeded yet, so create an ADMIN through your seed process or database fixture before manual admin checks.
 
 Stop containers without deleting data:
 
@@ -429,7 +429,7 @@ GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pu
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Go checks**              | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, `docker compose config --quiet`, and the worker-healthcheck guard. |
 | **RabbitMQ integration**   | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration`, and fails if any test is skipped.                     |
-| **PostgreSQL integration** | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch database tests under `tests/integration/database`; fails if any test is skipped.                                |
+| **PostgreSQL integration** | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch, notification-log and pricing database tests; fails if any test is skipped.                                     |
 | **Frontend checks**        | Installs dependencies with pnpm, runs `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. Nx runs only configured targets.                                          |
 | **Playwright E2E**         | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                                             |
 | **Docker builds**          | Detects changed projects with `dorny/paths-filter` and builds only the affected Go service images and the web image.                                                                                                   |
@@ -504,10 +504,10 @@ Platform foundation implemented: shared PostgreSQL pool and database-backed read
 
 M4 implemented: `POST /pricing/estimate`, `GET /zones`, authenticated internal quote/zone lookups, ADMIN pricing configuration with transactional audit logging, exact decimal LKR calculations, bounded public rate limiting, trusted-proxy handling, and anonymous `GET /tracking/{trackingNumber}` backed by real parcel/status-history rows. The internal quote is available to M5, but M5's parcel-creation consumer and camelCase-to-snake_case `price_breakdown` mapping are not implemented in this branch.
 
-Notification email delivery is implemented in the notification worker: `notification.requested.v1` is validated (including the required `parcel_id`), the `email` channel is sent through the shared SMTP mailer, `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`); the success log and processed-event writes share one transaction. Delivery remains at-least-once, not exactly-once, and no event producer exists yet.
+Notification email delivery is implemented in the notification worker: `notification.requested.v1` is validated (including the required `parcel_id`), the `email` channel is sent through the shared SMTP mailer, `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`); the success log and processed-event writes share one transaction. The worker also exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API through its internal HTTP port `8086`; recipients are masked and `status` can filter `PENDING`, `SENT` or `FAILED`. Delivery remains at-least-once, not exactly-once, and no event producer exists yet.
 
 Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
 
-Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups and `GET /users/me`; profile updates and password changes remain planned. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads.
+Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups and `GET /users/me`; profile updates and password changes remain planned. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: ADMIN notification delivery-log reads with masked recipients and status filtering.
 
 Not implemented: parcel lifecycle and dispatch write APIs, M5's parcel-creation consumer, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the pricing administration UI, the optional `/track` mobile UI, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
