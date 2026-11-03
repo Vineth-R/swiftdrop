@@ -1,38 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
-import { fail, mockApi, ok, user } from './support/mock-api';
-
-type Role = 'CUSTOMER' | 'MERCHANT' | 'COURIER' | 'DISPATCHER' | 'ADMIN';
-
-const names: Record<Role, string> = {
-  CUSTOMER: 'Nimali Perera',
-  MERCHANT: 'Ruwan Jayasuriya',
-  COURIER: 'Kasun Silva',
-  DISPATCHER: 'Sahan Fernando',
-  ADMIN: 'Anusha Nawarathna',
-};
-
-/** Signs the page in as `role`. Logging out makes the next check answer 401. */
-async function signInAs(page: Page, role: Role) {
-  let signedIn = true;
-  const api = await mockApi(page, {
-    'GET /users/me': () =>
-      signedIn
-        ? ok({
-            ...user,
-            role,
-            fullName: names[role],
-            email: `${role.toLowerCase()}@example.com`,
-          })
-        : fail(401, 'UNAUTHENTICATED'),
-    'POST /auth/refresh': fail(401, 'REFRESH_TOKEN_INVALID'),
-    'POST /auth/logout': () => {
-      signedIn = false;
-      return { status: 204 };
-    },
-  });
-  return api;
-}
+import { fail, mockApi } from './support/mock-api';
+import { signInAs, type Role } from './support/sign-in';
 
 const sidebar = (page: Page) => page.locator('aside nav[aria-label="Main"]');
 

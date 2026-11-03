@@ -18,6 +18,7 @@ export type ApiErrorCode =
   | 'ACCOUNT_DEACTIVATED'
   | 'RATE_LIMITED'
   | 'EMAIL_IN_USE'
+  | 'PASSWORD_NOT_SET'
   | 'RESET_TOKEN_INVALID'
   | 'VALIDATION_FAILED'
   | 'UNAUTHENTICATED'
@@ -32,6 +33,7 @@ const codeFromApi: Record<string, ApiErrorCode> = {
   ACCOUNT_DISABLED: 'ACCOUNT_DEACTIVATED',
   RATE_LIMITED: 'RATE_LIMITED',
   EMAIL_ALREADY_EXISTS: 'EMAIL_IN_USE',
+  PASSWORD_NOT_SET: 'PASSWORD_NOT_SET',
   INVALID_OR_EXPIRED_RESET_TOKEN: 'RESET_TOKEN_INVALID',
   VALIDATION_ERROR: 'VALIDATION_FAILED',
   UNAUTHENTICATED: 'UNAUTHENTICATED',
@@ -96,7 +98,19 @@ type RequestOptions = {
 
 const BASE = '/api/v1';
 
-type Envelope<T> = { data: T; meta?: { requestId?: string } };
+/** The `meta` of a success response. A list endpoint adds `pagination`. */
+export type ApiMeta = {
+  requestId?: string;
+  timestamp?: string;
+  pagination?: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+};
+
+type Envelope<T> = { data: T; meta?: ApiMeta };
 type ErrorEnvelope = {
   error?: { code?: string; message?: string; details?: ApiIssue[] };
   meta?: { requestId?: string };
@@ -148,6 +162,21 @@ async function readError(response: Response): Promise<ApiError> {
   });
 }
 
+/**
+ * A 401 means "sign in again", except when the API says INVALID_CREDENTIALS:
+ * that is a wrong current password on the change-password form, and the person
+ * is still signed in. Renewing the session for it would sign them out.
+ */
+async function isSessionEnded(response: Response): Promise<boolean> {
+  if (response.status !== 401) return false;
+  try {
+    const body = (await response.clone().json()) as ErrorEnvelope;
+    return body.error?.code !== 'INVALID_CREDENTIALS';
+  } catch {
+    return true;
+  }
+}
+
 let renewal: Promise<boolean> | null = null;
 
 /** One renewal at a time, however many requests found the token expired. */
@@ -169,26 +198,46 @@ export function onSessionExpired(listener: () => void): () => void {
   return () => sessionListeners.delete(listener);
 }
 
-export async function api<T = void>(
+async function call<T>(
   path: string,
-  options: RequestOptions = {},
-): Promise<T> {
+  options: RequestOptions,
+): Promise<Envelope<T>> {
   const mayRenew = options.renewSession ?? !path.startsWith('/auth/');
 
   let response = await send(path, options);
-  if (response.status === 401 && mayRenew && (await renewSession())) {
+  if (mayRenew && (await isSessionEnded(response)) && (await renewSession())) {
     response = await send(path, options);
   }
-  if (response.status === 401 && mayRenew) {
+  if (mayRenew && (await isSessionEnded(response))) {
     sessionListeners.forEach((listener) => listener());
   }
 
   if (!response.ok) throw await readError(response);
-  if (response.status === 204) return undefined as T;
+  if (response.status === 204) return { data: undefined as T };
 
   try {
-    return ((await response.json()) as Envelope<T>).data;
+    return (await response.json()) as Envelope<T>;
   } catch {
     throw new ApiError({ code: 'INTERNAL', status: response.status });
   }
+}
+
+/** Calls the API and returns the `data` of the success envelope. */
+export async function api<T = void>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  return (await call<T>(path, options)).data;
+}
+
+/**
+ * Like api(), for list endpoints: it also returns the envelope's `meta`, which
+ * carries `pagination` (page, pageSize, totalItems, totalPages).
+ */
+export async function apiWithMeta<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<{ data: T; meta: ApiMeta }> {
+  const { data, meta } = await call<T>(path, options);
+  return { data, meta: meta ?? {} };
 }

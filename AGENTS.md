@@ -283,8 +283,8 @@ Email and password authentication is implemented in the identity service, and `p
 - The existing `/api/hello` route is an example. Do not confuse it with the Go `/api/v1/` namespace.
 - Signed-in screens go in `apps/web/src/app/(app)/<name>/page.tsx`. That group's layout already provides the session gate (splash, redirect to `/login`) and the shell for the person's role, so a page only renders its own content. Start every page with `PageHeader`, then `Section`s.
 - Add a screen to the sidebar (or the courier's bottom tabs) in `apps/web/src/lib/nav.ts`. Hiding a link never protects a page: wrap a role-limited page's content in `RequireRole`, and the API checks again. A page that is not built yet shows the shell's 404.
-- `apps/web` currently contains the design system (`/design`), the auth screens, the app shell and a placeholder dashboard; the role screens are still to be built.
-- `apps/web-e2e` currently covers the starter page, `/design` token page, and auth UI kit. Extend it for meaningful user journeys when those journeys exist.
+- `apps/web` currently contains the design system (`/design`), the auth screens, the app shell, the profile and security pages (`/profile`, `/profile/security`, a worked example of a form screen) and a placeholder dashboard; the role screens are still to be built.
+- `apps/web-e2e` currently covers the starter page, `/design` token page, auth UI kit, app shell and profile pages. Test a screen without a backend with `mockApi` and `signInAs` from `apps/web-e2e/src/support`, and extend the suite for meaningful user journeys when those journeys exist.
 
 ## Testing requirements
 
