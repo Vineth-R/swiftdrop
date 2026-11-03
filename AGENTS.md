@@ -271,7 +271,7 @@ Email and password authentication is implemented in the identity service, and `p
 
 ## Frontend standards
 
-- Before you implement or change any frontend screen or component, read [`DESIGN.md`](DESIGN.md) in full and follow it. It is the design contract: the design language rules, the allowed tokens, the component kit, the app shell and role navigation, forms, API error handling, tests, and the checklist to finish with. Do not change the design foundation (tokens, kit components, shell, API client) unless the task is explicitly about it.
+- Before you implement or change any frontend screen or component, read [`DESIGN.md`](DESIGN.md) in full and follow it. It is the design contract: the design language rules, the allowed tokens, the component kit, the app shell and role navigation, forms, API error handling, tests, and the checklist to finish with. Do not change the design foundation (tokens, kit components, shell, API client) unless the task is explicitly about it. ESLint enforces the checkable parts (raw colours, off-token classes, off-scale spacing, inline styles, banned libraries, direct `fetch`, `error.message`, a raw `<h1>`): see `DESIGN.md` section 16, and do not add an `eslint-disable` just to pass.
 - Preserve the Next.js App Router structure in `apps/web/src/app`.
 - Use TypeScript and preserve strict type checking. Do not loosen compiler strictness to bypass errors.
 - Prefer React Server Components by default. Add `'use client'` only when browser APIs, event handlers, or client-side state require it.
@@ -309,6 +309,7 @@ Add or update tests for every meaningful change.
 
 - Test meaningful component and application behavior when the UI is implemented.
 - Use the existing Nx Playwright target for important end-to-end workflows.
+- The design lint rules in `apps/web/eslint-rules` have their own tests: `node --test "apps/web/eslint-rules/*.test.mjs"`. CI runs them, and you run them when you change a rule.
 - Do not add a new test framework without approval.
 
 ### Distributed behavior

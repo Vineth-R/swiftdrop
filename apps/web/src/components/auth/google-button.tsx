@@ -1,6 +1,7 @@
 import { buttonClasses } from '../ui/button';
 import { cn } from '../../lib/cn';
 
+/* eslint-disable swiftdrop/no-raw-colors -- Google's own brand colours: the mark must not follow our palette. */
 function GoogleMark() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
@@ -23,6 +24,7 @@ function GoogleMark() {
     </svg>
   );
 }
+/* eslint-enable swiftdrop/no-raw-colors */
 
 /**
  * Starts Google sign-in. A plain link, because the API answers with a redirect
