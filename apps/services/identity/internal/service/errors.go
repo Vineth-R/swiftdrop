@@ -1,6 +1,10 @@
 package service
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
+)
 
 var (
 	// ErrInvalidCredentials is returned for an unknown email, a wrong password
@@ -26,12 +30,9 @@ var (
 	ErrPasswordNotSet = errors.New("account has no password")
 )
 
-// Issue describes one invalid field. Issue text is safe to show to the client
-// and never contains the submitted value.
-type Issue struct {
-	Field string
-	Issue string
-}
+// Issue describes one invalid field. It is the shared validation issue so
+// services and HTTP helpers use one shape.
+type Issue = validation.Issue
 
 // ValidationError lists every invalid field of a request (422 VALIDATION_ERROR).
 type ValidationError struct {

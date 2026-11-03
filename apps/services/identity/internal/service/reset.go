@@ -15,6 +15,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 const (
@@ -125,7 +126,7 @@ type ForgotPasswordInput struct {
 // token and no email.
 func (p *PasswordReset) ForgotPassword(ctx context.Context, input ForgotPasswordInput) error {
 	email := NormalizeEmail(input.Email)
-	if !ValidEmail(email) {
+	if !validation.Email(email) {
 		return &ValidationError{Issues: []Issue{{Field: "email", Issue: "must be a valid email address"}}}
 	}
 
@@ -206,7 +207,9 @@ func (p *PasswordReset) ResetPassword(ctx context.Context, input ResetPasswordIn
 		if errors.As(err, &policy) {
 			issue = policy.Issue
 		}
-		return &ValidationError{Issues: []Issue{{Field: "newPassword", Issue: issue}}}
+		issues := validation.New()
+		issues.Add("newPassword", issue)
+		return &ValidationError{Issues: issues.Issues()}
 	}
 
 	hash, err := p.base.hasher.Hash(input.NewPassword)

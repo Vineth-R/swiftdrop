@@ -40,13 +40,13 @@ jobs:
       - name: Check formatting
         run: |
           set -euo pipefail
-          file_count="$(find apps/services packages/go-common tests/integration -type f -name '*.go' | wc -l | tr -d ' ')"
+          file_count="$(find apps/services packages/go-common tests -type f -name '*.go' | wc -l | tr -d ' ')"
           if [ "$file_count" -eq 0 ]; then
             echo "No Go files found in the expected directories."
             exit 1
           fi
 
-          unformatted="$(find apps/services packages/go-common tests/integration -type f -name '*.go' -exec gofmt -l {} +)"
+          unformatted="$(find apps/services packages/go-common tests -type f -name '*.go' -exec gofmt -l {} +)"
           if [ -n "$unformatted" ]; then
             echo "The following Go files are not formatted:"
             echo "$unformatted"
@@ -69,6 +69,9 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+      - name: Validate shared router and logger adoption
+        run: go test ./tests/architecture -run TestRepositorySharedInfrastructure -v
 
       - name: Validate Docker Compose configuration
         run: docker compose config --quiet

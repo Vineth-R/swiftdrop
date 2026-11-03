@@ -14,6 +14,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 type identityKey struct{}
@@ -75,7 +76,7 @@ func (h *merchantHandler) listKeys(c *gin.Context) {
 }
 
 type keyRequest struct {
-	Name string `json:"name" binding:"required"`
+	Name string `json:"name"`
 }
 
 func (h *merchantHandler) createKey(c *gin.Context) {
@@ -93,7 +94,7 @@ func (h *merchantHandler) createKey(c *gin.Context) {
 		return
 	}
 	var request keyRequest
-	if c.ShouldBindJSON(&request) != nil || strings.TrimSpace(request.Name) == "" {
+	if c.ShouldBindJSON(&request) != nil || !validation.Required(request.Name) {
 		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a key name is required")
 		return
 	}
@@ -165,9 +166,9 @@ func (h *merchantHandler) profile(c *gin.Context) {
 
 type profileRequest struct {
 	ContactEmail  string `json:"contactEmail" binding:"required,email"`
-	ContactPhone  string `json:"contactPhone" binding:"required"`
-	PickupAddress string `json:"pickupAddress" binding:"required"`
-	PickupZoneID  string `json:"pickupZoneId" binding:"required"`
+	ContactPhone  string `json:"contactPhone"`
+	PickupAddress string `json:"pickupAddress"`
+	PickupZoneID  string `json:"pickupZoneId"`
 }
 
 func (h *merchantHandler) updateProfile(c *gin.Context) {
@@ -181,6 +182,10 @@ func (h *merchantHandler) updateProfile(c *gin.Context) {
 		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid merchant profile")
 		return
 	}
+	if len(validateProfileRequest(request)) > 0 {
+		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid merchant profile")
+		return
+	}
 	merchant, err := h.repository.UpdateProfile(c.Request.Context(), identity.MerchantID, repository.ProfileUpdate{
 		ContactEmail: strings.TrimSpace(request.ContactEmail), ContactPhone: strings.TrimSpace(request.ContactPhone),
 		PickupAddress: strings.TrimSpace(request.PickupAddress), PickupZoneID: strings.TrimSpace(request.PickupZoneID),
@@ -190,6 +195,16 @@ func (h *merchantHandler) updateProfile(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
+}
+
+// validateProfileRequest preserves the original Gin "required" semantics:
+// only empty values are missing, whitespace-only values remain accepted.
+func validateProfileRequest(request profileRequest) []validation.Issue {
+	issues := validation.New()
+	issues.RequiredExact("contactPhone", request.ContactPhone)
+	issues.RequiredExact("pickupAddress", request.PickupAddress)
+	issues.RequiredExact("pickupZoneId", request.PickupZoneID)
+	return issues.Issues()
 }
 
 func (h *merchantHandler) adminDetail(c *gin.Context) {
@@ -218,7 +233,7 @@ func (h *merchantHandler) approve(c *gin.Context) {
 }
 
 type reasonRequest struct {
-	Reason string `json:"reason" binding:"required"`
+	Reason string `json:"reason"`
 }
 
 func (h *merchantHandler) reject(c *gin.Context) {
@@ -227,7 +242,7 @@ func (h *merchantHandler) reject(c *gin.Context) {
 		return
 	}
 	var request reasonRequest
-	if c.ShouldBindJSON(&request) != nil || strings.TrimSpace(request.Reason) == "" {
+	if c.ShouldBindJSON(&request) != nil || !validation.Required(request.Reason) {
 		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a rejection reason is required")
 		return
 	}
@@ -245,7 +260,7 @@ func (h *merchantHandler) suspend(c *gin.Context) {
 		return
 	}
 	var request reasonRequest
-	if c.ShouldBindJSON(&request) != nil || strings.TrimSpace(request.Reason) == "" {
+	if c.ShouldBindJSON(&request) != nil || !validation.Required(request.Reason) {
 		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a suspension reason is required")
 		return
 	}

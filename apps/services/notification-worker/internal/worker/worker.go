@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/mail"
-	"regexp"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -16,6 +15,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 const EventType = "notification.requested.v1"
@@ -24,8 +24,6 @@ const (
 	maxRecipientLength   = 255
 	maxErrorMessageBytes = 255
 )
-
-var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // DeliveryStore records idempotency and delivery outcomes. The worker checks it
 // before delivery and records an event only after a delivery attempt.
@@ -78,7 +76,7 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		return messaging.Permanent(fmt.Errorf("unsupported event version %d", envelope.Version))
 	}
 
-	if !uuidPattern.MatchString(envelope.ID) {
+	if !validation.UUID(envelope.ID) {
 		return messaging.Permanent(errors.New("event_id must be a UUID"))
 	}
 
@@ -205,7 +203,7 @@ func parseVariables(raw json.RawMessage) (map[string]string, error) {
 }
 
 func validate(data payload, variables map[string]string) error {
-	if !uuidPattern.MatchString(strings.TrimSpace(data.ParcelID)) {
+	if !validation.UUID(strings.TrimSpace(data.ParcelID)) {
 		return errors.New("parcel_id must be a UUID")
 	}
 
@@ -214,7 +212,7 @@ func validate(data payload, variables map[string]string) error {
 	if err != nil || address.Address != recipient || strings.ContainsAny(recipient, "\r\n") {
 		return errors.New("recipient must be a plain email address")
 	}
-	if utf8.RuneCountInString(recipient) > maxRecipientLength {
+	if validation.RuneLength(recipient) > maxRecipientLength {
 		return fmt.Errorf("recipient must be at most %d characters", maxRecipientLength)
 	}
 
