@@ -66,6 +66,29 @@ export function getMe(): Promise<User> {
   return api<User>('/users/me');
 }
 
+/** The fields the profile form can change. Send only the ones that changed. */
+export type ProfileChange = { fullName?: string; phone?: string };
+
+/** Saves the person's own name and phone (API v1.1 section 2.8). */
+export function updateProfile(change: ProfileChange): Promise<User> {
+  return api<User>('/users/me', { method: 'PATCH', body: change });
+}
+
+/**
+ * Changes the person's own password (API v1.1 section 2.9). On success the API
+ * signs every session out, this browser's included, so the caller sends the
+ * person to the login page.
+ */
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  return api('/users/me/password', {
+    method: 'PUT',
+    body: { currentPassword, newPassword },
+  });
+}
+
 /**
  * The link that starts Google sign-in. It is a normal navigation, not a fetch:
  * the API answers with a redirect to Google and sets a browser-binding cookie.
