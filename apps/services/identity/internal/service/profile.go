@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
@@ -29,17 +32,147 @@ type Profile struct {
 // Errors: ErrUserNotFound when the account no longer exists, ErrAccountDisabled
 // when it was deactivated.
 func (s *Service) Profile(ctx context.Context, userID string) (Profile, error) {
-	user, err := s.store.UserByID(ctx, userID)
+	user, err := s.activeUser(ctx, userID, "profile")
+	if err != nil {
+		return Profile{}, err
+	}
+	return profileOf(user), nil
+}
+
+// UpdateProfileInput is a partial update of the user's own name and phone
+// (API v1.1 section 2.8). A nil field is left unchanged.
+type UpdateProfileInput struct {
+	FullName *string
+	Phone    *string
+}
+
+// UpdateProfile changes the signed-in user's full name and phone and returns the
+// account as stored. The email, the role and every other field are not
+// editable here.
+//
+// Errors: a *ValidationError for a bad or empty request, ErrUserNotFound and
+// ErrAccountDisabled as for Profile.
+func (s *Service) UpdateProfile(ctx context.Context, userID string, input UpdateProfileInput) (Profile, error) {
+	var issues []Issue
+	change := repository.ProfileChange{}
+
+	if input.FullName == nil && input.Phone == nil {
+		issues = append(issues, Issue{Field: "body", Issue: "must contain at least one of fullName, phone"})
+	}
+	if input.FullName != nil {
+		name := strings.TrimSpace(*input.FullName)
+		if length := utf8.RuneCountInString(name); length < minFullNameLength || length > maxFullNameLength {
+			issues = append(issues, Issue{Field: "fullName", Issue: "must be 2 to 150 characters"})
+		}
+		change.FullName = &name
+	}
+	if input.Phone != nil {
+		if !e164.MatchString(*input.Phone) {
+			issues = append(issues, Issue{Field: "phone", Issue: "must be in E.164 format, for example +94771234567"})
+		}
+		change.Phone = input.Phone
+	}
+	if len(issues) > 0 {
+		return Profile{}, &ValidationError{Issues: issues}
+	}
+
+	if _, err := s.activeUser(ctx, userID, "update profile"); err != nil {
+		return Profile{}, err
+	}
+	updated, err := s.store.UpdateProfile(ctx, userID, change)
 	if errors.Is(err, repository.ErrNotFound) {
 		return Profile{}, ErrUserNotFound
 	}
 	if err != nil {
-		return Profile{}, fmt.Errorf("profile: %w", err)
+		return Profile{}, fmt.Errorf("update profile: %w", err)
 	}
-	if !user.IsActive {
-		return Profile{}, ErrAccountDisabled
+	return profileOf(updated), nil
+}
+
+// ChangePasswordInput carries the current and the new password (API v1.1
+// section 2.9).
+type ChangePasswordInput struct {
+	CurrentPassword string
+	NewPassword     string
+}
+
+// ChangePassword sets a new password for the signed-in user after checking the
+// current one. On success every refresh token of the user is revoked, so every
+// session ends once its short-lived access token runs out. The caller signs the
+// current browser out as well.
+//
+// It checks the request first, then the account, then the current password:
+//   - a *ValidationError names every missing field and any rule the new
+//     password breaks (the same rules as registration);
+//   - ErrUserNotFound and ErrAccountDisabled as for Profile;
+//   - ErrPasswordNotSet for an account that signs in with Google only;
+//   - ErrInvalidCredentials when the current password is wrong.
+func (s *Service) ChangePassword(ctx context.Context, userID string, input ChangePasswordInput) error {
+	var issues []Issue
+	if input.CurrentPassword == "" {
+		issues = append(issues, Issue{Field: "currentPassword", Issue: "is required"})
+	}
+	if input.NewPassword == "" {
+		issues = append(issues, Issue{Field: "newPassword", Issue: "is required"})
+	} else if err := password.Validate(input.NewPassword); err != nil {
+		issue := "is not acceptable"
+		var policy *password.PolicyError
+		if errors.As(err, &policy) {
+			issue = policy.Issue
+		}
+		issues = append(issues, Issue{Field: "newPassword", Issue: issue})
+	}
+	if len(issues) > 0 {
+		return &ValidationError{Issues: issues}
 	}
 
+	user, err := s.activeUser(ctx, userID, "change password")
+	if err != nil {
+		return err
+	}
+	if user.PasswordHash == nil {
+		return ErrPasswordNotSet
+	}
+	if !s.hasher.Matches(*user.PasswordHash, input.CurrentPassword) {
+		return ErrInvalidCredentials
+	}
+
+	hash, err := s.hasher.Hash(input.NewPassword)
+	if err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	err = s.store.ChangePassword(ctx, userID, *user.PasswordHash, hash, s.nowUTC())
+	switch {
+	case errors.Is(err, repository.ErrPasswordMismatch):
+		// Another request changed the password after it was checked above.
+		return ErrInvalidCredentials
+	case errors.Is(err, repository.ErrNotFound):
+		return ErrUserNotFound
+	case err != nil:
+		return fmt.Errorf("change password: %w", err)
+	}
+	s.logger.InfoContext(ctx, "password changed", "user_id", userID)
+	return nil
+}
+
+// activeUser loads the user and refuses one that is gone or deactivated with
+// ErrUserNotFound or ErrAccountDisabled. Any other failure is wrapped with op,
+// the name of the use case, for the log.
+func (s *Service) activeUser(ctx context.Context, userID, op string) (repository.User, error) {
+	user, err := s.store.UserByID(ctx, userID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return repository.User{}, ErrUserNotFound
+	}
+	if err != nil {
+		return repository.User{}, fmt.Errorf("%s: %w", op, err)
+	}
+	if !user.IsActive {
+		return repository.User{}, ErrAccountDisabled
+	}
+	return user, nil
+}
+
+func profileOf(user repository.User) Profile {
 	profile := Profile{
 		ID:           user.ID,
 		Email:        user.Email,
@@ -51,5 +184,5 @@ func (s *Service) Profile(ctx context.Context, userID string) (Profile, error) {
 	if user.Phone != nil {
 		profile.Phone = *user.Phone
 	}
-	return profile, nil
+	return profile
 }

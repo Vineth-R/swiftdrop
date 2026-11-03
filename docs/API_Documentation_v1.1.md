@@ -375,6 +375,8 @@ present only for validation errors.
 
 
 
+   /users/me/password                                      5 requests per minute per signed-in user
+
    /tracking/{trackingNumber}                              30 requests per minute per IP
 
 

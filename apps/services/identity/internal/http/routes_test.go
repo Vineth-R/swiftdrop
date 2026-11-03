@@ -42,10 +42,11 @@ func TestRouter_everyOptionTogether(t *testing.T) {
 		"GET /couriers", "GET /couriers/",
 		"GET /internal/couriers/:courierId/eligibility", "GET /internal/users/:userId/contact",
 		"GET /users/me",
-		"PATCH /admin/users/:userId", "PATCH /admin/users/:userId/status",
+		"PATCH /admin/users/:userId", "PATCH /admin/users/:userId/status", "PATCH /users/me",
 		"POST /admin/users", "POST /admin/users/",
 		"POST /auth/forgot-password", "POST /auth/login", "POST /auth/logout", "POST /auth/refresh",
 		"POST /auth/register", "POST /auth/reset-password",
+		"PUT /users/me/password",
 	}
 	have := map[string]bool{}
 	for _, route := range got {
@@ -54,13 +55,6 @@ func TestRouter_everyOptionTogether(t *testing.T) {
 	for _, route := range want {
 		if !have[route] {
 			t.Errorf("route %q is not registered", route)
-		}
-	}
-
-	// PATCH /users/me and PUT /users/me/password are not built yet.
-	for _, route := range got {
-		if route == "PUT /users/me/password" || route == "PATCH /users/me" {
-			t.Errorf("route %q must not be registered yet", route)
 		}
 	}
 
