@@ -33,6 +33,21 @@ check_upstream() {
   fi
 }
 
+check_notification_admin_route() {
+  local path="$1" description="$2"
+  local body code
+  body="$(curl -s --max-time 5 -w '\n%{http_code}' "$BASE_URL$path" || true)"
+  code="$(printf '%s' "$body" | tail -n1)"
+  # The route is deliberately fail-closed with 503 when JWT_ACCESS_SECRET is
+  # unset. Both 401 and 503 are valid upstream JSON responses; connection
+  # failures, gateway errors and unexpected statuses still fail the check.
+  if { [ "$code" = "401" ] || [ "$code" = "503" ]; } && printf '%s' "$body" | grep -q '"code"'; then
+    pass "$description ($path -> upstream $code)"
+  else
+    fail "$description ($path -> $code, expected upstream 401 or 503 JSON error)"
+  fi
+}
+
 check_status "/healthz" "200" "gateway health"
 check_status "/internal/pricing/quote" "404" "internal APIs are blocked"
 check_status "/api/v1/ai/chat" "404" "ai service is a TODO"
@@ -41,6 +56,8 @@ check_status "/" "200" "web frontend"
 check_upstream "/api/v1/auth/probe" "identity:auth"
 check_upstream "/api/v1/users/probe" "identity:users"
 check_upstream "/api/v1/admin/users/probe" "identity:admin-users"
+check_notification_admin_route "/api/v1/admin/notification-logs" "notification-worker:admin-notification-logs"
+check_notification_admin_route "/api/v1/admin/notification-logs/" "notification-worker:admin-notification-logs"
 check_upstream "/api/v1/couriers/probe" "identity:couriers"
 check_upstream "/api/v1/pricing/probe" "pricing:pricing"
 check_upstream "/api/v1/zones/probe" "pricing:zones"

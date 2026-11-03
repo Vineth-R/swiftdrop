@@ -13,6 +13,7 @@ Nginx :8080 (only published application port)
   |-- /api/v1/auth|users        -> identity :8081
   |-- /api/v1/couriers          -> identity :8081
   |-- /api/v1/admin/users       -> identity :8081
+  |-- /api/v1/admin/notification-logs -> notification-worker :8086
   |-- /api/v1/parcels|tracking  -> parcel :8082
   |-- /api/v1/dispatch|courier  -> parcel :8082
   |-- /api/v1/reports           -> parcel :8082
@@ -26,7 +27,7 @@ Nginx :8080 (only published application port)
   |-- /healthz                  -> gateway health
 
 Workers
-  |-- notification-worker -> RabbitMQ
+  |-- notification-worker -> RabbitMQ, PostgreSQL, admin HTTP :8086
   |-- webhook-worker      -> RabbitMQ
 
 PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. RabbitMQ (5672/15672) and Mailpit (1025/8025) publish host ports; PostgreSQL and service ports do not.
@@ -39,7 +40,7 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
-- **Notification worker** consumes `notification.requested.v1` and delivers the email channel through the shared SMTP mailer. SMS has no provider yet and is a permanent failure. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`). The success log and processed-event writes share one transaction; delivery is at-least-once, not exactly-once.
+- **Notification worker** consumes `notification.requested.v1` and delivers the email channel through the shared SMTP mailer. SMS has no provider yet and is a permanent failure. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`). The success log and processed-event writes share one transaction; delivery is at-least-once, not exactly-once. The worker also exposes an internal ADMIN-only read API on port `8086` for `GET /api/v1/admin/notification-logs`; it returns masked recipients and is reachable only through the gateway.
 - **Webhook worker** will deliver outgoing merchant webhooks and eventually manage retries.
 
 A service owns its data. The local environment uses one PostgreSQL instance with separate schemas:
@@ -90,6 +91,7 @@ Nginx exposes API v1.1 path groups and strips the `/api/v1` prefix before forwar
 | `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones`                                       | pricing                      |
 | `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports` | parcel                       |
 | `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`                                                       | merchant                     |
+| `/api/v1/admin/notification-logs`                                                                                        | notification-worker          |
 | `/ws`                                                                                                                    | realtime (WebSocket upgrade) |
 
 Gin services register root paths such as `/auth/...`, `/parcels/...`, `/health`, and `/ready`. For example, `/api/v1/parcels/123` becomes `/parcels/123` at the parcel service. This keeps service routers independent of the edge topology. Any new route must be updated in the Gin router, the OpenAPI specification, and the Nginx mapping together.
@@ -124,7 +126,7 @@ Workers read:
 - required `RABBITMQ_URL`
 - `RABBITMQ_EXCHANGE`, queue, routing key, prefetch, handler timeout, retry limit, retry delay, and reconnect bounds
 
-The notification worker also requires `SMTP_HOST` and reads `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. The Identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. Identity also exposes the service-to-service `/internal` endpoints (`X-Internal-Token`), described in `docs/identity-internal-api.md`. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
+The notification worker also requires `SMTP_HOST` and reads `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`. It reads `PORT` (default `8086`), optional `JWT_ACCESS_SECRET`, and `COOKIE_NAME` (default `sd_access`) for its ADMIN-only read API. An unset `JWT_ACCESS_SECRET` leaves delivery running but makes the admin endpoint fail closed with `503`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. The Identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. Identity also exposes the service-to-service `/internal` endpoints (`X-Internal-Token`), described in `docs/identity-internal-api.md`. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
 
 The maximum RabbitMQ message body size is 1 MiB and is fixed in `messaging.MaxMessageBytes`; it is not configurable in this phase. Secrets and connection strings are never logged.
 
@@ -135,9 +137,9 @@ Every HTTP service exposes:
 - `GET /health` — liveness, `{"status":"ok"}`. `/healthz` remains a deprecated alias.
 - `GET /ready` — readiness. Returns `200 {"status":"ready","checks":{"database":"ok"}}` after a bounded-context database ping, or `503` with `"database":"down"` when `DATABASE_URL` is unset or unreachable. `/readyz` remains a deprecated alias.
 
-HTTP service healthchecks use `/ready`, so a service with no database connectivity is reported unhealthy. Worker healthchecks match the service process by executable path (`pgrep -x /usr/local/bin/service`), so a crashed worker cannot be reported healthy by the healthcheck shell's own command line. The gateway exposes only `/healthz` publicly. Readiness does not currently check RabbitMQ; workers remain log-driven.
+HTTP service healthchecks use `/ready`, so a service with no database connectivity is reported unhealthy. Worker healthchecks match the service process by executable path (`pgrep -x /usr/local/bin/service`), and the notification worker additionally checks its `/ready` endpoint, so a crashed or unready process cannot be reported healthy by the healthcheck shell's own command line. The gateway exposes only `/healthz` publicly. Readiness does not currently check RabbitMQ; workers remain log-driven.
 
-Workers do not expose public HTTP endpoints. Their lifecycle is log-driven: they connect, declare the durable main and failure-routing topology, consume with explicit acknowledgements, retry retryable failures with a bounded delay, dead-letter permanent or exhausted failures, and reconnect with capped exponential backoff and jitter. In-flight messages are requeued on shutdown, and a second termination signal forces exit if graceful shutdown does not finish.
+Workers do not publish host ports and do not expose public HTTP endpoints, with one deliberate exception: the notification worker exposes an internal ADMIN-only read API on `8086`, reachable only through the gateway at `/api/v1/admin/notification-logs`. That route still executes the shared authentication and role middleware inside the worker. The worker's delivery lifecycle remains log-driven: it connects, declares the durable main and failure-routing topology, consumes with explicit acknowledgements, retries retryable failures with a bounded delay, dead-letters permanent or exhausted failures, and reconnects with capped exponential backoff and jitter. In-flight messages are requeued on shutdown, and a second termination signal forces exit if graceful shutdown does not finish.
 
 ## Persistence and migrations
 
@@ -190,4 +192,4 @@ CI runs the checks in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
 ## Deliberate omissions
 
-The foundation does not include authentication, JWT, parcel workflows, pricing formulas, merchant onboarding, API key management, SMS notification delivery, webhook signing or webhook delivery retries, realtime subscriptions, payments, production TLS, Kubernetes, Terraform, or deployment automation.
+The foundation does not include parcel workflows, merchant onboarding, API key management, the notification-log frontend screen, SMS notification delivery, webhook signing or webhook delivery retries, realtime subscriptions, payments, production TLS, Kubernetes, Terraform, or deployment automation.

@@ -205,7 +205,10 @@ services:
         SERVICE: notification-worker
     environment:
       <<: [*app-env, *rabbitmq-env, *mail-env]
+      PORT: '8086'
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification.requested.v1}
       NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-notification.requested.v1}
     stop_grace_period: 35s
@@ -215,7 +218,11 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'pgrep -x /usr/local/bin/service > /dev/null']
+      test:
+        [
+          'CMD-SHELL',
+          'pgrep -x /usr/local/bin/service > /dev/null && wget -qO- http://127.0.0.1:8086/ready > /dev/null',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -271,6 +278,8 @@ services:
       merchant:
         condition: service_healthy
       realtime:
+        condition: service_healthy
+      notification-worker:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1/nginx-health']

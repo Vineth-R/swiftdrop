@@ -104,3 +104,31 @@ func TestNginxUnrelatedRoutesKeepDefaultLogging(t *testing.T) {
 		t.Fatal("only nginx-health should disable access logging")
 	}
 }
+
+func TestNginxNotificationLogRoute(t *testing.T) {
+	text := configText(t)
+
+	upstream := blockAfter(text, "upstream notification_worker_upstream")
+	if upstream == "" {
+		t.Fatal("cannot find the notification_worker_upstream block")
+	}
+	if !strings.Contains(upstream, "server notification-worker:8086;") {
+		t.Fatalf("notification_worker_upstream = %q", upstream)
+	}
+
+	for _, marker := range []string{
+		"location = /api/v1/admin/notification-logs",
+		"location /api/v1/admin/notification-logs/",
+	} {
+		block := blockAfter(text, marker)
+		if block == "" {
+			t.Fatalf("cannot find %q", marker)
+		}
+		if !strings.Contains(block, "rewrite ^/api/v1/(.*)$ /$1 break;") {
+			t.Fatalf("%s does not strip the /api/v1 prefix: %q", marker, block)
+		}
+		if !strings.Contains(block, "proxy_pass http://notification_worker_upstream;") {
+			t.Fatalf("%s does not proxy to the notification worker: %q", marker, block)
+		}
+	}
+}

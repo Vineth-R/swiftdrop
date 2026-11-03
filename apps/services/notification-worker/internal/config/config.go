@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
@@ -10,6 +11,7 @@ import (
 )
 
 type Config struct {
+	Port           int
 	AppEnv         string
 	LogLevel       string
 	DatabaseURL    string
@@ -24,6 +26,8 @@ type Config struct {
 	RetryDelay     time.Duration
 	ReconnectMin   time.Duration
 	ReconnectMax   time.Duration
+	AccessSecret   string
+	CookieName     string
 }
 
 func Load() (Config, error) {
@@ -37,6 +41,11 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 
 	logLevel, err := loader.EnumFold("LOG_LEVEL", "info", "debug", "info", "warn", "warning", "error")
+	if err != nil {
+		return Config{}, err
+	}
+
+	port, err := loader.Port("PORT", 8086)
 	if err != nil {
 		return Config{}, err
 	}
@@ -107,6 +116,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 
 	return Config{
+		Port:           port,
 		AppEnv:         appEnv,
 		LogLevel:       logLevel,
 		DatabaseURL:    databaseURL,
@@ -121,5 +131,12 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		RetryDelay:     retryDelay,
 		ReconnectMin:   reconnectMin,
 		ReconnectMax:   reconnectMax,
+		AccessSecret:   loader.String("JWT_ACCESS_SECRET", ""),
+		CookieName:     loader.String("COOKIE_NAME", "sd_access"),
 	}, nil
+}
+
+// Addr returns the HTTP listen address.
+func (c Config) Addr() string {
+	return ":" + strconv.Itoa(c.Port)
 }
