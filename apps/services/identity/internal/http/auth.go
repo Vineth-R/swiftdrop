@@ -15,6 +15,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 const (
@@ -125,15 +126,11 @@ func (h *authHandlers) login(c *gin.Context) {
 		return
 	}
 
-	var issues []httpx.ErrorItem
-	if strings.TrimSpace(request.Email) == "" {
-		issues = append(issues, httpx.ErrorItem{Field: "email", Issue: "is required"})
-	}
-	if request.Password == "" {
-		issues = append(issues, httpx.ErrorItem{Field: "password", Issue: "is required"})
-	}
-	if len(issues) > 0 {
-		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", issues)
+	issues := validation.New()
+	issues.Required("email", request.Email)
+	issues.RequiredExact("password", request.Password)
+	if !issues.Empty() {
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", httpx.ErrorItems(issues.Issues()))
 		return
 	}
 
@@ -212,14 +209,10 @@ func (h *authHandlers) logout(c *gin.Context) {
 // fail maps a service error to its API v1.1 response. Unexpected errors are
 // logged once here and answered with a generic 500.
 func (h *authHandlers) fail(c *gin.Context, err error) {
-	var validation *service.ValidationError
+	var validationErr *service.ValidationError
 	switch {
-	case errors.As(err, &validation):
-		details := make([]httpx.ErrorItem, 0, len(validation.Issues))
-		for _, issue := range validation.Issues {
-			details = append(details, httpx.ErrorItem{Field: issue.Field, Issue: issue.Issue})
-		}
-		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", details)
+	case errors.As(err, &validationErr):
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", httpx.ErrorItems(validationErr.Issues))
 	case errors.Is(err, service.ErrEmailAlreadyExists):
 		httpx.Error(c, http.StatusConflict, "EMAIL_ALREADY_EXISTS", "an account with this email already exists")
 	case errors.Is(err, service.ErrInvalidCredentials):

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/service"
@@ -156,7 +156,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("account %d password: %w", index+1, err)
 		}
 
-		nameLength := utf8.RuneCountInString(strings.TrimSpace(account.FullName))
+		nameLength := validation.RuneLength(strings.TrimSpace(account.FullName))
 		if nameLength < minFullNameLength || nameLength > maxFullNameLength {
 			return fmt.Errorf("account %d full name must be 2 to %d characters", index+1, maxFullNameLength)
 		}

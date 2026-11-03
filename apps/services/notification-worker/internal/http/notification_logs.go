@@ -15,6 +15,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 const (
@@ -88,13 +89,14 @@ func noStore() gin.HandlerFunc {
 
 // list handles GET /admin/notification-logs.
 func (h *notificationLogHandlers) list(c *gin.Context) {
-	page, pageSize, issues := parsePagination(c)
+	issues := validation.New()
+	page, pageSize := parsePagination(c, issues)
 	status := strings.TrimSpace(c.Query("status"))
 	if status != "" && !notificationlog.ValidStatus(status) {
-		issues = append(issues, httpx.ErrorItem{Field: "status", Issue: "must be one of PENDING, SENT, FAILED"})
+		issues.Add("status", "must be one of PENDING, SENT, FAILED")
 	}
-	if len(issues) > 0 {
-		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", issues)
+	if !issues.Empty() {
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", httpx.ErrorItems(issues.Issues()))
 		return
 	}
 
@@ -145,15 +147,14 @@ func (h *notificationLogHandlers) list(c *gin.Context) {
 	httpx.SuccessList(c, http.StatusOK, items, httpx.NewPagination(page, pageSize, total))
 }
 
-func parsePagination(c *gin.Context) (int, int, []httpx.ErrorItem) {
+func parsePagination(c *gin.Context, issues *validation.Collector) (int, int) {
 	page := defaultPage
 	pageSize := defaultPageSize
-	var issues []httpx.ErrorItem
 
 	if raw, exists := c.GetQuery("page"); exists {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 1 || value > maxPage {
-			issues = append(issues, httpx.ErrorItem{Field: "page", Issue: "must be between 1 and 10000"})
+			issues.Add("page", "must be between 1 and 10000")
 		} else {
 			page = value
 		}
@@ -161,10 +162,10 @@ func parsePagination(c *gin.Context) (int, int, []httpx.ErrorItem) {
 	if raw, exists := c.GetQuery("pageSize"); exists {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 1 || value > notificationlog.MaxPageSize {
-			issues = append(issues, httpx.ErrorItem{Field: "pageSize", Issue: "must be between 1 and 100"})
+			issues.Add("pageSize", "must be between 1 and 100")
 		} else {
 			pageSize = value
 		}
 	}
-	return page, pageSize, issues
+	return page, pageSize
 }

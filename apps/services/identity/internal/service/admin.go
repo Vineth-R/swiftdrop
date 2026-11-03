@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 const (
@@ -144,7 +144,7 @@ func (a *AdminUsers) ListUsers(ctx context.Context, input ListUsersInput) (UserP
 		}
 		filter.Role = role
 	}
-	if utf8.RuneCountInString(filter.Search) > maxSearchLength {
+	if validation.RuneLength(filter.Search) > maxSearchLength {
 		issues = append(issues, Issue{Field: "q", Issue: fmt.Sprintf("must be at most %d characters", maxSearchLength)})
 	}
 	if input.Sort != "" {
@@ -203,38 +203,42 @@ type CreateStaffInput struct {
 func (a *AdminUsers) CreateStaffUser(ctx context.Context, actorID string, input CreateStaffInput) (AdminUser, error) {
 	email := NormalizeEmail(input.Email)
 
-	var issues []Issue
+	issues := validation.New()
 	// The email, password, name and phone rules are the registration rules.
 	if err := validateRegistration(RegisterInput{
 		Email: input.Email, Password: input.Password, FullName: input.FullName, Phone: input.Phone,
 	}, email); err != nil {
-		var validation *ValidationError
-		if errors.As(err, &validation) {
-			issues = append(issues, validation.Issues...)
+		var validationErr *ValidationError
+		if errors.As(err, &validationErr) {
+			for _, issue := range validationErr.Issues {
+				issues.Add(issue.Field, issue.Issue)
+			}
 		}
 	}
 
 	role, ok := auth.ParseRole(input.Role)
 	if !ok || !staffRoles[role] {
-		issues = append(issues, Issue{Field: "role", Issue: "must be one of COURIER, DISPATCHER, ADMIN"})
+		issues.Add("role", "must be one of COURIER, DISPATCHER, ADMIN")
 	}
 	var courier *repository.CourierProfileInput
 	switch {
 	case ok && role == auth.RoleCourier && input.Courier == nil:
-		issues = append(issues, Issue{Field: "courierProfile", Issue: "is required when role is COURIER"})
+		issues.Add("courierProfile", "is required when role is COURIER")
 	case input.Courier != nil && ok && role != auth.RoleCourier:
-		issues = append(issues, Issue{Field: "courierProfile", Issue: "is allowed only when role is COURIER"})
+		issues.Add("courierProfile", "is allowed only when role is COURIER")
 	case input.Courier != nil:
-		issues = append(issues, validateCourierFields(
-			&input.Courier.VehicleType, &input.Courier.VehicleNumber, &input.Courier.HomeZoneID)...)
+		for _, issue := range validateCourierFields(
+			&input.Courier.VehicleType, &input.Courier.VehicleNumber, &input.Courier.HomeZoneID) {
+			issues.Add(issue.Field, issue.Issue)
+		}
 		courier = &repository.CourierProfileInput{
 			VehicleType:   strings.TrimSpace(input.Courier.VehicleType),
 			VehicleNumber: strings.TrimSpace(input.Courier.VehicleNumber),
 			HomeZoneID:    strings.TrimSpace(input.Courier.HomeZoneID),
 		}
 	}
-	if len(issues) > 0 {
-		return AdminUser{}, &ValidationError{Issues: issues}
+	if !issues.Empty() {
+		return AdminUser{}, &ValidationError{Issues: issues.Issues()}
 	}
 
 	hash, err := a.base.hasher.Hash(input.Password)
@@ -282,33 +286,31 @@ func (a *AdminUsers) UpdateUser(ctx context.Context, actorID, userID string, inp
 		return AdminUser{}, ErrUserNotFound
 	}
 
-	var issues []Issue
+	issues := validation.New()
 	change := repository.UserChange{}
 	if input.FullName == nil && input.Phone == nil && input.Role == nil && input.Courier == nil {
-		issues = append(issues, Issue{Field: "body", Issue: "must contain at least one of fullName, phone, role, courierProfile"})
+		issues.Add("body", "must contain at least one of fullName, phone, role, courierProfile")
 	}
 	if input.FullName != nil {
 		name := strings.TrimSpace(*input.FullName)
-		if length := utf8.RuneCountInString(name); length < minFullNameLength || length > maxFullNameLength {
-			issues = append(issues, Issue{Field: "fullName", Issue: "must be 2 to 150 characters"})
-		}
+		issues.Length("fullName", name, minFullNameLength, maxFullNameLength, "must be 2 to 150 characters")
 		change.FullName = &name
 	}
 	if input.Phone != nil {
-		if !e164.MatchString(*input.Phone) {
-			issues = append(issues, Issue{Field: "phone", Issue: "must be in E.164 format, for example +94771234567"})
-		}
+		issues.Custom("phone", e164.MatchString(*input.Phone), "must be in E.164 format, for example +94771234567")
 		change.Phone = input.Phone
 	}
 	if input.Role != nil {
 		role, ok := auth.ParseRole(*input.Role)
 		if !ok || !assignableRoles[role] {
-			issues = append(issues, Issue{Field: "role", Issue: "must be one of CUSTOMER, COURIER, DISPATCHER, ADMIN"})
+			issues.Add("role", "must be one of CUSTOMER, COURIER, DISPATCHER, ADMIN")
 		}
 		change.Role = &role
 	}
 	if input.Courier != nil {
-		issues = append(issues, validateCourierFields(input.Courier.VehicleType, input.Courier.VehicleNumber, input.Courier.HomeZoneID)...)
+		for _, issue := range validateCourierFields(input.Courier.VehicleType, input.Courier.VehicleNumber, input.Courier.HomeZoneID) {
+			issues.Add(issue.Field, issue.Issue)
+		}
 		change.Courier = &repository.CourierProfileChange{
 			VehicleType:   trimmedPointer(input.Courier.VehicleType),
 			VehicleNumber: trimmedPointer(input.Courier.VehicleNumber),
@@ -316,8 +318,8 @@ func (a *AdminUsers) UpdateUser(ctx context.Context, actorID, userID string, inp
 			IsAvailable:   input.Courier.IsAvailable,
 		}
 	}
-	if len(issues) > 0 {
-		return AdminUser{}, &ValidationError{Issues: issues}
+	if !issues.Empty() {
+		return AdminUser{}, &ValidationError{Issues: issues.Issues()}
 	}
 
 	if change.Role != nil {
@@ -454,10 +456,10 @@ func parseSort(value string) (field string, desc, ok bool) {
 // blank fields are skipped; issues are named courierProfile.<field>.
 func validateCourierFields(vehicleType, vehicleNumber, homeZoneID *string) []Issue {
 	var issues []Issue
-	if vehicleType != nil && utf8.RuneCountInString(strings.TrimSpace(*vehicleType)) > maxVehicleTypeLength {
+	if vehicleType != nil && validation.RuneLength(strings.TrimSpace(*vehicleType)) > maxVehicleTypeLength {
 		issues = append(issues, Issue{Field: "courierProfile.vehicleType", Issue: fmt.Sprintf("must be at most %d characters", maxVehicleTypeLength)})
 	}
-	if vehicleNumber != nil && utf8.RuneCountInString(strings.TrimSpace(*vehicleNumber)) > maxVehicleNumberLength {
+	if vehicleNumber != nil && validation.RuneLength(strings.TrimSpace(*vehicleNumber)) > maxVehicleNumberLength {
 		issues = append(issues, Issue{Field: "courierProfile.vehicleNumber", Issue: fmt.Sprintf("must be at most %d characters", maxVehicleNumberLength)})
 	}
 	if zone := trimmedPointer(homeZoneID); zone != nil && !ValidUUID(*zone) {

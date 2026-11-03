@@ -4,22 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 // ErrUserNotFound means no user has the requested ID (404 NOT_FOUND). Callers
 // get the same error for a malformed ID, so probing reveals nothing.
 var ErrUserNotFound = errors.New("user not found")
 
-var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
 // ValidUUID reports whether value has the textual form of a UUID. Checking it
 // first keeps a malformed ID from reaching PostgreSQL, which would fail the
 // query instead of finding nothing.
-func ValidUUID(value string) bool { return uuidPattern.MatchString(value) }
+func ValidUUID(value string) bool { return validation.UUID(value) }
 
 // InternalStore is the persistence the internal APIs need.
 // *repository.Repository satisfies it.

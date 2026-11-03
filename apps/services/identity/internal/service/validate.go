@@ -2,16 +2,14 @@ package service
 
 import (
 	"errors"
-	"net/mail"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 const (
-	maxEmailLength    = 255
 	minFullNameLength = 2
 	maxFullNameLength = 150
 )
@@ -29,43 +27,29 @@ func NormalizeEmail(email string) string {
 // ValidEmail reports whether email is a plain address such as a@b.lk, without a
 // display name or angle brackets.
 func ValidEmail(email string) bool {
-	if email == "" || len(email) > maxEmailLength {
-		return false
-	}
-	address, err := mail.ParseAddress(email)
-	if err != nil || address.Address != email {
-		return false
-	}
-	_, domain, found := strings.Cut(email, "@")
-	return found && strings.Contains(domain, ".")
+	return validation.Email(email)
 }
 
 func validateRegistration(input RegisterInput, email string) error {
-	var issues []Issue
+	issues := validation.New()
 
-	if !ValidEmail(email) {
-		issues = append(issues, Issue{Field: "email", Issue: "must be a valid email address"})
-	}
+	issues.Email("email", email)
 
 	if err := password.Validate(input.Password); err != nil {
 		var policy *password.PolicyError
 		if errors.As(err, &policy) {
-			issues = append(issues, Issue{Field: "password", Issue: policy.Issue})
+			issues.Add("password", policy.Issue)
 		} else {
-			issues = append(issues, Issue{Field: "password", Issue: "is not acceptable"})
+			issues.Add("password", "is not acceptable")
 		}
 	}
 
-	if length := utf8.RuneCountInString(strings.TrimSpace(input.FullName)); length < minFullNameLength || length > maxFullNameLength {
-		issues = append(issues, Issue{Field: "fullName", Issue: "must be 2 to 150 characters"})
-	}
+	issues.Length("fullName", strings.TrimSpace(input.FullName), minFullNameLength, maxFullNameLength, "must be 2 to 150 characters")
 
-	if !e164.MatchString(input.Phone) {
-		issues = append(issues, Issue{Field: "phone", Issue: "must be in E.164 format, for example +94771234567"})
-	}
+	issues.Custom("phone", e164.MatchString(input.Phone), "must be in E.164 format, for example +94771234567")
 
-	if len(issues) > 0 {
-		return &ValidationError{Issues: issues}
+	if !issues.Empty() {
+		return &ValidationError{Issues: issues.Issues()}
 	}
 	return nil
 }

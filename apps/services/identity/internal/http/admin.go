@@ -14,6 +14,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 // userRequestsPerMinute is the limit for endpoints without a specific limit,
@@ -208,7 +209,7 @@ func limitByUser(limiter *rateLimiter) gin.HandlerFunc {
 
 // listUsers handles GET /admin/users (API v1.1 section 2.10).
 func (h *adminHandlers) listUsers(c *gin.Context) {
-	query := queryReader{c: c}
+	query := queryReader{c: c, issues: validation.New()}
 	input := service.ListUsersInput{
 		Role:     c.Query("role"),
 		IsActive: query.boolean("isActive"),
@@ -323,7 +324,7 @@ func (h *adminHandlers) setStatus(c *gin.Context) {
 
 // listCouriers handles GET /couriers (API v1.1 section 2.15).
 func (h *adminHandlers) listCouriers(c *gin.Context) {
-	query := queryReader{c: c}
+	query := queryReader{c: c, issues: validation.New()}
 	input := service.ListCouriersInput{
 		IsAvailable: query.boolean("isAvailable"),
 		ZoneID:      c.Query("zoneId"),
@@ -379,7 +380,7 @@ func actorID(c *gin.Context) (string, bool) {
 // the caller gets all problems in a single 422.
 type queryReader struct {
 	c      *gin.Context
-	issues []httpx.ErrorItem
+	issues *validation.Collector
 }
 
 // boolean reads "true" or "false" only; an absent parameter is nil.
@@ -391,7 +392,7 @@ func (q *queryReader) boolean(name string) *bool {
 		result := value == "true"
 		return &result
 	default:
-		q.issues = append(q.issues, httpx.ErrorItem{Field: name, Issue: "must be true or false"})
+		q.issues.Add(name, "must be true or false")
 		return nil
 	}
 }
@@ -405,7 +406,7 @@ func (q *queryReader) integer(name string) int {
 	}
 	number, err := strconv.Atoi(value)
 	if err != nil {
-		q.issues = append(q.issues, httpx.ErrorItem{Field: name, Issue: "must be a whole number"})
+		q.issues.Add(name, "must be a whole number")
 		return 0
 	}
 	return number
@@ -414,10 +415,10 @@ func (q *queryReader) integer(name string) int {
 // invalid answers 422 with every malformed parameter and reports whether it
 // did.
 func (q *queryReader) invalid() bool {
-	if len(q.issues) == 0 {
+	if q.issues.Empty() {
 		return false
 	}
-	httpx.ErrorWithDetails(q.c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", q.issues)
+	httpx.ErrorWithDetails(q.c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", httpx.ErrorItems(q.issues.Issues()))
 	return true
 }
 

@@ -164,14 +164,10 @@ func (h *profileHandlers) changePassword(c *gin.Context) {
 // Unexpected errors are logged once here, without request data, and answered
 // with a generic 500.
 func (h *profileHandlers) fail(c *gin.Context, err error) {
-	var validation *service.ValidationError
+	var validationErr *service.ValidationError
 	switch {
-	case errors.As(err, &validation):
-		details := make([]httpx.ErrorItem, 0, len(validation.Issues))
-		for _, issue := range validation.Issues {
-			details = append(details, httpx.ErrorItem{Field: issue.Field, Issue: issue.Issue})
-		}
-		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", details)
+	case errors.As(err, &validationErr):
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", httpx.ErrorItems(validationErr.Issues))
 	case errors.Is(err, service.ErrUserNotFound):
 		// The token is valid but the account is gone: the session is over.
 		httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")

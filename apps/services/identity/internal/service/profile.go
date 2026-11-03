@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 // Profile is the signed-in user's own view of their account (API v1.1
@@ -53,27 +53,23 @@ type UpdateProfileInput struct {
 // Errors: a *ValidationError for a bad or empty request, ErrUserNotFound and
 // ErrAccountDisabled as for Profile.
 func (s *Service) UpdateProfile(ctx context.Context, userID string, input UpdateProfileInput) (Profile, error) {
-	var issues []Issue
+	issues := validation.New()
 	change := repository.ProfileChange{}
 
 	if input.FullName == nil && input.Phone == nil {
-		issues = append(issues, Issue{Field: "body", Issue: "must contain at least one of fullName, phone"})
+		issues.Add("body", "must contain at least one of fullName, phone")
 	}
 	if input.FullName != nil {
 		name := strings.TrimSpace(*input.FullName)
-		if length := utf8.RuneCountInString(name); length < minFullNameLength || length > maxFullNameLength {
-			issues = append(issues, Issue{Field: "fullName", Issue: "must be 2 to 150 characters"})
-		}
+		issues.Length("fullName", name, minFullNameLength, maxFullNameLength, "must be 2 to 150 characters")
 		change.FullName = &name
 	}
 	if input.Phone != nil {
-		if !e164.MatchString(*input.Phone) {
-			issues = append(issues, Issue{Field: "phone", Issue: "must be in E.164 format, for example +94771234567"})
-		}
+		issues.Custom("phone", e164.MatchString(*input.Phone), "must be in E.164 format, for example +94771234567")
 		change.Phone = input.Phone
 	}
-	if len(issues) > 0 {
-		return Profile{}, &ValidationError{Issues: issues}
+	if !issues.Empty() {
+		return Profile{}, &ValidationError{Issues: issues.Issues()}
 	}
 
 	if _, err := s.activeUser(ctx, userID, "update profile"); err != nil {
@@ -108,22 +104,20 @@ type ChangePasswordInput struct {
 //   - ErrPasswordNotSet for an account that signs in with Google only;
 //   - ErrInvalidCredentials when the current password is wrong.
 func (s *Service) ChangePassword(ctx context.Context, userID string, input ChangePasswordInput) error {
-	var issues []Issue
-	if input.CurrentPassword == "" {
-		issues = append(issues, Issue{Field: "currentPassword", Issue: "is required"})
-	}
+	issues := validation.New()
+	issues.RequiredExact("currentPassword", input.CurrentPassword)
 	if input.NewPassword == "" {
-		issues = append(issues, Issue{Field: "newPassword", Issue: "is required"})
+		issues.RequiredExact("newPassword", input.NewPassword)
 	} else if err := password.Validate(input.NewPassword); err != nil {
 		issue := "is not acceptable"
 		var policy *password.PolicyError
 		if errors.As(err, &policy) {
 			issue = policy.Issue
 		}
-		issues = append(issues, Issue{Field: "newPassword", Issue: issue})
+		issues.Add("newPassword", issue)
 	}
-	if len(issues) > 0 {
-		return &ValidationError{Issues: issues}
+	if !issues.Empty() {
+		return &ValidationError{Issues: issues.Issues()}
 	}
 
 	user, err := s.activeUser(ctx, userID, "change password")
