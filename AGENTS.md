@@ -279,7 +279,9 @@ Email and password authentication is implemented in the identity service, and `p
 - Style with Tailwind v4 utilities against the design tokens in `apps/web/src/app/globals.css`. Use tokens only: no raw hex values, off-scale spacing or second icon family (Lucide only). `/design` shows every token in light and dark. Do not introduce a component library or state-management library without approval.
 - Avoid unnecessary client-side JavaScript and dependencies.
 - The existing `/api/hello` route is an example. Do not confuse it with the Go `/api/v1/` namespace.
-- `apps/web` currently contains the design-token foundation and the `/design` token page, not SwiftDrop business screens.
+- Signed-in screens go in `apps/web/src/app/(app)/<name>/page.tsx`. That group's layout already provides the session gate (splash, redirect to `/login`) and the shell for the person's role, so a page only renders its own content. Start every page with `PageHeader`, then `Section`s.
+- Add a screen to the sidebar (or the courier's bottom tabs) in `apps/web/src/lib/nav.ts`. Hiding a link never protects a page: wrap a role-limited page's content in `RequireRole`, and the API checks again. A page that is not built yet shows the shell's 404.
+- `apps/web` currently contains the design system (`/design`), the auth screens, the app shell and a placeholder dashboard; the role screens are still to be built.
 - `apps/web-e2e` currently covers the starter page, `/design` token page, and auth UI kit. Extend it for meaningful user journeys when those journeys exist.
 
 ## Testing requirements

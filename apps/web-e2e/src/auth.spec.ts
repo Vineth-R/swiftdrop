@@ -1,85 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
 
-/**
- * The auth screens, with the API replaced by canned answers so that every
- * response the API can return is reachable. The shapes follow API v1.1: a
- * success is { data, meta }, a failure is { error: { code, message, details },
- * meta }. The server message is deliberately loud so a test fails if a screen
- * ever prints it.
- */
-
-type Reply = {
-  status: number;
-  body?: unknown;
-  headers?: Record<string, string>;
-  delayMs?: number;
-};
-type Handler = Reply | ((request: { body: unknown }) => Reply);
-
-const SERVER_WORDS = 'RAW SERVER WORDS THAT MUST NEVER BE SHOWN';
-const REQUEST_ID = '7f2c9a14-0b63-4de8-9f10-5c2e8d3a1b77';
-
-const user = {
-  id: '3f1c7a52-0000-4000-8000-0000000000c3',
-  email: 'nimal@example.com',
-  fullName: 'Nimal Perera',
-  phone: '+94771234567',
-  role: 'CUSTOMER',
-  authProvider: 'LOCAL',
-  createdAt: '2026-11-02T09:30:00Z',
-};
-
-const ok = (data: unknown, status = 200): Reply => ({
-  status,
-  body: {
-    data,
-    meta: { requestId: REQUEST_ID, timestamp: '2026-11-02T09:30:00Z' },
-  },
-});
-
-const fail = (
-  status: number,
-  code: string,
-  extra: { details?: unknown; headers?: Record<string, string> } = {},
-): Reply => ({
-  status,
-  headers: extra.headers,
-  body: {
-    error: { code, message: SERVER_WORDS, details: extra.details },
-    meta: { requestId: REQUEST_ID },
-  },
-});
-
-const signedOut: Record<string, Handler> = {
-  'GET /users/me': fail(401, 'UNAUTHENTICATED'),
-  'POST /auth/refresh': fail(401, 'REFRESH_TOKEN_INVALID'),
-};
-
-/** Answers every /api/v1 call from `handlers`; anything else is a 404. */
-async function mockApi(
-  page: Page,
-  handlers: Record<string, Handler>,
-): Promise<{ calls: Array<{ key: string; body: unknown }> }> {
-  const calls: Array<{ key: string; body: unknown }> = [];
-  await page.route('**/api/v1/**', async (route) => {
-    const request = route.request();
-    const path = new URL(request.url()).pathname.replace('/api/v1', '');
-    const key = `${request.method()} ${path}`;
-    const body = request.postData() ? request.postDataJSON() : undefined;
-    calls.push({ key, body });
-
-    const handler = handlers[key] ?? fail(404, 'NOT_FOUND');
-    const reply = typeof handler === 'function' ? handler({ body }) : handler;
-    if (reply.delayMs) await new Promise((r) => setTimeout(r, reply.delayMs));
-    await route.fulfill({
-      status: reply.status,
-      contentType: 'application/json',
-      headers: reply.headers,
-      body: reply.body === undefined ? '' : JSON.stringify(reply.body),
-    });
-  });
-  return { calls };
-}
+import {
+  fail,
+  mockApi,
+  ok,
+  REQUEST_ID,
+  SERVER_WORDS,
+  signedOut,
+  user,
+  type Reply,
+} from './support/mock-api';
 
 /**
  * The alert on the page. Next also keeps a hidden role="alert" route announcer
@@ -122,7 +52,8 @@ test.describe('session check and splash', () => {
     await expect(page.getByText('Signed in as')).toContainText('Nimal Perera');
     await expect(page.getByText('CUSTOMER')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.getByRole('button', { name: 'Account menu' }).click();
+    await page.getByRole('menuitem', { name: 'Log out' }).click();
     await expect(page).toHaveURL(/\/signed-out$/);
     await expect(
       page.getByRole('heading', { name: 'You are signed out' }),
