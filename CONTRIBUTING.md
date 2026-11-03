@@ -64,10 +64,11 @@ Run the checks that match your change.
 ```sh
 gofmt -w apps/services packages/go-common tests/integration
 go vet ./...
-go test ./...
-go test -race ./...
+make test
 go build ./...
 ```
+
+`make test` runs `go test -race -count=1 ./...`, which is what CI runs. Database tests need `TEST_DATABASE_URL`; see `make test-db` and [`tests/integration/README.md`](tests/integration/README.md).
 
 For affected Nx projects:
 
@@ -125,6 +126,42 @@ Run Prettier on the files you changed:
 pnpm exec prettier --write path/to/changed-file.md
 pnpm exec prettier --check path/to/changed-file.md
 ```
+
+## Test results and coverage
+
+Every service owner reports reproducible test results for their service. One command runs the Go tests and prints coverage per service and in total:
+
+```sh
+make coverage
+```
+
+It runs `go test -race` over the whole module, prints a table, writes it to `coverage-summary.md` and the raw profile to `coverage.out` (both ignored by git). Without a database the PostgreSQL tests are skipped. To include them, point `TEST_DATABASE_URL` at a throwaway server that may create databases (never the Compose database):
+
+```sh
+docker run -d --name sd-test-pg -p 127.0.0.1:5434:5432 -e POSTGRES_USER=swiftdrop -e POSTGRES_PASSWORD=swiftdrop -e POSTGRES_DB=postgres postgres:16-alpine
+```
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@127.0.0.1:5434/postgres?sslmode=disable' make coverage
+```
+
+CI runs the same script, shows the table on the run's summary page, uploads both files as the `go-coverage` artifact and fails when a service falls below its minimum. The minimums live in `COVERAGE_MIN` (default `identity=60`, the task sheet target). Pass your own gates for a local run, for example `COVERAGE_MIN="identity=60 parcel=70" make coverage`.
+
+Paste this into the pull request description of any change that adds or changes tests, filling in the real numbers from your run:
+
+```markdown
+### Test results
+
+- Service: <name>
+- Commit: <short sha>
+- Command: `make coverage` (with or without `TEST_DATABASE_URL`)
+- Result: <all pass | N failing: names>
+- Coverage: <service %> unit only, <service %> with PostgreSQL tests; total <%>
+- Skipped tests and why: <none | list>
+- Behaviour not covered yet: <list what you know is untested>
+```
+
+Only report what you ran. A skipped test is not a pass.
 
 ## Migrations
 

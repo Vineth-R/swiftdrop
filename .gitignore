@@ -110,3 +110,6 @@ docker-compose.override.yml
 *.swo
 *~
 
+
+# Go coverage table written by scripts/coverage.sh
+coverage-summary.md
