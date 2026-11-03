@@ -219,9 +219,18 @@
 
   /* The brand panel's route map: a short lime streak runs each route once per
      cycle, and a ring spreads from the hub. */
+  --animate-drawer-in: drawer-in var(--duration-slow) var(--ease-out-sd);
   --animate-comet: comet 4.4s var(--ease-out-sd) infinite;
   --animate-ring: ring 3.2s ease-out infinite;
 
+  @keyframes drawer-in {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
   @keyframes comet {
     0% {
       stroke-dashoffset: 8;

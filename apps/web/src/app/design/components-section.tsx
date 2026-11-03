@@ -1,14 +1,19 @@
 import { Lock, Plus } from 'lucide-react';
 
+import { SystemPage } from '../../components/layout/system-page';
 import { Alert } from '../../components/ui/alert';
+import { Avatar } from '../../components/ui/avatar';
+import { Banner } from '../../components/ui/banner';
 import { Button, ButtonLink } from '../../components/ui/button';
 import { ErrorSummary } from '../../components/ui/error-summary';
 import { TextField } from '../../components/ui/field';
 import { Logo, LogoMark } from '../../components/ui/logo';
 import { PasswordField } from '../../components/ui/password-field';
+import { RoleBadge } from '../../components/ui/role-badge';
 import { RouteLine } from '../../components/ui/route-line';
 import { Spinner } from '../../components/ui/spinner';
 import type { ButtonVariant } from '../../components/ui/button';
+import { roles } from '../../lib/tokens';
 
 const variants: { variant: ButtonVariant; label: string; note: string }[] = [
   { variant: 'primary', label: 'Create', note: 'Ink fill' },
@@ -250,6 +255,55 @@ export function ComponentsSection() {
         <Alert tone="danger" icon={Lock} title="Account locked for 15 minutes">
           Five failed attempts. Try again later, or reset your password now.
         </Alert>
+      </Panel>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Panel title="Role badges and avatar">
+          <div className="flex flex-wrap items-center gap-3">
+            {roles.map((role) => (
+              <RoleBadge key={role} role={role} />
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <Avatar name="Nimali Perera" />
+            <Avatar name="Kasun" />
+            <Avatar name="Anusha Nawarathna" size="sm" />
+          </div>
+        </Panel>
+        <Panel title="Banners">
+          <div className="overflow-hidden rounded-card border border-line">
+            <Banner
+              tone="warning"
+              title="Merchant account pending approval."
+              action={
+                <Button size="sm" variant="secondary">
+                  Check status
+                </Button>
+              }
+            >
+              Orders are accepted once an admin approves the account.
+            </Banner>
+            <Banner tone="info" title="Scheduled maintenance 02:00 to 03:00.">
+              Tracking stays available.
+            </Banner>
+            <Banner tone="danger" title="Your account is deactivated.">
+              Contact support to reactivate.
+            </Banner>
+          </div>
+        </Panel>
+      </div>
+
+      <Panel title="System page (shown inside the shell for 404, 403 and 500)">
+        <div className="rounded-card border border-line bg-paper px-6">
+          <SystemPage
+            label="403 · Forbidden"
+            title="You do not have access"
+            actions={<Button variant="secondary">Back to my dashboard</Button>}
+          >
+            This page is for administrators. You are signed in as a dispatcher,
+            which is probably correct: nothing is wrong with your account.
+          </SystemPage>
+        </div>
       </Panel>
 
       <Panel title="Form-level error summary">
