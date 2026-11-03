@@ -27,6 +27,8 @@ type Store interface {
 	CreateRefreshToken(ctx context.Context, token repository.NewRefreshToken) (string, error)
 	RotateRefreshToken(ctx context.Context, oldHash string, next repository.NextRefreshToken, now time.Time) (string, error)
 	RevokeRefreshToken(ctx context.Context, userID, tokenHash string, now time.Time) error
+	UpdateProfile(ctx context.Context, userID string, change repository.ProfileChange) (repository.User, error)
+	ChangePassword(ctx context.Context, userID, expectedHash, newHash string, now time.Time) error
 }
 
 // Hasher hashes and checks passwords. *password.Hasher satisfies it.

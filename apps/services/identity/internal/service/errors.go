@@ -20,6 +20,10 @@ var (
 	// ErrRefreshTokenInvalid means the refresh token is unknown, expired,
 	// revoked or already used (401 REFRESH_TOKEN_INVALID).
 	ErrRefreshTokenInvalid = errors.New("refresh token invalid")
+
+	// ErrPasswordNotSet means the account has no password to change, because it
+	// signs in with Google only (API v1.1 section 2.9, 409 PASSWORD_NOT_SET).
+	ErrPasswordNotSet = errors.New("account has no password")
 )
 
 // Issue describes one invalid field. Issue text is safe to show to the client

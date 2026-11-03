@@ -5,7 +5,8 @@ info:
   description: >-
     Authentication, authorization, and identity profile APIs. This specification
     covers the operational health and readiness endpoints, the authentication
-    endpoints (API v1.1 sections 2.1 to 2.6 and 2.16 to 2.17), the admin user
+    endpoints (API v1.1 sections 2.1 to 2.6 and 2.16 to 2.17), the signed-in
+    user's own profile and password (sections 2.7 to 2.9), the admin user
     endpoints and the courier list (sections 2.10 to 2.15). The service-to-service
     `/internal` endpoints are deliberately not listed here, because the gateway
     never routes them; see docs/identity-internal-api.md. Every response uses
@@ -422,6 +423,100 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /users/me:
+    get:
+      operationId: identityGetMe
+      summary: Read the signed-in user's own account (API v1.1 section 2.7)
+      description: >-
+        Any signed-in role. The user is always the one in the access token; no
+        id is read from the request. It reads the database, so an account that
+        was deleted or deactivated after the token was issued is refused at
+        once.
+      responses:
+        '200':
+          description: The signed-in user's account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileEnvelope'
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      operationId: identityUpdateMe
+      summary: Update the signed-in user's name and phone (API v1.1 section 2.8)
+      description: >-
+        Any signed-in role. Send any subset of `fullName` and `phone`; at least
+        one is required, and a field that is left out (or `null`) stays
+        unchanged. Any other field in the body, such as `email` or `role`, is
+        ignored: the email and role cannot be changed here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: The updated account, in the shape of `GET /users/me`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileEnvelope'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /users/me/password:
+    put:
+      operationId: identityChangePassword
+      summary: Change the signed-in user's own password (API v1.1 section 2.9)
+      description: >-
+        For accounts that have a password. The current password is checked first,
+        then the new one against the registration rules. On success the new
+        password is stored, any login lock is cleared and every refresh token of
+        the user is revoked, so every session ends once its access token runs out
+        (at most 15 minutes). This browser's cookies are cleared too, so the
+        caller signs in again with the new password. A failed attempt changes
+        nothing and keeps the session. Limited to 5 requests per minute per user.
+        People who forgot their password use `/auth/forgot-password` instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed and every session ended. No body; both cookies are cleared.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: >-
+            The current password is wrong (`INVALID_CREDENTIALS`), or there is no valid
+            access token (`UNAUTHENTICATED`), or the account no longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: >-
+            The account signs in with Google only and has no password to change
+            (`PASSWORD_NOT_SET`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /admin/users:
     get:
       operationId: identityAdminListUsers
@@ -839,6 +934,56 @@ components:
               $ref: '#/components/schemas/CourierProfile'
             lastLoginAt: { type: string, format: date-time, nullable: true }
             updatedAt: { type: string, format: date-time }
+    Profile:
+      type: object
+      required: [id, email, fullName, phone, role, authProvider, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        fullName:
+          type: string
+        phone:
+          type: string
+          description: E.164 format. Empty when the account has none (a Google sign-up).
+        role:
+          type: string
+          enum: [CUSTOMER, MERCHANT, COURIER, DISPATCHER, ADMIN]
+        authProvider:
+          type: string
+          enum: [LOCAL, GOOGLE]
+        createdAt:
+          type: string
+          format: date-time
+    ProfileEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/Profile'
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
+    UpdateProfileRequest:
+      type: object
+      minProperties: 1
+      properties:
+        fullName: { type: string, minLength: 2, maxLength: 150, example: Nimal P. Perera }
+        phone: { type: string, description: E.164 format., example: '+94771234000' }
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: Same rules as registration, with at most 72 bytes.
     AdminUserEnvelope:
       type: object
       required: [data, meta]

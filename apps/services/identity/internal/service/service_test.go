@@ -28,6 +28,10 @@ type memoryStore struct {
 	nextID    int
 	failOnOps map[string]bool
 
+	// changePasswordErr, when set, is returned by ChangePassword in place of
+	// the real outcome, to stand in for a concurrent change.
+	changePasswordErr error
+
 	// lastIssued records the metadata stored with the newest refresh token.
 	lastAgent string
 	lastIP    *netip.Addr
@@ -166,6 +170,48 @@ func (m *memoryStore) RevokeRefreshToken(_ context.Context, userID, tokenHash st
 	}
 	if token, ok := m.tokens[tokenHash]; ok && token.userID == userID {
 		token.revoked = true
+	}
+	return nil
+}
+
+func (m *memoryStore) UpdateProfile(_ context.Context, userID string, change repository.ProfileChange) (repository.User, error) {
+	if err := m.fail("UpdateProfile"); err != nil {
+		return repository.User{}, err
+	}
+	user, ok := m.users[userID]
+	if !ok {
+		return repository.User{}, repository.ErrNotFound
+	}
+	if change.FullName != nil {
+		user.FullName = *change.FullName
+	}
+	if change.Phone != nil {
+		phone := *change.Phone
+		user.Phone = &phone
+	}
+	return *user, nil
+}
+
+func (m *memoryStore) ChangePassword(_ context.Context, userID, expectedHash, newHash string, _ time.Time) error {
+	if err := m.fail("ChangePassword"); err != nil {
+		return err
+	}
+	if m.changePasswordErr != nil {
+		return m.changePasswordErr
+	}
+	user, ok := m.users[userID]
+	if !ok {
+		return repository.ErrNotFound
+	}
+	if user.PasswordHash == nil || *user.PasswordHash != expectedHash {
+		return repository.ErrPasswordMismatch
+	}
+	user.PasswordHash = &newHash
+	user.FailedLoginCount, user.LockedUntil = 0, nil
+	for _, token := range m.tokens {
+		if token.userID == userID {
+			token.revoked = true
+		}
 	}
 	return nil
 }

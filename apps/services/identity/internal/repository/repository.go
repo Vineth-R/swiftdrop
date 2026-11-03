@@ -22,6 +22,10 @@ var (
 	// rotated refresh token, and a token whose user is deactivated. The caller
 	// cannot tell these apart (API v1.1 section 2.3).
 	ErrRefreshTokenInvalid = errors.New("refresh token is not valid")
+
+	// ErrPasswordMismatch means the stored password hash is no longer the one
+	// the caller checked, because the password was changed in the meantime.
+	ErrPasswordMismatch = errors.New("stored password hash changed")
 )
 
 // DB is the subset of the shared PostgreSQL pool the repository needs.

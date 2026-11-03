@@ -22,12 +22,39 @@ type fakeProfileService struct {
 	err     error
 	calls   int
 	gotID   string
+
+	// updateInput, passwordInput and the *Calls counters record the write
+	// endpoints. writeErr is what they return.
+	updateInput     service.UpdateProfileInput
+	passwordInput   service.ChangePasswordInput
+	writeErr        error
+	updateCalls     int
+	passwordCalls   int
+	updatedProfile  service.Profile
+	lastWriteUserID string
 }
 
 func (f *fakeProfileService) Profile(_ context.Context, userID string) (service.Profile, error) {
 	f.calls++
 	f.gotID = userID
 	return f.profile, f.err
+}
+
+func (f *fakeProfileService) UpdateProfile(_ context.Context, userID string, input service.UpdateProfileInput) (service.Profile, error) {
+	f.updateCalls++
+	f.lastWriteUserID = userID
+	f.updateInput = input
+	if f.writeErr != nil {
+		return service.Profile{}, f.writeErr
+	}
+	return f.updatedProfile, nil
+}
+
+func (f *fakeProfileService) ChangePassword(_ context.Context, userID string, input service.ChangePasswordInput) error {
+	f.passwordCalls++
+	f.lastWriteUserID = userID
+	f.passwordInput = input
+	return f.writeErr
 }
 
 type profileHarness struct {
@@ -51,6 +78,9 @@ func newProfileHarness(t *testing.T) *profileHarness {
 		AuthProvider: "LOCAL",
 		CreatedAt:    time.Date(2026, time.November, 2, 9, 30, 0, 0, time.UTC),
 	}}
+	fake.updatedProfile = fake.profile
+	fake.updatedProfile.FullName = "Nimal P. Perera"
+	fake.updatedProfile.Phone = "+94771234000"
 	handler := New(slog.New(slog.DiscardHandler), WithProfile(ProfileRoutes{
 		Service:  fake,
 		Verifier: tokens,
