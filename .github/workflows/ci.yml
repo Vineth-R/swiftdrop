@@ -372,10 +372,11 @@ jobs:
       - name: Prepare local environment
         run: cp .env.example .env
 
-      - name: Build all images and start the stack
-        env:
-          COMPOSE_PARALLEL_LIMIT: 1
-        run: docker compose up -d --build --wait --wait-timeout 600
+      - name: Build all images
+        run: make build
+
+      - name: Start the stack
+        run: docker compose up -d --no-build --wait --wait-timeout 600
 
       - name: Apply database migrations
         run: make migrate

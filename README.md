@@ -66,6 +66,7 @@ Each Go service has `main.go`, `internal/config`, and either `internal/http` or 
 - Node.js **24**, the CI version.
 - pnpm **12.15.0** through Corepack.
 - Docker with Docker Compose v2.
+- `curl`, used by the gateway route verification.
 - Optional: the `golang-migrate` CLI for database migrations.
 - Optional: `psql` to inspect the local database.
 - Optional: Chromium if you run Playwright E2E tests.
@@ -100,7 +101,7 @@ The integration branch is `development`. Create feature branches from it and ope
 
 ## Quick start
 
-Prerequisites: Docker with Compose v2 and `make`. Go, Node.js, pnpm, and Playwright are only needed for host-side development and tests.
+Prerequisites: Docker with Compose v2, `make`, and `curl`. Go, Node.js, pnpm, and Playwright are only needed for host-side development and tests.
 
 ```sh
 git clone https://github.com/Vineth-R/swiftdrop.git
@@ -119,13 +120,13 @@ make up-build
 
 Open <http://localhost:8080/>. Mailpit is at <http://localhost:8025/> and RabbitMQ management at <http://localhost:15672/>. The first build can take several minutes.
 
-**Subsequent startups:** use `make up`. It reuses the existing images and does not rebuild them.
+**Subsequent startups:** use `make up`. It starts existing images with `--no-build` and does not rebuild them.
 
 **After changing application source code:** use `make up-build` so the images are rebuilt before startup.
 
-Running `make up` again is safe: Compose is a no-op, migrations report `no change`, and routes are re-verified.
+Running `make up` again is safe: Compose is a no-op, migrations report `no change`, and routes are re-verified. If an application image is missing, `make up` fails before starting and tells you to run `make build` or `make up-build`.
 
-If `.env` is missing and `POSTGRES_USER`/`POSTGRES_DB` are not exported, `make up` fails with a clear error instead of silently using defaults.
+If `.env` is missing and required variables are not exported, or `JWT_ACCESS_SECRET` is empty, `make up` fails during preflight with a clear error instead of waiting for unhealthy containers.
 
 ### Command reference
 
@@ -309,7 +310,7 @@ The notification worker also requires SMTP configuration. `.env.example` default
 
 Workers reconnect with capped exponential backoff and jitter when the broker is unavailable, and reset the backoff after a session reaches the consume phase. They acknowledge a message only after the handler succeeds or after a retry/dead-letter publication is confirmed. Unclassified handler failures are retried up to `RABBITMQ_MAX_RETRIES` (default `3`) with `RABBITMQ_RETRY_DELAY` (default `30s`) and then dead-lettered; malformed or unsupported messages are dead-lettered immediately. A second termination signal forces exit if graceful shutdown does not finish.
 
-Notification delivery is at-least-once. The worker acknowledges only after the SMTP send succeeds, but delivery and acknowledgement cannot be atomic, so a duplicate email is possible after a crash or connection loss between them. A delivery failure is retried and eventually dead-lettered. Invalid payloads and unsupported channels such as `sms` are permanent failures. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API, with one deliberate exception: the notification worker exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API on internal port `8086`, reachable only through the gateway.
+Notification delivery is at-least-once. The worker acknowledges only after the SMTP send succeeds, but delivery and acknowledgement cannot be atomic, so a duplicate email is possible after a crash or connection loss between them. A delivery failure is retried and eventually dead-lettered. Invalid payloads and unsupported channels such as `sms` are permanent failures. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API, with one deliberate exception: the notification worker exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API on internal port `8086`, reachable only through the gateway. Worker health checks verify the process and, for the notification worker, database connectivity; they do not prove an active RabbitMQ consumer or successful event delivery. Event-flow verification remains a future task.
 
 Processed-event records are retained for 30 days by default. The notification worker runs cleanup immediately at startup and then every 24 hours by default, deleting `notification.processed_events` rows whose `processed_at` is strictly older than the cutoff. Configure the policy with `NOTIFICATION_PROCESSED_EVENTS_RETENTION` (default `720h`) and `NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL` (default `24h`); both values must be positive. Cleanup never modifies `notification_logs`, and a failed cleanup is logged and retried on the next interval without stopping notification consumption. Graceful shutdown cancels the scheduler and waits for it to stop before the database closes. Idempotency is guaranteed only while the processed-event row is retained, so a sufficiently late redelivery after cleanup can be processed again.
 
@@ -470,7 +471,7 @@ The workflow does not deploy, publish images, or use deployment credentials. Thi
 - **Worker keeps reconnecting:** confirm RabbitMQ is healthy and `RABBITMQ_URL` points at the broker. For containers use the `rabbitmq` service name; use `localhost` only from the host. Reconnect attempts are logged with the next delay.
 - **Integration tests skip:** `RABBITMQ_URL` is unset or empty. Set it to the Compose broker URL. CI treats skips as failures.
 - **Playwright cannot launch a browser:** run `pnpm exec playwright install chromium` (add `--with-deps` on Linux if system libraries are missing).
-- **Docker runs out of memory while building every Go image:** the Go Dockerfile bounds compiler memory (`GOFLAGS=-p=1`, `GOMEMLIMIT`, `GOGC`) and the Makefile serializes builds with `COMPOSE_PARALLEL_LIMIT=1`. Build sequentially with `make build`, then start with `make up`.
+- **Docker runs out of memory while building every Go image:** the Go Dockerfile bounds compiler memory (`GOFLAGS=-p=1`, `GOMEMLIMIT`, `GOGC`), and `make build` builds the application images one service at a time in a fixed order. If a build still exhausts memory, build one service at a time with `docker compose build <service>` and then run `make up`; do not run global Docker cleanup.
 
   ```sh
   docker compose build identity
