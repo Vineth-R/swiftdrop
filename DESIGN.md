@@ -11,7 +11,7 @@ The web foundation (design tokens, UI kit, app shell, API client, form tools and
 3. When a request would break a rule in this file, do not break it quietly. Build the closest version that follows the rules and say what you left out and why, or ask.
 4. When you need something that does not exist (section 8), stop and say so. Leave a `// TODO(design-foundation)` comment and a plain placeholder. Do not invent a one-off.
 5. Do not edit the protected files (section 14) unless the task is explicitly about the design foundation.
-6. Finish with the checklist in section 15 and report any item you could not satisfy.
+6. Finish with the checklist in section 15, run lint (section 16), and report any item you could not satisfy.
 
 Sources of truth, in this order when they disagree:
 
@@ -23,6 +23,8 @@ Sources of truth, in this order when they disagree:
 6. `AGENTS.md` for the repo-wide rules.
 
 ## 1. The hard rules
+
+Most of the **Never** list is checked by lint (section 16): a violation fails `nx lint` and CI, so do not rely on review to catch it.
 
 **Always**
 
@@ -435,6 +437,7 @@ Do not edit these as part of a normal screen. They are shared by every screen, a
 - `apps/web/src/app/(app)/layout.tsx` and `apps/web/src/app/layout.tsx`
 - `apps/web/src/lib/api.ts`, `lib/session.tsx`, `lib/use-form.ts`, `lib/validation.ts` (adding a shared validator or a field message is fine), `lib/theme.ts`
 - `apps/web-e2e/src/support/*`
+- `apps/web/eslint.config.mjs` and `apps/web/eslint-rules/*` (the lint rules that enforce this file)
 - the structure of `apps/web/src/lib/nav.ts` (adding your own entry is fine)
 
 If a screen needs a change to one of them, or a component that does not exist, ask the foundation owner (M2) first. An approved change must:
@@ -463,4 +466,40 @@ Run through this list and fix whatever fails. In a pull request, name any item y
 - [ ] Copy is short and plain, says what happened and what to do, and has no "Oops", exclamation mark or emoji.
 - [ ] Public pages show cities, statuses and timestamps only.
 - [ ] Playwright tests cover the states above, and `lint`, `typecheck` and the whole suite pass.
+- [ ] You added no `eslint-disable` comment to get lint to pass. A real exception has a reason written after `--`.
 - [ ] No new dependency, font, icon set or colour was added. No protected file was edited (section 14).
+
+## 16. What lint checks for you
+
+This file is enforced in code. `pnpm exec nx lint @org/web` runs ESLint rules from `apps/web/eslint-rules/`, and CI ("Frontend checks") runs the same lint. A violation fails the check with a message that says what to use instead and points back to this file.
+
+| What it catches                                                                                                                                                                                                                          | Rule                              | Example, and what to use                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
+| Colours that are not tokens: a hex, `rgb()` or `hsl()` in a class list, a colour attribute or a style object                                                                                                                             | `swiftdrop/no-raw-colors`         | `bg-[#fff]`, `fill="#4285F4"` -> `bg-surface`           |
+| Class lists that leave the tokens: arbitrary values, default Tailwind colours, text sizes, radii and shadows, off-scale spacing, `bg-ink` and `text-paper`, the `2xl:` breakpoint. (`grid-cols-[...]` and `[var(--token)]` are allowed.) | `swiftdrop/tailwind-tokens`       | `p-7` -> `p-6` or `p-8`; `rounded-lg` -> `rounded-card` |
+| An inline `style` prop                                                                                                                                                                                                                   | `swiftdrop/no-inline-style`       | `style={{ ... }}` -> token classes                      |
+| UI libraries, other icon sets, CSS-in-JS, state-management and data-fetching libraries, extra fonts                                                                                                                                      | `no-restricted-imports`           | `react-icons` -> `lucide-react`                         |
+| A direct network call                                                                                                                                                                                                                    | `no-restricted-globals` (`fetch`) | `fetch(...)` -> `api()`                                 |
+| Showing `error.message` to a person                                                                                                                                                                                                      | `no-restricted-syntax`            | `{error.message}` -> our own sentence, by `error.code`  |
+| A hand-written `<h1>` in a screen                                                                                                                                                                                                        | `no-restricted-syntax`            | `<h1>` -> `PageHeader`                                  |
+
+**Where it applies.** Screens are strict: everything under `apps/web/src` except the foundation. The foundation files (`components/ui`, `components/layout`, `app/design`, `app/layout.tsx`, `lib/` and the brand panel) are exempt from the class rules because they define the tokens, but they still must not contain raw colours. The auth pages are exempt from the `<h1>` rule, and only `lib/api.ts` may call `fetch`. The scopes are in `apps/web/eslint.config.mjs`.
+
+**What lint cannot see**, so it stays your job and the review's: class names built from variables at run time, whether a screen has one primary action, the four states, status chips, the wording, focus order, and how the screen looks.
+
+**Exceptions.** Use one only for a real exception, such as a value that is genuinely dynamic or a third party's brand mark, and write the reason after `--`:
+
+```tsx
+// eslint-disable-next-line swiftdrop/no-inline-style -- width comes from the API (a percentage)
+<div style={{ width: `${progress}%` }} />
+```
+
+An `eslint-disable` added to make lint pass is a defect, and an unused one fails lint. If a rule is wrong, tell M2: the rule and its test change together.
+
+**Changing the rules.** The rules are in `apps/web/eslint-rules/design-tokens.mjs` and their tests in `design-tokens.test.mjs`. Run the tests with:
+
+```bash
+node --test "apps/web/eslint-rules/*.test.mjs"
+```
+
+CI runs them too. When this file gains or changes a rule that can be checked, change the lint rule and its test in the same pull request.

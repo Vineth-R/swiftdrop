@@ -90,9 +90,10 @@ See [`tests/integration/README.md`](tests/integration/README.md). CI sets `RABBI
 
 ### Frontend changes
 
-Read [`DESIGN.md`](DESIGN.md) before you build or change a screen, and follow it. It defines the design language, the allowed tokens, the component kit and the checklist to finish with.
+Read [`DESIGN.md`](DESIGN.md) before you build or change a screen, and follow it. It defines the design language, the allowed tokens, the component kit and the checklist to finish with. `nx lint @org/web` enforces the checkable parts and fails on a raw colour, an off-token class, an off-scale spacing value, an inline style and similar mistakes (`DESIGN.md` section 16).
 
 ```sh
+node --test "apps/web/eslint-rules/*.test.mjs"   # only when you change the lint rules
 pnpm exec nx lint @org/web
 pnpm exec nx build @org/web
 ```

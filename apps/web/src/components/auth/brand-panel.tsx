@@ -214,7 +214,7 @@ export function BrandPanel({ headline, children }: BrandPanelProps) {
       {/* A faint dot grid that fades out toward the edges, and a soft glow. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -inset-12 bg-[radial-gradient(var(--color-line-strong)_1px,transparent_1.4px)] bg-[length:22px_22px] opacity-60 [mask-image:radial-gradient(ellipse_75%_60%_at_60%_38%,#000_25%,transparent_100%)]"
+        className="pointer-events-none absolute -inset-12 bg-[radial-gradient(var(--color-line-strong)_1px,transparent_1.4px)] bg-[length:22px_22px] opacity-60 [mask-image:radial-gradient(ellipse_75%_60%_at_60%_38%,var(--color-ink)_25%,transparent_100%)]"
       />
       <div
         aria-hidden="true"
