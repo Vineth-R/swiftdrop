@@ -131,3 +131,78 @@ test.describe('Alert and ErrorSummary', () => {
     await expect(summary).toContainText('Reference 7f2c9a14');
   });
 });
+
+test.describe('Skeleton', () => {
+  const group = (page: import('@playwright/test').Page) =>
+    page.getByRole('status').filter({ hasText: 'Loading parcels' });
+
+  test('a group says once what is loading and is marked busy', async ({
+    page,
+  }) => {
+    await expect(group(page)).toHaveAttribute('aria-busy', 'true');
+    await expect(group(page)).toContainText('Loading parcels');
+  });
+
+  test('the grey blocks are hidden from screen readers', async ({ page }) => {
+    const blocks = group(page).locator('[aria-hidden="true"]');
+    expect(await blocks.count()).toBeGreaterThan(3);
+    await expect(blocks.first()).toBeAttached();
+  });
+
+  test('a block is still, and square-cornered like a chip', async ({
+    page,
+  }) => {
+    const block = group(page).locator('[aria-hidden="true"]').first();
+    await expect(block).toHaveCSS('animation-name', 'none');
+    await expect(block).toHaveCSS('border-radius', '6px');
+  });
+
+  test('a text skeleton ends in a shorter line', async ({ page }) => {
+    const lines = group(page).locator('div[aria-hidden="true"] > div');
+    await expect(lines).toHaveCount(3);
+    const widths = await Promise.all(
+      [0, 1, 2].map(
+        async (index) => (await lines.nth(index).boundingBox())?.width ?? 0,
+      ),
+    );
+    expect(widths[2]).toBeLessThan(widths[0]);
+    expect(widths[0]).toBe(widths[1]);
+  });
+});
+
+test.describe('EmptyState', () => {
+  test('its title is a third level heading and its action a button', async ({
+    page,
+  }) => {
+    await expect(
+      page.getByRole('heading', { level: 3, name: 'No parcels yet' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'New delivery' }),
+    ).toBeVisible();
+  });
+
+  test('the icon is decorative and a state without an action has none', async ({
+    page,
+  }) => {
+    const withIcon = page
+      .getByRole('heading', { name: 'No parcels yet' })
+      .locator('xpath=ancestor::div[contains(@class, "rounded-card")][1]');
+    await expect(withIcon.locator('[aria-hidden="true"] svg')).toHaveCount(1);
+
+    const withoutAction = page
+      .getByRole('heading', { name: /No results for/ })
+      .locator('xpath=ancestor::div[contains(@class, "rounded-card")][1]');
+    await expect(withoutAction.getByRole('button')).toHaveCount(0);
+    await expect(withoutAction.locator('svg')).toHaveCount(0);
+  });
+
+  test('it is a hairline box, with no shadow', async ({ page }) => {
+    const box = page
+      .getByRole('heading', { name: 'No parcels yet' })
+      .locator('xpath=ancestor::div[contains(@class, "rounded-card")][1]');
+    await expect(box).toHaveCSS('border-top-width', '1px');
+    await expect(box).toHaveCSS('box-shadow', 'none');
+    await expect(box).toHaveCSS('border-radius', '12px');
+  });
+});
