@@ -80,6 +80,9 @@ type Service struct {
 	config Config
 	now    func() time.Time
 	logger *slog.Logger
+
+	// notifier sends account emails. It is never nil.
+	notifier Notifier
 }
 
 // New returns a Service.
@@ -101,6 +104,8 @@ func New(store Store, hasher Hasher, tokens TokenIssuer, config Config, opts ...
 		config: config,
 		now:    time.Now,
 		logger: slog.New(slog.DiscardHandler),
+
+		notifier: noNotifier{},
 	}
 	for _, opt := range opts {
 		opt(service)
@@ -182,6 +187,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (Account, e
 	if err != nil {
 		return Account{}, fmt.Errorf("register: %w", err)
 	}
+	s.notifier.Welcome(ctx, recipientOf(user))
 	return accountOf(user), nil
 }
 
@@ -220,6 +226,7 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (Session, error) 
 		}
 		if state.Locked(now) {
 			s.logger.WarnContext(ctx, "account locked after repeated failed logins", "user_id", user.ID)
+			s.notifier.AccountLocked(ctx, recipientOf(user), s.config.Lockout.Duration)
 		}
 		return Session{}, ErrInvalidCredentials
 	}

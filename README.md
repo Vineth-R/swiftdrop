@@ -195,7 +195,7 @@ Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`. To switch b
 
 - The App Password belongs only in `.env`, which is untracked. Never commit it, paste it into chat, or log it. Revoke it from the Google account if exposed.
 - TLS certificate verification stays enabled. Certificate revocation checking (`CheckCertificateRevocation`) is not implemented in the sender.
-- The identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. The notification worker requires `SMTP_HOST` and fails startup when SMTP is not configured. Delivery is at-least-once; a duplicate email is possible if a crash or connection loss happens between an SMTP send and the broker acknowledgement.
+- The identity service sends its account emails (password reset, password changed, welcome, account locked and so on) and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. The emails themselves, their branded templates, how to preview them with `make email-preview` and `make email-send-preview`, and real delivery with a provider are described in [docs/email.md](docs/email.md). `SUPPORT_EMAIL`, `SMTP_REPLY_TO` and `SMTP_SECURE` are optional. The notification worker requires `SMTP_HOST` and fails startup when SMTP is not configured. Delivery is at-least-once; a duplicate email is possible if a crash or connection loss happens between an SMTP send and the broker acknowledgement.
 - Gmail SMTP is suitable for development and small volumes. Production email should use a transactional provider with SPF/DKIM/DMARC.
 
 ## Database migrations

@@ -42,13 +42,17 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 	if err != nil {
 		return nil, nil, fmt.Errorf("create token manager: %w", err)
 	}
+	mail, err := setUpEmail(logger)
+	if err != nil {
+		return nil, nil, err
+	}
 	identity, err := service.New(repo, hasher, tokens, service.Config{
 		RefreshTTL: authConfig.RefreshTokenTTL,
 		Lockout: lockout.Policy{
 			MaxFailures: authConfig.MaxFailedLogins,
 			Duration:    authConfig.LockoutDuration,
 		},
-	}, service.WithLogger(logger))
+	}, service.WithLogger(logger), service.WithNotifier(mail.Notifier))
 	if err != nil {
 		return nil, nil, fmt.Errorf("create identity service: %w", err)
 	}
@@ -72,7 +76,7 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 		options = append(options, googleOption)
 	}
 
-	resetOption, drain, err := resetRouterOption(logger, repo, identity, cookies, authConfig.PasswordResetTokenTTL)
+	resetOption, drainReset, err := resetRouterOption(logger, repo, identity, cookies, authConfig.PasswordResetTokenTTL, mail)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -91,5 +95,9 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 		return nil, nil, err
 	}
 	options = append(options, adminOption)
+	drain := func() {
+		drainReset()
+		mail.Wait()
+	}
 	return options, drain, nil
 }

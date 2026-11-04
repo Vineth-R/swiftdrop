@@ -146,6 +146,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID string, input Chang
 		return fmt.Errorf("change password: %w", err)
 	}
 	s.logger.InfoContext(ctx, "password changed", "user_id", userID)
+	s.notifier.PasswordChanged(ctx, recipientOf(user), false, s.nowUTC())
 	return nil
 }
 

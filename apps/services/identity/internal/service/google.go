@@ -311,6 +311,7 @@ func (g *GoogleAuth) resolveUser(ctx context.Context, profile GoogleProfile, ema
 	if err != nil {
 		return repository.User{}, fmt.Errorf("google login: %w", err)
 	}
+	g.base.notifier.Welcome(ctx, recipientOf(user))
 	return user, nil
 }
 
