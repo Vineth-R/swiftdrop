@@ -29,8 +29,9 @@ type reportHandlers struct {
 }
 
 // registerReports adds GET /reports/daily and GET /reports/outcomes (API v1.1
-// section 7). Both are ADMIN only: the access token is checked first, then the
-// role. Without a configured access secret they answer 503 rather than run open.
+// section 7). Both are for DISPATCHER and ADMIN (ADMIN passes every DISPATCHER
+// check): the access token is checked first, then the role. Without a configured
+// access secret they answer 503 rather than run open.
 func registerReports(router *gin.Engine, logger *slog.Logger, options Options) error {
 	store := options.Reports
 	if store == nil {
@@ -54,7 +55,7 @@ func registerReports(router *gin.Engine, logger *slog.Logger, options Options) e
 		if err != nil {
 			return err
 		}
-		group.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleAdmin))
+		group.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleDispatcher))
 	}
 	group.GET("/daily", handler.daily)
 	group.GET("/outcomes", handler.outcomes)

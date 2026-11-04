@@ -62,7 +62,7 @@ func reportRequest(t *testing.T, router *gin.Engine, path string, role auth.Role
 	return recorder
 }
 
-func TestReportsAreAdminOnly(t *testing.T) {
+func TestReportsAccessByRole(t *testing.T) {
 	router := reportRouter(t, Options{
 		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 4, Delivered: 3, Failed: 1}}},
 		AccessSecret: reportTestSecret,
@@ -77,7 +77,7 @@ func TestReportsAreAdminOnly(t *testing.T) {
 		{"customer", auth.RoleCustomer, http.StatusForbidden},
 		{"courier", auth.RoleCourier, http.StatusForbidden},
 		{"merchant", auth.RoleMerchant, http.StatusForbidden},
-		{"dispatcher", auth.RoleDispatcher, http.StatusForbidden},
+		{"dispatcher", auth.RoleDispatcher, http.StatusOK},
 		{"admin", auth.RoleAdmin, http.StatusOK},
 	}
 	for _, path := range []string{"/reports/daily", "/reports/outcomes"} {
