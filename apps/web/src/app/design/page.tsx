@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { ThemeSwitch } from '../../components/ui/theme-switch';
 import { ComponentsSection } from './components-section';
+import { KitMoreSection } from './kit-more-section';
 import { KitSection } from './kit-section';
 import { ShadcnSection } from './shadcn-section';
 import {
@@ -183,6 +184,8 @@ export default function DesignPage() {
       <ComponentsSection />
 
       <KitSection />
+
+      <KitMoreSection />
 
       <ShadcnSection />
 
