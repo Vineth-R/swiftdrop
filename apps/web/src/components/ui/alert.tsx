@@ -1,3 +1,4 @@
+import { cva } from 'class-variance-authority';
 import {
   CircleCheck,
   Info,
@@ -5,9 +6,9 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
-import type { ReactNode, Ref } from 'react';
+import type { ComponentProps, ReactNode, Ref } from 'react';
 
-import { cn } from '../../lib/cn';
+import { cn } from '../../lib/utils';
 
 export type AlertTone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -36,6 +37,40 @@ export const alertToneClasses: Record<
   },
   danger: { box: 'border-danger-border bg-danger-tint', icon: 'text-danger' },
 };
+
+const alertVariants = cva('flex gap-3 rounded-card border px-4 py-3', {
+  variants: {
+    tone: {
+      info: alertToneClasses.info.box,
+      success: alertToneClasses.success.box,
+      warning: alertToneClasses.warning.box,
+      danger: alertToneClasses.danger.box,
+    },
+  },
+  defaultVariants: {
+    tone: 'info',
+  },
+});
+
+function AlertTitle({ className, ...props }: ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="alert-title"
+      className={cn('text-body-sm font-semibold text-text', className)}
+      {...props}
+    />
+  );
+}
+
+function AlertDescription({ className, ...props }: ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="alert-description"
+      className={cn('text-body-sm text-text-muted', className)}
+      {...props}
+    />
+  );
+}
 
 type AlertProps = {
   tone: AlertTone;
@@ -69,11 +104,9 @@ export function Alert({
       ref={ref}
       tabIndex={ref ? -1 : undefined}
       role={tone === 'danger' ? 'alert' : 'status'}
-      className={cn(
-        'flex gap-3 rounded-card border px-4 py-3',
-        alertToneClasses[tone].box,
-        className,
-      )}
+      data-slot="alert"
+      data-tone={tone}
+      className={cn(alertVariants({ tone }), className)}
     >
       <Icon
         size={20}
@@ -82,12 +115,12 @@ export function Alert({
         className={cn('mt-0.5 shrink-0', alertToneClasses[tone].icon)}
       />
       <div className="flex min-w-0 flex-col gap-1">
-        <div className="text-body-sm font-semibold text-text">{title}</div>
-        {children && (
-          <div className="text-body-sm text-text-muted">{children}</div>
-        )}
+        <AlertTitle>{title}</AlertTitle>
+        {children && <AlertDescription>{children}</AlertDescription>}
         {actions && <div className="mt-1 flex flex-wrap gap-3">{actions}</div>}
       </div>
     </div>
   );
 }
+
+export { AlertDescription, AlertTitle, alertVariants };

@@ -1,7 +1,9 @@
 import { Check, CircleAlert } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 
-import { cn } from '../../lib/cn';
+import { cn } from '../../lib/utils';
+import { Input } from './input';
+import { Label } from './label';
 
 export type ControlSize = 'md' | 'lg';
 
@@ -64,7 +66,7 @@ export function Field({
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="flex items-baseline justify-between gap-3">
-        <label
+        <Label
           htmlFor={id}
           className={cn(
             'text-label',
@@ -81,7 +83,7 @@ export function Field({
               <span className="sr-only"> (required)</span>
             </>
           )}
-        </label>
+        </Label>
         {labelAction}
       </div>
       {children}
@@ -240,9 +242,13 @@ export function TextField({
               {prefix}
             </span>
           )}
-          <input
+          <Input
             {...common}
-            className={cn(groupInputClasses(controlSize), mono)}
+            className={cn(
+              groupInputClasses(controlSize),
+              'h-full rounded-none border-0 bg-transparent px-3 py-0 shadow-none focus-visible:outline-none',
+              mono,
+            )}
           />
           {suffix && (
             <span className="inline-flex items-center border-l bg-surface-2 px-3 text-caption text-text-muted">
@@ -251,7 +257,7 @@ export function TextField({
           )}
         </div>
       ) : (
-        <input
+        <Input
           {...common}
           className={cn(
             controlClasses({

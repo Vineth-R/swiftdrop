@@ -3,7 +3,7 @@
 import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { User } from '../../lib/auth-api';
 import { cn } from '../../lib/cn';
@@ -42,6 +42,7 @@ export function AppShell({ user, banner, children }: AppShellProps) {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const navButtonRef = useRef<HTMLButtonElement>(null);
   const groups = navByRole[user.role];
   const current = findNav(user.role, pathname);
 
@@ -119,6 +120,7 @@ export function AppShell({ user, banner, children }: AppShellProps) {
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         label="Navigation"
+        returnFocusRef={navButtonRef}
       >
         <nav aria-label="Main">
           <NavList
@@ -133,6 +135,7 @@ export function AppShell({ user, banner, children }: AppShellProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-15 items-center gap-3 border-b border-line bg-surface px-3 md:px-4">
           <button
+            ref={navButtonRef}
             type="button"
             aria-label="Open navigation"
             onClick={() => setIsDrawerOpen(true)}

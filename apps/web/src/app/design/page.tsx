@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { ThemeSwitch } from '../../components/ui/theme-switch';
 import { ComponentsSection } from './components-section';
 import { KitSection } from './kit-section';
+import { ShadcnSection } from './shadcn-section';
 import {
   colorTokens,
   durationTokens,
@@ -182,6 +183,8 @@ export default function DesignPage() {
       <ComponentsSection />
 
       <KitSection />
+
+      <ShadcnSection />
 
       <section aria-labelledby="focus" className="flex flex-col gap-4">
         <h2 id="focus" className="font-display text-h2">

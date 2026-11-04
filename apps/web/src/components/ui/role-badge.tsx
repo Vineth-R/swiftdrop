@@ -1,4 +1,5 @@
-import { cn } from '../../lib/cn';
+import { cn } from '../../lib/utils';
+import { Badge } from './badge';
 import type { Role } from '../../lib/tokens';
 
 const looks: Record<Role, { box: string; initial: string }> = {
@@ -46,9 +47,10 @@ type RoleBadgeProps = {
 export function RoleBadge({ role, size = 'md', className }: RoleBadgeProps) {
   const look = looks[role];
   return (
-    <span
+    <Badge
+      variant="outline"
       className={cn(
-        'inline-flex w-fit items-center rounded-chip border font-semibold tracking-[0.04em]',
+        'rounded-chip border font-semibold tracking-[0.04em]',
         sizes[size].box,
         look.box,
         className,
@@ -65,6 +67,6 @@ export function RoleBadge({ role, size = 'md', className }: RoleBadgeProps) {
         {role[0]}
       </span>
       {role}
-    </span>
+    </Badge>
   );
 }

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-import { mockApi, signedOut } from './support/mock-api';
+import { mockApi, ok, signedOut, type Handler } from './support/mock-api';
 import { signInAs, type Role } from './support/sign-in';
 
 test.use({ colorScheme: 'light' });
@@ -15,7 +15,12 @@ const sizes = [
   { name: '1280px', width: 1280, height: 800 },
 ];
 
-type Screen = { name: string; path: string; as?: Role };
+type Screen = {
+  name: string;
+  path: string;
+  as?: Role;
+  extra?: Record<string, Handler>;
+};
 
 const screens: Screen[] = [
   { name: 'log in', path: '/login' },
@@ -29,6 +34,12 @@ const screens: Screen[] = [
   { name: 'merchant dashboard', path: '/dashboard', as: 'MERCHANT' },
   { name: 'dispatcher dashboard', path: '/dashboard', as: 'DISPATCHER' },
   { name: 'admin dashboard', path: '/dashboard', as: 'ADMIN' },
+  {
+    name: 'admin notification logs',
+    path: '/admin/notification-logs',
+    as: 'ADMIN',
+    extra: { 'GET /admin/notification-logs': ok([]) },
+  },
   { name: 'courier dashboard', path: '/dashboard', as: 'COURIER' },
   { name: 'courier profile', path: '/profile', as: 'COURIER' },
   {
@@ -43,6 +54,14 @@ const screens: Screen[] = [
   },
   { name: 'style guide', path: '/design' },
 ];
+
+async function openScreen(page: Page, screen: Screen) {
+  if (screen.as) {
+    await signInAs(page, screen.as, screen.extra);
+    return;
+  }
+  await mockApi(page, signedOut);
+}
 
 async function expectFits(page: Page, label: string) {
   const overflow = await page.evaluate(
@@ -71,9 +90,7 @@ for (const size of sizes) {
 
     for (const screen of screens) {
       test(`${screen.name} fits`, async ({ page }) => {
-        if (screen.as) await signInAs(page, screen.as);
-        else await mockApi(page, signedOut);
-
+        await openScreen(page, screen);
         await page.goto(screen.path);
         // The style guide shows a system page, so it holds a second h1 as a sample.
         await expect(

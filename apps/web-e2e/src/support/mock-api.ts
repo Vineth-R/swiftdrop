@@ -13,7 +13,9 @@ export type Reply = {
   headers?: Record<string, string>;
   delayMs?: number;
 };
-export type Handler = Reply | ((request: { body: unknown }) => Reply);
+export type Handler =
+  | Reply
+  | ((request: { body: unknown; url: URL; query: URLSearchParams }) => Reply);
 
 export const SERVER_WORDS = 'RAW SERVER WORDS THAT MUST NEVER BE SHOWN';
 export const REQUEST_ID = '7f2c9a14-0b63-4de8-9f10-5c2e8d3a1b77';
@@ -58,17 +60,23 @@ export const signedOut: Record<string, Handler> = {
 export async function mockApi(
   page: Page,
   handlers: Record<string, Handler>,
-): Promise<{ calls: Array<{ key: string; body: unknown }> }> {
-  const calls: Array<{ key: string; body: unknown }> = [];
+): Promise<{
+  calls: Array<{ key: string; body: unknown; url: string }>;
+}> {
+  const calls: Array<{ key: string; body: unknown; url: string }> = [];
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace('/api/v1', '');
     const key = `${request.method()} ${path}`;
     const body = request.postData() ? request.postDataJSON() : undefined;
-    calls.push({ key, body });
+    calls.push({ key, body, url: request.url() });
 
     const handler = handlers[key] ?? fail(404, 'NOT_FOUND');
-    const reply = typeof handler === 'function' ? handler({ body }) : handler;
+    const url = new URL(request.url());
+    const reply =
+      typeof handler === 'function'
+        ? handler({ body, url, query: url.searchParams })
+        : handler;
     if (reply.delayMs) await new Promise((r) => setTimeout(r, reply.delayMs));
     await route.fulfill({
       status: reply.status,

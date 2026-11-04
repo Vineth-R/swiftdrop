@@ -3,8 +3,10 @@
 import { Check } from 'lucide-react';
 import { useEffect, useId, useMemo, useState, type ChangeEvent } from 'react';
 
-import { cn } from '../../lib/cn';
+import { cn } from '../../lib/utils';
 import { checkPassword, strengthLabels } from '../../lib/password';
+import { Button } from './button';
+import { Input } from './input';
 import {
   controlClasses,
   describedBy,
@@ -159,7 +161,7 @@ export function PasswordField({
           isGroup: true,
         })}
       >
-        <input
+        <Input
           {...input}
           id={id}
           type={isRevealed ? 'text' : 'password'}
@@ -174,18 +176,22 @@ export function PasswordField({
             { helper, error },
             showChecklist ? rulesId : undefined,
           )}
-          className={groupInputClasses(controlSize)}
+          className={cn(
+            groupInputClasses(controlSize),
+            'h-full rounded-none border-0 bg-transparent px-3 py-0 shadow-none focus-visible:outline-none',
+          )}
         />
-        <button
-          type="button"
-          disabled={disabled}
+        <Button
+          variant="link"
+          size="sm"
+          isDisabled={disabled}
           aria-label={isRevealed ? 'Hide password' : 'Show password'}
           aria-pressed={isRevealed}
           onClick={() => setIsRevealed((current) => !current)}
-          className="border-l px-3 text-caption font-medium text-interactive transition-colors duration-fast ease-out-sd hover:text-interactive-hover disabled:text-text-disabled"
+          className="h-full rounded-none border-l px-3 text-caption hover:decoration-1"
         >
           {isRevealed ? 'Hide' : 'Show'}
-        </button>
+        </Button>
       </div>
       {showChecklist && <PasswordChecklist id={rulesId} value={value} />}
     </Field>
