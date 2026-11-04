@@ -16,7 +16,7 @@ The documents disagree:
 
 No document establishes that it supersedes the others. Ask the team lead whether M4.pdf is the final scope. Until confirmed, complete the shared minimum first, then the actual tracking requirements in M4.pdf; do not silently drop that explicit deadline. This question does not block migrations, pricing, report writing or tests.
 
-Team submission: one combined design report PDF and one repository link. M10 assembles/submits the report; M1 owns repository readiness, clean-clone test and tag `milestone-1`. Your responsibility is to deliver your reviewed, integrated contribution and supporting evidence to them.
+Team submission: one combined design report PDF and one repository link. M10 assembles/submits the report; M1 owns repository readiness, clean-clone test and tag `milestone-1`, which the release workflow supports alongside `v*` tags. Your responsibility is to deliver your reviewed, integrated contribution and supporting evidence to them.
 
 ## 2. Shared minimum checklist: required by the team guides
 

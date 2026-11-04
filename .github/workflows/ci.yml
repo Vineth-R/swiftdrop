@@ -7,6 +7,7 @@ on:
       - main
     tags:
       - 'v*'
+      - 'milestone-*'
   pull_request:
     branches:
       - development
@@ -415,9 +416,75 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  gate:
+    name: Required CI gate
+    if: always()
+    needs:
+      - go
+      - hygiene
+      - integration
+      - database
+      - frontend
+      - e2e
+      - changes
+      - docker
+      - access
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required job results
+        env:
+          GO_RESULT: ${{ needs.go.result }}
+          HYGIENE_RESULT: ${{ needs.hygiene.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          DATABASE_RESULT: ${{ needs.database.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          ACCESS_RESULT: ${{ needs.access.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+
+          check_required() {
+            local name="$1"
+            local result="$2"
+            if [ "$result" != "success" ]; then
+              echo "::error::${name} must succeed, but its result was '${result}'."
+              failed=1
+            fi
+          }
+
+          check_optional() {
+            local name="$1"
+            local result="$2"
+            case "$result" in
+              success|skipped) ;;
+              *)
+                echo "::error::${name} may only succeed or be skipped, but its result was '${result}'."
+                failed=1
+                ;;
+            esac
+          }
+
+          check_required "go" "$GO_RESULT"
+          check_required "hygiene" "$HYGIENE_RESULT"
+          check_required "integration" "$INTEGRATION_RESULT"
+          check_required "database" "$DATABASE_RESULT"
+          check_required "frontend" "$FRONTEND_RESULT"
+          check_required "e2e" "$E2E_RESULT"
+          check_required "changes" "$CHANGES_RESULT"
+          check_optional "docker" "$DOCKER_RESULT"
+          check_optional "access" "$ACCESS_RESULT"
+
+          exit "$failed"
+
   release:
     name: Release smoke test
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      startsWith(github.ref, 'refs/tags/milestone-')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
