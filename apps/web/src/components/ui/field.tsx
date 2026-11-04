@@ -130,11 +130,17 @@ export function controlClasses({
   hasError = false,
   hasSuccess = false,
   isGroup = false,
+  isMultiline = false,
+  isSelect = false,
 }: {
   size?: ControlSize;
   hasError?: boolean;
   hasSuccess?: boolean;
   isGroup?: boolean;
+  /** A textarea: no fixed height, a taller minimum and vertical padding. */
+  isMultiline?: boolean;
+  /** A select. Browsers treat it as read-only, so it must not take the read-only look. */
+  isSelect?: boolean;
 }): string {
   const border = hasError
     ? 'border-danger'
@@ -143,7 +149,7 @@ export function controlClasses({
       : 'border-line-control hover:border-text-faint';
   return cn(
     'w-full rounded-control border bg-surface text-text',
-    heights[size],
+    isMultiline ? 'min-h-24 resize-y py-2' : heights[size],
     border,
     isGroup
       ? 'flex items-stretch overflow-hidden focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-interactive'
@@ -151,7 +157,7 @@ export function controlClasses({
           'px-3 transition-colors duration-fast ease-out-sd focus-visible:border-interactive',
           text[size],
           'disabled:border-line disabled:bg-surface-2 disabled:text-text-disabled',
-          'read-only:border-line read-only:bg-surface-2',
+          !isSelect && 'read-only:border-line read-only:bg-surface-2',
         ),
   );
 }
