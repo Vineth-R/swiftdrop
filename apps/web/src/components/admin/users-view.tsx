@@ -33,6 +33,9 @@ type Loaded = { key: string } & (
 
 type StatusFilter = '' | 'ACTIVE' | 'DEACTIVATED';
 
+/** The longest search the API accepts (API v1.1 section 2.10). */
+const SEARCH_MAX_LENGTH = 100;
+
 const roleOptions = [
   { value: '', label: 'All roles' },
   ...roles.map((role) => ({ value: role, label: role })),
@@ -68,6 +71,15 @@ function FailureAlert({
       <Alert tone="warning" icon={Lock} title="You do not have access to this">
         Only administrators can manage users. If you need access, ask an
         administrator.
+      </Alert>
+    );
+  }
+  if (error.code === 'VALIDATION_FAILED') {
+    return (
+      <Alert tone="warning" title="That search was not accepted">
+        {error.issues.some((issue) => issue.field === 'q')
+          ? `Use ${SEARCH_MAX_LENGTH} characters or fewer to search.`
+          : 'Check the search and filters, then try again.'}
       </Alert>
     );
   }
@@ -145,6 +157,9 @@ export function UsersView() {
   const [page, setPage] = useState(1);
   const [reload, setReload] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  // The last pagination the API sent. It stays while the next page loads, so
+  // the Previous and Next buttons do not vanish under the person's focus.
+  const [lastPagination, setLastPagination] = useState<Pagination | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<AdminUser | null>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
@@ -164,17 +179,22 @@ export function UsersView() {
       controller.signal,
     )
       .then(({ data, meta }) => {
-        setLoaded({
-          key,
-          kind: 'ok',
-          users: data,
-          pagination: meta.pagination ?? {
-            page,
-            pageSize: ADMIN_USERS_PAGE_SIZE,
-            totalItems: data.length,
-            totalPages: 1,
-          },
-        });
+        const pagination = meta.pagination ?? {
+          page,
+          pageSize: ADMIN_USERS_PAGE_SIZE,
+          totalItems: data.length,
+          totalPages: 1,
+        };
+        setLastPagination(pagination);
+        // The number of pages can shrink while someone is on a later page
+        // (a filter, or users removed elsewhere). Ask again for the last page
+        // there is; no results at all means page 1.
+        const lastPage = Math.max(pagination.totalPages, 1);
+        if (page > lastPage) {
+          setPage(lastPage);
+          return;
+        }
+        setLoaded({ key, kind: 'ok', users: data, pagination });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -186,22 +206,35 @@ export function UsersView() {
   const current = loaded && loaded.key === key ? loaded : null;
   const ready = current?.kind === 'ok' ? current : null;
   const hasFilters = query !== '' || role !== '' || status !== '';
+  // The API refused the search text itself (a 422 on `q`): say so at the field.
+  const searchError =
+    current?.kind === 'error' &&
+    current.error.code === 'VALIDATION_FAILED' &&
+    current.error.issues.some((issue) => issue.field === 'q')
+      ? `Use ${SEARCH_MAX_LENGTH} characters or fewer.`
+      : undefined;
 
   function search(event: FormEvent) {
     event.preventDefault();
     setActionError(null);
+    setLastPagination(null);
     setPage(1);
     setQuery(draft.trim());
+    // Searching again is a request even when the words are the same, such as
+    // after a failure.
+    setReload((value) => value + 1);
   }
 
   function changeRole(value: string) {
     setActionError(null);
+    setLastPagination(null);
     setPage(1);
     setRole(value as Role | '');
   }
 
   function changeStatus(value: string) {
     setActionError(null);
+    setLastPagination(null);
     setPage(1);
     setStatus(value as StatusFilter);
   }
@@ -209,6 +242,7 @@ export function UsersView() {
   function clearFilters() {
     setDraft('');
     setActionError(null);
+    setLastPagination(null);
     setPage(1);
     setQuery('');
     setRole('');
@@ -216,8 +250,9 @@ export function UsersView() {
   }
 
   function goToPage(next: number) {
+    const lastPage = Math.max(lastPagination?.totalPages ?? 1, 1);
     setActionError(null);
-    setPage(next);
+    setPage(Math.min(Math.max(next, 1), lastPage));
   }
 
   async function changeActive(user: AdminUser, isActive: boolean) {
@@ -269,6 +304,8 @@ export function UsersView() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Name or email"
+            maxLength={SEARCH_MAX_LENGTH}
+            error={searchError}
             className="min-w-0 flex-1"
           />
           <Select
@@ -340,11 +377,11 @@ export function UsersView() {
               onActivate={(user) => changeActive(user, true)}
               onDeactivate={setConfirming}
             />
-            {ready && (
+            {lastPagination && (
               <TablePagination
-                page={ready.pagination.page}
-                totalPages={ready.pagination.totalPages}
-                totalItems={ready.pagination.totalItems}
+                page={page}
+                totalPages={lastPagination.totalPages}
+                totalItems={lastPagination.totalItems}
                 onPageChange={goToPage}
               />
             )}

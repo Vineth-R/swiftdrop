@@ -25,7 +25,10 @@ export type AdminUserQuery = {
   pageSize?: number;
 };
 
-/** The largest page the API serves (API v1.1 section 1.5). */
+/**
+ * The page size the screen asks for. 20 is the API's default page size and 100
+ * its maximum (API v1.1 section 1.5).
+ */
 export const ADMIN_USERS_PAGE_SIZE = 20;
 
 function toQueryString(query: AdminUserQuery): string {

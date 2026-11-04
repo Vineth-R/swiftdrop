@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Route } from '@playwright/test';
 
 import {
   fail,
@@ -54,6 +54,25 @@ const list = (
 });
 
 const listUrl = '**/api/v1/admin/users/**';
+
+/** Answers one intercepted list request with a mock reply. */
+const answer = (route: Route, reply: Reply) =>
+  route.fulfill({
+    status: reply.status,
+    contentType: 'application/json',
+    body: JSON.stringify(reply.body),
+  });
+
+/** The `page` query of an intercepted list request. */
+const requestedPage = (route: Route) =>
+  new URL(route.request().url()).searchParams.get('page');
+
+/**
+ * The pages asked for, in order, with a repeat of the same page folded into
+ * one: React's development mode runs the first load's effect twice.
+ */
+const inOrder = (pages: string[]) =>
+  pages.filter((value, index) => value !== pages[index - 1]);
 
 // Below 768px the same rows are cards; at the 1440px these tests use it is the table.
 const users = (page: Page) => page.getByRole('table', { name: 'Users' });
@@ -394,6 +413,215 @@ test.describe('admin users list', () => {
       page.getByText('You do not have access to this'),
     ).toBeVisible();
     await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
+  });
+
+  test('searching again sends a fresh request even when the words are the same', async ({
+    page,
+  }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': list([self, kasun]),
+    });
+    await page.goto('/admin/users');
+    await expect(person(page, 'Kasun Silva')).toBeVisible();
+
+    await page.getByLabel('Search users').fill('kasun');
+    const first = page.waitForRequest(
+      (r) => new URL(r.url()).searchParams.get('q') === 'kasun',
+    );
+    await page.getByRole('button', { name: 'Search' }).click();
+    await first;
+    await expect(person(page, 'Kasun Silva')).toBeVisible();
+
+    // Same words, same page: still a new request.
+    const again = page.waitForRequest(
+      (r) => new URL(r.url()).searchParams.get('q') === 'kasun',
+    );
+    await page.getByRole('button', { name: 'Search' }).click();
+    await again;
+  });
+
+  test('searching again recovers from a failed list without changing the words', async ({
+    page,
+  }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': fail(500, 'INTERNAL'),
+    });
+    await page.goto('/admin/users');
+    await expect(page.getByText('Something broke on our side')).toBeVisible();
+
+    await page.route(listUrl, (route) => answer(route, list([self, kasun])));
+    await page.getByRole('button', { name: 'Search' }).click();
+
+    await expect(person(page, 'Kasun Silva')).toBeVisible();
+    await expect(page.getByText('Something broke on our side')).toHaveCount(0);
+  });
+
+  test('the search box stops at 100 characters', async ({ page }) => {
+    await signInAs(page, 'ADMIN', { 'GET /admin/users/': list([self]) });
+    await page.goto('/admin/users');
+
+    const search = page.getByLabel('Search users');
+    await expect(search).toHaveAttribute('maxlength', '100');
+    await search.fill('a'.repeat(150));
+    await expect(search).toHaveValue('a'.repeat(100));
+  });
+
+  test('a refused search is explained at the field, in our words', async ({
+    page,
+  }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': fail(422, 'VALIDATION_ERROR', {
+        details: [{ field: 'q', issue: SERVER_WORDS }],
+      }),
+    });
+    await page.goto('/admin/users');
+
+    await expect(page.getByText('That search was not accepted')).toBeVisible();
+    await expect(
+      page.getByText('Use 100 characters or fewer to search.'),
+    ).toBeVisible();
+    await expect(page.getByLabel('Search users')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    await expect(
+      page.getByText('Use 100 characters or fewer.', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
+  });
+
+  test('a refused filter gets a general message and no field error', async ({
+    page,
+  }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': fail(422, 'VALIDATION_ERROR', {
+        details: [{ field: 'role', issue: SERVER_WORDS }],
+      }),
+    });
+    await page.goto('/admin/users');
+
+    await expect(page.getByText('That search was not accepted')).toBeVisible();
+    await expect(
+      page.getByText('Check the search and filters, then try again.'),
+    ).toBeVisible();
+    await expect(page.getByLabel('Search users')).not.toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
+  });
+
+  test('the pagination buttons stay, and keep focus, while the next page loads', async ({
+    page,
+  }) => {
+    const pagination = (n: number) => ({
+      page: n,
+      pageSize: 20,
+      totalItems: 45,
+      totalPages: 3,
+    });
+    await signInAs(page, 'ADMIN', {});
+    await page.route(listUrl, async (route) => {
+      if (requestedPage(route) === '2') {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        return answer(route, list([ruwan], pagination(2)));
+      }
+      return answer(route, list([self, kasun], pagination(1)));
+    });
+    await page.goto('/admin/users');
+    await expect(page.getByText('Page 1 of 3 · 45 results')).toBeVisible();
+
+    const next = page.getByRole('button', { name: 'Next', exact: true });
+    await next.focus();
+    await next.press('Enter');
+
+    // The rows are replaced by the loading state, the buttons are not.
+    await expect(page.getByText('Loading users')).toBeVisible();
+    await expect(next).toBeVisible();
+    await expect(next).toBeEnabled();
+    await expect(next).toBeFocused();
+
+    await expect(page.getByText('Page 2 of 3 · 45 results')).toBeVisible();
+    await expect(person(page, 'Ruwan Jayasuriya')).toBeVisible();
+    await expect(next).toBeFocused();
+  });
+
+  test('a page past the end moves back to the last page there is', async ({
+    page,
+  }) => {
+    const asked: string[] = [];
+    await signInAs(page, 'ADMIN', {});
+    await page.route(listUrl, (route) => {
+      const n = requestedPage(route) ?? '1';
+      asked.push(n);
+      // The list shrank to two pages while the person was on page 3.
+      if (n === '3') {
+        return answer(
+          route,
+          list([], { page: 3, pageSize: 20, totalItems: 25, totalPages: 2 }),
+        );
+      }
+      if (n === '2' && asked.includes('3')) {
+        return answer(
+          route,
+          list([ruwan], {
+            page: 2,
+            pageSize: 20,
+            totalItems: 25,
+            totalPages: 2,
+          }),
+        );
+      }
+      return answer(
+        route,
+        list([n === '1' ? kasun : ruwan], {
+          page: Number(n),
+          pageSize: 20,
+          totalItems: 45,
+          totalPages: 3,
+        }),
+      );
+    });
+    await page.goto('/admin/users');
+    await expect(page.getByText('Page 1 of 3 · 45 results')).toBeVisible();
+
+    const next = page.getByRole('button', { name: 'Next', exact: true });
+    await next.click();
+    await expect(page.getByText('Page 2 of 3 · 45 results')).toBeVisible();
+    await next.click();
+
+    await expect(page.getByText(/^Page 2 of 2/)).toBeVisible();
+    await expect(person(page, 'Ruwan Jayasuriya')).toBeVisible();
+    await expect.poll(() => inOrder(asked)).toEqual(['1', '2', '3', '2']);
+  });
+
+  test('no results at all on a later page moves back to page 1', async ({
+    page,
+  }) => {
+    const asked: string[] = [];
+    await signInAs(page, 'ADMIN', {});
+    await page.route(listUrl, (route) => {
+      const n = requestedPage(route) ?? '1';
+      asked.push(n);
+      if (n === '2') {
+        return answer(
+          route,
+          list([], { page: 2, pageSize: 20, totalItems: 0, totalPages: 0 }),
+        );
+      }
+      return answer(
+        route,
+        list([kasun], { page: 1, pageSize: 20, totalItems: 25, totalPages: 2 }),
+      );
+    });
+    await page.goto('/admin/users');
+    await expect(page.getByText('Page 1 of 2 · 25 results')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+
+    await expect(person(page, 'Kasun Silva')).toBeVisible();
+    // Page 1 is still on screen from before, so wait for the request itself.
+    await expect.poll(() => inOrder(asked)).toEqual(['1', '2', '1']);
   });
 
   test('anyone who is not an admin sees the 403 page, and no request is made', async ({
