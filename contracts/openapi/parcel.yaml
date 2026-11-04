@@ -142,6 +142,160 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /reports/daily:
+    get:
+      operationId: dailyReport
+      summary: Daily created, delivered and failed counts
+      description: DISPATCHER and ADMIN. Dates are UTC and inclusive. Default is the last 7
+        days. The range may not exceed 90 days.
+      tags:
+        - Reports
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: One row per day in the range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - date
+                        - created
+                        - delivered
+                        - failed
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        created:
+                          type: integer
+                        delivered:
+                          type: integer
+                        failed:
+                          type: integer
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED
+        '403':
+          description: FORBIDDEN. Only DISPATCHER and ADMIN may read reports.
+        '422':
+          description: VALIDATION_ERROR. Bad date, from after to, or range over 90 days.
+        '503':
+          description: SERVICE_UNAVAILABLE
+  /reports/outcomes:
+    get:
+      operationId: outcomesReport
+      summary: Success and failure rates with top failure reasons
+      description: DISPATCHER and ADMIN. Follows the parcels created in the range. Rates are
+        percentages of finished parcels (delivered plus failed). Default is the
+        last 30 days.
+      tags:
+        - Reports
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Outcome summary for the range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: object
+                    required:
+                      - from
+                      - to
+                      - totals
+                      - successRate
+                      - failureRate
+                      - topFailureReasons
+                    properties:
+                      from:
+                        type: string
+                        format: date
+                      to:
+                        type: string
+                        format: date
+                      totals:
+                        type: object
+                        required:
+                          - created
+                          - delivered
+                          - failed
+                          - inProgress
+                        properties:
+                          created:
+                            type: integer
+                          delivered:
+                            type: integer
+                          failed:
+                            type: integer
+                          inProgress:
+                            type: integer
+                      successRate:
+                        type: number
+                      failureRate:
+                        type: number
+                      topFailureReasons:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - reason
+                            - count
+                          properties:
+                            reason:
+                              type: string
+                            count:
+                              type: integer
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED
+        '403':
+          description: FORBIDDEN. Only DISPATCHER and ADMIN may read reports.
+        '422':
+          description: VALIDATION_ERROR
+        '503':
+          description: SERVICE_UNAVAILABLE
 components:
   schemas:
     HealthResponse:
@@ -308,3 +462,13 @@ components:
               message: internal server error
             meta:
               requestId: req_01
+
+              securitySchemes:
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: sd_access
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HS256 JWT
