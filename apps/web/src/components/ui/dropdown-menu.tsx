@@ -5,10 +5,36 @@ import { cn } from '../../lib/utils';
 import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react';
 import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui';
 
+type KeyboardOpen = {
+  /** Set by the trigger so the content knows how the menu was opened. */
+  isKeyboardOpenRef: React.MutableRefObject<boolean>;
+};
+
+const KeyboardOpenContext = React.createContext<KeyboardOpen | null>(null);
+
 function DropdownMenu({
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+  const isKeyboardOpenRef = React.useRef(false);
+  const handleOpenChange = React.useCallback(
+    (open: boolean) => {
+      if (!open) isKeyboardOpenRef.current = false;
+      onOpenChange?.(open);
+    },
+    [onOpenChange],
+  );
+  const context = React.useMemo(() => ({ isKeyboardOpenRef }), []);
+
+  return (
+    <KeyboardOpenContext.Provider value={context}>
+      <DropdownMenuPrimitive.Root
+        data-slot="dropdown-menu"
+        {...props}
+        onOpenChange={handleOpenChange}
+      />
+    </KeyboardOpenContext.Provider>
+  );
 }
 
 function DropdownMenuPortal({
@@ -20,26 +46,72 @@ function DropdownMenuPortal({
 }
 
 function DropdownMenuTrigger({
+  onKeyDown,
+  onPointerDown,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
+  const context = React.useContext(KeyboardOpenContext);
+
   return (
     <DropdownMenuPrimitive.Trigger
       data-slot="dropdown-menu-trigger"
       {...props}
+      onKeyDown={(event) => {
+        onKeyDown?.(event);
+        // Radix normally tracks this with a document listener added in an
+        // effect. Recording it at the trigger instead keeps the first open
+        // after a slow page load keyboard-aware, before that effect runs.
+        if (['Enter', ' ', 'ArrowDown'].includes(event.key)) {
+          if (context) context.isKeyboardOpenRef.current = true;
+        }
+      }}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        if (context) context.isKeyboardOpenRef.current = false;
+      }}
     />
   );
 }
 
+type DropdownMenuContentProps = React.ComponentProps<
+  typeof DropdownMenuPrimitive.Content
+> & {
+  /** Radix forwards this to the content's FocusScope at runtime. */
+  onOpenAutoFocus?: (event: Event) => void;
+};
+
 function DropdownMenuContent({
   className,
   sideOffset = 4,
+  onOpenAutoFocus,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: DropdownMenuContentProps) {
+  const context = React.useContext(KeyboardOpenContext);
+
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
+        // Radix forwards onOpenAutoFocus to its FocusScope at runtime, though
+        // its public content type omits it.
+        {...({
+          onOpenAutoFocus: (event: Event) => {
+            onOpenAutoFocus?.(event);
+            if (event.defaultPrevented || !context?.isKeyboardOpenRef.current) {
+              return;
+            }
+            const content = event.currentTarget as HTMLElement | null;
+            const firstItem = content?.querySelector<HTMLElement>(
+              '[data-radix-collection-item]:not([data-disabled])',
+            );
+            if (!firstItem) return;
+            // Take focus ourselves so Radix's entry-focus pass cannot run with
+            // a stale keyboard-modality ref and leave focus on the content.
+            event.preventDefault();
+            firstItem.focus({ preventScroll: true });
+          },
+        } as React.ComponentProps<typeof DropdownMenuPrimitive.Content>)}
         className={cn(
           'z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-card border border-line bg-popover p-1 text-popover-foreground shadow-popover data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
           className,
