@@ -152,3 +152,10 @@ export function ButtonLink({
     />
   );
 }
+
+// The looks of a button, for other controls that must match it, such as IconButton.
+export {
+  base as buttonBase,
+  variants as buttonVariantClasses,
+  disabledLook as buttonDisabledClasses,
+};
