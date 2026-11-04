@@ -1,4 +1,4 @@
-﻿// Package ws holds the WebSocket handling for the realtime service.
+// Package ws holds the WebSocket handling for the realtime service.
 package ws
 
 import "github.com/coder/websocket"
