@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { cn } from '../../lib/cn';
+import { cn } from '../../lib/utils';
 
 type SkeletonProps = {
   /** Size it with token classes such as `h-5 w-1/2`. */
@@ -16,6 +16,7 @@ export function Skeleton({ className }: SkeletonProps) {
   return (
     <div
       aria-hidden="true"
+      data-slot="skeleton"
       className={cn('h-4 rounded-chip bg-surface-3', className)}
     />
   );

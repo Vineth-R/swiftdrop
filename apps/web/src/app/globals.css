@@ -1,4 +1,7 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 /*
  * SwiftDrop design tokens (Tailwind v4, CSS-first).
@@ -251,6 +254,47 @@
       opacity: 0;
     }
   }
+}
+
+/*
+ * ADDITION — shadcn/ui bridge. The generated primitives speak shadcn's semantic
+ * names; these aliases point them at SwiftDrop's existing tokens. `accent` stays
+ * the SwiftDrop lime, so shadcn hover and selected states use surface-2 instead
+ * of mapping to it. Dark values follow automatically because each alias points
+ * at a token that changes with data-theme. These aliases are for generated
+ * primitives only; screens use the SwiftDrop token classes in DESIGN.md.
+ */
+@theme static {
+  --color-background: var(--color-paper);
+  --color-foreground: var(--color-text);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-text);
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-text);
+  --color-primary-foreground: var(--color-on-primary);
+  --color-secondary: var(--color-surface-2);
+  --color-secondary-foreground: var(--color-text);
+  --color-muted: var(--color-surface-2);
+  --color-muted-foreground: var(--color-text-muted);
+  --color-accent-foreground: var(--color-on-accent);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: var(--color-on-danger);
+  --color-border: var(--color-line);
+  --color-input: var(--color-line-control);
+  --color-ring: var(--color-interactive);
+
+  --radius-xs: var(--radius-chip);
+  --radius-sm: var(--radius-chip);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-card);
+  --radius-xl: var(--radius-card);
+  --radius-2xl: var(--radius-splash);
+
+  --shadow-xs: 0 1px 2px rgb(20 23 26 / 0.06);
+  --shadow-sm: var(--shadow-popover);
+  --shadow-md: var(--shadow-popover);
+  --shadow-lg: var(--shadow-modal);
+  --shadow-xl: var(--shadow-modal);
 }
 
 /* dark theme: same token names, new values */

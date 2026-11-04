@@ -1,13 +1,16 @@
-import { cn } from '../../lib/cn';
+'use client';
 
-/** Up to two initials from a person's name: "Nimali Perera" gives "NP". */
-export function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return '?';
-  const first = words[0][0];
-  const last = words.length > 1 ? words[words.length - 1][0] : '';
-  return (first + last).toUpperCase();
-}
+import { Avatar as AvatarPrimitive } from 'radix-ui';
+
+import { initialsOf } from '../../lib/initials';
+import { cn } from '../../lib/utils';
+
+/**
+ * Kept as a re-export for existing client-side imports. Server components can
+ * import the helper directly from lib/initials without crossing the client
+ * boundary created by Radix Avatar.
+ */
+export { initialsOf };
 
 const sizes = {
   sm: 'size-7 text-overline',
@@ -23,15 +26,18 @@ type AvatarProps = {
 /** Initials on an Ink circle. It is decorative: the name is always written next to it. */
 export function Avatar({ name, size = 'md', className }: AvatarProps) {
   return (
-    <span
+    <AvatarPrimitive.Root
       aria-hidden="true"
+      data-slot="avatar"
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-full bg-primary font-semibold text-on-primary',
+        'inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full',
         sizes[size],
         className,
       )}
     >
-      {initialsOf(name)}
-    </span>
+      <AvatarPrimitive.Fallback className="flex size-full items-center justify-center rounded-full bg-primary font-semibold text-on-primary">
+        {initialsOf(name)}
+      </AvatarPrimitive.Fallback>
+    </AvatarPrimitive.Root>
   );
 }

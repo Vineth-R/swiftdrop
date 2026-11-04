@@ -2,7 +2,7 @@
 
 **Read this before you write or change any code in `apps/web`.** It is the contract for how SwiftDrop screens look and behave. It applies to people and to AI coding agents alike.
 
-The web foundation (design tokens, UI kit, app shell, API client, form tools and test helpers) is owned by M2. It already exists. Your job is to build a screen's own content on top of it, not to rebuild or restyle it.
+The web foundation (design tokens, shadcn/ui primitives, UI kit, app shell, API client, form tools and test helpers) is owned by M2. It already exists. Your job is to build a screen's own content on top of it, not to rebuild or restyle it.
 
 ## 0. For AI agents: how to use this file
 
@@ -30,7 +30,7 @@ Most of the **Never** list is checked by lint (section 16): a violation fails `n
 
 - Put every signed-in screen at `apps/web/src/app/(app)/<route>/page.tsx`. That route group already gives it the session check and the role's shell.
 - Start every page with `PageHeader`, then `Section` blocks. Do not add outer padding or a max width to a page: the shell does it.
-- Compose screens from `components/ui` and `components/layout` (section 7).
+- Compose screens from `components/ui` and `components/layout` (section 7). The shadcn wrappers in `components/ui` are the only place that may import Radix.
 - Style with token classes only (section 4).
 - Call the API only through `api()` or `apiWithMeta()` from `lib/api.ts`.
 - Design the empty, loading, error and no-permission state of every screen, not only the happy path.
@@ -40,10 +40,10 @@ Most of the **Never** list is checked by lint (section 16): a violation fails `n
 **Never**
 
 - Write a hex, `rgb()` or `hsl()` colour, an arbitrary Tailwind value (`p-[13px]`, `text-[#fff]`, `w-[317px]`) or an inline `style` for how something looks.
-- Use a default Tailwind class such as `bg-red-500`, `text-sm`, `rounded-lg` or `shadow-md`. The defaults are removed on purpose and these produce no style.
+- Use a default Tailwind colour, type, radius or shadow utility in a screen (`bg-red-500`, `text-sm`, `rounded-lg`, `shadow-md`). The foundation maps a small set of shadcn semantic aliases (`rounded-md`, `rounded-lg`, `shadow-md`, `shadow-lg`) to SwiftDrop tokens for generated primitives only; screens must use the SwiftDrop token classes in section 4.
 - Use a spacing step outside the scale in section 4 (`p-7`, `gap-9`). It compiles, but it breaks the design.
 - Put a shadow on a card, table, sidebar or top bar. Only popovers and modals have one.
-- Add a UI library, a state-management library, CSS-in-JS, another icon set or another font.
+- Add another UI library (shadcn/ui is the approved foundation), a state-management library, CSS-in-JS, another icon set or another font.
 - Call `fetch` directly, call a service port, or show `error.message` or any server text to a person.
 - Use `bg-ink` or `text-paper` on an ordinary surface. They do not flip in dark mode (section 3).
 - Edit `app/(app)/layout.tsx`, `app/globals.css` or the kit's components to suit one screen.
@@ -74,7 +74,7 @@ These come from the design system's "Design language rules" board. A new screen 
 - **Palette.** Ink (near-black) and paper (warm off-white) with one lime accent and a teal for interactive things (links, focus). Success, warning, danger and info each have a text colour, a tint and a border. Do not add colours.
 - **Fonts.** Three, all self-hosted through `next/font` in `app/layout.tsx`: Bricolage Grotesque (`font-display`) for display text and the page titles `h1` and `h2`, Instrument Sans (the default) for everything else, JetBrains Mono (`font-mono`) for identifiers and numbers. Do not add or swap fonts.
 - **Icons.** Lucide only (`lucide-react`), thin line style: pass `strokeWidth={1.5}`. An icon never repeats the label next to it (rule 12).
-- **Motion.** The travelling dot on the route line and the spinner are the only looping motion in the product. Transitions use `duration-fast`, `duration-base` or `duration-slow` with `ease-out-sd`. `prefers-reduced-motion` is already handled globally: do not add other animations.
+- **Motion.** The travelling dot on the route line and the spinner are the only looping motion in the product. shadcn's one-shot open/close and menu animations are allowed; do not add looping animation. Transitions use `duration-fast`, `duration-base` or `duration-slow` with `ease-out-sd`. `prefers-reduced-motion` is already handled globally: do not add other animations.
 - **Voice.** Sentence case. One plain sentence that says what happened, then one that says what to do. No jargon, blame, "Oops", exclamation marks or emoji. Examples: "Details saved." "That is not your current password." "We could not reach SwiftDrop. Check your connection and try again."
 - **Light and dark.** Light is the default; dark is applied with `data-theme="dark"` on `<html>` (`lib/theme.ts`). Every semantic token has a dark value defined in `globals.css`, so a screen built from tokens works in both themes with no extra code. Two tokens do **not** flip: `ink` (always near-black) and `accent` (always lime). Therefore `bg-ink` is only for a surface that is dark in both themes, such as the brand panel of `AuthLayout`, and that surface opts in with `data-theme="dark"` so the semantic tokens inside it flip too. For every ordinary dark-on-light fill use `bg-primary text-on-primary`.
 
@@ -102,13 +102,16 @@ A parcel status is only ever one of six: the API names are `CREATED`, `PICKED_UP
 
 `display`, `h1`, `h2`, `h3`, `h4`, `body` (the default), `body-sm`, `label`, `caption`, `overline`, used as `text-<name>`. `font-display` goes with `display`, `h1` and `h2`. `overline` is uppercase (`text-overline uppercase`). `text-button` and `text-body-lg` exist for the text inside controls and are already used by the kit, so a screen normally does not need them. Use `tabular` for columns of numbers.
 
+`cn()` in `lib/utils.ts` registers these names with tailwind-merge, so a class list such as `text-body-sm text-text` keeps both the size and the colour. Keep new type names in that list when you add one.
+
 ### Space, shape, depth, motion, breakpoints
 
 - **Spacing** is a 4px base. For padding, margin and gap use only these steps: `1`, `2`, `3`, `4`, `5`, `6`, `8`, `10`, `12`, `16`, `20`, `24` (so `p-4` is 16px). The shell already puts 48px (`gap-12`) between sections.
 - **Radius:** `rounded-chip` (6px, chips and badges), `rounded-control` (8px, buttons and inputs), `rounded-card` (12px, cards and alerts), `rounded-splash` (the splash screen only), `rounded-full` (avatars). No other radius.
-- **Shadow:** `shadow-popover` and `shadow-modal`, nothing else (rule 02).
+- **Shadow:** `shadow-popover` and `shadow-modal`, nothing else (rule 02). Foundation primitives may also use shadcn's semantic `shadow-md`/`shadow-lg` aliases, which resolve to those two tokens.
 - **Motion:** `duration-fast` (120ms), `duration-base` (160ms), `duration-slow` (200ms), `ease-out-sd`.
 - **Breakpoints (mobile first):** `sm` 375px, `md` 768px, `lg` 1024px, `xl` 1440px. The content width is `max-w-content`.
+- **Foundation geometry:** generated primitives may use Radix-required positioning variables and calculated modal widths (for example `translate-y-[calc(...)]` or `max-w-[calc(...)]`). These are functional geometry, not screen styling; screens must not copy them.
 
 ### Examples
 
@@ -134,22 +137,29 @@ apps/web/src/
       dashboard/    profile/    admin/users/    (examples)
       <route>/page.tsx          <- a new screen
     design/         the style guide page
-    globals.css     design tokens. Protected.
+    globals.css     design tokens and the shadcn token bridge. Protected.
   components/
-    ui/             building blocks (section 7)
-    layout/         PageHeader, Section, RequireRole, SystemPage, the shells
+    ui/             shadcn primitives and SwiftDrop wrappers (section 7)
+    layout/         PageHeader, Section, RequireRole, SystemPage, PublicLayout, the shells
     auth/           login, register and reset screens
     profile/        a feature folder and a worked example
+    notification-logs/  the ADMIN notification-log screen
     <feature>/      your components
   lib/
     api.ts          api(), apiWithMeta(), ApiError, onSessionExpired()
     auth-api.ts     example of a feature's API file
     nav.ts          the sidebar entries and landing page for every role
     session.tsx     useSession()
+    utils.ts        cn(), configured for the SwiftDrop type scale
+    initials.ts     server-safe initials helper used by Avatar
+    use-theme-preference.ts  shared theme state
     use-form.ts, validation.ts, password.ts, use-countdown.ts, format.ts, cn.ts, tokens.ts, roles.ts, theme.ts
+    notification-logs-api.ts  the ADMIN notification-log calls and types
     <feature>-api.ts   your API calls and types
 apps/web-e2e/src/   Playwright tests; support/mock-api.ts and support/sign-in.ts
 ```
+
+`apps/web/components.json` configures shadcn/ui. It is not under `src/`.
 
 **Naming (from the design system):**
 
@@ -236,7 +246,7 @@ export function OrdersView() {
 
 ## 7. The component kit
 
-Import from the file with a relative path. Each file starts with a comment that explains it. Do not copy a component into your feature folder; use it, or ask for a change (section 14).
+Import from the file with a relative path. Each file starts with a comment that explains it. Do not copy a component into your feature folder; use it, or ask for a change (section 14). The shadcn semantic names (`background`, `card`, `primary`, `muted`, `border`, `ring` and so on) are bridged to SwiftDrop tokens in `globals.css`; screens still use the SwiftDrop token classes in section 4.
 
 **Layout (`components/layout/`)**
 
@@ -283,6 +293,23 @@ Import from the file with a relative path. Each file starts with a comment that 
 | `RoleBadge`, `Avatar`                               | showing a role or initials                     | Decorative: always write the name or role next to them.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `Logo`, `LogoMark`, `ThemeSwitch`                   | brand and theme                                | Already in the shells. Do not place them in a screen.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
+**shadcn primitives (`components/ui/`)**
+
+| Component                                                                         | Use it for                              | Notes                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | a grouped surface                       | Hairline border, no shadow.                                                                                                                                                                                                                                                                                     |
+| `Badge`                                                                           | a short label or status                 | `variant`: `default`, `secondary`, `destructive`, `outline`. A status still carries its name and shape (rule 04).                                                                                                                                                                                               |
+| `Input`, `TextareaControl`, `Label`                                               | plain form controls                     | `Textarea` is the labelled SwiftDrop wrapper; `TextareaControl` is the bare primitive. Prefer `TextField` when you need a label, helper, error and success message.                                                                                                                                             |
+| `SelectMenu`, `CheckboxControl`, `RadioGroupControl`, `RadioGroupItem`            | bare primitives for custom compositions | `Select` remains the browser's native labelled select; `SelectMenu` is the shadcn/Radix listbox. `Checkbox`/`CheckboxGroup` and `RadioGroup` above are the labelled SwiftDrop form controls; `CheckboxControl`/`RadioGroupControl` are the bare Radix primitives. Use `Label` with `htmlFor` for every control. |
+| `Dialog`                                                                          | a confirmation or short form            | Radix traps focus and closes on Escape. Use `DialogTitle` and `DialogDescription`. `Modal` remains the native decision dialog.                                                                                                                                                                                  |
+| `Sheet`                                                                           | a drawer or side panel                  | The mobile navigation drawer uses it.                                                                                                                                                                                                                                                                           |
+| `DropdownMenu`                                                                    | a menu of actions                       | Radix handles arrow keys, Home/End, Escape and typeahead.                                                                                                                                                                                                                                                       |
+| `Tooltip`                                                                         | a short hint on an icon-only control    | `NavList` already wraps rail links in `TooltipProvider`; wrap a new standalone tooltip in its own provider.                                                                                                                                                                                                     |
+| `Separator`                                                                       | a hairline between groups               | Use it instead of a one-off border.                                                                                                                                                                                                                                                                             |
+| `Table`                                                                           | tabular data                            | Put it in a container that can scroll sideways on small screens, or use a card list.                                                                                                                                                                                                                            |
+| `Pagination`                                                                      | paging through a list                   | Uses the same button looks as the kit.                                                                                                                                                                                                                                                                          |
+| `Empty`                                                                           | the primitive behind `EmptyState`       | Prefer `EmptyState` unless you need a custom composition.                                                                                                                                                                                                                                                       |
+
 **Feature pieces you may reuse**
 
 - `components/auth/form-alerts.tsx`: `ServerFaultAlert` (a fault on our side or the network, with a Reference line for 5xx only) and `RateLimitedAlert` (a 429, with the remaining seconds). Use these instead of writing your own.
@@ -299,10 +326,10 @@ Import from the file with a relative path. Each file starts with a comment that 
 
 These are not built. They are designed and planned and will be added when a screen needs one. **Do not build your own version.** Until the foundation owner adds one, leave a `// TODO(design-foundation): needs <name>` comment and a plain placeholder, and tell the person you are working for.
 
-| Not built yet                                                                   | For                                                                                                                                                            |
-| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The "session expired" dialog                                                    | telling a person their session ended without losing their place (build it from `Modal`; it is not wired into the session yet)                                  |
-| `Switch`, `Tabs`, `Stepper`, `DropdownMenu`, `Tooltip`, `Popover`, `Breadcrumb` | designed in the design system's library but not built; ask for one when a screen needs it (the delivery wizard will want `Stepper`, a row menu `DropdownMenu`) |
+| Not built yet                                        | For                                                                                                                                 |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| The "session expired" dialog                         | telling a person their session ended without losing their place (build it from `Modal`; it is not wired into the session yet)       |
+| `Switch`, `Tabs`, `Stepper`, `Popover`, `Breadcrumb` | designed in the design system's library but not built; ask for one when a screen needs it (the delivery wizard will want `Stepper`) |
 
 When the task cannot wait, say so in the pull request instead of styling a one-off, as the design system asks. A new component must follow section 14, use only tokens, appear on `/design` with its states, and have tests.
 
@@ -445,8 +472,8 @@ If a run hangs or many tests fail at once, a leftover dev server is the usual ca
 
 Do not edit these as part of a normal screen. They are shared by every screen, and a change to them changes the design language for everyone.
 
-- `apps/web/src/app/globals.css` and the token lists in `apps/web/src/lib/tokens.ts`
-- `apps/web/src/components/ui/*` and `apps/web/src/components/layout/*`
+- `apps/web/src/app/globals.css`, `apps/web/components.json`, and the token lists in `apps/web/src/lib/tokens.ts`
+- `apps/web/src/components/ui/*`, `apps/web/src/lib/utils.ts`, `apps/web/src/lib/initials.ts`, `apps/web/src/lib/use-theme-preference.ts`, and `apps/web/src/components/layout/*`
 - `apps/web/src/app/(app)/layout.tsx` and `apps/web/src/app/layout.tsx`
 - `apps/web/src/lib/api.ts`, `lib/session.tsx`, `lib/use-form.ts`, `lib/validation.ts` (adding a shared validator or a field message is fine), `lib/theme.ts`
 - `apps/web-e2e/src/support/*`
@@ -480,7 +507,7 @@ Run through this list and fix whatever fails. In a pull request, name any item y
 - [ ] Public pages show cities, statuses and timestamps only.
 - [ ] Playwright tests cover the states above, and `lint`, `typecheck` and the whole suite pass.
 - [ ] You added no `eslint-disable` comment to get lint to pass. A real exception has a reason written after `--`.
-- [ ] No new dependency, font, icon set or colour was added. No protected file was edited (section 14).
+- [ ] No new dependency beyond the approved shadcn/ui foundation was added, and no new font, icon set or colour. No protected file was edited (section 14).
 
 ## 16. What lint checks for you
 
@@ -491,12 +518,12 @@ This file is enforced in code. `pnpm exec nx lint @org/web` runs ESLint rules fr
 | Colours that are not tokens: a hex, `rgb()` or `hsl()` in a class list, a colour attribute or a style object                                                                                                                             | `swiftdrop/no-raw-colors`         | `bg-[#fff]`, `fill="#4285F4"` -> `bg-surface`           |
 | Class lists that leave the tokens: arbitrary values, default Tailwind colours, text sizes, radii and shadows, off-scale spacing, `bg-ink` and `text-paper`, the `2xl:` breakpoint. (`grid-cols-[...]` and `[var(--token)]` are allowed.) | `swiftdrop/tailwind-tokens`       | `p-7` -> `p-6` or `p-8`; `rounded-lg` -> `rounded-card` |
 | An inline `style` prop                                                                                                                                                                                                                   | `swiftdrop/no-inline-style`       | `style={{ ... }}` -> token classes                      |
-| UI libraries, other icon sets, CSS-in-JS, state-management and data-fetching libraries, extra fonts                                                                                                                                      | `no-restricted-imports`           | `react-icons` -> `lucide-react`                         |
+| UI libraries, other icon sets, CSS-in-JS, state-management and data-fetching libraries, extra fonts. `radix-ui` is allowed only inside `components/ui`.                                                                                  | `no-restricted-imports`           | `react-icons` -> `lucide-react`                         |
 | A direct network call                                                                                                                                                                                                                    | `no-restricted-globals` (`fetch`) | `fetch(...)` -> `api()`                                 |
 | Showing `error.message` to a person                                                                                                                                                                                                      | `no-restricted-syntax`            | `{error.message}` -> our own sentence, by `error.code`  |
 | A hand-written `<h1>` in a screen                                                                                                                                                                                                        | `no-restricted-syntax`            | `<h1>` -> `PageHeader`                                  |
 
-**Where it applies.** Screens are strict: everything under `apps/web/src` except the foundation. The foundation files (`components/ui`, `components/layout`, `app/design`, `app/layout.tsx`, `lib/` and the brand panel) are exempt from the class rules because they define the tokens, but they still must not contain raw colours. The auth pages are exempt from the `<h1>` rule, and only `lib/api.ts` may call `fetch`. The scopes are in `apps/web/eslint.config.mjs`.
+**Where it applies.** Screens are strict: everything under `apps/web/src` except the foundation. The foundation files (`components/ui`, `components/layout`, `app/design`, `app/layout.tsx`, `lib/` and the brand panel) are exempt from the class rules because they define the tokens, but they still must not contain raw colours. Generated primitives may use the shadcn semantic aliases and Radix-required functional geometry described in section 4; screens must not. The auth pages are exempt from the `<h1>` rule, and only `lib/api.ts` may call `fetch`. The scopes are in `apps/web/eslint.config.mjs`.
 
 **What lint cannot see**, so it stays your job and the review's: class names built from variables at run time, whether a screen has one primary action, the four states, status chips, the wording, focus order, and how the screen looks.
 

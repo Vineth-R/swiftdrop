@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react';
 
 import { Field, controlClasses, describedBy, type ControlSize } from './field';
+import { TextareaControl } from './textarea-control';
 
 type TextareaProps = Omit<ComponentProps<'textarea'>, 'id'> & {
   id: string;
@@ -59,7 +60,7 @@ export function Textarea({
       labelAction={count}
       className={className}
     >
-      <textarea
+      <TextareaControl
         id={id}
         rows={rows}
         disabled={disabled}

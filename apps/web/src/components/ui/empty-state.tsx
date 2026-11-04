@@ -1,7 +1,14 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { cn } from '../../lib/cn';
+import { cn } from '../../lib/utils';
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+} from './empty';
 
 type EmptyStateProps = {
   /** What is missing, in one short line: "No parcels yet". */
@@ -28,25 +35,30 @@ export function EmptyState({
   className,
 }: EmptyStateProps) {
   return (
-    <div
+    <Empty
       className={cn(
-        'flex flex-col items-center gap-4 rounded-card border border-line bg-surface px-6 py-12 text-center',
+        'gap-4 rounded-card border border-line bg-surface px-6 py-12',
         className,
       )}
     >
-      {Icon && (
-        <span
-          aria-hidden="true"
-          className="flex size-12 items-center justify-center rounded-full bg-surface-2 text-text-muted"
-        >
-          <Icon size={24} strokeWidth={1.5} />
-        </span>
-      )}
-      <div className="flex max-w-md flex-col gap-2">
+      <EmptyHeader className="max-w-md">
+        {Icon && (
+          <EmptyMedia
+            variant="icon"
+            aria-hidden="true"
+            className="size-12 rounded-full bg-surface-2 text-text-muted"
+          >
+            <Icon size={24} strokeWidth={1.5} />
+          </EmptyMedia>
+        )}
         <h3 className="text-h4">{title}</h3>
-        {children && <p className="text-body text-text-muted">{children}</p>}
-      </div>
-      {action}
-    </div>
+        {children && (
+          <EmptyDescription className="text-body text-text-muted">
+            {children}
+          </EmptyDescription>
+        )}
+      </EmptyHeader>
+      {action && <EmptyContent className="max-w-none">{action}</EmptyContent>}
+    </Empty>
   );
 }

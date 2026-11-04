@@ -1,7 +1,8 @@
+import { cva } from 'class-variance-authority';
 import Link from 'next/link';
 import type { ComponentProps, ReactNode } from 'react';
 
-import { cn } from '../../lib/cn';
+import { cn } from '../../lib/utils';
 import { Spinner } from './spinner';
 
 export type ButtonVariant =
@@ -44,6 +45,40 @@ const sizes: Record<ButtonSize, string> = {
 const linkLook =
   'inline-flex items-center gap-1.5 text-button font-medium text-interactive underline underline-offset-4 hover:text-interactive-hover hover:decoration-2';
 
+const buttonVariants = cva(base, {
+  variants: {
+    variant: {
+      primary: variants.primary,
+      secondary: variants.secondary,
+      accent: variants.accent,
+      ghost: variants.ghost,
+      danger: variants.danger,
+    },
+    size: {
+      sm: sizes.sm,
+      md: sizes.md,
+      lg: sizes.lg,
+    },
+    fullWidth: {
+      true: 'w-full',
+    },
+    unavailable: {
+      true: 'cursor-not-allowed',
+    },
+  },
+  compoundVariants: [
+    { variant: 'primary', unavailable: true, class: disabledLook.primary },
+    { variant: 'secondary', unavailable: true, class: disabledLook.secondary },
+    { variant: 'accent', unavailable: true, class: disabledLook.accent },
+    { variant: 'ghost', unavailable: true, class: disabledLook.ghost },
+    { variant: 'danger', unavailable: true, class: disabledLook.danger },
+  ],
+  defaultVariants: {
+    variant: 'primary',
+    size: 'md',
+  },
+});
+
 type StyleOptions = {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -62,12 +97,14 @@ export function buttonClasses({
     return cn(linkLook, isUnavailable && disabledLook.link);
   }
   return cn(
-    base,
-    sizes[size],
+    buttonVariants({
+      variant,
+      size,
+      fullWidth: isFullWidth,
+      unavailable: isUnavailable,
+    }),
     // Ghost buttons are tighter on the left and right (Buttons board).
     variant === 'ghost' && size === 'md' && 'px-3',
-    isUnavailable ? disabledLook[variant] : variants[variant],
-    isFullWidth && 'w-full',
   );
 }
 
@@ -109,6 +146,9 @@ export function Button({
       aria-busy={isLoading || undefined}
       aria-disabled={isLoading || undefined}
       onClick={isLoading ? undefined : onClick}
+      data-slot="button"
+      data-variant={variant}
+      data-size={size}
       className={cn(
         buttonClasses({
           variant,
@@ -148,6 +188,9 @@ export function ButtonLink({
   return (
     <Link
       {...rest}
+      data-slot="button-link"
+      data-variant={variant}
+      data-size={size}
       className={cn(buttonClasses({ variant, size, isFullWidth }), className)}
     />
   );
