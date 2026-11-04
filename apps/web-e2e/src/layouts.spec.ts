@@ -52,6 +52,7 @@ const screens: Screen[] = [
     path: '/admin/users',
     as: 'CUSTOMER',
   },
+  { name: 'public tracking page', path: '/track' },
   { name: 'style guide', path: '/design' },
 ];
 

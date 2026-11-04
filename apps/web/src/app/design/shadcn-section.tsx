@@ -12,7 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../../components/ui/card';
-import { Checkbox } from '../../components/ui/checkbox';
+import { CheckboxControl } from '../../components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -47,7 +47,10 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '../../components/ui/pagination';
-import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
+import {
+  RadioGroupControl,
+  RadioGroupItem,
+} from '../../components/ui/radio-group';
 import { Separator } from '../../components/ui/separator';
 import {
   Select as SelectMenu,
@@ -146,10 +149,10 @@ export function ShadcnSection() {
               </SelectMenu>
             </div>
             <div className="flex items-center gap-2">
-              <Checkbox id="demo-shadcn-insured" defaultChecked />
+              <CheckboxControl id="demo-shadcn-insured" defaultChecked />
               <Label htmlFor="demo-shadcn-insured">Insure this parcel</Label>
             </div>
-            <RadioGroup defaultValue="standard" className="gap-2">
+            <RadioGroupControl defaultValue="standard" className="gap-2">
               <div className="flex items-center gap-2">
                 <RadioGroupItem id="demo-standard" value="standard" />
                 <Label htmlFor="demo-standard">Standard</Label>
@@ -158,7 +161,7 @@ export function ShadcnSection() {
                 <RadioGroupItem id="demo-express" value="express" />
                 <Label htmlFor="demo-express">Express</Label>
               </div>
-            </RadioGroup>
+            </RadioGroupControl>
           </div>
         </Panel>
 

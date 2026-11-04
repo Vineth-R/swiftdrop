@@ -31,7 +31,10 @@ test.describe('shadcn primitives', () => {
   });
 
   test('a dropdown menu opens from the keyboard', async ({ page }) => {
-    const trigger = page.getByRole('button', { name: 'Actions' });
+    const trigger = page.getByRole('button', {
+      name: 'Actions',
+      exact: true,
+    });
     await trigger.focus();
     await page.keyboard.press('Enter');
 
@@ -55,7 +58,9 @@ test.describe('shadcn primitives', () => {
   });
 
   test('radio controls are keyboard operable', async ({ page }) => {
-    const express = page.getByLabel('Express');
+    const express = page
+      .getByRole('region', { name: 'shadcn primitives' })
+      .getByLabel('Express');
     await express.focus();
     await page.keyboard.press('Space');
     await expect(express).toBeChecked();
