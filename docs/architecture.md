@@ -194,4 +194,4 @@ CI runs the checks in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
 ## Deliberate omissions
 
-The foundation does not include parcel workflows, merchant onboarding, API key management, the notification-log frontend screen, SMS notification delivery, webhook signing or webhook delivery retries, realtime subscriptions, payments, production TLS, Kubernetes, Terraform, or deployment automation.
+The foundation does not include parcel workflows, merchant onboarding, API key management, SMS notification delivery, webhook signing or webhook delivery retries, realtime subscriptions, payments, production TLS, Kubernetes, Terraform, or deployment automation.

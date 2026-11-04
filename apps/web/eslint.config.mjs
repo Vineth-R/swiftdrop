@@ -25,24 +25,27 @@ const screens = {
   ignores: foundation,
 };
 
+const uiLibraries = [
+  '@mui/*',
+  '@chakra-ui/*',
+  'antd',
+  '@ant-design/*',
+  '@mantine/*',
+  '@nextui-org/*',
+  '@heroui/*',
+  '@blueprintjs/*',
+  '@headlessui/*',
+  '@radix-ui/*',
+  'radix-ui',
+  'react-bootstrap',
+  'primereact',
+  'semantic-ui-react',
+];
+
 const restrictedImports = {
   patterns: [
     {
-      group: [
-        '@mui/*',
-        '@chakra-ui/*',
-        'antd',
-        '@ant-design/*',
-        '@mantine/*',
-        '@nextui-org/*',
-        '@heroui/*',
-        '@blueprintjs/*',
-        '@headlessui/*',
-        '@radix-ui/*',
-        'react-bootstrap',
-        'primereact',
-        'semantic-ui-react',
-      ],
+      group: uiLibraries,
       message:
         'No UI component libraries. Use components/ui; if something is missing, ask the foundation owner (DESIGN.md sections 1 and 8).',
     },
@@ -104,6 +107,23 @@ const restrictedImports = {
       message:
         'Fonts are self-hosted once, in app/layout.tsx. Do not add fonts (DESIGN.md section 3).',
     },
+  ],
+};
+
+/**
+ * The foundation wraps Radix behind components/ui. Screens must never import
+ * Radix directly, but the shadcn primitives themselves are allowed to.
+ */
+const foundationRestrictedImports = {
+  patterns: [
+    {
+      group: uiLibraries.filter(
+        (entry) => entry !== 'radix-ui' && entry !== '@radix-ui/*',
+      ),
+      message:
+        'No UI component libraries. Use components/ui; if something is missing, ask the foundation owner (DESIGN.md sections 1 and 8).',
+    },
+    ...restrictedImports.patterns.slice(1),
   ],
 };
 
@@ -177,6 +197,11 @@ export default [
     },
   },
 
+  // The shadcn primitives wrap Radix; screens still go through components/ui.
+  {
+    files: ['src/components/ui/**'],
+    rules: { 'no-restricted-imports': ['error', foundationRestrictedImports] },
+  },
   // The two places that are allowed to do what the rules above forbid.
   {
     files: ['src/lib/api.ts'],

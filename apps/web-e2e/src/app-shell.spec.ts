@@ -21,6 +21,7 @@ test.describe('navigation by role', () => {
       'Merchants',
       'Zones',
       'Pricing',
+      'Notification logs',
     ],
   };
 
@@ -277,9 +278,40 @@ test.describe('the account menu', () => {
 
     await page.setViewportSize({ width: 375, height: 812 });
     await page.getByRole('button', { name: 'Account menu' }).click();
+    const darkChoice = page.getByRole('menuitemradio', { name: 'Dark' });
+    await expect(darkChoice).toBeVisible();
+    await expect(darkChoice).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('menuitemradio', { name: 'Light' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  });
+
+  test('the account menu and theme choices work from the keyboard', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await signInAs(page, 'CUSTOMER');
+    await page.goto('/dashboard');
+
+    const trigger = page.getByRole('button', { name: 'Account menu' });
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+
+    const items = page.getByRole('menuitem');
+    await expect(items.nth(0)).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     await expect(
-      page.getByRole('menu').getByRole('group', { name: 'Theme' }),
-    ).toBeVisible();
+      page.getByRole('menuitemradio', { name: 'Light' }),
+    ).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    const dark = page.getByRole('menuitemradio', { name: 'Dark' });
+    await expect(dark).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   });
 });
 

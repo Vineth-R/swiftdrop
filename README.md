@@ -2,11 +2,11 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, and ADMIN notification-log reads are implemented. Parcel lifecycle writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md) and [`docs/architecture.md`](docs/architecture.md).
+Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, and ADMIN notification-log reads and UI are implemented. Parcel lifecycle writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
-- **Frontend:** Next.js 16 App Router, React 19, TypeScript 6, pnpm, Nx.
+- **Frontend:** Next.js 16 App Router, React 19, TypeScript 6, pnpm, Nx, Tailwind CSS v4, shadcn/ui with Radix primitives, and Lucide icons.
 - **Backend:** Go 1.27.3 with Gin, one root Go module.
 - **Data:** PostgreSQL 16 with service-owned schemas and versioned SQL migrations.
 - **Messaging:** RabbitMQ 4.1 with a durable topic exchange, versioned JSON event contracts, bounded retries, and dead-lettering.
@@ -261,7 +261,7 @@ The application is available at <http://localhost:3000>. The existing `/api/hell
 
 The browser only ever calls `/api/v1/...` on its own origin. In development, Next proxies those calls to the gateway at `http://127.0.0.1:8080` (set `API_PROXY_TARGET` to use another address), so the session cookies stay first-party. Start the backend first with `make up`, otherwise sign-in, register and password reset fail with "We could not reach SwiftDrop". Google sign-in only completes from <http://localhost:8080>, because its redirect address is the gateway.
 
-The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out` and a placeholder `/dashboard`. `/design` shows the tokens and every UI component.
+The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, a placeholder `/dashboard`, `/profile`, `/profile/security` and the ADMIN `/admin/notification-logs`. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
 
 ## Run an individual HTTP service
 
@@ -533,6 +533,6 @@ Notification email delivery is implemented in the notification worker: `notifica
 
 Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
 
-Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: ADMIN notification delivery-log reads with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`).
+Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: ADMIN notification delivery-log reads and the ADMIN notification-log screen, with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`).
 
 Not implemented: parcel lifecycle and dispatch write APIs, M5's parcel-creation consumer, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the pricing administration UI, the optional `/track` mobile UI, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.

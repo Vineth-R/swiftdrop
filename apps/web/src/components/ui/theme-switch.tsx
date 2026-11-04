@@ -1,14 +1,10 @@
 'use client';
 
 import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
 
 import { cn } from '../../lib/cn';
-import {
-  applyPreference,
-  readPreference,
-  type ThemePreference,
-} from '../../lib/theme';
+import type { ThemePreference } from '../../lib/theme';
+import { useThemePreference } from '../../lib/use-theme-preference';
 
 const options: { value: ThemePreference; label: string; Icon: LucideIcon }[] = [
   { value: 'light', label: 'Light', Icon: Sun },
@@ -27,25 +23,8 @@ type ThemeSwitchProps = {
 };
 
 export function ThemeSwitch({ variant = 'full', className }: ThemeSwitchProps) {
-  const [preference, setPreference] = useState<ThemePreference>('system');
+  const { preference, choose } = useThemePreference();
   const isCompact = variant === 'compact';
-
-  useEffect(() => {
-    setPreference(readPreference());
-  }, []);
-
-  useEffect(() => {
-    if (preference !== 'system') return;
-    const query = window.matchMedia('(prefers-color-scheme: dark)');
-    const follow = () => applyPreference('system');
-    query.addEventListener('change', follow);
-    return () => query.removeEventListener('change', follow);
-  }, [preference]);
-
-  function choose(next: ThemePreference) {
-    setPreference(next);
-    applyPreference(next);
-  }
 
   return (
     <div
