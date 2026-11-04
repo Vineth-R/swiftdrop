@@ -207,6 +207,7 @@ export function ShadcnSection() {
                 <DropdownMenuLabel>Parcel</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem>View tracking</DropdownMenuItem>
+                <DropdownMenuItem disabled>Archive parcel</DropdownMenuItem>
                 <DropdownMenuItem>Reassign courier</DropdownMenuItem>
                 <DropdownMenuItem variant="destructive">
                   Cancel delivery

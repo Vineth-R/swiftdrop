@@ -30,7 +30,81 @@ test.describe('shadcn primitives', () => {
     await expect(trigger).toBeFocused();
   });
 
-  test('a dropdown menu opens from the keyboard', async ({ page }) => {
+  test('a dropdown menu opens from the keyboard and navigates its items', async ({
+    page,
+  }) => {
+    const trigger = page.getByRole('button', {
+      name: 'Actions',
+      exact: true,
+    });
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+
+    const menu = page.getByRole('menu');
+    const items = menu.getByRole('menuitem');
+    await expect(menu).toBeVisible();
+    await expect(items.nth(0)).toBeFocused();
+    await expect(items.nth(0)).toHaveText('View tracking');
+    await expect(items.nth(1)).toHaveAttribute('data-disabled', '');
+
+    // The disabled item is skipped in both directions.
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(2)).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(3)).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(items.nth(2)).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(items.nth(0)).toBeFocused();
+
+    // Enter activates the focused item and returns focus to the trigger.
+    await page.keyboard.press('Enter');
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+
+  test('Escape closes the dropdown and returns focus to the trigger', async ({
+    page,
+  }) => {
+    const trigger = page.getByRole('button', {
+      name: 'Actions',
+      exact: true,
+    });
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+
+    const menu = page.getByRole('menu');
+    await expect(menu).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+
+  test('a mouse-opened dropdown still works', async ({ page }) => {
+    const trigger = page.getByRole('button', {
+      name: 'Actions',
+      exact: true,
+    });
+    await trigger.click();
+
+    const menu = page.getByRole('menu');
+    await expect(menu).toBeVisible();
+    await menu.getByRole('menuitem', { name: 'Reassign courier' }).click();
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+
+  test('the first keyboard open focuses the first item on a slow page load', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== 'chromium', 'CPU throttling uses CDP');
+    const client = await page.context().newCDPSession(page);
+    await client.send('Emulation.setCPUThrottlingRate', { rate: 10 });
+
+    // Reload under throttling so the menu's document listeners can lag behind
+    // the first keypress, as they do on a slow device.
+    await page.goto('/design');
     const trigger = page.getByRole('button', {
       name: 'Actions',
       exact: true,
@@ -41,9 +115,6 @@ test.describe('shadcn primitives', () => {
     const menu = page.getByRole('menu');
     await expect(menu).toBeVisible();
     await expect(menu.getByRole('menuitem').first()).toBeFocused();
-    await expect(menu).toContainText('View tracking');
-    await page.keyboard.press('Escape');
-    await expect(menu).toHaveCount(0);
   });
 
   test('the select menu and checkbox keep their state', async ({ page }) => {
