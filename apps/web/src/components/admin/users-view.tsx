@@ -11,12 +11,17 @@ import {
 } from '../../lib/admin-users-api';
 import { ApiError, type ApiMeta } from '../../lib/api';
 import { useSession } from '../../lib/session';
+import { roles, type Role } from '../../lib/tokens';
 import { PageHeader } from '../layout/page-header';
 import { Section } from '../layout/section';
 import { Alert } from '../ui/alert';
 import { Button } from '../ui/button';
-import { Spinner } from '../ui/spinner';
+import { TablePagination } from '../ui/data-table';
+import { EmptyState } from '../ui/empty-state';
 import { TextField } from '../ui/field';
+import { Modal } from '../ui/modal';
+import { Select } from '../ui/select';
+import { useToast } from '../ui/toast';
 import { UserList } from './user-list';
 
 type Pagination = NonNullable<ApiMeta['pagination']>;
@@ -25,6 +30,19 @@ type Loaded = { key: string } & (
   | { kind: 'ok'; users: AdminUser[]; pagination: Pagination }
   | { kind: 'error'; error: ApiError }
 );
+
+type StatusFilter = '' | 'ACTIVE' | 'DEACTIVATED';
+
+const roleOptions = [
+  { value: '', label: 'All roles' },
+  ...roles.map((role) => ({ value: role, label: role })),
+];
+
+const statusOptions = [
+  { value: '', label: 'All accounts' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'DEACTIVATED', label: 'Deactivated' },
+];
 
 function asApiError(error: unknown): ApiError {
   return error instanceof ApiError
@@ -71,14 +89,22 @@ function FailureAlert({
   }
   if (error.code === 'CONFLICT') {
     return (
-      <Alert tone="warning" title="This account was changed by someone else" actions={retry}>
+      <Alert
+        tone="warning"
+        title="This account was changed by someone else"
+        actions={retry}
+      >
         Reload the list to see how it looks now.
       </Alert>
     );
   }
   if (error.code === 'NOT_FOUND') {
     return (
-      <Alert tone="warning" title="This account no longer exists" actions={retry}>
+      <Alert
+        tone="warning"
+        title="This account no longer exists"
+        actions={retry}
+      >
         Reload the list to see how it looks now.
       </Alert>
     );
@@ -105,28 +131,33 @@ function FailureAlert({
   );
 }
 
-/** /admin/users: every account, searchable, with activate and deactivate. */
+/** /admin/users: every account, searchable and filterable, with activate and deactivate. */
 export function UsersView() {
   const { session } = useSession();
+  const { show } = useToast();
   const currentUserId =
     session.status === 'authenticated' ? session.user.id : '';
 
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
+  const [role, setRole] = useState<Role | ''>('');
+  const [status, setStatus] = useState<StatusFilter>('');
   const [page, setPage] = useState(1);
   const [reload, setReload] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<AdminUser | null>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
 
-  const key = `${query}|${page}|${reload}`;
+  const key = `${query}|${role}|${status}|${page}|${reload}`;
 
   useEffect(() => {
     const controller = new AbortController();
     listAdminUsers(
       {
         q: query || undefined,
+        role: role || undefined,
+        isActive: status === '' ? undefined : status === 'ACTIVE',
         page,
         pageSize: ADMIN_USERS_PAGE_SIZE,
       },
@@ -150,35 +181,47 @@ export function UsersView() {
         setLoaded({ key, kind: 'error', error: asApiError(error) });
       });
     return () => controller.abort();
-  }, [key, query, page]);
+  }, [key, query, role, status, page]);
 
   const current = loaded && loaded.key === key ? loaded : null;
+  const ready = current?.kind === 'ok' ? current : null;
+  const hasFilters = query !== '' || role !== '' || status !== '';
 
   function search(event: FormEvent) {
     event.preventDefault();
-    setNotice(null);
     setActionError(null);
     setPage(1);
     setQuery(draft.trim());
   }
 
-  function clearSearch() {
+  function changeRole(value: string) {
+    setActionError(null);
+    setPage(1);
+    setRole(value as Role | '');
+  }
+
+  function changeStatus(value: string) {
+    setActionError(null);
+    setPage(1);
+    setStatus(value as StatusFilter);
+  }
+
+  function clearFilters() {
     setDraft('');
-    setNotice(null);
     setActionError(null);
     setPage(1);
     setQuery('');
+    setRole('');
+    setStatus('');
   }
 
   function goToPage(next: number) {
-    setNotice(null);
     setActionError(null);
     setPage(next);
   }
 
   async function changeActive(user: AdminUser, isActive: boolean) {
     setPendingId(user.id);
-    setNotice(null);
     setActionError(null);
     try {
       await setUserActive(user.id, isActive);
@@ -192,19 +235,17 @@ export function UsersView() {
             }
           : previous,
       );
-      setNotice(
-        isActive
+      show({
+        title: isActive
           ? `${user.fullName} can sign in again.`
           : `${user.fullName} is deactivated and signed out of every device.`,
-      );
+      });
     } catch (error) {
       setActionError(asApiError(error));
     } finally {
       setPendingId(null);
     }
   }
-
-  const ready = current?.kind === 'ok' ? current : null;
 
   return (
     <>
@@ -230,15 +271,29 @@ export function UsersView() {
             placeholder="Name or email"
             className="min-w-0 flex-1"
           />
+          <Select
+            id="user-role"
+            label="Role"
+            options={roleOptions}
+            value={role}
+            onChange={(event) => changeRole(event.target.value)}
+          />
+          <Select
+            id="user-status"
+            label="Account"
+            options={statusOptions}
+            value={status}
+            onChange={(event) => changeStatus(event.target.value)}
+          />
           <Button type="submit">Search</Button>
         </form>
 
-        {notice && <Alert tone="success" title={notice} />}
         {actionError && (
           <FailureAlert
             error={actionError}
             onRetry={
-              actionError.code === 'CONFLICT' || actionError.code === 'NOT_FOUND'
+              actionError.code === 'CONFLICT' ||
+              actionError.code === 'NOT_FOUND'
                 ? () => {
                     setActionError(null);
                     setReload((value) => value + 1);
@@ -248,76 +303,82 @@ export function UsersView() {
           />
         )}
 
-        {current === null && (
-          <p className="flex items-center gap-3 text-body-sm text-text-muted">
-            <Spinner tone="standalone" label="Loading users" />
-            Loading users
-          </p>
-        )}
-
-        {current?.kind === 'error' && (
+        {current?.kind === 'error' ? (
           <FailureAlert
             error={current.error}
             onRetry={() => setReload((value) => value + 1)}
           />
-        )}
-
-        {ready && ready.users.length === 0 && (
-          <div className="flex flex-col items-start gap-3 rounded-card border px-4 py-6">
-            {/* TODO(design-foundation): replace with EmptyState. */}
-            <p className="text-body text-text">
-              {query ? `No users match “${query}”.` : 'There are no users yet.'}
-            </p>
-            {query && (
-              <Button variant="secondary" size="sm" onClick={clearSearch}>
-                Clear search
-              </Button>
-            )}
-          </div>
-        )}
-
-        {ready && ready.users.length > 0 && (
+        ) : (
           <>
             <UserList
-              users={ready.users}
+              users={ready?.users ?? []}
               currentUserId={currentUserId}
               pendingId={pendingId}
-              onSetActive={changeActive}
+              isLoading={current === null}
+              empty={
+                hasFilters ? (
+                  <EmptyState
+                    title="No users match"
+                    action={
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={clearFilters}
+                      >
+                        Clear search and filters
+                      </Button>
+                    }
+                  >
+                    Try a different name or email, or remove a filter.
+                  </EmptyState>
+                ) : (
+                  <EmptyState title="No users yet">
+                    Accounts appear here as people register.
+                  </EmptyState>
+                )
+              }
+              onActivate={(user) => changeActive(user, true)}
+              onDeactivate={setConfirming}
             />
-            <nav
-              aria-label="Pagination"
-              className="flex flex-wrap items-center justify-between gap-3"
-            >
-              <p className="text-body-sm text-text-muted">
-                Page {ready.pagination.page} of{' '}
-                {Math.max(ready.pagination.totalPages, 1)} ·{' '}
-                {ready.pagination.totalItems}{' '}
-                {ready.pagination.totalItems === 1 ? 'user' : 'users'}
-              </p>
-              <div className="flex gap-3">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  isDisabled={ready.pagination.page <= 1}
-                  onClick={() => goToPage(ready.pagination.page - 1)}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  isDisabled={
-                    ready.pagination.page >= ready.pagination.totalPages
-                  }
-                  onClick={() => goToPage(ready.pagination.page + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </nav>
+            {ready && (
+              <TablePagination
+                page={ready.pagination.page}
+                totalPages={ready.pagination.totalPages}
+                totalItems={ready.pagination.totalItems}
+                onPageChange={goToPage}
+              />
+            )}
           </>
         )}
       </Section>
+
+      <Modal
+        isOpen={confirming !== null}
+        onClose={() => setConfirming(null)}
+        title={confirming ? `Deactivate ${confirming.fullName}?` : ''}
+        description="They are signed out of every device and cannot sign in until you activate the account again."
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              data-autofocus
+              onClick={() => setConfirming(null)}
+            >
+              Keep active
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const user = confirming;
+                setConfirming(null);
+                if (user) void changeActive(user, false);
+              }}
+            >
+              Deactivate
+            </Button>
+          </>
+        }
+      />
     </>
   );
 }

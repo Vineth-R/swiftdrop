@@ -39,7 +39,12 @@ const ruwan = row('ruwan', {
 /** A page of the list: the envelope carries the pagination. */
 const list = (
   data: unknown[],
-  pagination = { page: 1, pageSize: 20, totalItems: data.length, totalPages: 1 },
+  pagination = {
+    page: 1,
+    pageSize: 20,
+    totalItems: data.length,
+    totalPages: 1,
+  },
 ): Reply => ({
   status: 200,
   body: {
@@ -50,9 +55,10 @@ const list = (
 
 const listUrl = '**/api/v1/admin/users/**';
 
-const users = (page: Page) => page.getByRole('list', { name: 'Users' });
+// Below 768px the same rows are cards; at the 1440px these tests use it is the table.
+const users = (page: Page) => page.getByRole('table', { name: 'Users' });
 const person = (page: Page, name: string) =>
-  users(page).getByRole('listitem').filter({ hasText: name });
+  users(page).getByRole('row').filter({ hasText: name });
 
 test.describe('admin users list', () => {
   test.beforeEach(async ({ page }) => {
@@ -68,19 +74,20 @@ test.describe('admin users list', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Users' }),
     ).toBeVisible();
-    await expect(users(page).getByRole('listitem')).toHaveCount(3);
+    // Three users and the header row.
+    await expect(users(page).getByRole('row')).toHaveCount(4);
 
     const courier = person(page, 'Kasun Silva');
     await expect(courier).toContainText('kasun@example.com');
     await expect(courier).toContainText('COURIER');
-    await expect(courier).toContainText('Active');
+    await expect(courier).toContainText('ACTIVE');
     await expect(
       courier.getByRole('button', { name: 'Deactivate Kasun Silva' }),
     ).toBeVisible();
 
     const merchant = person(page, 'Ruwan Jayasuriya');
     await expect(merchant).toContainText('MERCHANT');
-    await expect(merchant).toContainText('Deactivated');
+    await expect(merchant).toContainText('DEACTIVATED');
     await expect(
       merchant.getByRole('button', { name: 'Activate Ruwan Jayasuriya' }),
     ).toBeVisible();
@@ -107,7 +114,7 @@ test.describe('admin users list', () => {
       'GET /admin/users/': list([self, kasun]),
     });
     await page.goto('/admin/users');
-    await expect(users(page).getByRole('listitem')).toHaveCount(2);
+    await expect(users(page).getByRole('row')).toHaveCount(3);
 
     await page.route(listUrl, async (route) => {
       await route.fulfill({
@@ -123,9 +130,13 @@ test.describe('admin users list', () => {
     await page.getByRole('button', { name: 'Search' }).click();
 
     expect(new URL((await request).url()).searchParams.get('page')).toBe('1');
-    await expect(page.getByText('No users match “zzz”.')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'No users match' }),
+    ).toBeVisible();
 
-    await page.getByRole('button', { name: 'Clear search' }).click();
+    await page
+      .getByRole('button', { name: 'Clear search and filters' })
+      .click();
     await expect(page.getByLabel('Search users')).toHaveValue('');
   });
 
@@ -140,7 +151,7 @@ test.describe('admin users list', () => {
     });
     await page.goto('/admin/users');
 
-    await expect(page.getByText('Page 1 of 2 · 25 users')).toBeVisible();
+    await expect(page.getByText('Page 1 of 2 · 25 results')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Previous' })).toBeDisabled();
 
     await page.route(listUrl, async (route) => {
@@ -160,12 +171,45 @@ test.describe('admin users list', () => {
     const request = page.waitForRequest(
       (r) => new URL(r.url()).searchParams.get('page') === '2',
     );
-    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
     await request;
 
-    await expect(page.getByText('Page 2 of 2 · 25 users')).toBeVisible();
+    await expect(page.getByText('Page 2 of 2 · 25 results')).toBeVisible();
     await expect(person(page, 'Ruwan Jayasuriya')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: 'Next', exact: true }),
+    ).toBeDisabled();
+  });
+
+  test('filters by role and by account status', async ({ page }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': list([self, kasun, ruwan]),
+    });
+    await page.goto('/admin/users');
+    await expect(users(page).getByRole('row')).toHaveCount(4);
+
+    const byRole = page.waitForRequest(
+      (r) => new URL(r.url()).searchParams.get('role') === 'COURIER',
+    );
+    await page.locator('#user-role').selectOption('COURIER');
+    expect(new URL((await byRole).url()).searchParams.get('page')).toBe('1');
+
+    const byStatus = page.waitForRequest((r) => {
+      const params = new URL(r.url()).searchParams;
+      return (
+        params.get('isActive') === 'false' && params.get('role') === 'COURIER'
+      );
+    });
+    await page.locator('#user-status').selectOption('DEACTIVATED');
+    await byStatus;
+
+    const cleared = page.waitForRequest((r) => {
+      const params = new URL(r.url()).searchParams;
+      return !params.has('isActive') && !params.has('role');
+    });
+    await page.locator('#user-role').selectOption('');
+    await page.locator('#user-status').selectOption('');
+    await cleared;
   });
 
   test('shows a loading state, then the list', async ({ page }) => {
@@ -183,7 +227,9 @@ test.describe('admin users list', () => {
     await signInAs(page, 'ADMIN', { 'GET /admin/users/': list([]) });
     await page.goto('/admin/users');
 
-    await expect(page.getByText('There are no users yet.')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'No users yet' }),
+    ).toBeVisible();
   });
 
   test('deactivating asks first, then confirms what happened', async ({
@@ -195,26 +241,31 @@ test.describe('admin users list', () => {
     });
     await page.goto('/admin/users');
 
+    const dialog = page.getByRole('dialog', {
+      name: 'Deactivate Kasun Silva?',
+    });
     await page.getByRole('button', { name: 'Deactivate Kasun Silva' }).click();
-    await expect(page.getByText('Deactivate Kasun Silva?')).toBeVisible();
+    await expect(dialog).toBeVisible();
     expect(calls.some((c) => c.key.startsWith('PATCH'))).toBe(false);
 
     // Backing out changes nothing.
-    await page.getByRole('button', { name: 'Keep active' }).click();
-    await expect(page.getByText('Deactivate Kasun Silva?')).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Keep active' }).click();
+    await expect(dialog).toBeHidden();
     expect(calls.some((c) => c.key.startsWith('PATCH'))).toBe(false);
 
     await page.getByRole('button', { name: 'Deactivate Kasun Silva' }).click();
-    await person(page, 'Kasun Silva')
+    await dialog
       .getByRole('button', { name: 'Deactivate', exact: true })
       .click();
 
     await expect(
-      page.getByText(
-        'Kasun Silva is deactivated and signed out of every device.',
-      ),
+      page
+        .getByRole('region', { name: 'Notifications' })
+        .getByText(
+          'Kasun Silva is deactivated and signed out of every device.',
+        ),
     ).toBeVisible();
-    await expect(person(page, 'Kasun Silva')).toContainText('Deactivated');
+    await expect(person(page, 'Kasun Silva')).toContainText('DEACTIVATED');
     await expect(
       page.getByRole('button', { name: 'Activate Kasun Silva' }),
     ).toBeVisible();
@@ -231,12 +282,19 @@ test.describe('admin users list', () => {
     });
     await page.goto('/admin/users');
 
-    await page.getByRole('button', { name: 'Activate Ruwan Jayasuriya' }).click();
+    await page
+      .getByRole('button', { name: 'Activate Ruwan Jayasuriya' })
+      .click();
 
     await expect(
-      page.getByText('Ruwan Jayasuriya can sign in again.'),
+      page
+        .getByRole('region', { name: 'Notifications' })
+        .getByText('Ruwan Jayasuriya can sign in again.'),
     ).toBeVisible();
-    await expect(person(page, 'Ruwan Jayasuriya')).toContainText('Active');
+    await expect(person(page, 'Ruwan Jayasuriya')).toContainText('ACTIVE');
+    await expect(person(page, 'Ruwan Jayasuriya')).not.toContainText(
+      'DEACTIVATED',
+    );
     expect(calls.find((c) => c.key.startsWith('PATCH'))?.body).toEqual({
       isActive: true,
     });
@@ -250,7 +308,7 @@ test.describe('admin users list', () => {
       page.getByRole('button', { name: 'Deactivate Anusha Nawarathna' }),
     ).toBeDisabled();
     await expect(
-      page.getByText('You cannot deactivate your own account.'),
+      users(page).getByText('You cannot deactivate your own account.'),
     ).toBeVisible();
   });
 
@@ -267,15 +325,17 @@ test.describe('admin users list', () => {
 
     await page.getByRole('button', { name: 'Deactivate Kasun Silva' }).click();
     await page
+      .getByRole('dialog', { name: 'Deactivate Kasun Silva?' })
       .getByRole('button', { name: 'Deactivate', exact: true })
       .click();
 
     await expect(
-      page.getByText('You cannot deactivate your own account', {
-        exact: true,
-      }),
+      page
+        .getByRole('alert')
+        .or(page.getByRole('status'))
+        .getByText('You cannot deactivate your own account', { exact: true }),
     ).toBeVisible();
-    await expect(person(page, 'Kasun Silva')).toContainText('Active');
+    await expect(person(page, 'Kasun Silva')).toContainText('ACTIVE');
     await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
   });
 
@@ -290,6 +350,7 @@ test.describe('admin users list', () => {
 
     await page.getByRole('button', { name: 'Deactivate Kasun Silva' }).click();
     await page
+      .getByRole('dialog', { name: 'Deactivate Kasun Silva?' })
       .getByRole('button', { name: 'Deactivate', exact: true })
       .click();
 
