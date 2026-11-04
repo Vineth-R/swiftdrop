@@ -6,7 +6,7 @@
 -- Expected GET /reports/outcomes over a range covering all 10 days:
 --   created 60, delivered 30, failed 10, inProgress 20, successRate 75, failureRate 25.
 
-BEGIN;
+START TRANSACTION;
 
 DELETE FROM parcel.parcel_status_history
  WHERE parcel_id IN (SELECT id FROM parcel.parcels WHERE sender_name = 'REPORT TEST');
