@@ -17,7 +17,10 @@ type TrackingStore interface {
 }
 type Options struct {
 	Tracking       TrackingStore
+	Reports        ReportStore
 	TrustedProxies []string
+	AccessSecret   string
+	CookieName     string
 }
 
 func registerTracking(router *gin.Engine, logger *slog.Logger, options Options) {
