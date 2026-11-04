@@ -33,6 +33,52 @@ export function describedBy(
   return joined || undefined;
 }
 
+/**
+ * The line under a control: the error if there is one, else the success, else
+ * the helper. An error replaces the helper instead of stacking under it, so the
+ * field never changes height twice. Its id is what `describedBy` points at.
+ */
+export function FieldMessage({
+  id,
+  helper,
+  error,
+  success,
+}: FieldMessages & { id: string }) {
+  if (error) {
+    return (
+      <span
+        id={messageId(id, 'error')}
+        className="flex items-center gap-1.5 text-caption text-danger"
+      >
+        <CircleAlert size={14} strokeWidth={1.5} aria-hidden="true" />
+        {error}
+      </span>
+    );
+  }
+  if (success) {
+    return (
+      <span
+        id={messageId(id, 'success')}
+        className="flex items-center gap-1.5 text-caption text-success"
+      >
+        <Check size={14} strokeWidth={1.5} aria-hidden="true" />
+        {success}
+      </span>
+    );
+  }
+  if (helper) {
+    return (
+      <span
+        id={messageId(id, 'helper')}
+        className="text-caption text-text-muted"
+      >
+        {helper}
+      </span>
+    );
+  }
+  return null;
+}
+
 type FieldProps = FieldMessages & {
   /** Id of the control this label belongs to. Required, so the label is always real. */
   id: string;
@@ -85,30 +131,7 @@ export function Field({
         {labelAction}
       </div>
       {children}
-      {error ? (
-        <span
-          id={messageId(id, 'error')}
-          className="flex items-center gap-1.5 text-caption text-danger"
-        >
-          <CircleAlert size={14} strokeWidth={1.5} aria-hidden="true" />
-          {error}
-        </span>
-      ) : success ? (
-        <span
-          id={messageId(id, 'success')}
-          className="flex items-center gap-1.5 text-caption text-success"
-        >
-          <Check size={14} strokeWidth={1.5} aria-hidden="true" />
-          {success}
-        </span>
-      ) : helper ? (
-        <span
-          id={messageId(id, 'helper')}
-          className="text-caption text-text-muted"
-        >
-          {helper}
-        </span>
-      ) : null}
+      <FieldMessage id={id} helper={helper} error={error} success={success} />
     </div>
   );
 }
@@ -130,11 +153,17 @@ export function controlClasses({
   hasError = false,
   hasSuccess = false,
   isGroup = false,
+  isMultiline = false,
+  isSelect = false,
 }: {
   size?: ControlSize;
   hasError?: boolean;
   hasSuccess?: boolean;
   isGroup?: boolean;
+  /** A textarea: no fixed height, a taller minimum and vertical padding. */
+  isMultiline?: boolean;
+  /** A select. Browsers treat it as read-only, so it must not take the read-only look. */
+  isSelect?: boolean;
 }): string {
   const border = hasError
     ? 'border-danger'
@@ -143,7 +172,7 @@ export function controlClasses({
       : 'border-line-control hover:border-text-faint';
   return cn(
     'w-full rounded-control border bg-surface text-text',
-    heights[size],
+    isMultiline ? 'min-h-24 resize-y py-2' : heights[size],
     border,
     isGroup
       ? 'flex items-stretch overflow-hidden focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-interactive'
@@ -151,7 +180,7 @@ export function controlClasses({
           'px-3 transition-colors duration-fast ease-out-sd focus-visible:border-interactive',
           text[size],
           'disabled:border-line disabled:bg-surface-2 disabled:text-text-disabled',
-          'read-only:border-line read-only:bg-surface-2',
+          !isSelect && 'read-only:border-line read-only:bg-surface-2',
         ),
   );
 }

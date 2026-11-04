@@ -179,7 +179,10 @@ paths:
         Reads the `sd_refresh` cookie (or `refreshToken` in the body when
         `X-Token-Mode: body` is sent), revokes it and issues a new access and
         refresh token. A used, expired or revoked token returns 401 and the
-        cookies are cleared.
+        cookies are cleared. A token that was already rotated and is presented
+        again more than 10 seconds later is treated as stolen: every token
+        that descends from it is revoked, which ends that session. The
+        response is the same 401, and the user's other logins are untouched.
       parameters:
         - $ref: '#/components/parameters/TokenMode'
       requestBody:

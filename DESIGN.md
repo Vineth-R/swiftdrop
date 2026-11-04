@@ -11,7 +11,7 @@ The web foundation (design tokens, UI kit, app shell, API client, form tools and
 3. When a request would break a rule in this file, do not break it quietly. Build the closest version that follows the rules and say what you left out and why, or ask.
 4. When you need something that does not exist (section 8), stop and say so. Leave a `// TODO(design-foundation)` comment and a plain placeholder. Do not invent a one-off.
 5. Do not edit the protected files (section 14) unless the task is explicitly about the design foundation.
-6. Finish with the checklist in section 15 and report any item you could not satisfy.
+6. Finish with the checklist in section 15, run lint (section 16), and report any item you could not satisfy.
 
 Sources of truth, in this order when they disagree:
 
@@ -23,6 +23,8 @@ Sources of truth, in this order when they disagree:
 6. `AGENTS.md` for the repo-wide rules.
 
 ## 1. The hard rules
+
+Most of the **Never** list is checked by lint (section 16): a violation fails `nx lint` and CI, so do not rely on review to catch it.
 
 **Always**
 
@@ -126,6 +128,7 @@ A parcel status is only ever one of six: the API names are `CREATED`, `PICKED_UP
 apps/web/src/
   app/
     (auth)/         public auth pages: login, register, reset password, signed-out
+    (public)/       pages anyone can open (public tracking): PublicLayout, no login
     (app)/          EVERY signed-in screen goes here
       layout.tsx    session check and the role's shell. Do not edit.
       dashboard/    profile/    admin/users/    (examples)
@@ -143,7 +146,7 @@ apps/web/src/
     auth-api.ts     example of a feature's API file
     nav.ts          the sidebar entries and landing page for every role
     session.tsx     useSession()
-    use-form.ts, validation.ts, password.ts, use-countdown.ts, cn.ts, tokens.ts, roles.ts, theme.ts
+    use-form.ts, validation.ts, password.ts, use-countdown.ts, format.ts, cn.ts, tokens.ts, roles.ts, theme.ts
     <feature>-api.ts   your API calls and types
 apps/web-e2e/src/   Playwright tests; support/mock-api.ts and support/sign-in.ts
 ```
@@ -161,14 +164,16 @@ apps/web-e2e/src/   Playwright tests; support/mock-api.ts and support/sign-in.ts
 
 There are exactly four layout templates. Do not invent a fifth.
 
-| Template       | For                                                        | State                                                      |
-| -------------- | ---------------------------------------------------------- | ---------------------------------------------------------- |
-| `AuthLayout`   | login, register, password reset                            | exists (`components/layout/auth-layout.tsx`)               |
-| `AppShell`     | signed-in customer, merchant, dispatcher and admin screens | exists, picked for you by `RoleShell`                      |
-| `CourierShell` | signed-in courier screens (mobile first, bottom tabs)      | exists, picked for you by `RoleShell`                      |
-| `PublicLayout` | pages anyone can open, such as public tracking             | **not built yet** (section 8). Obey rule 11 on such pages. |
+| Template       | For                                                        | State                                                                                                           |
+| -------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `AuthLayout`   | login, register, password reset                            | exists (`components/layout/auth-layout.tsx`)                                                                    |
+| `AppShell`     | signed-in customer, merchant, dispatcher and admin screens | exists, picked for you by `RoleShell`                                                                           |
+| `CourierShell` | signed-in courier screens (mobile first, bottom tabs)      | exists, picked for you by `RoleShell`                                                                           |
+| `PublicLayout` | pages anyone can open, such as public tracking             | exists (`components/layout/public-layout.tsx`), used by the `(public)` route group. Obey rule 11 on such pages. |
 
 **What the `(app)` group does for you.** `app/(app)/layout.tsx` checks the login cookie (a splash, then a redirect to `/login` that returns afterwards), picks the shell for the signed-in role, and shows the 403 and 404 pages inside it. A sidebar entry whose page is not built shows the 404. When the 15-minute access token expires, `api()` renews it and retries.
+
+**A public page** goes in `app/(public)/<route>/page.tsx`. The group gives it `PublicLayout` (logo, theme switch, Log in, one reading column) and no login check, so a signed-out visitor and a signed-in one both see it. Everything on it is public: show status, cities and times, never names, phone numbers, addresses or fees (rule 11). `/track` is a stand-in until the tracking page (API 4.6) replaces it; build that page from `PageHeader`, `WaybillStub isPublic` and `Timeline`.
 
 **A new screen** is two files:
 
@@ -235,32 +240,48 @@ Import from the file with a relative path. Each file starts with a comment that 
 
 **Layout (`components/layout/`)**
 
-| Component     | Use it for                      | Notes                                                                                                                             |
-| ------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `PageHeader`  | the top of every page           | `title`, `description`, `actions` (max two, one primary)                                                                          |
-| `Section`     | a heading and its content       | `title`, `description`, `actions`. Sections space themselves.                                                                     |
-| `RequireRole` | limiting a page to some roles   | `roles`, `audience` (a plural noun phrase such as "merchants"). Shows the 403 page inside the shell.                              |
-| `SystemPage`  | 404, 403, 500 and offline pages | `label`, `title`, children (what to do), `actions`, `reference` (only for a fault on our side). One sentence about what happened. |
-| `AuthLayout`  | public auth pages only          | `panel`, `width`, children. Used with `AuthHeading`.                                                                              |
+| Component      | Use it for                      | Notes                                                                                                                                  |
+| -------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `PageHeader`   | the top of every page           | `title`, `description`, `actions` (max two, one primary)                                                                               |
+| `Section`      | a heading and its content       | `title`, `description`, `actions`. Sections space themselves.                                                                          |
+| `RequireRole`  | limiting a page to some roles   | `roles`, `audience` (a plural noun phrase such as "merchants"). Shows the 403 page inside the shell.                                   |
+| `SystemPage`   | 404, 403, 500 and offline pages | `label`, `title`, children (what to do), `actions`, `reference` (only for a fault on our side). One sentence about what happened.      |
+| `AuthLayout`   | public auth pages only          | `panel`, `width`, children. Used with `AuthHeading`.                                                                                   |
+| `PublicLayout` | pages anyone can open           | `width` (`narrow` reading column, or `wide`), children. Wrapped around the `(public)` route group for you; you rarely use it directly. |
 
 `AppShell`, `CourierShell`, `RoleShell`, `NavList`, `Drawer` and `UserMenu` are internal to the shell. Do not import them in a screen.
 
 **Controls and feedback (`components/ui/`)**
 
-| Component                         | Use it for                                 | Key props and rules                                                                                                                                                                                                                                                       |
-| --------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Button`                          | an action                                  | `variant`: `primary`, `secondary`, `accent` (marketing only), `ghost`, `danger`, `link`. `size`: `sm`, `md`, `lg`. `isLoading` (spinner, blocks a second click; keep the label meaningful, such as "Saving"), `isDisabled`, `isFullWidth`, `iconLeading`, `iconTrailing`. |
-| `ButtonLink`                      | navigation that looks like a button        | Same looks as `Button`; use it when the action is a link. `buttonClasses()` gives the classes for other link-like elements.                                                                                                                                               |
-| `TextField`                       | any text input                             | Needs `id` and `label`. Optional `helper`, `error`, `success`, `isRequired`, `controlSize` (`lg` for touch screens), `isMono` (IDs, amounts), `prefix` and `suffix` (such as `+94` or `LKR`). An error replaces the helper text.                                          |
-| `PasswordField`                   | passwords                                  | `autoComplete` is `current-password` or `new-password`. `showChecklist` shows the strength bars and rules for a new password.                                                                                                                                             |
-| `Field`, `controlClasses`         | a control the kit does not have yet        | Wraps your control so the label, messages and look match. Use it only until the kit gets that control, and tell M2.                                                                                                                                                       |
-| `Alert`                           | a message inside the page                  | `tone`: `info`, `success`, `warning`, `danger`; `title`, children, `actions`, `icon`. Danger interrupts screen readers; the other tones wait.                                                                                                                             |
-| `Banner`                          | a page-level notice under the top bar      | `tone`: `info`, `warning`, `danger`; `title`, children, `action`, `onDismiss`. Show one at a time. Only an info banner should be dismissible.                                                                                                                             |
-| `ErrorSummary`                    | the list of problems after a failed submit | `issues` (each has `fieldId`, `label`, `message`), `requestId` (5xx only), `focusOnMount`. It does not replace the message beside each field.                                                                                                                             |
-| `Spinner`                         | loading                                    | `size` 16 or 20, `tone`, `label`. For a whole page use `tone="standalone"` with a `label`.                                                                                                                                                                                |
-| `RouteLine`                       | the brand motif                            | Decorative: put the meaning in nearby text. `state`: `idle`, `travelling`, `complete`.                                                                                                                                                                                    |
-| `RoleBadge`, `Avatar`             | showing a role or initials                 | Decorative: always write the name or role next to them.                                                                                                                                                                                                                   |
-| `Logo`, `LogoMark`, `ThemeSwitch` | brand and theme                            | Already in the shells. Do not place them in a screen.                                                                                                                                                                                                                     |
+| Component                                           | Use it for                                     | Key props and rules                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button`                                            | an action                                      | `variant`: `primary`, `secondary`, `accent` (marketing only), `ghost`, `danger`, `link`. `size`: `sm`, `md`, `lg`. `isLoading` (spinner, blocks a second click; keep the label meaningful, such as "Saving"), `isDisabled`, `isFullWidth`, `iconLeading`, `iconTrailing`.                                                                                                                                                                                                                                   |
+| `ButtonLink`                                        | navigation that looks like a button            | Same looks as `Button`; use it when the action is a link. `buttonClasses()` gives the classes for other link-like elements.                                                                                                                                                                                                                                                                                                                                                                                 |
+| `TextField`                                         | any text input                                 | Needs `id` and `label`. Optional `helper`, `error`, `success`, `isRequired`, `controlSize` (`lg` for touch screens), `isMono` (IDs, amounts), `prefix` and `suffix` (such as `+94` or `LKR`). An error replaces the helper text. For a date or a time use `type="date"`, `"time"` or `"datetime-local"`: the browser's own picker in the same box. The value is local (`2026-11-05`); send the API an ISO time in UTC.                                                                                      |
+| `PasswordField`                                     | passwords                                      | `autoComplete` is `current-password` or `new-password`. `showChecklist` shows the strength bars and rules for a new password.                                                                                                                                                                                                                                                                                                                                                                               |
+| `Field`, `controlClasses`                           | a control the kit does not have yet            | Wraps your control so the label, messages and look match. Use it only until the kit gets that control, and tell M2.                                                                                                                                                                                                                                                                                                                                                                                         |
+| `Alert`                                             | a message inside the page                      | `tone`: `info`, `success`, `warning`, `danger`; `title`, children, `actions`, `icon`. Danger interrupts screen readers; the other tones wait.                                                                                                                                                                                                                                                                                                                                                               |
+| `Banner`                                            | a page-level notice under the top bar          | `tone`: `info`, `warning`, `danger`; `title`, children, `action`, `onDismiss`. Show one at a time. Only an info banner should be dismissible.                                                                                                                                                                                                                                                                                                                                                               |
+| `ErrorSummary`                                      | the list of problems after a failed submit     | `issues` (each has `fieldId`, `label`, `message`), `requestId` (5xx only), `focusOnMount`. It does not replace the message beside each field.                                                                                                                                                                                                                                                                                                                                                               |
+| `Spinner`                                           | loading                                        | `size` 16 or 20, `tone`, `label`. For a whole page use `tone="standalone"` with a `label`.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `Skeleton`, `SkeletonText`, `SkeletonGroup`         | the loading state of a list, table or card     | Put the blocks in a `SkeletonGroup` with a `label` such as "Loading parcels". `Skeleton` is one block sized with token classes (`h-5 w-1/3`); `SkeletonText` is `lines` of text with a shorter last line. They are still on purpose (no pulse): only the spinner and the route line move. Use `Spinner` for a whole page or a button.                                                                                                                                                                       |
+| `EmptyState`                                        | a list, table or section with nothing in it    | `title` ("No parcels yet"), one sentence of children that says what to do, one `action` (a primary `Button` or `ButtonLink`), optional Lucide `icon`. Its title is an `h3`, so use it inside a `Section`. Without an action when nothing can fix it, such as "No results" after a filter.                                                                                                                                                                                                                   |
+| `Checkbox`, `CheckboxGroup`                         | one yes or no; several related choices         | `Checkbox`: `id`, `label`, `description`, `helper`, `error`, `isRequired`, `isIndeterminate` (a "select all" with only some ticked), and the input's own props. `CheckboxGroup`: `name`, `legend`, `options` (`value`, `label`, `description`, `isDisabled`), `values`, `onChange(values)`, `helper`, `error`, `isRequired`, `isDisabled`. The whole row is a 44px target.                                                                                                                                  |
+| `RadioGroup`                                        | exactly one choice from a short list           | `name`, `legend`, `options` as above, `value` (`''` while nothing is chosen), `onChange(value)`, `helper`, `error`, `isRequired`, `orientation` (`horizontal` fits two or three short options from 768px). For a long list use `Select`.                                                                                                                                                                                                                                                                    |
+| `FileField`                                         | picking one file, such as a proof photo        | `id`, `label`, `helper`, `error`, `accept`, `capture="environment"` (opens a phone's camera), `buttonLabel`, `emptyLabel`, `controlSize` (`lg` for courier screens), `onFileChange(file or null)`. Check the type and size yourself and pass your own sentence as `error`; `accept` is only a hint.                                                                                                                                                                                                         |
+| `IconButton`                                        | an action with no visible text                 | `icon`, `label` (required: the tooltip and the accessible name, such as "Actions for SDK7M2Q9XP4"), `variant` (`ghost`, `secondary`, `danger`), `size` (`sm` 36px, `md` 44px, `lg` 48px), `isLoading`, `isDisabled`. Leave 8px between neighbours. Use a `Button` with a word when there is room.                                                                                                                                                                                                           |
+| `KeyValueList`                                      | facts about one thing                          | `items` (`label`, `value`, `isMono`), `layout` (`stacked`, or `inline` from 768px). An empty value shows a dash that screen readers read as "Not provided".                                                                                                                                                                                                                                                                                                                                                 |
+| `WaybillStub`                                       | a parcel as a paper waybill                    | `trackingNumber`, `status`, `origin`, `destination` (cities), `footRows` (`KeyValueList` items; mark names, phones, addresses and fees `isPrivate`), `isPublic` (drops every private row and says what is shown), `isCompact` (one row, for a list), `isLoading`.                                                                                                                                                                                                                                           |
+| `Textarea`                                          | several lines of text                          | Same props as `TextField` (`id`, `label`, `helper`, `error`, `success`, `isRequired`, `controlSize`) plus `rows` (default 4) and `showCount` (shows "12/200"; needs `maxLength` and a controlled `value`).                                                                                                                                                                                                                                                                                                  |
+| `Select`                                            | one choice from a list                         | `id`, `label`, `options` (`value`, `label`, `isDisabled`), `placeholder` (an unchosen first entry such as "Choose a zone"), and the same messages as `TextField`. It is the browser's own select. For a zone list, load `GET /zones` and map it to `options`.                                                                                                                                                                                                                                               |
+| `Modal`                                             | a decision or a small input in a dialog        | `isOpen`, `onClose`, `title`, `description`, children, `actions` (one primary or danger button and a secondary Cancel), `isDismissible` (false for a must-answer dialog), `size`. Native dialog: focus is trapped, Escape closes, focus returns. Mark the element that should receive focus first with `data-autofocus` (the field, or the safe button of a destructive confirmation).                                                                                                                      |
+| `StatusChip`                                        | any status in a list or header                 | `status`: the six parcel statuses, the merchant states (`PENDING`, `APPROVED`, `REJECTED`, `SUSPENDED`) and `ACTIVE`, `DEACTIVATED`. A shape and the name in capitals, never colour alone. `isCompact` keeps only the shape, with the name as a tooltip and for screen readers.                                                                                                                                                                                                                             |
+| `DataTable`, `DataTableCardList`, `TablePagination` | lists of rows                                  | `DataTable` takes `caption`, `columns` (`key`, `header`, `cell`, `isNumeric`, `isMono`, `isSortable`, `isHeaderHidden` for an actions column), `rows`, `getRowId`, `isLoading`, `empty` (an `EmptyState`), and `sort` with `onSortChange` (your API sorts; the table only shows the arrow). From 768px it is a table in its own scrolling box; below that the same columns become cards. `TablePagination` takes `page` (from 1), `totalPages`, `totalItems`, `onPageChange` and hides itself for one page. |
+| `Toast`, `useToast()`                               | a short confirmation with no place on the page | `useToast().show({ title, description, tone, duration })`: tone defaults to success, `duration` to 5000 ms (0 keeps it until dismissed). Hover or focus pauses it; three show at most. The provider is mounted in `app/layout.tsx`, so call it from any client component. Use an `Alert` when the message must stay on the page.                                                                                                                                                                            |
+| `Timeline`                                          | what happened to a parcel or an order          | `label`, `items` (`id`, `title`, `at` ISO time, `detail`, `isCurrent`, `isUpcoming`). Times show in Sri Lanka time (`formatDateTime` in `lib/format.ts`). On a public page `detail` is a city, never a person (rule 11).                                                                                                                                                                                                                                                                                    |
+| `RouteLine`                                         | the brand motif                                | Decorative: put the meaning in nearby text. `state`: `idle`, `travelling`, `complete`.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `RoleBadge`, `Avatar`                               | showing a role or initials                     | Decorative: always write the name or role next to them.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `Logo`, `LogoMark`, `ThemeSwitch`                   | brand and theme                                | Already in the shells. Do not place them in a screen.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 **Feature pieces you may reuse**
 
@@ -276,18 +297,12 @@ Import from the file with a relative path. Each file starts with a comment that 
 
 ## 8. What does not exist yet
 
-These are not built. Most are designed and planned, and the form controls beyond text fields are needed and will be added. **Do not build your own version.** Until the foundation owner adds one, leave a `// TODO(design-foundation): needs <name>` comment and a plain placeholder, and tell the person you are working for.
+These are not built. They are designed and planned and will be added when a screen needs one. **Do not build your own version.** Until the foundation owner adds one, leave a `// TODO(design-foundation): needs <name>` comment and a plain placeholder, and tell the person you are working for.
 
-| Not built yet                                                   | For                                                      |
-| --------------------------------------------------------------- | -------------------------------------------------------- |
-| `Modal` and the "session expired" dialog                        | dialogs and confirmations                                |
-| `Toast`                                                         | short confirmations that do not need a place on the page |
-| `DataTable` and `DataTableCardList`                             | tables, and their card list on small screens             |
-| `StatusChip`                                                    | parcel statuses (rule 04)                                |
-| `EmptyState`, `Skeleton`                                        | the empty and loading states                             |
-| `TrackingTimeline`, `WaybillStub`, `KeyValueList`, `IconButton` | tracking, receipts, detail lists, icon-only actions      |
-| Select, Textarea, Checkbox, Radio, date and time controls       | form controls beyond `TextField` and `PasswordField`     |
-| `PublicLayout`                                                  | pages that need no account                               |
+| Not built yet                                                                   | For                                                                                                                                                            |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The "session expired" dialog                                                    | telling a person their session ended without losing their place (build it from `Modal`; it is not wired into the session yet)                                  |
+| `Switch`, `Tabs`, `Stepper`, `DropdownMenu`, `Tooltip`, `Popover`, `Breadcrumb` | designed in the design system's library but not built; ask for one when a screen needs it (the delivery wizard will want `Stepper`, a row menu `DropdownMenu`) |
 
 When the task cannot wait, say so in the pull request instead of styling a one-off, as the design system asks. A new component must follow section 14, use only tokens, appear on `/design` with its states, and have tests.
 
@@ -355,14 +370,14 @@ const form = useForm<Values>({ recipient: '' }, rules);
 
 Every screen designs four states (rule 07):
 
-| State         | What to show                                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------------------------------ |
-| Loading       | `Spinner` (`tone="standalone"` with a `label` for a whole page). `Skeleton` is planned.                      |
-| Empty         | What is missing and the one action that fixes it: "No parcels yet. Create your first delivery."              |
-| Error         | What went wrong and "try again", in an `Alert tone="danger"` or `ServerFaultAlert`. Keep the person's input. |
-| No permission | `RequireRole` (the 403 page inside the shell).                                                               |
+| State         | What to show                                                                                                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Loading       | `DataTable isLoading` for a list, or `Skeleton` blocks in a `SkeletonGroup` where a card will appear. `Spinner` (`tone="standalone"` with a `label`) for a whole page. |
+| Empty         | `EmptyState`: what is missing and the one action that fixes it: "No parcels yet. Create your first delivery."                                                          |
+| Error         | What went wrong and "try again", in an `Alert tone="danger"` or `ServerFaultAlert`. Keep the person's input.                                                           |
+| No permission | `RequireRole` (the 403 page inside the shell).                                                                                                                         |
 
-Confirm a successful action in plain words ("Details saved.").
+Confirm a successful action in plain words ("Details saved."), in an `Alert tone="success"` or, for a quick confirmation after a dialog or a row action, a `Toast`.
 
 There is no data-fetching library, by decision. Fetch in a client view with a three-case state and an `AbortController`, as `components/profile` and `lib/session.tsx` do:
 
@@ -435,6 +450,7 @@ Do not edit these as part of a normal screen. They are shared by every screen, a
 - `apps/web/src/app/(app)/layout.tsx` and `apps/web/src/app/layout.tsx`
 - `apps/web/src/lib/api.ts`, `lib/session.tsx`, `lib/use-form.ts`, `lib/validation.ts` (adding a shared validator or a field message is fine), `lib/theme.ts`
 - `apps/web-e2e/src/support/*`
+- `apps/web/eslint.config.mjs` and `apps/web/eslint-rules/*` (the lint rules that enforce this file)
 - the structure of `apps/web/src/lib/nav.ts` (adding your own entry is fine)
 
 If a screen needs a change to one of them, or a component that does not exist, ask the foundation owner (M2) first. An approved change must:
@@ -463,4 +479,40 @@ Run through this list and fix whatever fails. In a pull request, name any item y
 - [ ] Copy is short and plain, says what happened and what to do, and has no "Oops", exclamation mark or emoji.
 - [ ] Public pages show cities, statuses and timestamps only.
 - [ ] Playwright tests cover the states above, and `lint`, `typecheck` and the whole suite pass.
+- [ ] You added no `eslint-disable` comment to get lint to pass. A real exception has a reason written after `--`.
 - [ ] No new dependency, font, icon set or colour was added. No protected file was edited (section 14).
+
+## 16. What lint checks for you
+
+This file is enforced in code. `pnpm exec nx lint @org/web` runs ESLint rules from `apps/web/eslint-rules/`, and CI ("Frontend checks") runs the same lint. A violation fails the check with a message that says what to use instead and points back to this file.
+
+| What it catches                                                                                                                                                                                                                          | Rule                              | Example, and what to use                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
+| Colours that are not tokens: a hex, `rgb()` or `hsl()` in a class list, a colour attribute or a style object                                                                                                                             | `swiftdrop/no-raw-colors`         | `bg-[#fff]`, `fill="#4285F4"` -> `bg-surface`           |
+| Class lists that leave the tokens: arbitrary values, default Tailwind colours, text sizes, radii and shadows, off-scale spacing, `bg-ink` and `text-paper`, the `2xl:` breakpoint. (`grid-cols-[...]` and `[var(--token)]` are allowed.) | `swiftdrop/tailwind-tokens`       | `p-7` -> `p-6` or `p-8`; `rounded-lg` -> `rounded-card` |
+| An inline `style` prop                                                                                                                                                                                                                   | `swiftdrop/no-inline-style`       | `style={{ ... }}` -> token classes                      |
+| UI libraries, other icon sets, CSS-in-JS, state-management and data-fetching libraries, extra fonts                                                                                                                                      | `no-restricted-imports`           | `react-icons` -> `lucide-react`                         |
+| A direct network call                                                                                                                                                                                                                    | `no-restricted-globals` (`fetch`) | `fetch(...)` -> `api()`                                 |
+| Showing `error.message` to a person                                                                                                                                                                                                      | `no-restricted-syntax`            | `{error.message}` -> our own sentence, by `error.code`  |
+| A hand-written `<h1>` in a screen                                                                                                                                                                                                        | `no-restricted-syntax`            | `<h1>` -> `PageHeader`                                  |
+
+**Where it applies.** Screens are strict: everything under `apps/web/src` except the foundation. The foundation files (`components/ui`, `components/layout`, `app/design`, `app/layout.tsx`, `lib/` and the brand panel) are exempt from the class rules because they define the tokens, but they still must not contain raw colours. The auth pages are exempt from the `<h1>` rule, and only `lib/api.ts` may call `fetch`. The scopes are in `apps/web/eslint.config.mjs`.
+
+**What lint cannot see**, so it stays your job and the review's: class names built from variables at run time, whether a screen has one primary action, the four states, status chips, the wording, focus order, and how the screen looks.
+
+**Exceptions.** Use one only for a real exception, such as a value that is genuinely dynamic or a third party's brand mark, and write the reason after `--`:
+
+```tsx
+// eslint-disable-next-line swiftdrop/no-inline-style -- width comes from the API (a percentage)
+<div style={{ width: `${progress}%` }} />
+```
+
+An `eslint-disable` added to make lint pass is a defect, and an unused one fails lint. If a rule is wrong, tell M2: the rule and its test change together.
+
+**Changing the rules.** The rules are in `apps/web/eslint-rules/design-tokens.mjs` and their tests in `design-tokens.test.mjs`. Run the tests with:
+
+```bash
+node --test "apps/web/eslint-rules/*.test.mjs"
+```
+
+CI runs them too. When this file gains or changes a rule that can be checked, change the lint rule and its test in the same pull request.

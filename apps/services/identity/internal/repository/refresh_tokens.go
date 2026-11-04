@@ -13,6 +13,13 @@ import (
 
 const userAgentMaxLength = 255
 
+// RefreshReuseGrace is how long after a rotation the old token may still be
+// presented without being treated as stolen. A browser with two tabs, or a
+// client that retries after a lost response, can legitimately send the old
+// token again within moments; that request is refused but harmless. Presenting
+// it later means someone kept a copy, so the whole chain is revoked.
+const RefreshReuseGrace = 10 * time.Second
+
 // NewRefreshToken describes a refresh token to store. Only the SHA-256 hash of
 // the token is persisted, never the token itself (DB v1.1 section 3.4).
 type NewRefreshToken struct {
@@ -54,6 +61,13 @@ func (r *Repository) CreateRefreshToken(ctx context.Context, token NewRefreshTok
 //
 // The old row is locked, so two concurrent refreshes with the same token
 // cannot both succeed.
+//
+// A token that was already rotated and is presented again more than
+// RefreshReuseGrace later is treated as stolen: every token that descends from
+// it is revoked, which ends the session the thief and the owner share. The
+// error is then ErrRefreshTokenReused (still an ErrRefreshTokenInvalid) and the
+// owner's ID is returned with it so the caller can log the event. Tokens of the
+// same user from other logins are not touched.
 func (r *Repository) RotateRefreshToken(
 	ctx context.Context,
 	oldHash string,
@@ -67,25 +81,38 @@ func (r *Repository) RotateRefreshToken(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var (
-		oldID     string
-		userID    string
-		expiresAt time.Time
-		revokedAt *time.Time
-		isActive  bool
+		oldID      string
+		userID     string
+		expiresAt  time.Time
+		revokedAt  *time.Time
+		replacedBy *string
+		isActive   bool
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT t.id, t.user_id, t.expires_at, t.revoked_at, u.is_active
+		SELECT t.id, t.user_id, t.expires_at, t.revoked_at, t.replaced_by, u.is_active
 		FROM identity.refresh_tokens t
 		JOIN identity.users u ON u.id = t.user_id
 		WHERE t.token_hash = $1
 		FOR UPDATE OF t`,
 		oldHash,
-	).Scan(&oldID, &userID, &expiresAt, &revokedAt, &isActive)
+	).Scan(&oldID, &userID, &expiresAt, &revokedAt, &replacedBy, &isActive)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrRefreshTokenInvalid
 	}
 	if err != nil {
 		return "", fmt.Errorf("rotating refresh token: %w", err)
+	}
+
+	// Logout and a password change revoke a token without replacing it, so only
+	// a token with a successor can have been copied during a rotation.
+	if revokedAt != nil && replacedBy != nil && !now.Before(revokedAt.Add(RefreshReuseGrace)) {
+		if err := revokeChain(ctx, tx, oldID, now); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", fmt.Errorf("rotating refresh token: %w", err)
+		}
+		return userID, ErrRefreshTokenReused
 	}
 	if revokedAt != nil || !now.Before(expiresAt) || !isActive {
 		return "", ErrRefreshTokenInvalid
@@ -114,6 +141,30 @@ func (r *Repository) RotateRefreshToken(
 		return "", fmt.Errorf("rotating refresh token: %w", err)
 	}
 	return userID, nil
+}
+
+// revokeChain revokes every token that descends from the token with ID rootID
+// through replaced_by, that is the token issued when it was rotated, the one
+// issued when that was rotated, and so on. A chain that is revoked while one of
+// its tokens is being rotated by another request can leave that request's new
+// token alive; the next use of the old token revokes it.
+func revokeChain(ctx context.Context, tx pgx.Tx, rootID string, now time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		WITH RECURSIVE chain AS (
+			SELECT id, replaced_by FROM identity.refresh_tokens WHERE id = $1
+			UNION ALL
+			SELECT t.id, t.replaced_by
+			FROM identity.refresh_tokens t
+			JOIN chain c ON t.id = c.replaced_by
+		)
+		UPDATE identity.refresh_tokens
+		SET revoked_at = $2
+		WHERE id IN (SELECT id FROM chain) AND revoked_at IS NULL`,
+		rootID, now.UTC(),
+	); err != nil {
+		return fmt.Errorf("revoking refresh token chain: %w", err)
+	}
+	return nil
 }
 
 // RevokeRefreshToken revokes the user's refresh token with hash tokenHash. It is

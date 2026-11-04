@@ -3,7 +3,8 @@ package pricing
 import (
 	"encoding/json"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 func AllowedFields(kind string, creating bool) map[string]bool {
@@ -75,7 +76,7 @@ func (m Mutation) Validate(kind string, creating bool) error {
 	}{
 		{name: "code", value: m.Code, maximum: 20}, {name: "name", value: m.Name, maximum: 100},
 	} {
-		if field.value != nil && (strings.TrimSpace(*field.value) == "" || utf8.RuneCountInString(*field.value) > field.maximum) {
+		if field.value != nil && (!validation.Required(*field.value) || validation.RuneLength(*field.value) > field.maximum) {
 			return &Invalid{Field: field.name, Issue: "is empty or too long"}
 		}
 	}
@@ -85,7 +86,7 @@ func (m Mutation) Validate(kind string, creating bool) error {
 	}{
 		{name: "originZoneId", value: m.OriginZoneID}, {name: "destinationZoneId", value: m.DestinationZoneID},
 	} {
-		if field.value != nil && !ValidID(*field.value) {
+		if field.value != nil && !validation.UUID(*field.value) {
 			return &Invalid{Field: field.name, Issue: "must be a UUID"}
 		}
 	}

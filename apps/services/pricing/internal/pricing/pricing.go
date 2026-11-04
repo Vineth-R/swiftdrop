@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 var (
@@ -80,15 +82,10 @@ func (d Decimal) String() string {
 func (d Decimal) MarshalJSON() ([]byte, error) { return []byte(d.String()), nil }
 
 var decimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
-var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-func ValidID(id string) bool { return uuidPattern.MatchString(id) }
+func ValidID(id string) bool { return validation.UUID(id) }
 func ValidSize(size string) bool {
-	switch size {
-	case "SMALL", "MEDIUM", "LARGE", "OVERSIZED":
-		return true
-	}
-	return false
+	return validation.OneOf(size, "SMALL", "MEDIUM", "LARGE", "OVERSIZED")
 }
 
 type Input struct {
@@ -99,16 +96,16 @@ type Input struct {
 }
 
 func (in Input) Validate() error {
-	if !ValidID(in.OriginZoneID) {
+	if !validation.UUID(in.OriginZoneID) {
 		return &Invalid{Field: "originZoneId", Issue: "must be a UUID"}
 	}
-	if !ValidID(in.DestinationZoneID) {
+	if !validation.UUID(in.DestinationZoneID) {
 		return &Invalid{Field: "destinationZoneId", Issue: "must be a UUID"}
 	}
 	if in.WeightKg <= 0 || in.WeightKg > 999999 {
 		return &Invalid{Field: "weightKg", Issue: "must be positive and fit two decimal places"}
 	}
-	if !ValidSize(in.SizeCategory) {
+	if !validation.OneOf(in.SizeCategory, "SMALL", "MEDIUM", "LARGE", "OVERSIZED") {
 		return &Invalid{Field: "sizeCategory", Issue: "unsupported size category"}
 	}
 	return nil

@@ -11,10 +11,10 @@ import (
 	"net/netip"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 const (
@@ -367,19 +367,19 @@ func (g *GoogleAuth) resolveAfterCreationRace(ctx context.Context, profile Googl
 // the @.
 func googleDisplayName(name, email string) string {
 	name = truncateRunes(strings.TrimSpace(name), maxFullNameLength)
-	if utf8.RuneCountInString(name) >= minFullNameLength {
+	if validation.RuneLength(name) >= minFullNameLength {
 		return name
 	}
 	local, _, _ := strings.Cut(email, "@")
 	local = truncateRunes(local, maxFullNameLength)
-	if utf8.RuneCountInString(local) >= minFullNameLength {
+	if validation.RuneLength(local) >= minFullNameLength {
 		return local
 	}
 	return "Google User"
 }
 
 func truncateRunes(value string, limit int) string {
-	if utf8.RuneCountInString(value) <= limit {
+	if validation.RuneLength(value) <= limit {
 		return value
 	}
 	return string([]rune(value)[:limit])

@@ -1,5 +1,6 @@
 import localFont from 'next/font/local';
 
+import { ToastProvider } from '../components/ui/toast';
 import { THEME_INIT } from '../lib/theme';
 import './globals.css';
 
@@ -45,7 +46,9 @@ export default function RootLayout({
         {/* sets data-theme before paint, so there is no flash of the wrong theme */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

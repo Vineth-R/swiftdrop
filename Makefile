@@ -4,7 +4,7 @@ COMPOSE ?= docker compose
 BUILD_SERVICES ?= identity parcel pricing merchant realtime notification-worker webhook-worker web
 BUILD_FLAGS ?=
 
-.PHONY: help build up up-build down logs preflight require-images ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test-db
+.PHONY: help build up up-build down logs preflight require-images ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test test-db test-access coverage
 
 help:
 	@echo "Targets:"
@@ -18,7 +18,10 @@ help:
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
 	@echo "  make check-routes   verify gateway routing against the running stack"
 	@echo "  make db-reset       delete local volumes and rebuild (destructive)"
+	@echo "  make test           run every Go test with the race detector (no database needed)"
 	@echo "  make test-db        run PostgreSQL integration tests against TEST_DATABASE_URL"
+	@echo "  make test-access    run the cross-service access tests against the running stack"
+	@echo "  make coverage       run the Go tests and print coverage per service and in total"
 
 preflight:
 	@if [ ! -f .env ] && { [ -z "$${POSTGRES_USER:-}" ] || [ -z "$${POSTGRES_DB:-}" ]; }; then \
@@ -96,13 +99,27 @@ db-reset:
 	@until [ "$$(docker inspect -f '{{.State.Health.Status}}' "$$($(COMPOSE) ps -q postgres)")" = "healthy" ]; do sleep 1; done
 	$(MAKE) migrate
 
+test:
+	go test -race -count=1 ./...
+
+test-access:
+	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \
+	if [ -z "$$base" ]; then \
+		echo "error: nginx is not running. Run 'make up' first (and 'make up-build' if your images are old)." >&2; \
+		exit 1; \
+	fi; \
+	TEST_BASE_URL="http://localhost:$$base" go test -tags=access -count=1 -v ./tests/access/...
+
+coverage:
+	./scripts/coverage.sh
+
 test-db:
 	@if [ -z "$${TEST_DATABASE_URL:-}" ]; then \
 		echo "error: TEST_DATABASE_URL is required for database integration tests." >&2; \
 		echo "       The URL must allow CREATE DATABASE; tests create and drop isolated databases." >&2; \
 		exit 1; \
 	fi
-	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/...
+	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/...
 
 check-routes:
 	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \
