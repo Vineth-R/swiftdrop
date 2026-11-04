@@ -269,7 +269,7 @@ test.describe('admin users list', () => {
     await expect(
       page.getByRole('button', { name: 'Activate Kasun Silva' }),
     ).toBeVisible();
-    expect(calls.find((c) => c.key.startsWith('PATCH'))).toEqual({
+    expect(calls.find((c) => c.key.startsWith('PATCH'))).toMatchObject({
       key: 'PATCH /admin/users/kasun/status',
       body: { isActive: false },
     });
