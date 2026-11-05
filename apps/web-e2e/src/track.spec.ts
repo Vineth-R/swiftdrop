@@ -56,7 +56,7 @@ test.describe('public tracking at /track', () => {
     await expect(history.getByText('Not yet reached')).toHaveCount(1);
     await expect(history.getByText('Final step')).toHaveCount(1);
     await expect(
-      page.getByRole('heading', { level: 1, name: `Parcel ${NUMBER}` }),
+      page.getByRole('heading', { level: 1, name: 'Track a parcel' }),
     ).toBeVisible();
   });
 
@@ -163,10 +163,23 @@ test.describe('public tracking at /track', () => {
   });
 
   test('a 422 from the service lands beside the field', async ({ page }) => {
-    await mockApi(page, { [KEY]: fail(422, 'VALIDATION_ERROR') });
+    await mockApi(page, {
+      [KEY]: fail(422, 'VALIDATION_ERROR', {
+        details: [{ field: 'trackingNumber', issue: 'invalid' }],
+      }),
+    });
     await page.goto(`/track?number=${NUMBER}`);
     await expect(page.getByText('Check the number.')).toBeVisible();
     await expect(page.locator('body')).not.toContainText(SERVER_WORDS);
+  });
+
+  test('a 422 about some other field shows an alert, not a field message', async ({
+    page,
+  }) => {
+    await mockApi(page, { [KEY]: fail(422, 'VALIDATION_ERROR') });
+    await page.goto(`/track?number=${NUMBER}`);
+    await expect(page.getByText('Something broke on our side')).toBeVisible();
+    await expect(page.getByText('Check the number.')).toHaveCount(0);
   });
 
   test('too many requests shows the wait and holds the button', async ({
@@ -245,6 +258,16 @@ test.describe('public tracking at /track', () => {
     expect(calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  test('Refresh keeps what is being typed', async ({ page }) => {
+    await mockApi(page, { [KEY]: ok(tracking) });
+    await page.goto(`/track?number=${NUMBER}`);
+    await expect(page.getByText('IN TRANSIT', { exact: true })).toBeVisible();
+    await field(page).fill('SDN1A2B');
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await expect(page.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+    await expect(field(page)).toHaveValue('SDN1A2B');
+  });
+
   test('Copy number copies it and says so', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await mockApi(page, { [KEY]: ok(tracking) });
@@ -284,6 +307,45 @@ test.describe('public tracking at /track', () => {
     await page.goto('/track');
     const box = await field(page).boundingBox();
     expect(box?.width).toBeGreaterThan(320);
+  });
+
+  test('every target is big enough to touch on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await mockApi(page, {
+      [KEY]: ok(tracking),
+      'GET /tracking/SDN1A2B3C4D': fail(404, 'TRACKING_NOT_FOUND'),
+    });
+    await page.goto(`/track?number=${NUMBER}`);
+    for (const name of ['Track', 'Copy number', 'Refresh']) {
+      const box = await page
+        .getByRole('button', { name, exact: true })
+        .boundingBox();
+      expect(box?.height, name).toBeGreaterThanOrEqual(44);
+    }
+    await page.goto('/track?number=SDN1A2B3C4D');
+    const clear = await page
+      .getByRole('link', { name: 'Clear search' })
+      .boundingBox();
+    expect(clear?.height).toBeGreaterThanOrEqual(44);
+  });
+
+  test('Tab follows the visual order, with a visible focus ring', async ({
+    page,
+  }) => {
+    await mockApi(page, { [KEY]: ok(tracking) });
+    await page.goto(`/track?number=${NUMBER}`);
+    await expect(page.getByText('IN TRANSIT', { exact: true })).toBeVisible();
+    await field(page).focus();
+    for (const target of [
+      page.getByRole('button', { name: 'Track', exact: true }),
+      page.getByRole('button', { name: 'Copy number' }),
+      page.getByRole('button', { name: 'Refresh' }),
+      page.getByRole('link', { name: 'Sign in' }),
+    ]) {
+      await page.keyboard.press('Tab');
+      await expect(target).toBeFocused();
+      await expect(target).not.toHaveCSS('outline-style', 'none');
+    }
   });
 
   test('it works with the keyboard alone', async ({ page }) => {

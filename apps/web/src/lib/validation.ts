@@ -77,6 +77,10 @@ export function validateConfirmation(
     : 'The two passwords do not match.';
 }
 
+/** Our wording for a tracking number in the wrong format (board page 37). */
+export const TRACKING_NUMBER_MESSAGE =
+  'Check the number. Ours are 11 characters, starting SDK or SDN.';
+
 /**
  * Our own copy for a field the API rejected. The server's wording is never
  * shown: it is written for developers and may repeat what was typed.
@@ -88,6 +92,7 @@ const serverMessages: Record<string, string> = {
   currentPassword: 'Enter your current password.',
   fullName: 'Enter between 2 and 150 characters.',
   phone: 'Enter a full number, for example 71 234 5678.',
+  trackingNumber: TRACKING_NUMBER_MESSAGE,
 };
 
 export function serverFieldMessage(field: string): string | undefined {

@@ -1,9 +1,9 @@
 'use client';
 
-import { Copy, Lock, RefreshCw } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../../lib/api-errors';
 import { classifyApiError, type ApiProblem } from '../../lib/api-problem';
@@ -17,10 +17,15 @@ import {
 } from '../../lib/tracking-api';
 import { useCountdown } from '../../lib/use-countdown';
 import { useForm, type FormRules } from '../../lib/use-form';
+import {
+  serverFieldMessage,
+  TRACKING_NUMBER_MESSAGE,
+} from '../../lib/validation';
 import { ApiProblemAlerts } from '../auth/api-problem-alerts';
 import { PageHeader } from '../layout/page-header';
 import { Section } from '../layout/section';
 import { Button, ButtonLink } from '../ui/button';
+import { Card, CardContent } from '../ui/card';
 import { EmptyState } from '../ui/empty-state';
 import { TextField } from '../ui/field';
 import { Timeline, type TimelineItem } from '../ui/timeline';
@@ -35,14 +40,12 @@ type View =
   | { status: 'problem'; problem: ApiProblem };
 
 const FIELD_ID = 'tracking-number';
-const FORMAT_MESSAGE =
-  'Check the number. Ours are 11 characters, starting SDK or SDN.';
 
 const rules: FormRules<{ trackingNumber: string }> = {
   trackingNumber: ({ trackingNumber }) => {
     const number = normalizeTrackingNumber(trackingNumber);
     if (!number) return 'Enter a tracking number.';
-    return isTrackingNumber(number) ? undefined : FORMAT_MESSAGE;
+    return isTrackingNumber(number) ? undefined : TRACKING_NUMBER_MESSAGE;
   },
 };
 
@@ -84,12 +87,28 @@ function historyOf({ status, timeline }: Tracking): TimelineItem[] {
   ];
 }
 
+export function TrackView() {
+  return (
+    <>
+      {/* TODO(design-foundation): needs Breadcrumb (Home > Tracking, board page 21) */}
+      <PageHeader
+        title="Track a parcel"
+        description="Enter a tracking number to see where a parcel is."
+      />
+      {/* The search reads the address, which a static page only knows in the browser. */}
+      <Suspense>
+        <TrackSearch />
+      </Suspense>
+    </>
+  );
+}
+
 /**
  * The number lives in the address (/track?number=SDK7M2Q9XP4), so a link can be
  * shared and the page refreshed. Everything shown comes from getTracking, which
  * keeps only cities, statuses and times (rule 11).
  */
-export function TrackView() {
+function TrackSearch() {
   const router = useRouter();
   const number = normalizeTrackingNumber(useSearchParams().get('number') ?? '');
   const form = useForm({ trackingNumber: number }, rules);
@@ -106,11 +125,15 @@ export function TrackView() {
   const isBusy =
     view.status === 'loading' || (view.status === 'found' && view.isRefreshing);
 
+  // Only a new address replaces the field: Refresh keeps what is being typed.
   useEffect(() => {
     setValue('trackingNumber', number);
+  }, [number, setValue]);
+
+  useEffect(() => {
     if (!isTrackingNumber(number)) {
       setView({ status: 'idle' });
-      if (number) setServerErrors({ trackingNumber: FORMAT_MESSAGE });
+      if (number) setServerErrors({ trackingNumber: TRACKING_NUMBER_MESSAGE });
       return;
     }
 
@@ -136,15 +159,20 @@ export function TrackView() {
           return;
         }
         const classified = classifyApiError(error);
-        if (classified.kind === 'validation') {
+        const fieldMessage =
+          classified.kind === 'validation' &&
+          classified.issues.some((issue) => issue.field === 'trackingNumber')
+            ? serverFieldMessage('trackingNumber')
+            : undefined;
+        if (fieldMessage) {
           setView({ status: 'idle' });
-          setServerErrors({ trackingNumber: FORMAT_MESSAGE });
+          setServerErrors({ trackingNumber: fieldMessage });
           return;
         }
         setView({ status: 'problem', problem: classified });
       });
     return () => controller.abort();
-  }, [number, attempt, setValue, setServerErrors]);
+  }, [number, attempt, setServerErrors]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -159,54 +187,38 @@ export function TrackView() {
     else router.push(`/track?number=${encodeURIComponent(next)}`);
   }
 
-  const isFound = view.status === 'found';
-
   return (
-    <>
-      {/* TODO(design-foundation): needs Breadcrumb (Home > Tracking, board page 21) */}
-      <div className="flex flex-wrap items-end justify-between gap-6">
-        <PageHeader
-          title={isFound ? `Parcel ${number}` : 'Track a parcel'}
-          description={
-            isFound
-              ? undefined
-              : 'Enter a tracking number to see where a parcel is.'
+    <div className="flex flex-col gap-8">
+      <form noValidate onSubmit={submit} className="flex flex-col gap-3">
+        <TextField
+          id={FIELD_ID}
+          label={
+            view.status === 'found' ? 'Track another parcel' : 'Tracking number'
           }
+          placeholder="SDK7M2Q9XP4"
+          isRequired
+          isMono
+          controlSize="lg"
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          value={form.values.trackingNumber}
+          error={form.errors.trackingNumber}
+          onChange={(event) =>
+            form.setValue('trackingNumber', event.target.value)
+          }
+          onBlur={() => form.blur('trackingNumber')}
         />
-        <form
-          noValidate
-          onSubmit={submit}
-          className="flex w-full flex-col gap-3 md:w-96 md:flex-row md:items-start"
+        <Button
+          type="submit"
+          size="lg"
+          isFullWidth
+          isLoading={isBusy}
+          isDisabled={isWaiting}
         >
-          <div className="min-w-0 flex-1">
-            <TextField
-              id={FIELD_ID}
-              label={isFound ? 'Track another parcel' : 'Tracking number'}
-              placeholder="SDK7M2Q9XP4"
-              isMono
-              controlSize="lg"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              value={form.values.trackingNumber}
-              error={form.errors.trackingNumber}
-              onChange={(event) =>
-                form.setValue('trackingNumber', event.target.value)
-              }
-              onBlur={() => form.blur('trackingNumber')}
-            />
-          </div>
-          <Button
-            type="submit"
-            size="lg"
-            className="md:mt-6"
-            isLoading={isBusy}
-            isDisabled={isWaiting}
-          >
-            {isBusy ? 'Tracking' : 'Track'}
-          </Button>
-        </form>
-      </div>
+          {isBusy ? 'Tracking' : 'Track'}
+        </Button>
+      </form>
 
       <div aria-live="polite" className="flex flex-col gap-6">
         <ApiProblemAlerts problem={problem} remaining={remaining} />
@@ -226,12 +238,12 @@ export function TrackView() {
           <EmptyState
             title="No parcel with that number"
             action={
-              <ButtonLink href="/track" variant="secondary">
+              <ButtonLink href="/track" variant="secondary" size="lg">
                 Clear search
               </ButtonLink>
             }
           >
-            {FORMAT_MESSAGE}
+            {TRACKING_NUMBER_MESSAGE}
           </EmptyState>
         )}
 
@@ -243,7 +255,7 @@ export function TrackView() {
           />
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -273,34 +285,61 @@ function Found({
   }
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-2">
-      <div className="flex min-w-0 flex-col gap-4">
-        <WaybillStub
-          isPublic
-          trackingNumber={tracking.trackingNumber}
-          status={tracking.status}
-          origin={tracking.pickupCity}
-          destination={tracking.dropoffCity}
-          footRows={[
-            {
-              label: 'Created',
-              value: created ? formatDate(created) : '',
-              isMono: true,
-            },
-            {
-              label: 'Last scan',
-              value: formatDateTime(tracking.lastUpdatedAt),
-              isMono: true,
-            },
-          ]}
-        />
-        <p className="flex gap-3 rounded-card border border-line bg-surface p-4 text-body-sm text-text-muted">
+    <>
+      <WaybillStub
+        isPublic
+        trackingNumber={tracking.trackingNumber}
+        status={tracking.status}
+        origin={tracking.pickupCity}
+        destination={tracking.dropoffCity}
+        footRows={[
+          {
+            label: 'Created',
+            value: created ? formatDate(created) : '',
+            isMono: true,
+          },
+          {
+            label: 'Last scan',
+            value: formatDateTime(tracking.lastUpdatedAt),
+            isMono: true,
+          },
+        ]}
+      />
+      <div className="flex flex-wrap gap-3">
+        <Button variant="secondary" size="lg" onClick={copyNumber}>
+          Copy number
+        </Button>
+        <Button
+          variant="secondary"
+          size="lg"
+          isLoading={isRefreshing}
+          onClick={onRefresh}
+        >
+          {isRefreshing ? 'Refreshing' : 'Refresh'}
+        </Button>
+      </div>
+      <Card>
+        <CardContent>
+          <Section
+            title="Status history"
+            actions={
+              <span className="font-mono text-caption text-text-muted">
+                times in UTC+5:30
+              </span>
+            }
+          >
+            <Timeline label="Status history" items={historyOf(tracking)} />
+          </Section>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="flex gap-3 text-body-sm text-text-muted">
           <Lock
             aria-hidden="true"
             strokeWidth={1.5}
             className="size-4 shrink-0"
           />
-          <span>
+          <p>
             Is this your parcel?{' '}
             <Link
               href="/login"
@@ -309,47 +348,9 @@ function Found({
               Sign in
             </Link>{' '}
             to see the recipient, the fee and the proof of delivery.
-          </span>
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            variant="secondary"
-            iconLeading={
-              <Copy aria-hidden="true" strokeWidth={1.5} className="size-4" />
-            }
-            onClick={copyNumber}
-          >
-            Copy number
-          </Button>
-          <Button
-            variant="secondary"
-            isLoading={isRefreshing}
-            iconLeading={
-              <RefreshCw
-                aria-hidden="true"
-                strokeWidth={1.5}
-                className="size-4"
-              />
-            }
-            onClick={onRefresh}
-          >
-            {isRefreshing ? 'Refreshing' : 'Refresh'}
-          </Button>
-        </div>
-      </div>
-
-      <div className="min-w-0 rounded-card border border-line bg-surface p-4 md:p-6">
-        <Section
-          title="Status history"
-          actions={
-            <span className="font-mono text-caption text-text-muted">
-              times in UTC+5:30
-            </span>
-          }
-        >
-          <Timeline label="Status history" items={historyOf(tracking)} />
-        </Section>
-      </div>
-    </div>
+          </p>
+        </CardContent>
+      </Card>
+    </>
   );
 }
