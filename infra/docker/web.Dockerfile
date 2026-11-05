@@ -1,4 +1,4 @@
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 
 RUN corepack enable
 WORKDIR /workspace
@@ -16,7 +16,7 @@ COPY apps/web-e2e ./apps/web-e2e
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm exec nx build @org/web
 
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production \
