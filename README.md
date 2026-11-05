@@ -510,6 +510,8 @@ GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pu
 
 The path filters, the separate access output, and the required-gate result handling are covered by `tests/scripts/ci_path_filter_test.go`. The workflow does not deploy, publish images, or use deployment credentials. This documentation does not claim that CI has passed for a given revision; check the Actions run for the branch or pull request.
 
+Dependency updates are managed manually by the development team; Dependabot is not enabled.
+
 See [Security scanning](docs/security-scanning.md) for scanner versions, thresholds, local commands, SBOM artifacts, exception policy, and security-gate troubleshooting.
 
 ## Troubleshooting
