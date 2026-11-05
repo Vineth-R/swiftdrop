@@ -111,7 +111,7 @@ The Next.js application serves `/` and its own routes, including `/api/hello`. N
 
 ## Configuration
 
-Configuration is environment-based. Values are matched case-insensitively and trimmed by the shared loader. Invalid required values fail startup clearly. `APP_ENV` must be explicitly set to `development`, `staging`, or `production`; identity and pricing do not fall back to development when it is missing, empty, or whitespace. `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host; validation errors never include the URL. The root `.env.example` documents local development values. Docker Compose passes container-network addresses such as `postgres` and `rabbitmq`; `localhost` is used only for host-to-container access. PostgreSQL is internal to the Compose network and publishes no host port. Host-run services and host-run PostgreSQL integration tests need a separately running PostgreSQL instance; they must not depend on a Compose port mapping.
+Configuration is environment-based. Values are matched case-insensitively and trimmed by the shared loader. Invalid required values fail startup clearly. `APP_ENV` must be explicitly set to `development`, `staging`, or `production`; all backend services and workers do not fall back to development when it is missing, empty, or whitespace. `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host; validation errors never include the URL. The root `.env.example` documents local development values. Docker Compose passes container-network addresses such as `postgres` and `rabbitmq`; `localhost` is used only for host-to-container access. PostgreSQL is internal to the Compose network and publishes no host port. Host-run services and host-run PostgreSQL integration tests need a separately running PostgreSQL instance; they must not depend on a Compose port mapping.
 
 HTTP services read:
 
@@ -119,7 +119,7 @@ HTTP services read:
 - `LOG_LEVEL`
 - `PORT`
 - optional `DATABASE_URL`; when set, services open the shared pgx pool and `/ready` reports `checks.database`. When unset, the service starts and `/ready` returns `503`.
-- Pricing and parcel also read `JWT_ACCESS_SECRET` and `COOKIE_NAME` for authenticated admin/dispatcher routes. An unset secret leaves public endpoints running but makes those routes fail closed with `503`.
+- Pricing and parcel also read `JWT_ACCESS_SECRET` and `COOKIE_NAME` for authenticated admin/dispatcher routes. Outside development a configured secret must be at least 32 random bytes and must not be a placeholder; an unset secret leaves public endpoints running but makes those routes fail closed with `503`.
 
 Workers read:
 
@@ -127,7 +127,7 @@ Workers read:
 - required `RABBITMQ_URL`
 - `RABBITMQ_EXCHANGE`, queue, routing key, prefetch, handler timeout, retry limit, retry delay, and reconnect bounds
 
-The notification worker also requires `SMTP_HOST` and reads `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`, plus the optional `SMTP_REPLY_TO`, `SMTP_SECURE` (implicit TLS, automatic on port 465) and `SUPPORT_EMAIL` (see [email.md](email.md)). It reads `PORT` (default `8086`), optional `JWT_ACCESS_SECRET`, and `COOKIE_NAME` (default `sd_access`) for its ADMIN-only read API. An unset `JWT_ACCESS_SECRET` leaves delivery running but makes the admin endpoint fail closed with `503`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. The Identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. Identity also exposes the service-to-service `/internal` endpoints (`X-Internal-Token`), described in `docs/identity-internal-api.md`. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
+The notification worker also requires `SMTP_HOST` and reads `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_FROM_NAME`, plus the optional `SMTP_REPLY_TO`, `SMTP_SECURE` (implicit TLS, automatic on port 465) and `SUPPORT_EMAIL` (see [email.md](email.md)). It reads `PORT` (default `8086`), optional `JWT_ACCESS_SECRET`, and `COOKIE_NAME` (default `sd_access`) for its ADMIN-only read API. Outside development a configured secret must be at least 32 random bytes and must not be a placeholder; an unset secret leaves delivery running but makes the admin endpoint fail closed with `503`. Mailpit is the local sink (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`); Gmail SMTP (`smtp.gmail.com`, port 587, STARTTLS, App Password) is the opt-in real-delivery provider. The Identity service sends password-reset email and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. Identity also exposes the service-to-service `/internal` endpoints (`X-Internal-Token`), described in `docs/identity-internal-api.md`. TLS certificate verification stays enabled; certificate revocation checking is not implemented.
 
 The maximum RabbitMQ message body size is 1 MiB and is fixed in `messaging.MaxMessageBytes`; it is not configurable in this phase. Secrets and connection strings are never logged.
 

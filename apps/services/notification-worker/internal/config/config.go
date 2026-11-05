@@ -42,7 +42,7 @@ func Load() (Config, error) {
 }
 
 func LoadFrom(loader sharedconfig.Loader) (Config, error) {
-	appEnv, err := loader.EnumFold("APP_ENV", "development", "development", "staging", "production")
+	appEnv, err := sharedconfig.LoadAppEnv(loader)
 	if err != nil {
 		return Config{}, err
 	}
@@ -132,6 +132,11 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	accessSecret, err := sharedconfig.LoadAccessSecret(loader, appEnv, false)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                           port,
 		AppEnv:                         appEnv,
@@ -148,7 +153,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		RetryDelay:                     retryDelay,
 		ReconnectMin:                   reconnectMin,
 		ReconnectMax:                   reconnectMax,
-		AccessSecret:                   loader.String("JWT_ACCESS_SECRET", ""),
+		AccessSecret:                   accessSecret,
 		CookieName:                     loader.String("COOKIE_NAME", "sd_access"),
 		ProcessedEventsRetention:       retention,
 		ProcessedEventsCleanupInterval: cleanupInterval,

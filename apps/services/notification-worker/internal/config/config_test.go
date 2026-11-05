@@ -14,6 +14,8 @@ func newLoader(values map[string]string) sharedconfig.Loader {
 			return value, true
 		}
 		switch key {
+		case "APP_ENV":
+			return "development", true
 		case "DATABASE_URL":
 			return "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable", true
 		case "SMTP_HOST":
@@ -192,6 +194,8 @@ func TestLoadFromRejectsInvalidRetryConfig(t *testing.T) {
 func TestLoadFromRequiresDatabaseURL(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		switch key {
+		case "APP_ENV":
+			return "development", true
 		case "RABBITMQ_URL":
 			return "amqp://swiftdrop:swiftdrop@rabbitmq:5672/", true
 		case "SMTP_HOST":
@@ -211,6 +215,8 @@ func TestLoadFromRequiresDatabaseURL(t *testing.T) {
 func TestLoadFromRequiresRabbitMQURL(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		switch key {
+		case "APP_ENV":
+			return "development", true
 		case "DATABASE_URL":
 			return "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable", true
 		case "SMTP_HOST":
@@ -230,6 +236,8 @@ func TestLoadFromRequiresRabbitMQURL(t *testing.T) {
 func TestLoadFromRequiresSMTPHost(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		switch key {
+		case "APP_ENV":
+			return "development", true
 		case "DATABASE_URL":
 			return "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable", true
 		case "RABBITMQ_URL":
@@ -327,5 +335,95 @@ func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 	}
 	if config.LogLevel != "warning" {
 		t.Fatalf("LogLevel = %q, want warning", config.LogLevel)
+	}
+}
+
+func TestLoadFromRequiresAppEnv(t *testing.T) {
+	tests := map[string]map[string]string{
+		"unset":      {},
+		"empty":      {"APP_ENV": ""},
+		"whitespace": {"APP_ENV": "   "},
+		"unknown":    {"APP_ENV": "local"},
+	}
+
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := values[key]
+				return value, ok
+			})
+			if _, err := LoadFrom(loader); err == nil {
+				t.Fatalf("LoadFrom() accepted APP_ENV=%q", values["APP_ENV"])
+			}
+		})
+	}
+}
+
+func TestLoadFromExplicitAppEnv(t *testing.T) {
+	for _, appEnv := range []string{"development", "staging", "production"} {
+		t.Run(appEnv, func(t *testing.T) {
+			loader := newLoader(map[string]string{
+				"APP_ENV":      appEnv,
+				"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+			})
+
+			config, err := LoadFrom(loader)
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AppEnv != appEnv {
+				t.Fatalf("AppEnv = %q, want %q", config.AppEnv, appEnv)
+			}
+		})
+	}
+}
+
+func TestLoadFromAccessSecret(t *testing.T) {
+	weak := strings.Repeat("w", sharedconfig.MinAccessSecretBytes-1)
+	valid := strings.Repeat("v", sharedconfig.MinAccessSecretBytes)
+	placeholder := "change-me-access-secret-use-32-or-more-random-characters"
+
+	tests := []struct {
+		name    string
+		appEnv  string
+		secret  string
+		want    string
+		wantErr bool
+	}{
+		{name: "development weak", appEnv: "development", secret: weak, want: weak},
+		{name: "development placeholder", appEnv: "development", secret: placeholder, want: placeholder},
+		{name: "production weak", appEnv: "production", secret: weak, wantErr: true},
+		{name: "production placeholder", appEnv: "production", secret: placeholder, wantErr: true},
+		{name: "production uppercase placeholder", appEnv: "production", secret: "CHANGEME-" + strings.Repeat("x", 40), wantErr: true},
+		{name: "production unknown short", appEnv: "production", secret: "unknown-secret", wantErr: true},
+		{name: "production 32 byte", appEnv: "production", secret: valid, want: valid},
+		{name: "production empty", appEnv: "production", secret: "", want: ""},
+		{name: "staging weak", appEnv: "staging", secret: weak, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			values := map[string]string{
+				"APP_ENV":      test.appEnv,
+				"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+			}
+			if test.secret != "" {
+				values["JWT_ACCESS_SECRET"] = test.secret
+			}
+
+			config, err := LoadFrom(newLoader(values))
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("LoadFrom() should have failed")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AccessSecret != test.want {
+				t.Fatalf("AccessSecret = %q, want %q", config.AccessSecret, test.want)
+			}
+		})
 	}
 }

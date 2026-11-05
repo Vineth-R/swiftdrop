@@ -27,9 +27,7 @@ func Load() (Config, error) {
 }
 
 func LoadFrom(loader sharedconfig.Loader) (Config, error) {
-	// No fallback: a missing, empty, or whitespace-only APP_ENV must fail
-	// startup instead of silently enabling development-only token rules.
-	appEnv, err := loader.EnumFold("APP_ENV", "", "development", "staging", "production")
+	appEnv, err := sharedconfig.LoadAppEnv(loader)
 	if err != nil {
 		return Config{}, err
 	}
@@ -53,13 +51,18 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, fmt.Errorf("load internal token: %s", problem)
 	}
 
+	accessSecret, err := sharedconfig.LoadAccessSecret(loader, appEnv, false)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:           port,
 		AppEnv:         appEnv,
 		LogLevel:       logLevel,
 		DatabaseURL:    loader.String("DATABASE_URL", ""),
 		InternalToken:  internalToken,
-		AccessSecret:   loader.String("JWT_ACCESS_SECRET", ""),
+		AccessSecret:   accessSecret,
 		CookieName:     loader.String("COOKIE_NAME", "sd_access"),
 		TrustedProxies: proxies,
 	}, nil
