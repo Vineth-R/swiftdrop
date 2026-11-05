@@ -267,8 +267,9 @@ jobs:
     name: Detect changed projects
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.filter.outputs.changes }}
-      notificationflow: ${{ steps.notificationflow.outputs.notificationflow }}
+      services: ${{ steps.matrix.outputs.services }}
+      access: ${{ steps.filter.outputs.access }}
+      notificationflow: ${{ steps.filter.outputs.notificationflow }}
     steps:
       - uses: actions/checkout@v5
 
@@ -278,49 +279,49 @@ jobs:
           filters: |
             identity:
               - 'apps/services/identity/**'
-              - 'packages/go-common/**'
+              - 'packages/**'
               - 'go.mod'
               - 'go.sum'
               - 'infra/docker/go.Dockerfile'
               - '.dockerignore'
             parcel:
               - 'apps/services/parcel/**'
-              - 'packages/go-common/**'
+              - 'packages/**'
               - 'go.mod'
               - 'go.sum'
               - 'infra/docker/go.Dockerfile'
               - '.dockerignore'
             pricing:
               - 'apps/services/pricing/**'
-              - 'packages/go-common/**'
+              - 'packages/**'
               - 'go.mod'
               - 'go.sum'
               - 'infra/docker/go.Dockerfile'
               - '.dockerignore'
             merchant:
               - 'apps/services/merchant/**'
-              - 'packages/go-common/**'
+              - 'packages/**'
               - 'go.mod'
               - 'go.sum'
               - 'infra/docker/go.Dockerfile'
               - '.dockerignore'
             realtime:
               - 'apps/services/realtime/**'
-              - 'packages/go-common/**'
+              - 'packages/**'
               - 'go.mod'
               - 'go.sum'
               - 'infra/docker/go.Dockerfile'
               - '.dockerignore'
             notification-worker:
               - 'apps/services/notification-worker/**'
-              - 'packages/go-common/**'
+              - 'packages/**'
               - 'go.mod'
               - 'go.sum'
               - 'infra/docker/go.Dockerfile'
               - '.dockerignore'
             webhook-worker:
               - 'apps/services/webhook-worker/**'
-              - 'packages/go-common/**'
+              - 'packages/**'
               - 'go.mod'
               - 'go.sum'
               - 'infra/docker/go.Dockerfile'
@@ -330,14 +331,21 @@ jobs:
               - 'infra/docker/web.Dockerfile'
               - '.dockerignore'
               - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
               - 'package.json'
-
-      # Kept separate from the service filter above: the docker/access jobs
-      # treat every key in `filter.outputs.changes` as a buildable service.
-      - uses: dorny/paths-filter@v3
-        id: notificationflow
-        with:
-          filters: |
+              - 'nx.json'
+              - 'tsconfig.base.json'
+              - 'tsconfig.json'
+              - 'apps/web-e2e/package.json'
+            access:
+              - 'docker-compose.yml'
+              - 'infra/nginx/**'
+              - 'infra/docker/postgres/**'
+              - 'migrations/**'
+              - 'tests/access/**'
+              - 'Makefile'
+              - 'scripts/migrate.sh'
+              - '.env.example'
             notificationflow:
               - 'apps/services/notification-worker/**'
               - 'packages/go-common/**'
@@ -348,9 +356,19 @@ jobs:
               - 'infra/docker/go.Dockerfile'
               - 'scripts/migrate.sh'
               - 'Makefile'
+              - '.env.example'
               - 'go.mod'
               - 'go.sum'
               - '.github/workflows/ci.yml'
+
+      - name: Separate Docker services from access-only changes
+        id: matrix
+        env:
+          CHANGED: ${{ steps.filter.outputs.changes }}
+        run: |
+          set -euo pipefail
+          services="$(jq -c '[.[] | select(. != "access") | select(. != "notificationflow")]' <<< "${CHANGED:-[]}")"
+          echo "services=${services}" >> "$GITHUB_OUTPUT"
 
   docker:
     name: Docker build (${{ matrix.service }})
@@ -396,7 +414,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: changes
-    if: needs.changes.outputs.services != '[]' && needs.changes.outputs.services != ''
+    if: needs.changes.outputs.access == 'true' || (needs.changes.outputs.services != '[]' && needs.changes.outputs.services != '')
     steps:
       - uses: actions/checkout@v5
 
