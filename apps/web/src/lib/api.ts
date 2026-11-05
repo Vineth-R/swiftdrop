@@ -18,7 +18,7 @@
  * the public surface the screens already import.
  */
 
-import { ApiError, readError, type ApiIssue } from './api-errors';
+import { ApiError, readError, type ErrorEnvelope } from './api-errors';
 import { send, type RequestOptions } from './http';
 import { emitSessionExpired } from './session-events';
 
@@ -46,10 +46,6 @@ export type ApiMeta = {
 };
 
 type Envelope<T> = { data: T; meta?: ApiMeta };
-type ErrorEnvelope = {
-  error?: { code?: string; message?: string; details?: ApiIssue[] };
-  meta?: { requestId?: string };
-};
 
 let renewal: Promise<boolean> | null = null;
 

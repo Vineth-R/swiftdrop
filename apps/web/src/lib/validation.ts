@@ -65,7 +65,7 @@ export function validateInternationalPhone(value: string): string | undefined {
 export function validateNewPassword(value: string): string | undefined {
   return checkPassword(value).isValid
     ? undefined
-    : 'Use 8 to 72 characters (maximum 72 bytes) with an upper case letter, a lower case letter and a digit.';
+    : 'Use at least 8 characters (and no more than 72 bytes) with an upper case letter, a lower case letter and a digit.';
 }
 
 export function validateConfirmation(

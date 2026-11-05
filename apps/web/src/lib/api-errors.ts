@@ -92,7 +92,7 @@ export class ApiError extends Error {
   }
 }
 
-type ErrorEnvelope = {
+export type ErrorEnvelope = {
   error?: { code?: string; message?: string; details?: ApiIssue[] };
   meta?: { requestId?: string };
 };

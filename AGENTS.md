@@ -359,7 +359,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
   TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' go test -tags=integration ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/...
   ```
 - `pnpm exec nx lint @org/web` and `pnpm exec nx build @org/web` are valid. `pnpm exec nx serve @org/web` is not; use `dev` or `start`.
-- The CI frontend command is `pnpm exec nx run-many -t lint typecheck build --projects=@org/web,@org/web-e2e`. Nx runs only targets that are configured for each project.
+- The CI frontend job runs the design-lint and API-client Node tests, `pnpm exec nx test @org/web`, `pnpm exec nx typecheck @org/web`, `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and `pnpm exec nx typecheck @org/web-e2e`. Nx runs only targets that are configured for each project.
 - CI runs Playwright E2E for Chromium only with `pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"`. The Playwright config still defines Firefox and WebKit projects for local use.
 - Run `pnpm exec prettier --write` and `pnpm exec prettier --check` on changed documentation and frontend files. Prettier ignores the third-party skill directories.
 
