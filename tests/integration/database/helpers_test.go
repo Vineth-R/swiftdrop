@@ -291,8 +291,8 @@ func indexDefinition(t *testing.T, ctx context.Context, conn *pgx.Conn, index st
 	err := conn.QueryRow(ctx, `
 		SELECT
 			ARRAY(
-				SELECT a.attname
-				FROM unnest(i.indkey) WITH ORDINALITY AS key(attnum, ord)
+				SELECT a.attname::text
+				FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS key(attnum, ord)
 				JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = key.attnum
 				ORDER BY key.ord
 			),
