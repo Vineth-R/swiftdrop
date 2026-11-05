@@ -518,7 +518,7 @@ jobs:
 
       - name: Build Go service image
         if: matrix.service != 'web'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/go.Dockerfile
@@ -532,7 +532,7 @@ jobs:
 
       - name: Build web image
         if: matrix.service == 'web'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/web.Dockerfile
