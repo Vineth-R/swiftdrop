@@ -54,6 +54,7 @@ type State =
   | ({ status: 'ready' } & Loaded);
 
 const INTRO = 'Parcel volumes and delivery outcomes for the dates you choose.';
+const PRESET_DAYS = [7, 14, 30, 90] as const;
 const DAILY_PAGE_SIZE = 15;
 const rangeRules: FormRules<DateRange> = {
   from: (values) => validateRange(values).from,
@@ -175,6 +176,14 @@ function ReportsContent() {
     load(initial);
   }
 
+  function choosePreset(days: number) {
+    const next = defaultRange(days);
+    setValue('from', next.from);
+    setValue('to', next.to);
+    resetValidation();
+    load(next);
+  }
+
   // A server-side 403 means this person may not read reports, even if the
   // session role says otherwise. Show the same no-permission state as
   // RequireRole and do not offer another request.
@@ -227,6 +236,23 @@ function ReportsContent() {
             {state.status === 'loading' ? 'Loading' : 'Apply range'}
           </Button>
         </form>
+        <div
+          role="group"
+          aria-label="Quick ranges"
+          className="flex flex-wrap gap-2"
+        >
+          {PRESET_DAYS.map((days) => (
+            <Button
+              key={days}
+              variant="secondary"
+              size="lg"
+              isDisabled={state.status === 'loading'}
+              onClick={() => choosePreset(days)}
+            >
+              Last {days} days
+            </Button>
+          ))}
+        </div>
       </Section>
 
       {state.status === 'loading' && <ReportsSkeleton />}
@@ -399,7 +425,8 @@ function ReportsReady({ daily, outcomes }: Loaded) {
   const { totals } = outcomes;
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(daily.length / DAILY_PAGE_SIZE));
-  const visibleDays = daily.slice(
+  const newestFirst = [...daily].sort((a, b) => b.date.localeCompare(a.date));
+  const visibleDays = newestFirst.slice(
     (page - 1) * DAILY_PAGE_SIZE,
     page * DAILY_PAGE_SIZE,
   );

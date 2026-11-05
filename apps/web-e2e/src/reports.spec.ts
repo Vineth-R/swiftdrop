@@ -66,7 +66,26 @@ test('an administrator sees outcomes, the chart and the daily table', async ({
   ).toBeVisible();
   await expect(page.getByText('Tallest day: 46.')).toBeVisible();
 });
+test('a quick range button loads that many days ending today', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(daily),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+  await expect(page.getByText('94.37%')).toBeVisible();
 
+  const request = page.waitForRequest((candidate) => {
+    const url = new URL(candidate.url());
+    if (!url.pathname.endsWith('/reports/daily')) return false;
+    const from = Date.parse(`${url.searchParams.get('from')}T00:00:00Z`);
+    const to = Date.parse(`${url.searchParams.get('to')}T00:00:00Z`);
+    return (to - from) / 86_400_000 === 6;
+  });
+  await page.getByRole('button', { name: 'Last 7 days' }).click();
+  await request;
+});
 test('a long daily table is split into pages', async ({ page }) => {
   const longDaily = Array.from({ length: 40 }, (_, index) => ({
     date: new Date(Date.UTC(2026, 9, 1 + index)).toISOString().slice(0, 10),
@@ -85,9 +104,11 @@ test('a long daily table is split into pages', async ({ page }) => {
   await expect(page.getByText('Page 1 of 3')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Previous' })).toBeDisabled();
 
+  await expect(table.getByRole('row').nth(1)).toContainText('9 Nov 2026');
+
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByText('Page 2 of 3')).toBeVisible();
-  await expect(table.getByRole('cell', { name: '16 Oct 2026' })).toBeVisible();
+  await expect(table.getByRole('cell', { name: '25 Oct 2026' })).toBeVisible();
 });
 test('each day of the chart has its numbers as a tooltip', async ({ page }) => {
   await signInAs(page, 'ADMIN', {
