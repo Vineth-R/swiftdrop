@@ -27,7 +27,9 @@ func Load() (Config, error) {
 }
 
 func LoadFrom(loader sharedconfig.Loader) (Config, error) {
-	appEnv, err := loader.EnumFold("APP_ENV", "development", "development", "staging", "production")
+	// No fallback: a missing, empty, or whitespace-only APP_ENV must fail
+	// startup instead of silently enabling development-only token rules.
+	appEnv, err := loader.EnumFold("APP_ENV", "", "development", "staging", "production")
 	if err != nil {
 		return Config{}, err
 	}

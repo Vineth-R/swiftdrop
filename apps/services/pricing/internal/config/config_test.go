@@ -7,8 +7,11 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
-func TestLoadFromDefaults(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(string) (string, bool) {
+func TestLoadFromExplicitDevelopmentDefaults(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		if key == "APP_ENV" {
+			return "development", true
+		}
 		return "", false
 	})
 
@@ -28,6 +31,29 @@ func TestLoadFromDefaults(t *testing.T) {
 	}
 	if config.Addr() != ":8083" {
 		t.Fatalf("Addr() = %q, want :8083", config.Addr())
+	}
+}
+
+func TestLoadFromRequiresExplicitAppEnv(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{name: "unset"},
+		{name: "empty", values: map[string]string{"APP_ENV": ""}},
+		{name: "whitespace", values: map[string]string{"APP_ENV": "   "}},
+		{name: "unknown", values: map[string]string{"APP_ENV": "local"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := test.values[key]
+				return value, ok
+			})
+			if _, err := LoadFrom(loader); err == nil {
+				t.Fatal("LoadFrom() should fail without an explicit valid APP_ENV")
+			}
+		})
 	}
 }
 
@@ -82,27 +108,34 @@ func TestLoadFromInternalTokenValidation(t *testing.T) {
 	placeholder := "change-me-internal-token"
 
 	for _, test := range []struct {
-		name      string
-		appEnv    string
-		value     string
-		wantToken string
-		wantError bool
+		name       string
+		appEnv     string
+		envPresent bool
+		value      string
+		wantToken  string
+		wantError  bool
 	}{
-		{name: "development unset", appEnv: "development"},
-		{name: "development too short", appEnv: "development", value: strings.Repeat("d", sharedconfig.MinInternalTokenLength-1)},
-		{name: "development minimum", appEnv: "development", value: validDevelopment, wantToken: validDevelopment},
-		{name: "development placeholder", appEnv: "development", value: placeholder, wantToken: placeholder},
-		{name: "production valid", appEnv: "production", value: validNonDevelopment, wantToken: validNonDevelopment},
-		{name: "production placeholder", appEnv: "production", value: placeholder, wantError: true},
-		{name: "production too short", appEnv: "production", value: validDevelopment, wantError: true},
-		{name: "production unset", appEnv: "production", wantError: true},
-		{name: "staging too short", appEnv: "staging", value: validDevelopment, wantError: true},
+		{name: "unset APP_ENV placeholder", envPresent: false, value: placeholder, wantError: true},
+		{name: "empty APP_ENV placeholder", appEnv: "", envPresent: true, value: placeholder, wantError: true},
+		{name: "whitespace APP_ENV placeholder", appEnv: "   ", envPresent: true, value: placeholder, wantError: true},
+		{name: "unknown APP_ENV", appEnv: "local", envPresent: true, value: validNonDevelopment, wantError: true},
+		{name: "explicit development unset", appEnv: "development", envPresent: true},
+		{name: "explicit development too short", appEnv: "development", envPresent: true, value: strings.Repeat("d", sharedconfig.MinInternalTokenLength-1)},
+		{name: "explicit development minimum", appEnv: "development", envPresent: true, value: validDevelopment, wantToken: validDevelopment},
+		{name: "explicit development placeholder", appEnv: "development", envPresent: true, value: placeholder, wantToken: placeholder},
+		{name: "explicit staging placeholder", appEnv: "staging", envPresent: true, value: placeholder, wantError: true},
+		{name: "explicit staging valid", appEnv: "staging", envPresent: true, value: validNonDevelopment, wantToken: validNonDevelopment},
+		{name: "explicit staging too short", appEnv: "staging", envPresent: true, value: validDevelopment, wantError: true},
+		{name: "explicit production placeholder", appEnv: "production", envPresent: true, value: placeholder, wantError: true},
+		{name: "explicit production valid", appEnv: "production", envPresent: true, value: validNonDevelopment, wantToken: validNonDevelopment},
+		{name: "explicit production too short", appEnv: "production", envPresent: true, value: validDevelopment, wantError: true},
+		{name: "explicit production unset", appEnv: "production", envPresent: true, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 				switch key {
 				case "APP_ENV":
-					return test.appEnv, true
+					return test.appEnv, test.envPresent
 				case "INTERNAL_TOKEN":
 					return test.value, test.value != ""
 				default:

@@ -33,8 +33,10 @@ func TestLoadInternalToken(t *testing.T) {
 		{name: "only spaces", values: map[string]string{"INTERNAL_TOKEN": "     "}, appEnv: "production", wantProblem: "INTERNAL_TOKEN is not set"},
 		{name: "too short development", values: map[string]string{"INTERNAL_TOKEN": "short-secret"}, appEnv: "development", wantProblem: "INTERNAL_TOKEN is shorter than 16 characters"},
 		{name: "too short non-development", values: map[string]string{"INTERNAL_TOKEN": valid}, appEnv: "production", wantProblem: "INTERNAL_TOKEN must be at least 32 bytes outside development"},
-		{name: "placeholder non-development", values: map[string]string{"INTERNAL_TOKEN": placeholder}, appEnv: "staging", wantProblem: "INTERNAL_TOKEN must not be the example placeholder outside development"},
-		{name: "valid non-development", values: map[string]string{"INTERNAL_TOKEN": validNonDevelopment}, appEnv: "production", wantToken: validNonDevelopment},
+		{name: "placeholder staging", values: map[string]string{"INTERNAL_TOKEN": placeholder}, appEnv: "staging", wantProblem: "INTERNAL_TOKEN must not be the example placeholder outside development"},
+		{name: "placeholder production", values: map[string]string{"INTERNAL_TOKEN": placeholder}, appEnv: "production", wantProblem: "INTERNAL_TOKEN must not be the example placeholder outside development"},
+		{name: "valid staging", values: map[string]string{"INTERNAL_TOKEN": validNonDevelopment}, appEnv: "staging", wantToken: validNonDevelopment},
+		{name: "valid production", values: map[string]string{"INTERNAL_TOKEN": validNonDevelopment}, appEnv: "production", wantToken: validNonDevelopment},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

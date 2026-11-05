@@ -27,6 +27,7 @@ func TestLoadInternalToken(t *testing.T) {
 		wantProblem string
 	}{
 		{name: "empty token", appEnv: "development", wantProblem: "INTERNAL_TOKEN is not set"},
+		{name: "empty app environment", value: placeholder, appEnv: "", wantProblem: "INTERNAL_TOKEN must not be the example placeholder outside development"},
 		{name: "whitespace token", value: "   ", appEnv: "production", wantProblem: "INTERNAL_TOKEN is not set"},
 		{name: "valid development token", value: validDevelopment, appEnv: "development", wantToken: validDevelopment},
 		{name: "development keeps example placeholder", value: placeholder, appEnv: "development", wantToken: placeholder},

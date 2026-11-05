@@ -1,7 +1,9 @@
 name: swiftdrop
 
 x-app-env: &app-env
-  APP_ENV: ${APP_ENV:-development}
+  # Do not inject a development fallback. Identity and pricing require an
+  # explicit APP_ENV and refuse to start when it is missing, empty, or whitespace.
+  APP_ENV: ${APP_ENV:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
 x-go-build: &go-build

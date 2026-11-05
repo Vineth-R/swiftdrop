@@ -87,7 +87,7 @@ cp .env.example .env
 pnpm install --frozen-lockfile
 ```
 
-`.env.example` contains safe local placeholders only. Do not commit `.env`, credentials, private keys, or production secrets. Docker Compose reads `.env` automatically. Go services read process environment variables directly and do not load `.env`; export it before running a service or worker on the host.
+`.env.example` contains safe local placeholders only. Set `APP_ENV` explicitly to `development`, `staging`, or `production`; identity and pricing refuse to start without it. Do not commit `.env`, credentials, private keys, or production secrets. Docker Compose reads `.env` automatically. Go services read process environment variables directly and do not load `.env`; export it before running a service or worker on the host.
 
 The template documents every variable currently used: PostgreSQL, RabbitMQ, gateway, Mailpit, Gmail SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`), pool overrides, and the M4 pricing/tracking settings (`HTTP_TRUSTED_PROXIES` for Pricing and Parcel, plus `INTERNAL_TOKEN`, `JWT_ACCESS_SECRET` and `COOKIE_NAME` for Pricing). It also includes identity settings (`JWT_REFRESH_SECRET`, token TTLs, cookie names and flags, Google OAuth client settings, `FRONTEND_BASE_URL`). In development, an unset or shorter-than-16-character `INTERNAL_TOKEN` keeps the internal endpoints fail-closed. Outside development, identity and pricing refuse to start unless the token is at least 32 random bytes and is not a placeholder. Never commit real credentials.
 

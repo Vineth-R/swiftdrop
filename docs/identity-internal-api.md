@@ -107,6 +107,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 If `.env` already has an `INTERNAL_TOKEN=` line, edit that line instead of appending a second one.
 Share the value with the team privately (never in git, chat history for the repo, an issue or a PR).
 Rules: development requires at least 16 characters; staging and production require at least 32 random bytes and must not use the example placeholder. One value applies to the whole Compose stack.
+`APP_ENV` must be set explicitly to `development`, `staging`, or `production`; identity and pricing refuse to start when it is missing, empty, or whitespace.
 
 **3.2 Identity** already receives it (`docker-compose.yml`, `identity` service, line
 `INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}`). Nothing to do. In development, a missing or shorter-than-16
