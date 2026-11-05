@@ -331,6 +331,7 @@ func TestRequiredGateRejectsFailedOrCancelledDockerAndAccessJobs(t *testing.T) {
 		"CHANGES_RESULT":          "success",
 		"DOCKER_RESULT":           "success",
 		"ACCESS_RESULT":           "success",
+		"SECURITY_GATE_RESULT":    "success",
 		"NOTIFICATIONFLOW_RESULT": "success",
 	}
 
@@ -371,6 +372,57 @@ func TestRequiredGateRejectsFailedOrCancelledDockerAndAccessJobs(t *testing.T) {
 			}
 			if test.wantErr && !strings.Contains(output, strings.ToLower(strings.TrimSuffix(test.result, "_RESULT"))) {
 				t.Fatalf("gate failure did not identify %s:\n%s", test.result, output)
+			}
+		})
+	}
+}
+
+func TestSecurityGateRejectsFailedSecurityJobs(t *testing.T) {
+	workflow := readCIWorkflow(t)
+	script := extractRunScript(t, workflowJob(t, workflow, "security-gate"))
+
+	successes := map[string]string{
+		"GO_SECURITY_RESULT":       "success",
+		"FRONTEND_SECURITY_RESULT": "success",
+		"SECRET_SECURITY_RESULT":   "success",
+		"SAST_RESULT":              "success",
+		"DOCKER_RESULT":            "skipped",
+	}
+
+	tests := []struct {
+		name    string
+		result  string
+		value   string
+		wantErr bool
+	}{
+		{name: "all security jobs pass", result: "", value: ""},
+		{name: "go security failure", result: "GO_SECURITY_RESULT", value: "failure", wantErr: true},
+		{name: "go security cancelled", result: "GO_SECURITY_RESULT", value: "cancelled", wantErr: true},
+		{name: "frontend security failure", result: "FRONTEND_SECURITY_RESULT", value: "failure", wantErr: true},
+		{name: "secret security failure", result: "SECRET_SECURITY_RESULT", value: "failure", wantErr: true},
+		{name: "sast failure", result: "SAST_RESULT", value: "failure", wantErr: true},
+		{name: "sast cancelled", result: "SAST_RESULT", value: "cancelled", wantErr: true},
+		{name: "docker success", result: "DOCKER_RESULT", value: "success"},
+		{name: "docker failure", result: "DOCKER_RESULT", value: "failure", wantErr: true},
+		{name: "docker cancelled", result: "DOCKER_RESULT", value: "cancelled", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results := make(map[string]string, len(successes))
+			for key, value := range successes {
+				results[key] = value
+			}
+			if test.result != "" {
+				results[test.result] = test.value
+			}
+
+			output, err := runGateScript(t, script, results)
+			if test.wantErr && err == nil {
+				t.Fatalf("security gate accepted %s=%s:\n%s", test.result, test.value, output)
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("security gate rejected %s=%s: %v\n%s", test.result, test.value, err, output)
 			}
 		})
 	}
