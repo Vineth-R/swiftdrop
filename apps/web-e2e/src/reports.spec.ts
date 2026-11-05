@@ -66,6 +66,21 @@ test('an administrator sees outcomes, the chart and the daily table', async ({
   ).toBeVisible();
   await expect(page.getByText('Tallest day: 46.')).toBeVisible();
 });
+test('each day of the chart has its numbers as a tooltip', async ({ page }) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(daily),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+
+  const chart = page.getByRole('img', {
+    name: /Bar chart of delivered and failed parcels/,
+  });
+  await expect(chart.locator('title')).toHaveCount(2);
+  await expect(chart.locator('title').first()).toHaveText(
+    '1 Nov 2026: 42 created, 35 delivered, 3 failed, 92% success',
+  );
+});
 
 test('an all-in-progress range says that nothing finished', async ({
   page,
@@ -96,7 +111,9 @@ test('an all-in-progress range says that nothing finished', async ({
     name: /No parcels finished in this range/,
   });
   await expect(chart).toBeVisible();
-  await expect(chart.locator('rect')).toHaveCount(0);
+  await expect(
+    chart.locator('rect.fill-success, rect.fill-danger'),
+  ).toHaveCount(0);
   await expect(page.getByText(/tallest day has 1 finished/i)).toHaveCount(0);
   await expect(
     page.getByRole('table', { name: 'Daily parcels' }).getByRole('row'),

@@ -449,7 +449,7 @@ function ReportsReady({ daily, outcomes }: Loaded) {
 
       <Section
         title="Daily parcels"
-        description="Each count is placed on the day it happened: created, delivered or failed."
+        description="Delivered and failed parcels, each placed on the day it happened. Created counts are in the table below."
       >
         <DailyChart rows={daily} />
         <DataTable
