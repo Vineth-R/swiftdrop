@@ -130,6 +130,7 @@ func TestAdminPricingContracts(t *testing.T) {
 		name, method, path, body string
 		role                     auth.Role
 		status                   int
+		field                    string
 	}{
 		{name: "anonymous", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test"}`, status: 401},
 		{name: "customer denied", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test"}`, role: auth.RoleCustomer, status: 403},
@@ -143,7 +144,12 @@ func TestAdminPricingContracts(t *testing.T) {
 		{name: "list zones", method: "GET", path: "/admin/zones", role: auth.RoleAdmin, status: 200},
 		{name: "list zones pagination", method: "GET", path: "/admin/zones?pageSize=101", role: auth.RoleAdmin, status: 422},
 		{name: "list zones filter", method: "GET", path: "/admin/zones?isActive=maybe", role: auth.RoleAdmin, status: 422},
+		{name: "list zones active filter", method: "GET", path: "/admin/zones?isActive=true", role: auth.RoleAdmin, status: 200},
+		{name: "list zones origin filter", method: "GET", path: "/admin/zones?originZoneId=" + testOrigin, role: auth.RoleAdmin, status: 422, field: "originZoneId"},
+		{name: "list zones destination filter", method: "GET", path: "/admin/zones?destinationZoneId=" + testDestination, role: auth.RoleAdmin, status: 422, field: "destinationZoneId"},
 		{name: "list rules", method: "GET", path: "/admin/pricing/rules", role: auth.RoleAdmin, status: 200},
+		{name: "list rules filters", method: "GET", path: "/admin/pricing/rules?originZoneId=" + testOrigin + "&destinationZoneId=" + testDestination + "&isActive=true", role: auth.RoleAdmin, status: 200},
+		{name: "list bands active filter", method: "GET", path: "/admin/pricing/bands?isActive=true", role: auth.RoleAdmin, status: 200},
 		{name: "pagination", method: "GET", path: "/admin/pricing/rules?pageSize=101", role: auth.RoleAdmin, status: 422},
 		{name: "surcharge", method: "PUT", path: "/admin/pricing/surcharges/SMALL", body: `{"surcharge":0}`, role: auth.RoleAdmin, status: 200},
 		{name: "negative fee", method: "POST", path: "/admin/pricing/rules", body: `{"originZoneId":"` + testOrigin + `","destinationZoneId":"` + testDestination + `","baseFee":-1}`, role: auth.RoleAdmin, status: 422},
@@ -162,6 +168,22 @@ func TestAdminPricingContracts(t *testing.T) {
 			router.ServeHTTP(recorder, request)
 			if recorder.Code != test.status {
 				t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+			}
+			if test.field != "" {
+				var response struct {
+					Error struct {
+						Code    string `json:"code"`
+						Details []struct {
+							Field string `json:"field"`
+						} `json:"details"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+					t.Fatalf("decode error response: %v; body %s", err, recorder.Body.String())
+				}
+				if response.Error.Code != "VALIDATION_ERROR" || len(response.Error.Details) == 0 || response.Error.Details[0].Field != test.field {
+					t.Fatalf("error response %s, want field %q", recorder.Body.String(), test.field)
+				}
 			}
 		})
 	}

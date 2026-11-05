@@ -252,6 +252,14 @@ func (h *pricingHandler) list(kind string) gin.HandlerFunc {
 				*item.target = parsed
 			}
 		}
+		if kind == "zones" {
+			for _, key := range []string{"originZoneId", "destinationZoneId"} {
+				if _, exists := c.GetQuery(key); exists {
+					h.failure(c, &pricing.Invalid{Field: key, Issue: "is not supported for zones"})
+					return
+				}
+			}
+		}
 		for _, id := range []string{filter.Origin, filter.Destination} {
 			if id != "" && !pricing.ValidID(id) {
 				h.failure(c, &pricing.Invalid{Field: "zoneId", Issue: "must be a UUID"})
