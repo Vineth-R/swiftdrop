@@ -23,9 +23,13 @@ var parcelUpMigrations = []string{
 	"migrations/parcel/000001_initial_schema.up.sql",
 	"migrations/parcel/000002_tables.up.sql",
 	"migrations/parcel/000003_dispatch_foundations.up.sql",
+	"migrations/parcel/000004_price_breakdown_total.up.sql",
+	"migrations/parcel/000005_outbox_event_types.up.sql",
 }
 
 var parcelDownMigrations = []string{
+	"migrations/parcel/000005_outbox_event_types.down.sql",
+	"migrations/parcel/000004_price_breakdown_total.down.sql",
 	"migrations/parcel/000003_dispatch_foundations.down.sql",
 	"migrations/parcel/000002_tables.down.sql",
 }

@@ -24,8 +24,8 @@ func TestParcelMigrations(t *testing.T) {
 	); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 4 || dirty {
-		t.Fatalf("migration state = %d dirty=%v, want version 4 clean", version, dirty)
+	if version != 5 || dirty {
+		t.Fatalf("migration state = %d dirty=%v, want version 5 clean", version, dirty)
 	}
 	tablesToCheck := []string{
 		"parcels", "parcel_status_history", "parcel_assignments", "delivery_proofs", "outbox_events",
@@ -94,8 +94,8 @@ func TestParcelMigrations(t *testing.T) {
 	); err != nil {
 		t.Fatalf("read reapplied migration version: %v", err)
 	}
-	if version != 4 || dirty {
-		t.Fatalf("reapplied migration state = %d dirty=%v, want version 4 clean", version, dirty)
+	if version != 5 || dirty {
+		t.Fatalf("reapplied migration state = %d dirty=%v, want version 5 clean", version, dirty)
 	}
 }
 

@@ -403,6 +403,92 @@ func TestOutboxFoundation(t *testing.T) {
 	}
 }
 
+func TestOutboxMigration000005(t *testing.T) {
+	ctx, conn := newIsolatedDatabase(t)
+	applyParcelMigrations(t, ctx, conn, 5)
+
+	parcelID := insertParcel(t, ctx, conn, "PICKED_UP")
+
+	validEvents := []struct {
+		eventType  string
+		routingKey string
+	}{
+		{"parcel.created", "parcel.created"},
+		{"parcel.assigned", "parcel.assigned"},
+		{"parcel.status_changed", "parcel.status.changed"},
+		{"parcel.status_changed", "parcel.status_changed"},
+		{"parcel.created.v1", "parcel.created.v1"},
+		{"parcel.assigned.v1", "parcel.assigned.v1"},
+		{"parcel.status_changed.v1", "parcel.status_changed.v1"},
+		{"parcel.status_changed.v1", "parcel.status.changed.v1"},
+	}
+
+	for _, tc := range validEvents {
+		t.Run(tc.eventType+"_"+tc.routingKey, func(t *testing.T) {
+			eventID := newUUID(t, ctx, conn)
+			_, err := conn.Exec(ctx, `
+				INSERT INTO parcel.outbox_events (
+					id, event_type, routing_key, payload, aggregate_type, aggregate_id
+				) VALUES ($1, $2, $3, '{}'::jsonb, 'parcel', $4)`,
+				eventID, tc.eventType, tc.routingKey, parcelID)
+			if err != nil {
+				t.Fatalf("insert valid outbox event (%s, %s): %v", tc.eventType, tc.routingKey, err)
+			}
+		})
+	}
+
+	invalidEvents := []struct {
+		name       string
+		eventType  string
+		routingKey string
+	}{
+		{"mismatched_created_and_assigned", "parcel.created.v1", "parcel.assigned.v1"},
+		{"mismatched_status_and_created", "parcel.status_changed.v1", "parcel.created.v1"},
+		{"unsupported_event_type", "parcel.deleted.v1", "parcel.deleted.v1"},
+	}
+
+	for _, tc := range invalidEvents {
+		t.Run(tc.name, func(t *testing.T) {
+			eventID := newUUID(t, ctx, conn)
+			_, err := conn.Exec(ctx, `
+				INSERT INTO parcel.outbox_events (
+					id, event_type, routing_key, payload
+				) VALUES ($1, $2, $3, '{}'::jsonb)`,
+				eventID, tc.eventType, tc.routingKey)
+			assertSQLState(t, err, "23514")
+		})
+	}
+
+	var indexExists bool
+	err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE schemaname = 'parcel'
+			  AND tablename = 'parcel_assignments'
+			  AND indexname = 'idx_parcel_assignments_courier_workload'
+		)`).Scan(&indexExists)
+	if err != nil {
+		t.Fatalf("check workload index: %v", err)
+	}
+	if !indexExists {
+		t.Error("idx_parcel_assignments_courier_workload index was not created")
+	}
+
+	err = conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE schemaname = 'parcel'
+			  AND tablename = 'outbox_events'
+			  AND indexname = 'idx_outbox_events_published_cleanup'
+		)`).Scan(&indexExists)
+	if err != nil {
+		t.Fatalf("check published cleanup index: %v", err)
+	}
+	if !indexExists {
+		t.Error("idx_outbox_events_published_cleanup index was not created")
+	}
+}
+
 func TestParcelMigrationUpgradeFromBaseline(t *testing.T) {
 	ctx, conn := newIsolatedDatabase(t)
 	applyParcelMigrations(t, ctx, conn, 2)
@@ -474,19 +560,19 @@ func TestParcelMigrationUpgradeFromBaseline(t *testing.T) {
 
 func TestParcelMigrationsFullRollbackAndReapply(t *testing.T) {
 	ctx, conn := newIsolatedDatabase(t)
-	applyParcelMigrations(t, ctx, conn, 3)
+	applyParcelMigrations(t, ctx, conn, len(parcelUpMigrations))
 
 	if !tableExists(t, ctx, conn, "parcel_assignments") || !tableExists(t, ctx, conn, "outbox_events") {
 		t.Fatal("baseline tables missing after full migration")
 	}
 
-	rollbackParcelMigrations(t, ctx, conn, 2)
+	rollbackParcelMigrations(t, ctx, conn, len(parcelDownMigrations))
 
 	if tableExists(t, ctx, conn, "parcel_assignments") || tableExists(t, ctx, conn, "outbox_events") {
 		t.Fatal("baseline tables still exist after rollback")
 	}
 
-	applyParcelMigrations(t, ctx, conn, 3)
+	applyParcelMigrations(t, ctx, conn, len(parcelUpMigrations))
 
 	if !tableExists(t, ctx, conn, "parcel_assignments") || !tableExists(t, ctx, conn, "outbox_events") {
 		t.Fatal("baseline tables missing after reapply")
@@ -543,10 +629,10 @@ func TestMigrationVersionFiles(t *testing.T) {
 
 	// Each service has its own migration version table, so versions are unique
 	// per service directory rather than across the whole repository.
-	if len(services["parcel"]) != 4 {
-		t.Errorf("parcel migration version count = %d; want 4", len(services["parcel"]))
+	if len(services["parcel"]) != 5 {
+		t.Errorf("parcel migration version count = %d; want 5", len(services["parcel"]))
 	}
-	for _, version := range []string{"000001", "000002", "000003", "000004"} {
+	for _, version := range []string{"000001", "000002", "000003", "000004", "000005"} {
 		if services["parcel"][version] == nil {
 			t.Errorf("parcel migration %s is missing", version)
 		}
@@ -576,13 +662,24 @@ func TestMigrationVersionFiles(t *testing.T) {
 		}
 	}
 
+	outboxFix, err := os.ReadFile(repositoryPath("migrations/parcel/000005_outbox_event_types.up.sql"))
+	if err != nil {
+		t.Fatalf("read outbox fix migration: %v", err)
+	}
+	if !strings.Contains(string(outboxFix), "parcel.status_changed.v1") {
+		t.Error("000005_outbox_event_types does not add parcel.status_changed.v1")
+	}
+	if !strings.Contains(string(outboxFix), "idx_parcel_assignments_courier_workload") {
+		t.Error("000005_outbox_event_types does not add idx_parcel_assignments_courier_workload")
+	}
+
 	var versions []string
 	for version := range services["parcel"] {
 		versions = append(versions, version)
 	}
 	sort.Strings(versions)
-	if strings.Join(versions, ",") != "000001,000002,000003,000004" {
-		t.Errorf("parcel versions = %v; want [000001 000002 000003 000004]", versions)
+	if strings.Join(versions, ",") != "000001,000002,000003,000004,000005" {
+		t.Errorf("parcel versions = %v; want [000001 000002 000003 000004 000005]", versions)
 	}
 }
 
