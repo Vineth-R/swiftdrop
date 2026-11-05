@@ -34,6 +34,7 @@ var matrix = []accesskit.Case{
 
 	// Pricing
 	{Name: "GET /admin/pricing/rules", Method: http.MethodGet, Path: "/api/v1/admin/pricing/rules", Allowed: []auth.Role{auth.RoleAdmin}},
+	{Name: "GET /admin/zones", Method: http.MethodGet, Path: "/api/v1/admin/zones", Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "POST /admin/zones", Method: http.MethodPost, Path: "/api/v1/admin/zones", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 
 	// Notification

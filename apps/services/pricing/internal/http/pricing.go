@@ -63,6 +63,7 @@ func registerPricing(router *gin.Engine, logger *slog.Logger, options Options) e
 		}
 		admin.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleAdmin))
 	}
+	admin.GET("/zones", h.list("zones"))
 	admin.POST("/zones", h.mutate("zones", true))
 	admin.PATCH("/zones/:id", h.mutate("zones", false))
 	for _, kind := range []string{"rules", "bands"} {

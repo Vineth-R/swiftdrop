@@ -391,6 +391,70 @@ func TestPricingHTTPAdminChangesAgainstDatabase(t *testing.T) {
 		}
 	})
 
+	t.Run("admin zone list includes inactive zones, the public list does not", func(t *testing.T) {
+		recorder := admin(http.MethodPatch, "/admin/zones/"+destination, `{"isActive":false}`)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+		}
+		t.Cleanup(func() { admin(http.MethodPatch, "/admin/zones/"+destination, `{"isActive":true}`) })
+
+		type zone struct {
+			ID       string `json:"id"`
+			IsActive *bool  `json:"isActive"`
+		}
+		listed := func(path string) (zones []zone, total int) {
+			t.Helper()
+			recorder := admin(http.MethodGet, path, "")
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("%s: status %d, body %s", path, recorder.Code, recorder.Body.String())
+			}
+			var body struct {
+				Data []zone `json:"data"`
+				Meta struct {
+					Pagination struct {
+						TotalItems int `json:"totalItems"`
+					} `json:"pagination"`
+				} `json:"meta"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			return body.Data, body.Meta.Pagination.TotalItems
+		}
+
+		all, total := listed("/admin/zones")
+		if total != len(all) || total < 2 {
+			t.Fatalf("listed %d zones, total %d", len(all), total)
+		}
+		found := false
+		for _, item := range all {
+			if item.IsActive == nil {
+				t.Fatalf("zone %s has no isActive", item.ID)
+			}
+			if item.ID == destination {
+				found = true
+				if *item.IsActive {
+					t.Fatalf("zone %s should be inactive", item.ID)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("inactive zone %s is missing from %v", destination, all)
+		}
+
+		inactive, total := listed("/admin/zones?isActive=false")
+		if total != 1 || len(inactive) != 1 || inactive[0].ID != destination {
+			t.Fatalf("inactive filter: %v, total %d", inactive, total)
+		}
+		active, _ := listed("/admin/zones?isActive=true")
+		if len(active) != len(all)-1 {
+			t.Fatalf("active filter: %d zones, want %d", len(active), len(all)-1)
+		}
+		if paged, total := listed("/admin/zones?pageSize=1&page=2"); len(paged) != 1 || total != len(all) {
+			t.Fatalf("paging: %d zones, total %d", len(paged), total)
+		}
+	})
+
 	t.Run("rule change gives a new estimate", func(t *testing.T) {
 		var rule string
 		if err := conn.QueryRow(ctx, "SELECT id::text FROM pricing.pricing_rules WHERE origin_zone_id=$1 AND destination_zone_id=$2 AND is_active", origin, destination).Scan(&rule); err != nil {

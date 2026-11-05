@@ -139,6 +139,10 @@ func TestAdminPricingContracts(t *testing.T) {
 		{name: "unknown", method: "POST", path: "/admin/zones", body: `{"code":"T","name":"Test","role":"ADMIN"}`, role: auth.RoleAdmin, status: 422},
 		{name: "empty update", method: "PATCH", path: "/admin/zones/" + testOrigin, body: `{}`, role: auth.RoleAdmin, status: 422},
 		{name: "invalid identifier", method: "PATCH", path: "/admin/zones/bad", body: `{"name":"Test"}`, role: auth.RoleAdmin, status: 422},
+		{name: "list zones anonymous", method: "GET", path: "/admin/zones", status: 401},
+		{name: "list zones", method: "GET", path: "/admin/zones", role: auth.RoleAdmin, status: 200},
+		{name: "list zones pagination", method: "GET", path: "/admin/zones?pageSize=101", role: auth.RoleAdmin, status: 422},
+		{name: "list zones filter", method: "GET", path: "/admin/zones?isActive=maybe", role: auth.RoleAdmin, status: 422},
 		{name: "list rules", method: "GET", path: "/admin/pricing/rules", role: auth.RoleAdmin, status: 200},
 		{name: "pagination", method: "GET", path: "/admin/pricing/rules?pageSize=101", role: auth.RoleAdmin, status: 422},
 		{name: "surcharge", method: "PUT", path: "/admin/pricing/surcharges/SMALL", body: `{"surcharge":0}`, role: auth.RoleAdmin, status: 200},
@@ -166,6 +170,7 @@ func TestAdminPricingContracts(t *testing.T) {
 // Every admin route must refuse each non-admin role, not only the zones route.
 func TestAdminRoutesRefuseEveryNonAdminRole(t *testing.T) {
 	routes := []struct{ method, path, body string }{
+		{"GET", "/admin/zones", ""},
 		{"POST", "/admin/zones", `{"code":"T","name":"Test"}`},
 		{"PATCH", "/admin/zones/" + testOrigin, `{"name":"Test"}`},
 		{"GET", "/admin/pricing/rules", ""},

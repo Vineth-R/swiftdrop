@@ -53,7 +53,7 @@ All `/api/v1/admin/...` pricing routes require an ADMIN access token through the
 
 | Resource   | Methods and paths relative to `/api/v1`                                         |
 | ---------- | ------------------------------------------------------------------------------- |
-| Zones      | POST `/admin/zones`; PATCH `/admin/zones/{id}`                                  |
+| Zones      | GET, POST `/admin/zones`; PATCH `/admin/zones/{id}`                             |
 | Rules      | GET/POST `/admin/pricing/rules`; PATCH `/admin/pricing/rules/{id}`              |
 | Bands      | GET/POST `/admin/pricing/bands`; PATCH `/admin/pricing/bands/{id}`              |
 | Surcharges | GET `/admin/pricing/surcharges`; PUT `/admin/pricing/surcharges/{sizeCategory}` |
