@@ -16,7 +16,7 @@ RUN test -n "$SERVICE" \
     && mkdir -p /out \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/service ./apps/services/${SERVICE}
 
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN addgroup -S app && adduser -S -G app app \
     && apk add --no-cache ca-certificates tzdata
