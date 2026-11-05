@@ -1,0 +1,1324 @@
+$ TEST_DATABASE_URL=<throwaway local postgres> go test -count=1 -tags=integration -v <packages from make test-db>
+=== RUN   TestParcelDispatchSchema
+--- PASS: TestParcelDispatchSchema (53.83s)
+=== RUN   TestParcelAssignmentLifecycle
+--- PASS: TestParcelAssignmentLifecycle (4.21s)
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_CREATED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_PICKED_UP
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_IN_TRANSIT
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_OUT_FOR_DELIVERY
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_DELIVERED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_FAILED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_CREATED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_PICKED_UP
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_IN_TRANSIT
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_OUT_FOR_DELIVERY
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_DELIVERED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_FAILED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_CREATED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_PICKED_UP
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_IN_TRANSIT
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_OUT_FOR_DELIVERY
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_DELIVERED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_FAILED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_CREATED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_PICKED_UP
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_IN_TRANSIT
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_OUT_FOR_DELIVERY
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_DELIVERED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_FAILED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_CREATED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_PICKED_UP
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_IN_TRANSIT
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_OUT_FOR_DELIVERY
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_DELIVERED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_FAILED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_CREATED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_PICKED_UP
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_IN_TRANSIT
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_OUT_FOR_DELIVERY
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_DELIVERED
+=== RUN   TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_FAILED
+--- PASS: TestParcelStatusTriggerMatchesAPIMatrix (6.33s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_CREATED (0.14s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_PICKED_UP (0.06s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_IN_TRANSIT (0.05s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_OUT_FOR_DELIVERY (0.10s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_DELIVERED (0.10s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/CREATED_to_FAILED (0.11s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_CREATED (0.07s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_PICKED_UP (0.12s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_IN_TRANSIT (0.08s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_OUT_FOR_DELIVERY (0.10s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_DELIVERED (0.15s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/PICKED_UP_to_FAILED (0.09s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_CREATED (0.04s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_PICKED_UP (0.05s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_IN_TRANSIT (0.09s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_OUT_FOR_DELIVERY (0.08s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_DELIVERED (0.02s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/IN_TRANSIT_to_FAILED (0.08s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_CREATED (0.01s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_PICKED_UP (0.02s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_IN_TRANSIT (0.03s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_OUT_FOR_DELIVERY (0.04s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_DELIVERED (0.03s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/OUT_FOR_DELIVERY_to_FAILED (0.03s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_CREATED (0.02s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_PICKED_UP (0.02s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_IN_TRANSIT (0.02s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_OUT_FOR_DELIVERY (0.03s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_DELIVERED (0.06s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/DELIVERED_to_FAILED (0.04s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_CREATED (0.08s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_PICKED_UP (0.07s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_IN_TRANSIT (0.04s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_OUT_FOR_DELIVERY (0.04s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_DELIVERED (0.04s)
+    --- PASS: TestParcelStatusTriggerMatchesAPIMatrix/FAILED_to_FAILED (0.02s)
+=== RUN   TestParcelHistoryIsAppendOnly
+--- PASS: TestParcelHistoryIsAppendOnly (3.53s)
+=== RUN   TestOutboxFoundation
+--- PASS: TestOutboxFoundation (3.32s)
+=== RUN   TestParcelMigrationUpgradeFromBaseline
+--- PASS: TestParcelMigrationUpgradeFromBaseline (2.26s)
+=== RUN   TestParcelMigrationsFullRollbackAndReapply
+--- PASS: TestParcelMigrationsFullRollbackAndReapply (3.52s)
+=== RUN   TestMigrationVersionFiles
+--- PASS: TestMigrationVersionFiles (0.01s)
+=== RUN   TestPricingMigrations
+=== RUN   TestPricingMigrations/seed_data
+=== RUN   TestPricingMigrations/weight_band_boundaries
+=== RUN   TestPricingMigrations/repeated_execution_is_idempotent
+=== RUN   TestPricingMigrations/foreign_key
+=== RUN   TestPricingMigrations/unique_zone_code
+=== RUN   TestPricingMigrations/unique_active_route
+=== RUN   TestPricingMigrations/check_constraints
+=== RUN   TestPricingMigrations/overlap_exclusion
+=== RUN   TestPricingMigrations/rollback_and_reapply
+--- PASS: TestPricingMigrations (6.74s)
+    --- PASS: TestPricingMigrations/seed_data (0.12s)
+    --- PASS: TestPricingMigrations/weight_band_boundaries (0.06s)
+    --- PASS: TestPricingMigrations/repeated_execution_is_idempotent (0.05s)
+    --- PASS: TestPricingMigrations/foreign_key (0.01s)
+    --- PASS: TestPricingMigrations/unique_zone_code (0.02s)
+    --- PASS: TestPricingMigrations/unique_active_route (0.02s)
+    --- PASS: TestPricingMigrations/check_constraints (0.06s)
+    --- PASS: TestPricingMigrations/overlap_exclusion (0.03s)
+    --- PASS: TestPricingMigrations/rollback_and_reapply (3.24s)
+PASS
+ok  	github.com/Vineth-R/swiftdrop/tests/integration/database	84.507s
+=== RUN   TestPricingHTTPQuoteAgainstDatabase
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/seed_550
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/1_kg_lower_boundary
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/5_kg_upper_boundary
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/5.01_kg_next_band
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/10_kg_upper_boundary
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/10.01_kg_next_band
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/25_kg_maximum_boundary
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/size_SMALL
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/size_MEDIUM
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/size_LARGE
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/size_OVERSIZED
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/above_maximum
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/invalid_input
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/unknown_zone
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/gap_between_active_bands
+=== RUN   TestPricingHTTPQuoteAgainstDatabase/unpriced_route_takes_precedence
+--- PASS: TestPricingHTTPQuoteAgainstDatabase (40.10s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/seed_550 (2.28s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/1_kg_lower_boundary (1.49s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/5_kg_upper_boundary (0.47s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/5.01_kg_next_band (0.59s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/10_kg_upper_boundary (1.96s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/10.01_kg_next_band (0.45s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/25_kg_maximum_boundary (0.06s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/size_SMALL (0.02s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/size_MEDIUM (0.51s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/size_LARGE (0.01s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/size_OVERSIZED (0.02s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/above_maximum (1.36s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/invalid_input (0.01s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/unknown_zone (0.19s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/gap_between_active_bands (1.72s)
+    --- PASS: TestPricingHTTPQuoteAgainstDatabase/unpriced_route_takes_precedence (0.32s)
+=== RUN   TestPricingHTTPZonesAgainstDatabase
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestPricingHTTPZonesAgainstDatabase/active_zones
+=== RUN   TestPricingHTTPZonesAgainstDatabase/inactive_zones_excluded
+=== RUN   TestPricingHTTPZonesAgainstDatabase/empty_result
+=== RUN   TestPricingHTTPZonesAgainstDatabase/repository_failure
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+--- PASS: TestPricingHTTPZonesAgainstDatabase (4.41s)
+    --- PASS: TestPricingHTTPZonesAgainstDatabase/active_zones (0.01s)
+    --- PASS: TestPricingHTTPZonesAgainstDatabase/inactive_zones_excluded (0.06s)
+    --- PASS: TestPricingHTTPZonesAgainstDatabase/empty_result (0.02s)
+    --- PASS: TestPricingHTTPZonesAgainstDatabase/repository_failure (0.00s)
+=== RUN   TestPricingHTTPAdminChangesAgainstDatabase
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestPricingHTTPAdminChangesAgainstDatabase/overlapping_band_refused
+=== RUN   TestPricingHTTPAdminChangesAgainstDatabase/duplicate_zone_code_refused
+=== RUN   TestPricingHTTPAdminChangesAgainstDatabase/duplicate_route_refused
+=== RUN   TestPricingHTTPAdminChangesAgainstDatabase/touching_band_accepted_and_priced
+=== RUN   TestPricingHTTPAdminChangesAgainstDatabase/rule_change_gives_a_new_estimate
+--- PASS: TestPricingHTTPAdminChangesAgainstDatabase (6.32s)
+    --- PASS: TestPricingHTTPAdminChangesAgainstDatabase/overlapping_band_refused (0.09s)
+    --- PASS: TestPricingHTTPAdminChangesAgainstDatabase/duplicate_zone_code_refused (0.05s)
+    --- PASS: TestPricingHTTPAdminChangesAgainstDatabase/duplicate_route_refused (0.11s)
+    --- PASS: TestPricingHTTPAdminChangesAgainstDatabase/touching_band_accepted_and_priced (0.12s)
+    --- PASS: TestPricingHTTPAdminChangesAgainstDatabase/rule_change_gives_a_new_estimate (0.23s)
+=== RUN   TestQuoteContracts
+=== RUN   TestQuoteContracts/seed
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/syntax
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/trailing_JSON
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/zero_weight
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/precision
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/string_weight
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/zone
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/route
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/band
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestQuoteContracts/database
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+--- PASS: TestQuoteContracts (0.03s)
+    --- PASS: TestQuoteContracts/seed (0.00s)
+    --- PASS: TestQuoteContracts/syntax (0.00s)
+    --- PASS: TestQuoteContracts/trailing_JSON (0.01s)
+    --- PASS: TestQuoteContracts/zero_weight (0.01s)
+    --- PASS: TestQuoteContracts/precision (0.00s)
+    --- PASS: TestQuoteContracts/string_weight (0.00s)
+    --- PASS: TestQuoteContracts/zone (0.00s)
+    --- PASS: TestQuoteContracts/route (0.00s)
+    --- PASS: TestQuoteContracts/band (0.00s)
+    --- PASS: TestQuoteContracts/database (0.00s)
+=== RUN   TestInternalQuoteAuthenticationAndParity
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+=== RUN   TestInternalQuoteAuthenticationAndParity/public
+=== RUN   TestInternalQuoteAuthenticationAndParity/missing_internal_token
+=== RUN   TestInternalQuoteAuthenticationAndParity/wrong_internal_token
+=== RUN   TestInternalQuoteAuthenticationAndParity/internal
+--- PASS: TestInternalQuoteAuthenticationAndParity (0.01s)
+    --- PASS: TestInternalQuoteAuthenticationAndParity/public (0.00s)
+    --- PASS: TestInternalQuoteAuthenticationAndParity/missing_internal_token (0.00s)
+    --- PASS: TestInternalQuoteAuthenticationAndParity/wrong_internal_token (0.00s)
+    --- PASS: TestInternalQuoteAuthenticationAndParity/internal (0.00s)
+=== RUN   TestAdminPricingContracts
+=== RUN   TestAdminPricingContracts/anonymous
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/customer_denied
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/create
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/missing_name
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/null
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/unknown
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/empty_update
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/invalid_identifier
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/list_rules
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/pagination
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/surcharge
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingContracts/negative_fee
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+--- PASS: TestAdminPricingContracts (0.04s)
+    --- PASS: TestAdminPricingContracts/anonymous (0.00s)
+    --- PASS: TestAdminPricingContracts/customer_denied (0.00s)
+    --- PASS: TestAdminPricingContracts/create (0.00s)
+    --- PASS: TestAdminPricingContracts/missing_name (0.01s)
+    --- PASS: TestAdminPricingContracts/null (0.00s)
+    --- PASS: TestAdminPricingContracts/unknown (0.00s)
+    --- PASS: TestAdminPricingContracts/empty_update (0.00s)
+    --- PASS: TestAdminPricingContracts/invalid_identifier (0.00s)
+    --- PASS: TestAdminPricingContracts/list_rules (0.00s)
+    --- PASS: TestAdminPricingContracts/pagination (0.01s)
+    --- PASS: TestAdminPricingContracts/surcharge (0.00s)
+    --- PASS: TestAdminPricingContracts/negative_fee (0.00s)
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/zones_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/zones_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/zones_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/zones_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/zones/11111111-1111-4111-8111-111111111111_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/zones/11111111-1111-4111-8111-111111111111_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/zones/11111111-1111-4111-8111-111111111111_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/zones/11111111-1111-4111-8111-111111111111_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/rules_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/rules_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/rules_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/rules_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/rules_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/rules_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/rules_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/rules_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/rules/11111111-1111-4111-8111-111111111111_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/rules/11111111-1111-4111-8111-111111111111_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/rules/11111111-1111-4111-8111-111111111111_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/rules/11111111-1111-4111-8111-111111111111_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/bands_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/bands_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/bands_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/bands_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/bands_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/bands_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/bands_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/bands_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/bands/11111111-1111-4111-8111-111111111111_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/bands/11111111-1111-4111-8111-111111111111_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/bands/11111111-1111-4111-8111-111111111111_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/bands/11111111-1111-4111-8111-111111111111_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/surcharges_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/surcharges_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/surcharges_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/surcharges_DISPATCHER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PUT_/admin/pricing/surcharges/SMALL_CUSTOMER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PUT_/admin/pricing/surcharges/SMALL_MERCHANT
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PUT_/admin/pricing/surcharges/SMALL_COURIER
+=== RUN   TestAdminRoutesRefuseEveryNonAdminRole/PUT_/admin/pricing/surcharges/SMALL_DISPATCHER
+--- PASS: TestAdminRoutesRefuseEveryNonAdminRole (0.01s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/zones_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/zones_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/zones_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/zones_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/zones/11111111-1111-4111-8111-111111111111_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/zones/11111111-1111-4111-8111-111111111111_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/zones/11111111-1111-4111-8111-111111111111_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/zones/11111111-1111-4111-8111-111111111111_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/rules_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/rules_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/rules_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/rules_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/rules_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/rules_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/rules_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/rules_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/rules/11111111-1111-4111-8111-111111111111_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/rules/11111111-1111-4111-8111-111111111111_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/rules/11111111-1111-4111-8111-111111111111_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/rules/11111111-1111-4111-8111-111111111111_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/bands_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/bands_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/bands_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/bands_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/bands_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/bands_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/bands_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/POST_/admin/pricing/bands_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/bands/11111111-1111-4111-8111-111111111111_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/bands/11111111-1111-4111-8111-111111111111_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/bands/11111111-1111-4111-8111-111111111111_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PATCH_/admin/pricing/bands/11111111-1111-4111-8111-111111111111_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/surcharges_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/surcharges_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/surcharges_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/GET_/admin/pricing/surcharges_DISPATCHER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PUT_/admin/pricing/surcharges/SMALL_CUSTOMER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PUT_/admin/pricing/surcharges/SMALL_MERCHANT (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PUT_/admin/pricing/surcharges/SMALL_COURIER (0.00s)
+    --- PASS: TestAdminRoutesRefuseEveryNonAdminRole/PUT_/admin/pricing/surcharges/SMALL_DISPATCHER (0.00s)
+=== RUN   TestAdminPricingCookieAuthentication
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+--- PASS: TestAdminPricingCookieAuthentication (0.00s)
+=== RUN   TestAdminPricingRequiresConfiguredSecret
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+--- PASS: TestAdminPricingRequiresConfiguredSecret (0.00s)
+=== RUN   TestAdminPricingRejectsInvalidTokens
+=== RUN   TestAdminPricingRejectsInvalidTokens/malformed
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingRejectsInvalidTokens/wrong_issuer
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+=== RUN   TestAdminPricingRejectsInvalidTokens/expired
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (6 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (6 handlers)
+--- PASS: TestAdminPricingRejectsInvalidTokens (0.00s)
+    --- PASS: TestAdminPricingRejectsInvalidTokens/malformed (0.00s)
+    --- PASS: TestAdminPricingRejectsInvalidTokens/wrong_issuer (0.00s)
+    --- PASS: TestAdminPricingRejectsInvalidTokens/expired (0.00s)
+=== RUN   TestPublicZoneProjection
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+--- PASS: TestPublicZoneProjection (0.00s)
+=== RUN   TestPricingBodyLimit
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+--- PASS: TestPricingBodyLimit (0.02s)
+=== RUN   TestInternalZoneProjection
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /healthz                  --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Healthz (4 handlers)
+[GIN-debug] GET    /readyz                   --> github.com/Vineth-R/swiftdrop/packages/go-common/httpx.Readyz (4 handlers)
+[GIN-debug] POST   /pricing/estimate         --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /zones                    --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zones-fm (4 handlers)
+[GIN-debug] POST   /internal/pricing/quote   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).quote-fm (5 handlers)
+[GIN-debug] GET    /internal/zones/:zoneId   --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).zone-fm (5 handlers)
+[GIN-debug] POST   /admin/zones              --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/zones/:id          --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/rules      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/rules/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] POST   /admin/pricing/bands      --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] PATCH  /admin/pricing/bands/:id  --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+[GIN-debug] GET    /admin/pricing/surcharges --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).list.func1 (5 handlers)
+[GIN-debug] PUT    /admin/pricing/surcharges/:id --> github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http.(*pricingHandler).mutate.func1 (5 handlers)
+--- PASS: TestInternalZoneProjection (0.00s)
+=== RUN   TestHealthEndpoints
+--- PASS: TestHealthEndpoints (0.00s)
+PASS
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http	51.332s
+=== RUN   TestPostgresDeduplicatesConcurrentInserts
+--- PASS: TestPostgresDeduplicatesConcurrentInserts (8.11s)
+=== RUN   TestPostgresRecordsDeliveryOutcome
+--- PASS: TestPostgresRecordsDeliveryOutcome (0.84s)
+=== RUN   TestPostgresRecordDeliveredConcurrent
+--- PASS: TestPostgresRecordDeliveredConcurrent (20.84s)
+=== RUN   TestPostgresRecordFailurePreservesSentAt
+--- PASS: TestPostgresRecordFailurePreservesSentAt (5.41s)
+=== RUN   TestPostgresRecordDeliveredRollsBackWhenProcessedInsertFails
+--- PASS: TestPostgresRecordDeliveredRollsBackWhenProcessedInsertFails (0.42s)
+=== RUN   TestPostgresEnforcesLogChannelAndStatusValues
+--- PASS: TestPostgresEnforcesLogChannelAndStatusValues (0.24s)
+=== RUN   TestDeleteProcessedEventsBeforeKeepsCutoffAndNewer
+--- PASS: TestDeleteProcessedEventsBeforeKeepsCutoffAndNewer (4.48s)
+=== RUN   TestDeleteProcessedEventsBeforeEmptyTable
+--- PASS: TestDeleteProcessedEventsBeforeEmptyTable (4.07s)
+=== RUN   TestDeleteProcessedEventsBeforeReturnsStableError
+--- PASS: TestDeleteProcessedEventsBeforeReturnsStableError (6.34s)
+=== RUN   TestDeleteProcessedEventsBeforeRespectsCancellation
+--- PASS: TestDeleteProcessedEventsBeforeRespectsCancellation (3.61s)
+=== RUN   TestDeleteProcessedEventsBeforeConcurrent
+--- PASS: TestDeleteProcessedEventsBeforeConcurrent (3.16s)
+=== RUN   TestPostgresDeleteProcessedEventsBeforeUsesStrictCutoff
+--- PASS: TestPostgresDeleteProcessedEventsBeforeUsesStrictCutoff (0.00s)
+=== RUN   TestPostgresDeleteProcessedEventsBeforeReturnsZero
+--- PASS: TestPostgresDeleteProcessedEventsBeforeReturnsZero (0.00s)
+=== RUN   TestPostgresDeleteProcessedEventsBeforeWrapsError
+--- PASS: TestPostgresDeleteProcessedEventsBeforeWrapsError (0.00s)
+=== RUN   TestPostgresDeleteProcessedEventsBeforeRespectsCancellation
+--- PASS: TestPostgresDeleteProcessedEventsBeforeRespectsCancellation (0.00s)
+=== RUN   TestPostgresDeleteProcessedEventsBeforeWithoutDatabase
+--- PASS: TestPostgresDeleteProcessedEventsBeforeWithoutDatabase (0.00s)
+=== RUN   TestPostgresIsProcessed
+=== RUN   TestPostgresIsProcessed/processed
+=== RUN   TestPostgresIsProcessed/not_processed
+--- PASS: TestPostgresIsProcessed (0.00s)
+    --- PASS: TestPostgresIsProcessed/processed (0.00s)
+    --- PASS: TestPostgresIsProcessed/not_processed (0.00s)
+=== RUN   TestPostgresIsProcessedWrapsError
+--- PASS: TestPostgresIsProcessedWrapsError (0.00s)
+=== RUN   TestPostgresMarkProcessedUsesConflictSafeInsert
+--- PASS: TestPostgresMarkProcessedUsesConflictSafeInsert (0.00s)
+=== RUN   TestPostgresMarkProcessedWrapsError
+--- PASS: TestPostgresMarkProcessedWrapsError (0.00s)
+=== RUN   TestPostgresRecordDeliveredCommitsLogAndProcessedEvent
+--- PASS: TestPostgresRecordDeliveredCommitsLogAndProcessedEvent (0.00s)
+=== RUN   TestPostgresRecordDeliveredRollsBackWhenLogWriteFails
+--- PASS: TestPostgresRecordDeliveredRollsBackWhenLogWriteFails (0.00s)
+=== RUN   TestPostgresRecordDeliveredRollsBackWhenProcessedWriteFails
+--- PASS: TestPostgresRecordDeliveredRollsBackWhenProcessedWriteFails (0.00s)
+=== RUN   TestPostgresRecordDeliveredReturnsBeginAndCommitErrors
+=== RUN   TestPostgresRecordDeliveredReturnsBeginAndCommitErrors/begin
+=== RUN   TestPostgresRecordDeliveredReturnsBeginAndCommitErrors/commit
+--- PASS: TestPostgresRecordDeliveredReturnsBeginAndCommitErrors (0.00s)
+    --- PASS: TestPostgresRecordDeliveredReturnsBeginAndCommitErrors/begin (0.00s)
+    --- PASS: TestPostgresRecordDeliveredReturnsBeginAndCommitErrors/commit (0.00s)
+=== RUN   TestPostgresRecordFailureUsesOutcomeStatus
+--- PASS: TestPostgresRecordFailureUsesOutcomeStatus (0.00s)
+=== RUN   TestPostgresRecordFailureRejectsInvalidStatus
+--- PASS: TestPostgresRecordFailureRejectsInvalidStatus (0.00s)
+=== RUN   TestPostgresRecordFailureWrapsError
+--- PASS: TestPostgresRecordFailureWrapsError (0.00s)
+=== RUN   TestPostgresErrorsDoNotLeakDriverText
+=== RUN   TestPostgresErrorsDoNotLeakDriverText/lookup
+=== RUN   TestPostgresErrorsDoNotLeakDriverText/mark_processed
+=== RUN   TestPostgresErrorsDoNotLeakDriverText/delivered_begin
+=== RUN   TestPostgresErrorsDoNotLeakDriverText/delivered_log
+=== RUN   TestPostgresErrorsDoNotLeakDriverText/delivered_processed
+=== RUN   TestPostgresErrorsDoNotLeakDriverText/delivered_commit
+=== RUN   TestPostgresErrorsDoNotLeakDriverText/failure
+--- PASS: TestPostgresErrorsDoNotLeakDriverText (0.00s)
+    --- PASS: TestPostgresErrorsDoNotLeakDriverText/lookup (0.00s)
+    --- PASS: TestPostgresErrorsDoNotLeakDriverText/mark_processed (0.00s)
+    --- PASS: TestPostgresErrorsDoNotLeakDriverText/delivered_begin (0.00s)
+    --- PASS: TestPostgresErrorsDoNotLeakDriverText/delivered_log (0.00s)
+    --- PASS: TestPostgresErrorsDoNotLeakDriverText/delivered_processed (0.00s)
+    --- PASS: TestPostgresErrorsDoNotLeakDriverText/delivered_commit (0.00s)
+    --- PASS: TestPostgresErrorsDoNotLeakDriverText/failure (0.00s)
+=== RUN   TestPostgresWithoutDatabaseIsUnavailable
+=== RUN   TestPostgresWithoutDatabaseIsUnavailable/nil_store
+=== RUN   TestPostgresWithoutDatabaseIsUnavailable/nil_database
+--- PASS: TestPostgresWithoutDatabaseIsUnavailable (0.00s)
+    --- PASS: TestPostgresWithoutDatabaseIsUnavailable/nil_store (0.00s)
+    --- PASS: TestPostgresWithoutDatabaseIsUnavailable/nil_database (0.00s)
+=== RUN   TestPostgresScopesByConsumer
+--- PASS: TestPostgresScopesByConsumer (0.00s)
+PASS
+ok  	github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency	57.941s
+=== RUN   TestMaskRecipient
+=== RUN   TestMaskRecipient/email
+=== RUN   TestMaskRecipient/email_is_case_insensitive
+=== RUN   TestMaskRecipient/one_character_local_part
+=== RUN   TestMaskRecipient/unicode_local_part
+=== RUN   TestMaskRecipient/malformed_email
+=== RUN   TestMaskRecipient/missing_local_part
+=== RUN   TestMaskRecipient/missing_domain
+=== RUN   TestMaskRecipient/empty
+=== RUN   TestMaskRecipient/control_character
+=== RUN   TestMaskRecipient/sms_with_country_code
+=== RUN   TestMaskRecipient/sms_with_separators
+=== RUN   TestMaskRecipient/sms_local_format
+=== RUN   TestMaskRecipient/short_sms
+=== RUN   TestMaskRecipient/too_short_sms
+=== RUN   TestMaskRecipient/non-numeric_sms
+=== RUN   TestMaskRecipient/unexpected_channel
+--- PASS: TestMaskRecipient (0.00s)
+    --- PASS: TestMaskRecipient/email (0.00s)
+    --- PASS: TestMaskRecipient/email_is_case_insensitive (0.00s)
+    --- PASS: TestMaskRecipient/one_character_local_part (0.00s)
+    --- PASS: TestMaskRecipient/unicode_local_part (0.00s)
+    --- PASS: TestMaskRecipient/malformed_email (0.00s)
+    --- PASS: TestMaskRecipient/missing_local_part (0.00s)
+    --- PASS: TestMaskRecipient/missing_domain (0.00s)
+    --- PASS: TestMaskRecipient/empty (0.00s)
+    --- PASS: TestMaskRecipient/control_character (0.00s)
+    --- PASS: TestMaskRecipient/sms_with_country_code (0.00s)
+    --- PASS: TestMaskRecipient/sms_with_separators (0.00s)
+    --- PASS: TestMaskRecipient/sms_local_format (0.00s)
+    --- PASS: TestMaskRecipient/short_sms (0.00s)
+    --- PASS: TestMaskRecipient/too_short_sms (0.00s)
+    --- PASS: TestMaskRecipient/non-numeric_sms (0.00s)
+    --- PASS: TestMaskRecipient/unexpected_channel (0.00s)
+=== RUN   TestRepositoryListAllNewestFirst
+--- PASS: TestRepositoryListAllNewestFirst (37.17s)
+=== RUN   TestRepositoryListUsesIDTieBreaker
+--- PASS: TestRepositoryListUsesIDTieBreaker (3.08s)
+=== RUN   TestRepositoryListFiltersByStatus
+=== RUN   TestRepositoryListFiltersByStatus/PENDING
+=== RUN   TestRepositoryListFiltersByStatus/SENT
+=== RUN   TestRepositoryListFiltersByStatus/FAILED
+--- PASS: TestRepositoryListFiltersByStatus (4.03s)
+    --- PASS: TestRepositoryListFiltersByStatus/PENDING (0.05s)
+    --- PASS: TestRepositoryListFiltersByStatus/SENT (0.02s)
+    --- PASS: TestRepositoryListFiltersByStatus/FAILED (0.00s)
+=== RUN   TestRepositoryListPagination
+--- PASS: TestRepositoryListPagination (6.37s)
+=== RUN   TestRepositoryListEmptyTable
+--- PASS: TestRepositoryListEmptyTable (3.54s)
+=== RUN   TestRepositoryListRequiresDatabase
+--- PASS: TestRepositoryListRequiresDatabase (0.00s)
+=== RUN   TestRepositoryListRejectsInvalidFilters
+=== RUN   TestRepositoryListRejectsInvalidFilters/zero_limit
+=== RUN   TestRepositoryListRejectsInvalidFilters/limit_too_large
+=== RUN   TestRepositoryListRejectsInvalidFilters/negative_offset
+=== RUN   TestRepositoryListRejectsInvalidFilters/unknown_status
+--- PASS: TestRepositoryListRejectsInvalidFilters (0.00s)
+    --- PASS: TestRepositoryListRejectsInvalidFilters/zero_limit (0.00s)
+    --- PASS: TestRepositoryListRejectsInvalidFilters/limit_too_large (0.00s)
+    --- PASS: TestRepositoryListRejectsInvalidFilters/negative_offset (0.00s)
+    --- PASS: TestRepositoryListRejectsInvalidFilters/unknown_status (0.00s)
+=== RUN   TestRepositoryListHidesDriverErrors
+=== RUN   TestRepositoryListHidesDriverErrors/count
+=== RUN   TestRepositoryListHidesDriverErrors/page
+--- PASS: TestRepositoryListHidesDriverErrors (0.00s)
+    --- PASS: TestRepositoryListHidesDriverErrors/count (0.00s)
+    --- PASS: TestRepositoryListHidesDriverErrors/page (0.00s)
+=== RUN   TestValidStatus
+--- PASS: TestValidStatus (0.00s)
+PASS
+ok  	github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/notificationlog	54.664s
+=== RUN   TestLoadConfig
+--- PASS: TestLoadConfig (0.00s)
+=== RUN   TestLoadConfigMissingVariables
+=== RUN   TestLoadConfigMissingVariables/SEED_ADMIN_EMAIL
+=== RUN   TestLoadConfigMissingVariables/SEED_ADMIN_PASSWORD
+=== RUN   TestLoadConfigMissingVariables/SEED_DISPATCHER_EMAIL
+=== RUN   TestLoadConfigMissingVariables/SEED_DISPATCHER_PASSWORD
+=== RUN   TestLoadConfigMissingVariables/SEED_COURIER_1_EMAIL
+=== RUN   TestLoadConfigMissingVariables/SEED_COURIER_1_PASSWORD
+=== RUN   TestLoadConfigMissingVariables/SEED_COURIER_2_EMAIL
+=== RUN   TestLoadConfigMissingVariables/SEED_COURIER_2_PASSWORD
+=== RUN   TestLoadConfigMissingVariables/SEED_CUSTOMER_EMAIL
+=== RUN   TestLoadConfigMissingVariables/SEED_CUSTOMER_PASSWORD
+--- PASS: TestLoadConfigMissingVariables (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_ADMIN_EMAIL (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_ADMIN_PASSWORD (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_DISPATCHER_EMAIL (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_DISPATCHER_PASSWORD (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_COURIER_1_EMAIL (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_COURIER_1_PASSWORD (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_COURIER_2_EMAIL (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_COURIER_2_PASSWORD (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_CUSTOMER_EMAIL (0.00s)
+    --- PASS: TestLoadConfigMissingVariables/SEED_CUSTOMER_PASSWORD (0.00s)
+=== RUN   TestLoadConfigRejectsInvalidEmailWithoutLeakingValue
+--- PASS: TestLoadConfigRejectsInvalidEmailWithoutLeakingValue (0.00s)
+=== RUN   TestLoadConfigRejectsWeakPasswordWithoutLeakingValue
+--- PASS: TestLoadConfigRejectsWeakPasswordWithoutLeakingValue (0.00s)
+=== RUN   TestLoadConfigRejectsDuplicateEmailsWithoutLeakingValue
+--- PASS: TestLoadConfigRejectsDuplicateEmailsWithoutLeakingValue (0.00s)
+=== RUN   TestConfigValidateRejectsBlankCourierZone
+--- PASS: TestConfigValidateRejectsBlankCourierZone (0.00s)
+=== RUN   TestConfigValidateRejectsWrongRoleCounts
+--- PASS: TestConfigValidateRejectsWrongRoleCounts (0.00s)
+=== RUN   TestRunCreatesFiveUsersAndIsIdempotent
+--- PASS: TestRunCreatesFiveUsersAndIsIdempotent (40.31s)
+=== RUN   TestRunRejectsMissingOrInactiveZoneWithoutPartialUsers
+=== RUN   TestRunRejectsMissingOrInactiveZoneWithoutPartialUsers/unknown_zone
+=== RUN   TestRunRejectsMissingOrInactiveZoneWithoutPartialUsers/inactive_zone
+--- PASS: TestRunRejectsMissingOrInactiveZoneWithoutPartialUsers (10.56s)
+    --- PASS: TestRunRejectsMissingOrInactiveZoneWithoutPartialUsers/unknown_zone (4.25s)
+    --- PASS: TestRunRejectsMissingOrInactiveZoneWithoutPartialUsers/inactive_zone (6.31s)
+=== RUN   TestRunRollsBackOnCourierProfileFailure
+--- PASS: TestRunRollsBackOnCourierProfileFailure (3.57s)
+=== RUN   TestRunSkipsExistingEmailWithDifferentRole
+--- PASS: TestRunSkipsExistingEmailWithDifferentRole (3.31s)
+=== RUN   TestRunConcurrentExecutionsAreSafe
+--- PASS: TestRunConcurrentExecutionsAreSafe (2.32s)
+=== RUN   TestRunMissingConfigDoesNotTouchDatabase
+--- PASS: TestRunMissingConfigDoesNotTouchDatabase (3.39s)
+PASS
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/seed	63.826s
+=== RUN   TestMerchantAPIKey_access
+=== RUN   TestMerchantAPIKey_access/an_active_key_of_an_approved_merchant_works
+=== RUN   TestMerchantAPIKey_access/a_key_resolves_only_to_its_own_merchant
+=== RUN   TestMerchantAPIKey_access/a_revoked_key_is_refused
+=== RUN   TestMerchantAPIKey_access/a_key_of_a_suspended_merchant_is_refused
+=== RUN   TestMerchantAPIKey_access/a_key_of_a_pending_merchant_is_refused
+=== RUN   TestMerchantAPIKey_access/a_key_of_a_rejected_merchant_is_refused
+=== RUN   TestMerchantAPIKey_access/a_key_with_the_wrong_secret_is_refused
+=== RUN   TestMerchantAPIKey_access/a_key_that_was_never_issued_is_refused
+=== RUN   TestMerchantAPIKey_access/a_malformed_key_is_refused
+=== RUN   TestMerchantAPIKey_access/a_missing_key_is_refused
+=== RUN   TestMerchantAPIKey_access/revoking_one_key_leaves_the_merchant's_other_keys_working
+=== RUN   TestMerchantAPIKey_access/a_key_stops_working_the_moment_its_merchant_is_suspended
+=== RUN   TestMerchantAPIKey_access/a_key_stops_working_the_moment_it_is_revoked
+--- PASS: TestMerchantAPIKey_access (40.12s)
+    --- PASS: TestMerchantAPIKey_access/an_active_key_of_an_approved_merchant_works (0.13s)
+    --- PASS: TestMerchantAPIKey_access/a_key_resolves_only_to_its_own_merchant (0.03s)
+    --- PASS: TestMerchantAPIKey_access/a_revoked_key_is_refused (0.04s)
+    --- PASS: TestMerchantAPIKey_access/a_key_of_a_suspended_merchant_is_refused (0.01s)
+    --- PASS: TestMerchantAPIKey_access/a_key_of_a_pending_merchant_is_refused (0.02s)
+    --- PASS: TestMerchantAPIKey_access/a_key_of_a_rejected_merchant_is_refused (0.01s)
+    --- PASS: TestMerchantAPIKey_access/a_key_with_the_wrong_secret_is_refused (0.00s)
+    --- PASS: TestMerchantAPIKey_access/a_key_that_was_never_issued_is_refused (0.00s)
+    --- PASS: TestMerchantAPIKey_access/a_malformed_key_is_refused (0.01s)
+    --- PASS: TestMerchantAPIKey_access/a_missing_key_is_refused (0.00s)
+    --- PASS: TestMerchantAPIKey_access/revoking_one_key_leaves_the_merchant's_other_keys_working (0.03s)
+    --- PASS: TestMerchantAPIKey_access/a_key_stops_working_the_moment_its_merchant_is_suspended (0.20s)
+    --- PASS: TestMerchantAPIKey_access/a_key_stops_working_the_moment_it_is_revoked (0.22s)
+=== RUN   TestWriteAPIKeyErrorKeepsAuthAndInternalFailuresDistinct
+=== RUN   TestWriteAPIKeyErrorKeepsAuthAndInternalFailuresDistinct/unknown_key
+=== RUN   TestWriteAPIKeyErrorKeepsAuthAndInternalFailuresDistinct/repository_outage
+--- PASS: TestWriteAPIKeyErrorKeepsAuthAndInternalFailuresDistinct (0.00s)
+    --- PASS: TestWriteAPIKeyErrorKeepsAuthAndInternalFailuresDistinct/unknown_key (0.00s)
+    --- PASS: TestWriteAPIKeyErrorKeepsAuthAndInternalFailuresDistinct/repository_outage (0.00s)
+=== RUN   TestRepositoryErrorsUseAPIv11Codes
+=== RUN   TestRepositoryErrorsUseAPIv11Codes/not_found
+=== RUN   TestRepositoryErrorsUseAPIv11Codes/invalid_state
+=== RUN   TestRepositoryErrorsUseAPIv11Codes/unexpected
+--- PASS: TestRepositoryErrorsUseAPIv11Codes (0.00s)
+    --- PASS: TestRepositoryErrorsUseAPIv11Codes/not_found (0.00s)
+    --- PASS: TestRepositoryErrorsUseAPIv11Codes/invalid_state (0.00s)
+    --- PASS: TestRepositoryErrorsUseAPIv11Codes/unexpected (0.00s)
+=== RUN   TestMerchantIdentityRejectsMissingIdentityWithUpperCode
+--- PASS: TestMerchantIdentityRejectsMissingIdentityWithUpperCode (0.00s)
+=== RUN   TestRequireAdminIdentityUsesForbiddenCode
+--- PASS: TestRequireAdminIdentityUsesForbiddenCode (0.00s)
+=== RUN   TestValidateProfileRequestPreservesWhitespaceRequiredSemantics
+=== RUN   TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/whitespace-only_values_remain_accepted
+=== RUN   TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/empty_contact_phone
+=== RUN   TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/empty_pickup_address
+=== RUN   TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/empty_pickup_zone
+=== RUN   TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/all_empty_fields_report_in_stable_order
+--- PASS: TestValidateProfileRequestPreservesWhitespaceRequiredSemantics (0.00s)
+    --- PASS: TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/whitespace-only_values_remain_accepted (0.00s)
+    --- PASS: TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/empty_contact_phone (0.00s)
+    --- PASS: TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/empty_pickup_address (0.00s)
+    --- PASS: TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/empty_pickup_zone (0.00s)
+    --- PASS: TestValidateProfileRequestPreservesWhitespaceRequiredSemantics/all_empty_fields_report_in_stable_order (0.00s)
+=== RUN   TestHealthEndpoints
+--- PASS: TestHealthEndpoints (0.00s)
+PASS
+ok  	github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/http	40.521s
+rc=0

@@ -145,7 +145,7 @@ docker run -d --name sd-test-pg -p 127.0.0.1:5434:5432 -e POSTGRES_USER=swiftdro
 TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@127.0.0.1:5434/postgres?sslmode=disable' make coverage
 ```
 
-CI runs the same script, shows the table on the run's summary page, uploads both files as the `go-coverage` artifact and fails when a service falls below its minimum. The minimums live in `COVERAGE_MIN` (default `identity=60`, the task sheet target). Pass your own gates for a local run, for example `COVERAGE_MIN="identity=60 parcel=70" make coverage`.
+CI runs the same script, shows the table on the run's summary page, uploads both files as the `go-coverage` artifact and fails when a service falls below its minimum. The minimums live in `COVERAGE_MIN` (default `identity=60 pricing=70`, the task sheet targets). Pass your own gates for a local run, for example `COVERAGE_MIN="identity=60 pricing=70 parcel=70" make coverage`.
 
 Paste this into the pull request description of any change that adds or changes tests, filling in the real numbers from your run:
 

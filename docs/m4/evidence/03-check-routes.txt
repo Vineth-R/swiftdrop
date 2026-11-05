@@ -1,0 +1,28 @@
+$ BASE_URL=http://localhost:8088 ./scripts/check-routes.sh
+PASS  gateway health (/healthz -> 200)
+PASS  internal APIs are blocked (/internal/pricing/quote -> 404)
+PASS  ai service is a TODO (/api/v1/ai/chat -> 404)
+PASS  web frontend (/ -> 200)
+PASS  identity:auth (/api/v1/auth/probe -> upstream 404)
+PASS  identity:users (/api/v1/users/probe -> upstream 404)
+PASS  identity:admin-users (/api/v1/admin/users/probe -> upstream 401)
+PASS  notification-worker:admin-notification-logs (/api/v1/admin/notification-logs -> upstream 401)
+PASS  notification-worker:admin-notification-logs (/api/v1/admin/notification-logs/ -> upstream 401)
+PASS  identity:couriers (/api/v1/couriers/probe -> upstream 404)
+PASS  pricing:pricing (/api/v1/pricing/probe -> upstream 404)
+PASS  pricing:zones (/api/v1/zones/probe -> upstream 404)
+PASS  pricing:admin-pricing (/api/v1/admin/pricing/probe -> upstream 404)
+PASS  pricing:admin-zones (/api/v1/admin/zones/probe -> upstream 405)
+PASS  parcel:parcels (/api/v1/parcels/probe -> upstream 404)
+PASS  parcel:tracking (/api/v1/tracking/probe/probe -> upstream 404)
+PASS  parcel:dispatch (/api/v1/dispatch/probe -> upstream 404)
+PASS  parcel:admin-parcels (/api/v1/admin/parcels/probe -> upstream 404)
+PASS  parcel:courier (/api/v1/courier/probe -> upstream 404)
+PASS  parcel:reports (/api/v1/reports/probe -> upstream 404)
+PASS  merchant:merchants (/api/v1/merchants/probe -> upstream 404)
+PASS  merchant:merchant (/api/v1/merchant/orders/probe -> upstream 404)
+PASS  merchant:admin-merchants (/api/v1/admin/merchants/probe -> upstream 403)
+PASS  realtime websocket route (/ws -> 404)
+
+all route checks passed
+rc=0

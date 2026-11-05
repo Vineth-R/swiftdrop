@@ -163,6 +163,40 @@ func TestAdminPricingContracts(t *testing.T) {
 	}
 }
 
+// Every admin route must refuse each non-admin role, not only the zones route.
+func TestAdminRoutesRefuseEveryNonAdminRole(t *testing.T) {
+	routes := []struct{ method, path, body string }{
+		{"POST", "/admin/zones", `{"code":"T","name":"Test"}`},
+		{"PATCH", "/admin/zones/" + testOrigin, `{"name":"Test"}`},
+		{"GET", "/admin/pricing/rules", ""},
+		{"POST", "/admin/pricing/rules", `{"originZoneId":"` + testOrigin + `","destinationZoneId":"` + testDestination + `","baseFee":1}`},
+		{"PATCH", "/admin/pricing/rules/" + testOrigin, `{"baseFee":1}`},
+		{"GET", "/admin/pricing/bands", ""},
+		{"POST", "/admin/pricing/bands", `{"minWeightKg":1,"maxWeightKg":2,"charge":1}`},
+		{"PATCH", "/admin/pricing/bands/" + testOrigin, `{"charge":1}`},
+		{"GET", "/admin/pricing/surcharges", ""},
+		{"PUT", "/admin/pricing/surcharges/SMALL", `{"surcharge":1}`},
+	}
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range routes {
+		for _, role := range []auth.Role{auth.RoleCustomer, auth.RoleMerchant, auth.RoleCourier, auth.RoleDispatcher} {
+			t.Run(route.method+" "+route.path+" "+string(role), func(t *testing.T) {
+				request := httptest.NewRequest(route.method, route.path, strings.NewReader(route.body))
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set("Authorization", "Bearer "+adminToken(t, role))
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, request)
+				if recorder.Code != http.StatusForbidden {
+					t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+				}
+			})
+		}
+	}
+}
+
 func TestAdminPricingCookieAuthentication(t *testing.T) {
 	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
 	if err != nil {

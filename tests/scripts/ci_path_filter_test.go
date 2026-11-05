@@ -234,7 +234,9 @@ func TestCIPathFiltersKeepAccessOutOfTheDockerMatrix(t *testing.T) {
 	}
 
 	for name, patterns := range filters {
-		if name == "access" {
+		// access and notificationflow are separate non-Docker filters. Only
+		// the service filters feed the Docker build matrix.
+		if name == "access" || name == "notificationflow" {
 			continue
 		}
 		for _, pattern := range patterns {
@@ -242,6 +244,45 @@ func TestCIPathFiltersKeepAccessOutOfTheDockerMatrix(t *testing.T) {
 				t.Fatalf("Docker service filter %q must not include access-only path %q", name, pattern)
 			}
 		}
+	}
+}
+
+func TestCIPathFiltersRouteNotificationFlowChanges(t *testing.T) {
+	filters := loadCIPathFilters(t)
+	if _, ok := filters["notificationflow"]; !ok {
+		t.Fatal("workflow has no notificationflow path filter")
+	}
+
+	tests := []struct {
+		name    string
+		changed []string
+		want    bool
+	}{
+		{"notificationflow suite", []string{"tests/integration/notificationflow/harness_test.go"}, true},
+		{"notification worker source", []string{"apps/services/notification-worker/internal/worker/worker.go"}, true},
+		{"shared go package", []string{"packages/go-common/messaging/consumer.go"}, true},
+		{"notification migration", []string{"migrations/notification/000002_tables.up.sql"}, true},
+		{"postgres init", []string{"infra/docker/postgres/init/01-schemas.sql"}, true},
+		{"compose", []string{"docker-compose.yml"}, true},
+		{"makefile", []string{"Makefile"}, true},
+		{"migration script", []string{"scripts/migrate.sh"}, true},
+		{"env example", []string{".env.example"}, true},
+		{"go module", []string{"go.mod"}, true},
+		{"go dockerfile", []string{"infra/docker/go.Dockerfile"}, true},
+		{"ci workflow", []string{".github/workflows/ci.yml"}, true},
+		{"readme only", []string{"README.md"}, false},
+		{"pricing migration", []string{"migrations/pricing/000003_demo.up.sql"}, false},
+		{"access test", []string{"tests/access/matrix_test.go"}, false},
+		{"nginx config", []string{"infra/nginx/default.conf"}, false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			matched := filters.matched(test.changed)
+			if got := matched["notificationflow"]; got != test.want {
+				t.Fatalf("notificationflow filter matched = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 
@@ -281,16 +322,17 @@ func TestRequiredGateRejectsFailedOrCancelledDockerAndAccessJobs(t *testing.T) {
 	script := extractRunScript(t, workflowJob(t, workflow, "gate"))
 
 	successes := map[string]string{
-		"GO_RESULT":            "success",
-		"HYGIENE_RESULT":       "success",
-		"INTEGRATION_RESULT":   "success",
-		"DATABASE_RESULT":      "success",
-		"FRONTEND_RESULT":      "success",
-		"E2E_RESULT":           "success",
-		"CHANGES_RESULT":       "success",
-		"DOCKER_RESULT":        "success",
-		"ACCESS_RESULT":        "success",
-		"SECURITY_GATE_RESULT": "success",
+		"GO_RESULT":               "success",
+		"HYGIENE_RESULT":          "success",
+		"INTEGRATION_RESULT":      "success",
+		"DATABASE_RESULT":         "success",
+		"FRONTEND_RESULT":         "success",
+		"E2E_RESULT":              "success",
+		"CHANGES_RESULT":          "success",
+		"DOCKER_RESULT":           "success",
+		"ACCESS_RESULT":           "success",
+		"SECURITY_GATE_RESULT":    "success",
+		"NOTIFICATIONFLOW_RESULT": "success",
 	}
 
 	tests := []struct {
@@ -307,6 +349,10 @@ func TestRequiredGateRejectsFailedOrCancelledDockerAndAccessJobs(t *testing.T) {
 		{name: "access skipped", result: "ACCESS_RESULT", value: "skipped"},
 		{name: "access failure", result: "ACCESS_RESULT", value: "failure", wantErr: true},
 		{name: "access cancelled", result: "ACCESS_RESULT", value: "cancelled", wantErr: true},
+		{name: "notificationflow success", result: "NOTIFICATIONFLOW_RESULT", value: "success"},
+		{name: "notificationflow skipped", result: "NOTIFICATIONFLOW_RESULT", value: "skipped"},
+		{name: "notificationflow failure", result: "NOTIFICATIONFLOW_RESULT", value: "failure", wantErr: true},
+		{name: "notificationflow cancelled", result: "NOTIFICATIONFLOW_RESULT", value: "cancelled", wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -493,7 +539,7 @@ func globExpression(pattern string) *regexp.Regexp {
 func dockerServices(matched map[string]bool) []string {
 	services := []string{}
 	for name, changed := range matched {
-		if changed && name != "access" {
+		if changed && name != "access" && name != "notificationflow" {
 			services = append(services, name)
 		}
 	}
