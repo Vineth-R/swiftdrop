@@ -22,6 +22,7 @@ import {
   TRACKING_NUMBER_MESSAGE,
 } from '../../lib/validation';
 import { ApiProblemAlerts } from '../auth/api-problem-alerts';
+import { RateLimitedAlert } from '../auth/form-alerts';
 import { PageHeader } from '../layout/page-header';
 import { Section } from '../layout/section';
 import { Button, ButtonLink } from '../ui/button';
@@ -50,12 +51,12 @@ const rules: FormRules<{ trackingNumber: string }> = {
 };
 
 const stepTitles: Record<ParcelStatus, string> = {
-  CREATED: 'Parcel created',
-  PICKED_UP: 'Collected from the sender',
+  CREATED: 'Created',
+  PICKED_UP: 'Picked up',
   IN_TRANSIT: 'In transit',
   OUT_FOR_DELIVERY: 'Out for delivery',
   DELIVERED: 'Delivered',
-  FAILED: 'Delivery failed',
+  FAILED: 'Failed',
 };
 
 const route: ParcelStatus[] = [
@@ -87,7 +88,7 @@ function historyOf({ status, timeline }: Tracking): TimelineItem[] {
   ];
 }
 
-export function TrackView() {
+export function TrackingView() {
   return (
     <>
       {/* TODO(design-foundation): needs Breadcrumb (Home > Tracking, board page 21) */}
@@ -122,8 +123,8 @@ function TrackSearch() {
     problem?.kind === 'rate-limited' ? problem.seconds : null,
   );
   const isWaiting = problem?.kind === 'rate-limited' && remaining > 0;
-  const isBusy =
-    view.status === 'loading' || (view.status === 'found' && view.isRefreshing);
+  const isSearching = view.status === 'loading';
+  const isRefreshing = view.status === 'found' && view.isRefreshing;
 
   // Only a new address replaces the field: Refresh keeps what is being typed.
   useEffect(() => {
@@ -176,7 +177,7 @@ function TrackSearch() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isWaiting || isBusy) return;
+    if (isWaiting || isSearching || isRefreshing) return;
     if (form.validate().trackingNumber) {
       document.getElementById(FIELD_ID)?.focus();
       return;
@@ -213,15 +214,19 @@ function TrackSearch() {
           type="submit"
           size="lg"
           isFullWidth
-          isLoading={isBusy}
-          isDisabled={isWaiting}
+          isLoading={isSearching}
+          isDisabled={isWaiting || isRefreshing}
         >
-          {isBusy ? 'Tracking' : 'Track'}
+          {isSearching ? 'Tracking' : 'Track'}
         </Button>
       </form>
 
       <div aria-live="polite" className="flex flex-col gap-6">
-        <ApiProblemAlerts problem={problem} remaining={remaining} />
+        {problem?.kind === 'rate-limited' ? (
+          <RateLimitedAlert remaining={remaining} isPublic />
+        ) : (
+          <ApiProblemAlerts problem={problem} />
+        )}
 
         {view.status === 'loading' && (
           <WaybillStub
@@ -235,16 +240,19 @@ function TrackSearch() {
         )}
 
         {view.status === 'not-found' && (
-          <EmptyState
-            title="No parcel with that number"
-            action={
-              <ButtonLink href="/track" variant="secondary" size="lg">
-                Clear search
-              </ButtonLink>
-            }
-          >
-            {TRACKING_NUMBER_MESSAGE}
-          </EmptyState>
+          <Section title="Search result">
+            <EmptyState
+              title="No parcel with that number"
+              action={
+                <ButtonLink href="/track" variant="secondary" size="lg">
+                  Clear search
+                </ButtonLink>
+              }
+            >
+              We could not find a parcel with that number. Check it and try
+              again.
+            </EmptyState>
+          </Section>
         )}
 
         {view.status === 'found' && (
@@ -309,6 +317,7 @@ function Found({
         <Button variant="secondary" size="lg" onClick={copyNumber}>
           Copy number
         </Button>
+        {/* TODO(realtime): subscribe when M10's hook lands */}
         <Button
           variant="secondary"
           size="lg"

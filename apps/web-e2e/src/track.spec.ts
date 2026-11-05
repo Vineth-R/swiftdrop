@@ -80,7 +80,9 @@ test.describe('public tracking at /track', () => {
       }),
     });
     await page.goto(`/track?number=${NUMBER}`);
-    await expect(page.getByText('Delivery failed')).toBeVisible();
+    await expect(
+      page.getByRole('list', { name: 'Status history' }).getByText('Failed'),
+    ).toBeVisible();
     await expect(page.getByText('Not yet reached')).toHaveCount(0);
   });
 
@@ -126,6 +128,14 @@ test.describe('public tracking at /track', () => {
     await page.goto(`/track?number=${NUMBER}`);
     await expect(
       page.getByRole('heading', { name: 'No parcel with that number' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Search result' }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        'We could not find a parcel with that number. Check it and try again.',
+      ),
     ).toBeVisible();
     await expect(page.locator('body')).not.toContainText(SERVER_WORDS);
     await expect(page.getByText('Reference')).toHaveCount(0);
@@ -192,6 +202,7 @@ test.describe('public tracking at /track', () => {
     await expect(
       page.getByText('Too many attempts from this device'),
     ).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('account');
     await expect(track(page)).toBeDisabled();
     await expect(field(page)).toHaveValue(NUMBER);
   });
@@ -251,6 +262,7 @@ test.describe('public tracking at /track', () => {
     await expect(
       page.getByRole('button', { name: 'Refreshing' }),
     ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Tracking' })).toHaveCount(0);
     await expect(page.getByText('IN TRANSIT', { exact: true })).toBeVisible();
     await expect(
       page.getByText('OUT FOR DELIVERY', { exact: true }),
