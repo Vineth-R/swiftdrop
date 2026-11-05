@@ -119,6 +119,10 @@ func New(t *testing.T) *Database {
 	return database
 }
 
+// URL returns the isolated database connection URL. Tests that need a dedicated
+// session, such as a non-UTC timezone, can open their own connection with it.
+func (database *Database) URL() string { return database.url }
+
 // Migrate uses the same per-service migration table as scripts/migrate.sh.
 // Down rolls back one version, matching the project's migration runner.
 func (database *Database) Migrate(t *testing.T, direction string) {

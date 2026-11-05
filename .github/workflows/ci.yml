@@ -344,6 +344,7 @@ jobs:
               - 'tests/access/**'
               - 'Makefile'
               - 'scripts/migrate.sh'
+              - 'scripts/verify-db.sh'
               - '.env.example'
 
       - name: Separate Docker services from access-only changes
@@ -419,6 +420,9 @@ jobs:
 
       - name: Apply database migrations
         run: make migrate
+
+      - name: Verify database baseline
+        run: make db-verify
 
       - name: Run the access tests
         env:
@@ -525,6 +529,9 @@ jobs:
 
       - name: Apply database migrations
         run: make migrate
+
+      - name: Verify database baseline
+        run: make db-verify
 
       - name: Verify routes
         run: ./scripts/check-routes.sh

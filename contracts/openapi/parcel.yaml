@@ -2,9 +2,10 @@ openapi: 3.0.3
 info:
   title: SwiftDrop Parcel API
   version: 1.1.0
-  description: Implemented anonymous public tracking plus operational probes.
-    Parcel creation, courier and dispatch business endpoints remain planned.
-    Public tracking exposes only status, cities and timeline timestamps.
+  description: Implemented anonymous public tracking, DISPATCHER/ADMIN delivery
+    reports, and operational probes. Parcel creation, courier and dispatch
+    business endpoints remain planned. Public tracking exposes only status,
+    cities and timeline timestamps.
 servers:
   - url: /api/v1
 paths:
@@ -138,6 +139,213 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
           description: SERVICE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reports/daily:
+    get:
+      operationId: dailyReport
+      summary: Daily created, delivered and failed counts
+      description: DISPATCHER and ADMIN. Counts by event date in UTC. `created`
+        uses the parcel creation date, `delivered` the delivery date and
+        `failed` the failure date, so one parcel can appear on more than one
+        day. `from` and `to` are inclusive UTC dates. The default is the last
+        7 calendar dates (7 dates ending today UTC); the range may not exceed
+        90 days. Every date in the range is returned, including dates with no
+        parcels.
+      tags:
+        - Reports
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: One row per day in the range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - date
+                        - created
+                        - delivered
+                        - failed
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        created:
+                          type: integer
+                        delivered:
+                          type: integer
+                        failed:
+                          type: integer
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: FORBIDDEN. Only DISPATCHER and ADMIN may read reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR. Bad date, from after to, or range over 90 days.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: SERVICE_UNAVAILABLE. Authentication is not configured or the database is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reports/outcomes:
+    get:
+      operationId: outcomesReport
+      summary: Success and failure rates with top failure reasons
+      description: DISPATCHER and ADMIN. Follows parcels whose creation date is
+        in the inclusive UTC range and reports their current status, so
+        `created = delivered + failed + inProgress`. Rates are percentages of
+        finished parcels (delivered plus failed), rounded to two decimals. The
+        default is the last 30 calendar dates (30 dates ending today UTC);
+        `topFailureReasons` is limited to five entries; the range may not
+        exceed 90 days.
+      tags:
+        - Reports
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Outcome summary for the range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: object
+                    required:
+                      - from
+                      - to
+                      - totals
+                      - successRate
+                      - failureRate
+                      - topFailureReasons
+                    properties:
+                      from:
+                        type: string
+                        format: date
+                      to:
+                        type: string
+                        format: date
+                      totals:
+                        type: object
+                        required:
+                          - created
+                          - delivered
+                          - failed
+                          - inProgress
+                        properties:
+                          created:
+                            type: integer
+                          delivered:
+                            type: integer
+                          failed:
+                            type: integer
+                          inProgress:
+                            type: integer
+                      successRate:
+                        type: number
+                      failureRate:
+                        type: number
+                      topFailureReasons:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - reason
+                            - count
+                          properties:
+                            reason:
+                              type: string
+                            count:
+                              type: integer
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: FORBIDDEN. Only DISPATCHER and ADMIN may read reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR. Bad date, from after to, or range over 90 days.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: SERVICE_UNAVAILABLE. Authentication is not configured or the database is unavailable.
           content:
             application/json:
               schema:
@@ -308,3 +516,12 @@ components:
               message: internal server error
             meta:
               requestId: req_01
+  securitySchemes:
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: sd_access
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HS256 JWT

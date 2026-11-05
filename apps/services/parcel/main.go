@@ -12,6 +12,7 @@ import (
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/reports"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
@@ -61,9 +62,17 @@ func run() error {
 	} else {
 		logger.Warn("DATABASE_URL is not set; readiness will report database down")
 	}
-	options := servicehttp.Options{TrustedProxies: config.TrustedProxies}
+	options := servicehttp.Options{
+		TrustedProxies: config.TrustedProxies,
+		AccessSecret:   config.AccessSecret,
+		CookieName:     config.CookieName,
+	}
+	if config.AccessSecret == "" {
+		logger.Warn("JWT_ACCESS_SECRET is not set; the reports API will return 503")
+	}
 	if database != nil {
 		options.Tracking = tracking.NewRepository(database)
+		options.Reports = reports.NewRepository(database)
 	}
 	router, err := servicehttp.New(logger, options)
 	if err != nil {

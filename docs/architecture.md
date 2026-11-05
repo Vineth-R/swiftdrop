@@ -36,7 +36,7 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 ## Service boundaries
 
 - **Identity** owns authentication, authorization, and user accounts. It issues the access and refresh tokens for email and password login and for Google sign-in, handles password reset, user management for administrators and the courier list, and exposes two service-to-service `/internal` lookups. Profile endpoints are still planned.
-- **Parcel** owns parcel lifecycle, status, and tracking in a future phase.
+- **Parcel** owns parcel lifecycle, status, tracking, and delivery reports. Anonymous public tracking and DISPATCHER/ADMIN daily and outcome reports are implemented; lifecycle and dispatch writes remain planned.
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
@@ -119,6 +119,7 @@ HTTP services read:
 - `LOG_LEVEL`
 - `PORT`
 - optional `DATABASE_URL`; when set, services open the shared pgx pool and `/ready` reports `checks.database`. When unset, the service starts and `/ready` returns `503`.
+- Pricing and parcel also read `JWT_ACCESS_SECRET` and `COOKIE_NAME` for authenticated admin/dispatcher routes. An unset secret leaves public endpoints running but makes those routes fail closed with `503`.
 
 Workers read:
 
