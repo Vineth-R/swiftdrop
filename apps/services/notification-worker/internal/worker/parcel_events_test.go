@@ -166,6 +166,24 @@ func TestHandleParcelStatusChangedSendsStatusSpecificEmail(t *testing.T) {
 	}
 }
 
+func TestHandleParcelStatusChangedAcceptsOptionalFailureReason(t *testing.T) {
+	handler, sender, store, contacts := newDomainHandler()
+	body := parcelEnvelope(t, testEventID, ParcelStatusChangedEventType, statusData("CREATED", "PICKED_UP", "Customer requested a later delivery"))
+
+	if err := handler.Handle(context.Background(), messaging.Message{Body: body}); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if len(sender.Sent()) != 1 {
+		t.Fatalf("sent = %d emails, want 1", len(sender.Sent()))
+	}
+	if contacts.callCount() != 1 {
+		t.Errorf("contact lookups = %d, want 1", contacts.callCount())
+	}
+	if len(store.deliveredEntries()) != 1 {
+		t.Errorf("delivered entries = %d, want 1", len(store.deliveredEntries()))
+	}
+}
+
 func TestHandleParcelEventsRejectForeignProducer(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -271,6 +289,15 @@ func TestHandleParcelEventsRejectInvalidData(t *testing.T) {
 	longTracking := createdData()
 	longTracking["tracking_number"] = strings.Repeat("A", 21)
 
+	emptyCustomer := createdData()
+	emptyCustomer["customer_user_id"] = ""
+
+	emptyMerchant := createdData()
+	emptyMerchant["merchant_id"] = ""
+
+	nonFailedShortReason := statusData("CREATED", "PICKED_UP", "no")
+	nonFailedLongReason := statusData("CREATED", "PICKED_UP", strings.Repeat("r", 256))
+
 	failedLongReason := statusData("IN_TRANSIT", "FAILED", strings.Repeat("r", 256))
 
 	missingStatus := statusData("CREATED", "", "")
@@ -301,12 +328,16 @@ func TestHandleParcelEventsRejectInvalidData(t *testing.T) {
 		{name: "created invalid customer", eventType: ParcelCreatedEventType, data: badCustomer},
 		{name: "created short tracking", eventType: ParcelCreatedEventType, data: shortTracking},
 		{name: "created long tracking", eventType: ParcelCreatedEventType, data: longTracking},
+		{name: "created empty customer", eventType: ParcelCreatedEventType, data: emptyCustomer},
+		{name: "created empty merchant", eventType: ParcelCreatedEventType, data: emptyMerchant},
 		{name: "status invalid previous", eventType: ParcelStatusChangedEventType, data: badPrevious},
 		{name: "status invalid status", eventType: ParcelStatusChangedEventType, data: badStatus},
 		{name: "status missing status", eventType: ParcelStatusChangedEventType, data: missingStatus},
 		{name: "status empty status", eventType: ParcelStatusChangedEventType, data: emptyStatus},
 		{name: "status missing previous", eventType: ParcelStatusChangedEventType, data: missingPrevious},
 		{name: "status empty previous", eventType: ParcelStatusChangedEventType, data: emptyPrevious},
+		{name: "status short optional reason", eventType: ParcelStatusChangedEventType, data: nonFailedShortReason},
+		{name: "status long optional reason", eventType: ParcelStatusChangedEventType, data: nonFailedLongReason},
 		{name: "failed without reason", eventType: ParcelStatusChangedEventType, data: failedWithoutReason},
 		{name: "failed short reason", eventType: ParcelStatusChangedEventType, data: failedShortReason},
 		{name: "failed long reason", eventType: ParcelStatusChangedEventType, data: failedLongReason},

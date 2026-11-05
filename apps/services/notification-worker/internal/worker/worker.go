@@ -192,10 +192,11 @@ func (h *Handler) handleParcelCreated(ctx context.Context, envelope messaging.En
 	if err := json.Unmarshal(envelope.Data, &data); err != nil {
 		return messaging.Permanent(fmt.Errorf("decode parcel.created.v1 data: %w", err))
 	}
-	if err := validateParcelCreated(data); err != nil {
+	customerOwned, err := validateParcelCreated(data)
+	if err != nil {
 		return messaging.Permanent(err)
 	}
-	if data.MerchantID != nil {
+	if !customerOwned {
 		return h.unsupportedMerchant(ctx, envelope, strings.TrimSpace(data.ParcelID))
 	}
 	return h.notifyCustomer(
@@ -422,30 +423,33 @@ func (h *Handler) recordFailure(ctx context.Context, entry idempotency.LogEntry,
 	return nil
 }
 
-func validateParcelCreated(data parcelCreatedData) error {
+func validateParcelCreated(data parcelCreatedData) (bool, error) {
 	if !validation.UUID(strings.TrimSpace(data.ParcelID)) {
-		return errors.New("parcel_id must be a UUID")
+		return false, errors.New("parcel_id must be a UUID")
 	}
 	tracking := strings.TrimSpace(data.TrackingNumber)
 	if length := validation.RuneLength(tracking); length < 11 || length > 20 {
-		return errors.New("tracking_number must be 11 to 20 characters")
+		return false, errors.New("tracking_number must be 11 to 20 characters")
 	}
 	if data.Status != "CREATED" {
-		return errors.New("parcel.created.v1 status must be CREATED")
+		return false, errors.New("parcel.created.v1 status must be CREATED")
 	}
 
-	hasCustomer := data.CustomerUserID != nil && strings.TrimSpace(*data.CustomerUserID) != ""
-	hasMerchant := data.MerchantID != nil && strings.TrimSpace(*data.MerchantID) != ""
+	hasCustomer := data.CustomerUserID != nil
+	hasMerchant := data.MerchantID != nil
 	if hasCustomer == hasMerchant {
-		return errors.New("parcel.created.v1 must have exactly one owner")
+		return false, errors.New("parcel.created.v1 must have exactly one owner")
 	}
-	if hasCustomer && !validation.UUID(strings.TrimSpace(*data.CustomerUserID)) {
-		return errors.New("customer_user_id must be a UUID")
+	if hasCustomer {
+		if !validation.UUID(strings.TrimSpace(*data.CustomerUserID)) {
+			return false, errors.New("customer_user_id must be a UUID")
+		}
+		return true, nil
 	}
-	if hasMerchant && !validation.UUID(strings.TrimSpace(*data.MerchantID)) {
-		return errors.New("merchant_id must be a UUID")
+	if !validation.UUID(strings.TrimSpace(*data.MerchantID)) {
+		return false, errors.New("merchant_id must be a UUID")
 	}
-	return nil
+	return false, nil
 }
 
 func validateParcelStatusChanged(data parcelStatusChangedData) error {
@@ -462,10 +466,10 @@ func validateParcelStatusChanged(data parcelStatusChangedData) error {
 	if !validStatus(data.Status) {
 		return errors.New("status is not a parcel status")
 	}
-	if data.Status == "FAILED" {
-		if data.FailureReason == nil {
-			return errors.New("failure_reason is required when status is FAILED")
-		}
+	if data.Status == "FAILED" && data.FailureReason == nil {
+		return errors.New("failure_reason is required when status is FAILED")
+	}
+	if data.FailureReason != nil {
 		reason := strings.TrimSpace(*data.FailureReason)
 		if length := validation.RuneLength(reason); length < 5 || length > 255 {
 			return errors.New("failure_reason must be 5 to 255 characters")

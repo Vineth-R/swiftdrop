@@ -218,7 +218,7 @@ The internal trigger for the target flow is `parcel.status_changed.v1`; no produ
   - Webhook worker: `parcel.status_changed.v1` (target; not implemented)
   - Realtime: `parcel.assigned.v1`, `parcel.status_changed.v1` (target; not implemented)
   - Merchant integration: `parcel.status_changed.v1` (target; not implemented)
-- Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. When the target bindings are implemented, introduce new queues or an explicit migration; this task changes documentation only.
+- Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. The notification worker's parcel consumers use separate durable queues; future consumers should add new durable queues or an explicit queue migration rather than changing an existing queue's arguments.
 - Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
 - A worker routing key must not fan out to multiple worker queues. Retry re-entry preserves the original routing key.
 

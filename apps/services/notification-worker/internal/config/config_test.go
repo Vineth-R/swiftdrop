@@ -487,6 +487,70 @@ func TestLoadFromParsesIdentityAndParcelConfig(t *testing.T) {
 	}
 }
 
+func TestLoadFromValidatesDistinctNotificationRoutingKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		values       map[string]string
+		wantConflict []string
+	}{
+		{name: "all distinct"},
+		{
+			name:         "legacy equals parcel created",
+			values:       map[string]string{"NOTIFICATION_ROUTING_KEY": "parcel.created.v1"},
+			wantConflict: []string{"NOTIFICATION_ROUTING_KEY", "NOTIFICATION_PARCEL_CREATED_ROUTING_KEY"},
+		},
+		{
+			name:         "legacy equals parcel status",
+			values:       map[string]string{"NOTIFICATION_ROUTING_KEY": "parcel.status_changed.v1"},
+			wantConflict: []string{"NOTIFICATION_ROUTING_KEY", "NOTIFICATION_PARCEL_STATUS_ROUTING_KEY"},
+		},
+		{
+			name:         "parcel created equals parcel status",
+			values:       map[string]string{"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": "parcel.status_changed.v1"},
+			wantConflict: []string{"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY", "NOTIFICATION_PARCEL_STATUS_ROUTING_KEY"},
+		},
+		{
+			name: "all equal",
+			values: map[string]string{
+				"NOTIFICATION_ROUTING_KEY":                "shared.key",
+				"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": "shared.key",
+				"NOTIFICATION_PARCEL_STATUS_ROUTING_KEY":  "shared.key",
+			},
+			wantConflict: []string{"NOTIFICATION_ROUTING_KEY", "NOTIFICATION_PARCEL_CREATED_ROUTING_KEY"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			values := map[string]string{"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"}
+			for key, value := range test.values {
+				values[key] = value
+			}
+
+			config, err := LoadFrom(newLoader(values))
+			if len(test.wantConflict) == 0 {
+				if err != nil {
+					t.Fatalf("LoadFrom() returned error: %v", err)
+				}
+				if config.RoutingKey != "notification.requested.v1" ||
+					config.ParcelCreatedRoutingKey != "parcel.created.v1" ||
+					config.ParcelStatusRoutingKey != "parcel.status_changed.v1" {
+					t.Fatalf("routing keys = %q/%q/%q", config.RoutingKey, config.ParcelCreatedRoutingKey, config.ParcelStatusRoutingKey)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("LoadFrom() error = nil, want a configuration error")
+			}
+			for _, key := range test.wantConflict {
+				if !strings.Contains(err.Error(), key) {
+					t.Fatalf("error %q does not identify %s", err.Error(), key)
+				}
+			}
+		})
+	}
+}
+
 func TestLoadFromRejectsInvalidIdentityConfig(t *testing.T) {
 	tests := []struct {
 		name   string

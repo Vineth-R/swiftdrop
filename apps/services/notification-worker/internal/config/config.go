@@ -165,6 +165,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 
 	internalToken, internalTokenProblem := sharedconfig.LoadInternalToken(loader, appEnv)
 
+	routingKey := loader.String("NOTIFICATION_ROUTING_KEY", queue)
 	parcelCreatedQueue := strings.TrimSpace(loader.String("NOTIFICATION_PARCEL_CREATED_QUEUE", "notification.parcel.created.v1"))
 	parcelCreatedRoutingKey := strings.TrimSpace(loader.String("NOTIFICATION_PARCEL_CREATED_ROUTING_KEY", "parcel.created.v1"))
 	parcelStatusQueue := strings.TrimSpace(loader.String("NOTIFICATION_PARCEL_STATUS_QUEUE", "notification.parcel.status_changed.v1"))
@@ -182,8 +183,20 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	if parcelCreatedQueue == queue || parcelStatusQueue == queue || parcelCreatedQueue == parcelStatusQueue {
 		return Config{}, errors.New("notification queues must be distinct")
 	}
-	if parcelCreatedRoutingKey == parcelStatusRoutingKey {
-		return Config{}, errors.New("notification parcel routing keys must be distinct")
+	routingKeys := []struct {
+		name  string
+		value string
+	}{
+		{"NOTIFICATION_ROUTING_KEY", routingKey},
+		{"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY", parcelCreatedRoutingKey},
+		{"NOTIFICATION_PARCEL_STATUS_ROUTING_KEY", parcelStatusRoutingKey},
+	}
+	for i := range routingKeys {
+		for j := i + 1; j < len(routingKeys); j++ {
+			if routingKeys[i].value == routingKeys[j].value {
+				return Config{}, fmt.Errorf("notification routing keys must be distinct: %s conflicts with %s", routingKeys[i].name, routingKeys[j].name)
+			}
+		}
 	}
 
 	frontendBaseURL := strings.TrimRight(strings.TrimSpace(loader.String("FRONTEND_BASE_URL", "http://localhost:8080")), "/")
@@ -208,7 +221,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		RabbitMQURL:                    rabbitMQURL,
 		Exchange:                       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
 		Queue:                          queue,
-		RoutingKey:                     loader.String("NOTIFICATION_ROUTING_KEY", queue),
+		RoutingKey:                     routingKey,
 		Prefetch:                       prefetch,
 		HandlerTimeout:                 handlerTimeout,
 		MaxRetries:                     maxRetries,
