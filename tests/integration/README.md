@@ -129,6 +129,57 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
   ./apps/services/notification-worker/internal/idempotency/...
 ```
 
+## Notification worker end-to-end (notificationflow)
+
+`tests/integration/notificationflow` (tag `notificationflow`) exercises the **running** notification worker container against the real RabbitMQ, PostgreSQL, Mailpit, and notification schema. It publishes the repository's existing `notification.requested.v1` envelope directly to the configured exchange; it does not implement a parcel producer, outbox writer, or relay.
+
+Coverage:
+
+| Scenario        | Assertions                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Valid event     | One email in Mailpit with the expected subject/body; one `SENT` notification log with `sent_at`; one `processed_events` row.                                                               |
+| Duplicate event | Re-publishing the identical envelope produces no second email, keeps one log row, keeps one processed row, and does not change `sent_at`.                                                  |
+| Invalid events  | Malformed JSON, an unsupported event type, and invalid notification data are dead-lettered as `permanent`; no email, log, or processed row is created; a later valid event still succeeds. |
+| SMTP failure    | With Mailpit stopped, the worker records `PENDING`, does not mark the event processed, stays alive, and reaches `SENT` after Mailpit returns and the retry fires.                          |
+
+Required services (disposable local Compose stack): `postgres`, `rabbitmq` (management enabled), `mailpit`, and `notification-worker`. Migrations must be applied so `notification.notification_logs` and `notification.processed_events` exist. The test reaches PostgreSQL through `docker compose exec`, so PostgreSQL does not need a published host port.
+
+Run locally from the repository root:
+
+```sh
+cp .env.example .env
+export COMPOSE_PROJECT_NAME=swiftdrop-notificationflow
+docker compose build notification-worker
+docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit
+make migrate
+RABBITMQ_RETRY_DELAY=5s RABBITMQ_MAX_RETRIES=2 \
+  docker compose up -d --wait --wait-timeout 300 notification-worker
+
+COMPOSE_PROJECT_NAME=swiftdrop-notificationflow NOTIFICATIONFLOW_RETRY_WAIT=60s \
+  go test -race -tags=notificationflow -count=1 -v ./tests/integration/notificationflow/...
+
+# Dispose of the dedicated test project only.
+docker compose down -v
+```
+
+The SMTP-failure case runs `docker compose stop mailpit` and restores it in cleanup. Use a dedicated Compose project name so stopping Mailpit cannot affect another stack. The suite does not skip when a dependency is missing; it fails with the readiness error.
+
+Optional overrides: `NOTIFICATIONFLOW_RABBITMQ_URL`, `NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL`, `NOTIFICATIONFLOW_RABBITMQ_USER`, `NOTIFICATIONFLOW_RABBITMQ_PASSWORD`, `NOTIFICATIONFLOW_MAILPIT_URL`, `NOTIFICATIONFLOW_EXCHANGE`, `NOTIFICATIONFLOW_QUEUE`, `NOTIFICATIONFLOW_ROUTING_KEY`, `NOTIFICATIONFLOW_COMPOSE_PROJECT`, `NOTIFICATIONFLOW_COMPOSE_FILES` (comma-separated), and `NOTIFICATIONFLOW_RETRY_WAIT`.
+
+CI: the path-filtered `notificationflow` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds only the notification-worker image, starts the same four services under `COMPOSE_PROJECT_NAME=swiftdrop-notificationflow`, applies migrations, runs the suite with `-race`, fails on `--- SKIP`, and removes the dedicated project. It runs when the notification worker, shared Go packages, notification migrations, Compose, migration scripts, or this suite change.
+
+What this suite does **not** prove:
+
+- It does not implement or validate the parcel producer, transactional outbox, outbox relay, parcel status-change API, identity contact lookup, webhook delivery, realtime delivery, or merchant order sync.
+- It does not prove the complete M1.8 flow: no parcel status change causes the event; the event is published by the test, not by a service.
+- It does not reconcile API v1.1's unversioned event names/envelope with the repository's versioned envelope. It validates the current repository contract only.
+- It does not prove exactly-once delivery. The worker is at-least-once: a crash after SMTP acceptance and before the database commit, or two concurrent workers, can still produce a duplicate email. Sequential redelivery after successful processing is deduplicated.
+- Retry exhaustion is not observable by the handler, so a notification log can remain `PENDING` after the message is dead-lettered. The SMTP-failure test restores Mailpit before retries exhaust and asserts recovery, not final failure state.
+- Invalid events remain in the dead-letter queue. The test peeks with `ack_requeue_true` and searches for its unique event ID; it does not purge the shared queue.
+- The test requires Docker Compose, the repository's service names, and the RabbitMQ management API. It is not a substitute for the Admin Notification Logs API/UI tests.
+
+Isolation and cleanup: every run uses fresh UUIDs and unique recipients. Cleanup deletes only the notification rows and Mailpit messages created by that run. It never drops a schema or database, deletes a Docker volume, purges a shared queue, or removes the worker's exchange/queue topology.
+
 ## Demo-user seed
 
 `apps/services/identity/internal/seed/postgres_integration_test.go` (tag `integration`) creates a uniquely named disposable database, applies the identity and pricing migrations, and runs the real seed orchestration. It verifies all five demo users and roles, the two courier profiles and their `CMB`/`KDY` zones, bcrypt password hashes, rerun idempotency, unchanged existing credentials, roles and profiles even when a rerun supplies different values, different-role skips, zone failures without partial users, forced-profile rollback, and concurrent executions. Cleanup drops only the database created by that test run.
