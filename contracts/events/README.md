@@ -124,13 +124,13 @@ Parcel domain events use the following versioned schemas:
 - [`parcel.assigned.v1.schema.json`](parcel.assigned.v1.schema.json)
 - [`parcel.status_changed.v1.schema.json`](parcel.status_changed.v1.schema.json)
 
-Each schema validates the canonical envelope (`event_id`, `event_type`, `event_version`, `occurred_at`, `producer`, optional `correlation_id`, and object-shaped `data`) and closes the `data` object with `additionalProperties: false`.
+Each schema validates the canonical envelope (`event_id`, `event_type`, `event_version`, `occurred_at`, `producer`, optional `correlation_id`, and object-shaped `data`), requires `producer` to be `parcel`, and closes the `data` object with `additionalProperties: false`.
 
-`parcel.created.v1` data contains `parcel_id`, `tracking_number`, the initial `status` (`CREATED`), and optional `customer_user_id` and `merchant_id`.
+`parcel.created.v1` data contains `parcel_id`, `tracking_number`, the initial `status` (`CREATED`), and exactly one of `customer_user_id` or `merchant_id`. The schema rejects both missing owners and both owners, matching the parcel database constraint.
 
 `parcel.assigned.v1` data contains `parcel_id`, `tracking_number`, `courier_id`, `assigned_by`, and optional `previous_courier_id`.
 
-`parcel.status_changed.v1` data contains `parcel_id`, `tracking_number`, `previous_status`, `status`, optional `merchant_id`, optional `customer_user_id`, optional `actor_user_id`, optional `note`, and optional `failure_reason`. The parcel business rules require `failure_reason` when `status` is `FAILED`.
+`parcel.status_changed.v1` data contains `parcel_id`, `tracking_number`, `previous_status`, `status`, optional `merchant_id`, optional `customer_user_id`, optional `actor_user_id`, optional `note`, and `failure_reason` (required when `status` is `FAILED`, 5 to 255 characters). These match the parcel database and state-machine rules.
 
 Domain event payloads must not contain phone numbers, email addresses, physical addresses, passwords, JWTs or access tokens, webhook signing secrets, or raw authentication credentials. Contact details are resolved through the appropriate internal service. Parcel event schemas therefore expose identifiers and lifecycle attributes, not contact data.
 
@@ -173,6 +173,15 @@ SMTP delivery and the database transaction are separate operations. A duplicate 
 
 The target direction is for the notification worker to consume `parcel.created.v1` and `parcel.status_changed.v1`, resolve contact details through the identity internal `GET /internal/users/{userId}/contact` endpoint, and render notifications from non-contact parcel data. Parcel domain events must not contain email addresses or phone numbers.
 
+**Current limitation:** this contact-resolution path only covers a parcel with a `customer_user_id`. A merchant-owned parcel has `merchant_id` instead of a user ID, and the identity endpoint cannot resolve a merchant-order recipient. The API v1.1 internal parcel summary returns `recipientName` but no email or phone, and `merchant.merchant_orders` does not store recipient contact details. Merchant-owned parcel notifications are therefore **unsupported in the current notification target** until an authorized merchant/parcel contact-resolution mechanism is approved. Do not read another service's database, add contact fields to parcel events, or invent a notification producer or endpoint.
+
+Architectural options requiring approval:
+
+- an authorized internal parcel endpoint that returns notification contact data;
+- an authorized merchant-order contact lookup;
+- an explicitly approved internal notification-command contract;
+- or limiting the notification target to customer-owned parcels until one of the above is approved.
+
 The current notification worker and its `notification.requested.v1` consumer remain unchanged in this task. Do not treat this target direction as implemented.
 
 Per-event schemas may be closed for their specific payload, as the notification example is. Additive changes are still compatible for consumers that ignore unknown fields; update the schema within the same major version when adding optional fields. Adding a required field, removing a field, changing a type, or changing semantics is a breaking change that requires a new major version.
@@ -184,7 +193,8 @@ The webhook is a separate public projection. Do not reuse the internal RabbitMQ 
 - Internal trigger: `parcel.status_changed.v1`.
 - Public event type: `parcel.status_changed` (unversioned in the API v1.1 public contract).
 - Public body is camelCase and additive `schemaVersion: 1` is included.
-- Public body fields: `eventId`, `eventType`, `schemaVersion`, `occurredAt`, and `data.trackingNumber`, `data.externalOrderId`, `data.previousStatus`, `data.status`, `data.note`, `data.failureReason`. `externalOrderId` comes from the merchant order record; do not copy contact data into the event to populate it.
+- Public body fields: `eventId`, `eventType`, `schemaVersion`, `occurredAt`, and `data.trackingNumber`, `data.externalOrderId`, `data.previousStatus`, `data.status`, `data.note`, `data.failureReason`.
+- `externalOrderId` is not part of `parcel.status_changed.v1`. The webhook worker must not read a merchant database directly. API v1.1 documents a target `GET /internal/parcels/{parcelId}/summary` response containing `externalOrderId`, but that endpoint is not implemented or present in the parcel OpenAPI contract. It is a required future dependency unless the team approves adding `external_order_id` to the domain event.
 - `eventId` is the stable outbox UUID. A webhook delivery-attempt ID is internal and must not replace the merchant idempotency key.
 - Signing: HMAC-SHA-256 over `<timestamp>.<raw request body>`, header `X-SwiftDrop-Signature: sha256=<lowercase hex>`, five-minute replay window, constant-time comparison.
 - Retry: six attempts following API v1.1: immediate, 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours; then dead-letter and record the attempt. Business retries must not reuse the shared RabbitMQ consumer retry loop and multiply attempts.
@@ -221,6 +231,16 @@ The following are contracts and target architecture, not evidence of working fun
 - Realtime and merchant event consumers: not implemented.
 
 Do not claim an event is published or delivered merely because a schema, queue name, or database table exists.
+
+## Schema validation
+
+The event schemas are checked by `tests/contracts/event-schemas.test.mjs` using Ajv 2020-12:
+
+```sh
+node --test "tests/contracts/*.test.mjs"
+```
+
+The test compiles every schema, validates every documented example, and covers negative cases for owner cardinality, producer identity, event type/version, unexpected fields, invalid statuses, and the `FAILED` failure-reason rule. The legacy `notification.requested.v1` schema is compiled and checked with a valid legacy payload for compatibility. CI runs this command in the frontend job.
 
 ## Evolution
 

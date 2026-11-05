@@ -30,9 +30,8 @@
       "format": "date-time"
     },
     "producer": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Producing service, expected to be parcel."
+      "const": "parcel",
+      "description": "Producing service. Parcel events are produced by the parcel service."
     },
     "correlation_id": {
       "type": "string"
@@ -92,9 +91,28 @@
         "failure_reason": {
           "type": "string",
           "maxLength": 255,
-          "description": "Required by the parcel business rules when status is FAILED."
+          "description": "Required by the parcel business rules when status is FAILED.",
+          "minLength": 5
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "FAILED"
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["failure_reason"],
+            "properties": {
+              "failure_reason": true
+            }
+          }
+        }
+      ]
     }
   },
   "examples": [
@@ -113,6 +131,21 @@
         "customer_user_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
         "actor_user_id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
         "note": "Departed the Colombo hub"
+      }
+    },
+    {
+      "event_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "event_type": "parcel.status_changed.v1",
+      "event_version": 1,
+      "occurred_at": "2026-11-05T12:20:00Z",
+      "producer": "parcel",
+      "correlation_id": "req_01HF-failed-example",
+      "data": {
+        "parcel_id": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
+        "tracking_number": "SDK7M2Q9XP4",
+        "previous_status": "IN_TRANSIT",
+        "status": "FAILED",
+        "failure_reason": "Recipient refused delivery"
       }
     }
   ]

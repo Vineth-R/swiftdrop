@@ -3692,7 +3692,7 @@ Body:
 
    }
 
-The internal RabbitMQ trigger is `parcel.status_changed.v1`. The public body remains camelCase with unversioned `eventType: parcel.status_changed` and additive `schemaVersion: 1` for API v1.1 compatibility. `eventId` is the stable outbox UUID.
+The internal RabbitMQ trigger is `parcel.status_changed.v1`. The public body remains camelCase with unversioned `eventType: parcel.status_changed` and additive `schemaVersion: 1` for API v1.1 compatibility. `eventId` is the stable outbox UUID. The webhook worker must obtain `externalOrderId` through an authorized internal lookup; the internal parcel summary described in section 13 is a target contract and is not implemented yet.
 
 10.2 Merchant responsibilities
 
@@ -3806,9 +3806,9 @@ Do not use the flat camelCase API response/example envelope as the internal Rabb
 
 | Event type | Routing key | Published when | Data fields |
 | --- | --- | --- | --- |
-| `parcel.created.v1` | `parcel.created.v1` | A parcel is created. | `parcel_id`, `tracking_number`, `status` (`CREATED`), optional `customer_user_id`, optional `merchant_id` |
+| `parcel.created.v1` | `parcel.created.v1` | A parcel is created. | `parcel_id`, `tracking_number`, `status` (`CREATED`), and exactly one of `customer_user_id` or `merchant_id` |
 | `parcel.assigned.v1` | `parcel.assigned.v1` | Dispatch assigns or reassigns a parcel. | `parcel_id`, `tracking_number`, `courier_id`, `assigned_by`, optional `previous_courier_id` |
-| `parcel.status_changed.v1` | `parcel.status_changed.v1` | A parcel status changes. | `parcel_id`, `tracking_number`, `previous_status`, `status`, optional `merchant_id`, optional `customer_user_id`, optional `actor_user_id`, optional `note`, optional `failure_reason` |
+| `parcel.status_changed.v1` | `parcel.status_changed.v1` | A parcel status changes. | `parcel_id`, `tracking_number`, `previous_status`, `status`, optional `merchant_id`, optional `customer_user_id`, optional `actor_user_id`, optional `note`, `failure_reason` (required when `status` is `FAILED`, 5 to 255 characters) |
 
 Domain events never carry phone numbers, email addresses, physical addresses, passwords, tokens, or signing secrets. Consumers that need contact details call the identity internal contact endpoint.
 
@@ -4045,6 +4045,8 @@ Method and path                                  Caller to      Purpose
 
 
 
+
+The `GET /internal/parcels/{parcelId}/summary` entry is a target contract only. It is not implemented in the current parcel service and is not present in `contracts/openapi/parcel.yaml`; the notification and webhook targets must treat it as a required future dependency.
 
  POST /internal/parcels request:
 

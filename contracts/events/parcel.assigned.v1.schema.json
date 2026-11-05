@@ -30,9 +30,8 @@
       "format": "date-time"
     },
     "producer": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Producing service, expected to be parcel."
+      "const": "parcel",
+      "description": "Producing service. Parcel events are produced by the parcel service."
     },
     "correlation_id": {
       "type": "string"

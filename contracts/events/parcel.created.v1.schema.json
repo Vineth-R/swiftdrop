@@ -30,9 +30,8 @@
       "format": "date-time"
     },
     "producer": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Producing service, expected to be parcel."
+      "const": "parcel",
+      "description": "Producing service. Parcel events are produced by the parcel service."
     },
     "correlation_id": {
       "type": "string"
@@ -62,7 +61,23 @@
           "type": "string",
           "format": "uuid"
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": ["customer_user_id"],
+          "properties": {
+            "customer_user_id": true,
+            "merchant_id": true
+          }
+        },
+        {
+          "required": ["merchant_id"],
+          "properties": {
+            "customer_user_id": true,
+            "merchant_id": true
+          }
+        }
+      ]
     }
   },
   "examples": [
@@ -78,6 +93,20 @@
         "tracking_number": "SDK7M2Q9XP4",
         "status": "CREATED",
         "customer_user_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b"
+      }
+    },
+    {
+      "event_id": "1f2e3d4c-5b6a-4798-8a7b-6c5d4e3f2a1b",
+      "event_type": "parcel.created.v1",
+      "event_version": 1,
+      "occurred_at": "2026-11-05T12:02:00Z",
+      "producer": "parcel",
+      "correlation_id": "req_01HF-merchant-example",
+      "data": {
+        "parcel_id": "7d9e0f12-3456-4789-9abc-def012345678",
+        "tracking_number": "SDN4T8W2LC6",
+        "status": "CREATED",
+        "merchant_id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e"
       }
     }
   ]
