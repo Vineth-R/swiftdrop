@@ -7,13 +7,26 @@ SwiftDrop uses RabbitMQ for asynchronous communication. Events are JSON messages
 Event names use `<domain>.<past_tense_action>.v<major>`:
 
 - `parcel.created.v1`
+- `parcel.assigned.v1`
 - `parcel.status_changed.v1`
-- `notification.requested.v1`
-- `webhook.delivery.requested.v1`
+- `notification.requested.v1` (legacy; see below)
+- `webhook.delivery.requested.v1` (legacy work item; see below)
 
 The major version is part of both the event type and its routing key. Breaking changes require a new major version and a new queue binding. A producer must not silently change the meaning of an existing versioned event.
 
 Each event file follows `<event_name>.schema.json` and uses JSON Schema draft 2020-12.
+
+## Source of truth and compatibility layers
+
+| Layer                     | Contract                                                                                                                                                                                                                            |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Database outbox storage   | Unversioned labels `parcel.created`, `parcel.assigned`, and `parcel.status_changed`. The stored `routing_key` is a legacy/internal value and is not the published routing key. The table exists; no writer or relay is implemented. |
+| Published RabbitMQ events | Versioned event names with the same versioned routing key. This is the canonical bus contract. Producers are not implemented.                                                                                                       |
+| Internal envelope         | `packages/go-common/messaging.Envelope`: snake_case metadata and a nested object in `data`. Envelope validation is implemented.                                                                                                     |
+| Public merchant webhook   | The API v1.1 camelCase projection with public `eventType: parcel.status_changed` and `schemaVersion: 1`. Delivery and signing are not implemented.                                                                                  |
+| Legacy work items         | `notification.requested.v1` and `webhook.delivery.requested.v1` have consumers but no producers. They are not the target domain-event contracts.                                                                                    |
+
+Do not use the database `routing_key` column directly as a RabbitMQ routing key. The relay owns the storage-to-bus mapping.
 
 ## Envelope
 
@@ -57,6 +70,20 @@ Before a handler unmarshals a message body, the consumer applies the shared fram
 
 The shared consumer invokes `messaging.ValidateMessage` before calling a handler. An invalid content type or oversized body is therefore a permanent failure and is dead-lettered without retrying.
 
+## Outbox storage and published mapping
+
+The transactional outbox is the source record for parcel events. The existing database labels are preserved; no migration is required for this contract:
+
+| Storage label           | Stored routing key (legacy) | Published event type       | Published routing key      |
+| ----------------------- | --------------------------- | -------------------------- | -------------------------- |
+| `parcel.created`        | `parcel.created`            | `parcel.created.v1`        | `parcel.created.v1`        |
+| `parcel.assigned`       | `parcel.assigned`           | `parcel.assigned.v1`       | `parcel.assigned.v1`       |
+| `parcel.status_changed` | `parcel.status.changed`     | `parcel.status_changed.v1` | `parcel.status_changed.v1` |
+
+The relay must validate the storage label, build the canonical envelope, and publish with the mapped event type and routing key. It must not copy the stored legacy routing key. The event ID is the outbox row UUID; the payload is the versioned event's `data` object, not the full envelope.
+
+No outbox writer, relay, publisher, or retry loop is implemented yet. Adding them must preserve the transaction that writes the parcel/status/assignment and the outbox row. The relay also needs a documented claim/lock strategy before it can safely run with more than one instance.
+
 ## Producers
 
 - Publish to the `swiftdrop.events` topic exchange with the versioned event name as the routing key.
@@ -91,9 +118,27 @@ Unclassified handler errors are retryable and use the bounded retry policy. Only
 
 ## Event payload schemas
 
-An example schema exists at `contracts/events/notification.requested.v1.schema.json`. The notification worker validates the envelope, the event type and version, and the `data` fields it uses before delivering anything. Invalid `data` is a permanent failure.
+Parcel domain events use the following versioned schemas:
+
+- [`parcel.created.v1.schema.json`](parcel.created.v1.schema.json)
+- [`parcel.assigned.v1.schema.json`](parcel.assigned.v1.schema.json)
+- [`parcel.status_changed.v1.schema.json`](parcel.status_changed.v1.schema.json)
+
+Each schema validates the canonical envelope (`event_id`, `event_type`, `event_version`, `occurred_at`, `producer`, optional `correlation_id`, and object-shaped `data`), requires `producer` to be `parcel`, and closes the `data` object with `additionalProperties: false`.
+
+`parcel.created.v1` data contains `parcel_id`, `tracking_number`, the initial `status` (`CREATED`), and exactly one of `customer_user_id` or `merchant_id`. The schema rejects both missing owners and both owners, matching the parcel database constraint.
+
+`parcel.assigned.v1` data contains `parcel_id`, `tracking_number`, `courier_id`, `assigned_by`, and optional `previous_courier_id`.
+
+`parcel.status_changed.v1` data contains `parcel_id`, `tracking_number`, `previous_status`, `status`, optional `merchant_id`, optional `customer_user_id`, optional `actor_user_id`, optional `note`, and `failure_reason` (required when `status` is `FAILED`, 5 to 255 characters). These match the parcel database and state-machine rules.
+
+Domain event payloads must not contain phone numbers, email addresses, physical addresses, passwords, JWTs or access tokens, webhook signing secrets, or raw authentication credentials. Contact details are resolved through the appropriate internal service. Parcel event schemas therefore expose identifiers and lifecycle attributes, not contact data.
+
+No producer exists for these schemas yet. The contract is final, but implementation remains pending.
 
 ### Notification rendering (implemented)
+
+The notification worker's current contract is the legacy `notification.requested.v1` schema. It validates the envelope, the event type and version, and the `data` fields it uses before delivering anything. Invalid `data` is a permanent failure. The v1 direction below is the target; it is not implemented in this task.
 
 The notification worker requires `data.parcel_id` as a UUID. It is the parcel the notification belongs to and is stored in `notification.notification_logs.parcel_id`, which is `NOT NULL`. A missing or malformed `parcel_id` is a permanent failure and does not trigger delivery or a delivery-log write.
 
@@ -122,15 +167,80 @@ A later failure for the same `(event_id, channel, recipient)` preserves an exist
 
 SMTP delivery and the database transaction are separate operations. A duplicate email is still possible after a crash between SMTP acceptance and the transaction commit, when the database write fails after delivery, or when two instances process the same event concurrently. This is at-least-once delivery, not exactly-once delivery.
 
-The event has no producer in this phase, so end-to-end production remains blocked until the producing owner populates the required `parcel_id`. The notification event, queue and routing key are unchanged by this requirement. The API v1.1 `notification.queue` topology and this repository's `notification.requested.v1` contract remain unreconciled (D6).
+### Notification v1 direction
+
+`notification.requested.v1` is legacy. It has a consumer but no producer. Its required `recipient` field is raw contact data and conflicts with the domain-event privacy rule above; it must not be exposed to merchants and must not receive new producers without a separately approved internal-command contract.
+
+The target direction is for the notification worker to consume `parcel.created.v1` and `parcel.status_changed.v1`, resolve contact details through the identity internal `GET /internal/users/{userId}/contact` endpoint, and render notifications from non-contact parcel data. Parcel domain events must not contain email addresses or phone numbers.
+
+**Current limitation:** this contact-resolution path only covers a parcel with a `customer_user_id`. A merchant-owned parcel has `merchant_id` instead of a user ID, and the identity endpoint cannot resolve a merchant-order recipient. The API v1.1 internal parcel summary returns `recipientName` but no email or phone, and `merchant.merchant_orders` does not store recipient contact details. Merchant-owned parcel notifications are therefore **unsupported in the current notification target** until an authorized merchant/parcel contact-resolution mechanism is approved. Do not read another service's database, add contact fields to parcel events, or invent a notification producer or endpoint.
+
+Architectural options requiring approval:
+
+- an authorized internal parcel endpoint that returns notification contact data;
+- an authorized merchant-order contact lookup;
+- an explicitly approved internal notification-command contract;
+- or limiting the notification target to customer-owned parcels until one of the above is approved.
+
+The current notification worker and its `notification.requested.v1` consumer remain unchanged in this task. Do not treat this target direction as implemented.
 
 Per-event schemas may be closed for their specific payload, as the notification example is. Additive changes are still compatible for consumers that ignore unknown fields; update the schema within the same major version when adding optional fields. Adding a required field, removing a field, changing a type, or changing semantics is a breaking change that requires a new major version.
 
-### Webhook payload schema: open decision
+### Public merchant webhook projection (v1 contract; not implemented)
 
-No consumer currently validates a webhook payload schema because none is defined. The webhook worker consumes `webhook.delivery.requested.v1` and validates only the envelope, event type, and version. It does not interpret destination URLs, signing details, retry configuration, or any other webhook payload field.
+The webhook is a separate public projection. Do not reuse the internal RabbitMQ envelope as the merchant body. Merchants receive only `parcel.status_changed`; `parcel.created` and `parcel.assigned` remain internal events unless a separate public contract is approved.
 
-Choosing the webhook payload shape and whether it needs its own JSON Schema is an open contract decision. Do not assume or invent webhook fields until a schema is added under `contracts/events/`.
+- Internal trigger: `parcel.status_changed.v1`.
+- Public event type: `parcel.status_changed` (unversioned in the API v1.1 public contract).
+- Public body is camelCase and additive `schemaVersion: 1` is included.
+- Public body fields: `eventId`, `eventType`, `schemaVersion`, `occurredAt`, and `data.trackingNumber`, `data.externalOrderId`, `data.previousStatus`, `data.status`, `data.note`, `data.failureReason`.
+- `externalOrderId` is not part of `parcel.status_changed.v1`. The webhook worker must not read a merchant database directly. API v1.1 documents a target `GET /internal/parcels/{parcelId}/summary` response containing `externalOrderId`, but that endpoint is not implemented or present in the parcel OpenAPI contract. It is a required future dependency unless the team approves adding `external_order_id` to the domain event.
+- `eventId` is the stable outbox UUID. A webhook delivery-attempt ID is internal and must not replace the merchant idempotency key.
+- Signing: HMAC-SHA-256 over `<timestamp>.<raw request body>`, header `X-SwiftDrop-Signature: sha256=<lowercase hex>`, five-minute replay window, constant-time comparison.
+- Retry: six attempts following API v1.1: immediate, 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours; then dead-letter and record the attempt. Business retries must not reuse the shared RabbitMQ consumer retry loop and multiply attempts.
+- Delivery logs store outcome metadata, not request or response bodies. Never log payloads, signing secrets, recipient data, or raw responses.
+
+Current state: `webhook-worker` consumes the legacy `webhook.delivery.requested.v1` work item, validates the envelope/type/version, and logs only. It does not deliver HTTP requests, sign, or write delivery attempts. The merchant webhook settings, signing-secret lookup, and delivery-attempt recording endpoints are not implemented. `docs/API_Documentation_v1.1.md` section 10 is the public webhook contract; this repository's current runtime does not yet implement it.
+
+The internal trigger for the target flow is `parcel.status_changed.v1`; no producer exists yet. If a dedicated `webhook.delivery.requested.v1` dispatcher is introduced instead, it requires a separately approved payload schema and must not duplicate the domain-event publisher.
+
+## Queue and routing topology
+
+- Exchange: `swiftdrop.events` (durable topic exchange).
+- Published routing key: the versioned event name.
+- Current implemented worker queues:
+  - `notification.requested.v1` (legacy notification work item; no producer)
+  - `webhook.delivery.requested.v1` (legacy webhook work item; no producer)
+- Target consumer bindings:
+  - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1`
+  - Webhook worker: `parcel.status_changed.v1`
+  - Realtime: `parcel.assigned.v1`, `parcel.status_changed.v1`
+  - Merchant integration: `parcel.status_changed.v1`
+- Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. When the target bindings are implemented, introduce new queues or an explicit migration; this task changes documentation only.
+- Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
+- A worker routing key must not fan out to multiple worker queues. Retry re-entry preserves the original routing key.
+
+## Implementation status
+
+The following are contracts and target architecture, not evidence of working functionality:
+
+- Parcel outbox writer and relay: not implemented.
+- Parcel event producer: not implemented.
+- Notification domain-event consumer: not implemented; the current consumer uses `notification.requested.v1`.
+- Webhook delivery, signing, and attempt logging: not implemented; the current worker only logs a legacy work item.
+- Realtime and merchant event consumers: not implemented.
+
+Do not claim an event is published or delivered merely because a schema, queue name, or database table exists.
+
+## Schema validation
+
+The event schemas are checked by `tests/contracts/event-schemas.test.mjs` using Ajv 2020-12:
+
+```sh
+node --test "tests/contracts/*.test.mjs"
+```
+
+The test compiles every schema, validates every documented example, and covers negative cases for owner cardinality, producer identity, event type/version, unexpected fields, invalid statuses, and the `FAILED` failure-reason rule. The legacy `notification.requested.v1` schema is compiled and checked with a valid legacy payload for compatibility. CI runs this command in the frontend job.
 
 ## Evolution
 

@@ -341,6 +341,9 @@ jobs:
       - name: Test the API clients
         run: node --test "apps/web/src/lib/*.test.mjs"
 
+      - name: Validate event contracts
+        run: node --test "tests/contracts/*.test.mjs"
+
       - name: Test web unit suite
         run: pnpm exec nx test @org/web --skip-nx-cache
 

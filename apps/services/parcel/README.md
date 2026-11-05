@@ -98,24 +98,19 @@ before looking up the existing parcel through the pool or a fresh transaction.
 Returning the existing parcel for a duplicate request is a service decision.
 
 M6's outbox/publisher and subsequent business-handler wiring are not changed here.
-The baseline outbox stores unversioned names, while `contracts/events/README.md`
-and the implemented shared envelope validator require versioned names. The API
-v1.1 document also describes a different flat camelCase envelope, whereas the
-implemented envelope uses snake_case metadata, a producer, and nested object data.
-The integration test uses the existing SQL names only to verify transaction
+D6.1 resolves the storage/bus split: the outbox keeps the unversioned labels
+`parcel.created`, `parcel.assigned`, and `parcel.status_changed`, while the relay
+maps them to `parcel.created.v1`, `parcel.assigned.v1`, and
+`parcel.status_changed.v1` and publishes with the versioned routing key. The
+database `routing_key` is legacy/internal and must not be copied directly. The
+canonical envelope and the three parcel schemas are documented under
+`contracts/events`.
+
+The integration test still uses the existing SQL labels only to verify transaction
 compatibility; its empty outbox payload is a test fixture, not a publishable event.
-
-This is a pending platform/outbox/consumer integration decision, not a failed
-M5.1 table or repository requirement. No Parcel producer or outbox dispatcher is
-implemented. Current workers accept `notification.requested.v1` and
-`webhook.delivery.requested.v1`, not Parcel event types. Merely appending `.v1` to
-database CHECK constraints would not reconcile envelopes or consumer bindings.
-
-The owners can preserve existing storage labels and explicitly map them to the
-agreed bus envelope/routing at dispatch. If they instead choose versioned storage,
-they must coordinate a forward migration at the next unused Parcel version and a
-policy for existing pending rows. M5 must not rewrite M1's applied baseline or
-unilaterally change M6's outbox/consumer contracts. Resolve this before publishing.
+No Parcel producer, outbox dispatcher, or relay is implemented, and the current
+workers still consume legacy work-item events. Do not treat the approved mapping
+or schemas as runtime implementation. No migration is required for this contract.
 The creator identity for internal merchant creation and customer same-key /
 different-payload behavior also need owner agreement; no speculative columns or
 business rules have been added.
