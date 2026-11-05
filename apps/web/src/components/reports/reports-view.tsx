@@ -34,7 +34,11 @@ import { Section } from '../layout/section';
 import { SystemPage } from '../layout/system-page';
 import { Button, ButtonLink } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
-import { DataTable, type DataTableColumn } from '../ui/data-table';
+import {
+  DataTable,
+  TablePagination,
+  type DataTableColumn,
+} from '../ui/data-table';
 import { EmptyState } from '../ui/empty-state';
 import { TextField } from '../ui/field';
 import { KeyValueList } from '../ui/key-value-list';
@@ -50,7 +54,7 @@ type State =
   | ({ status: 'ready' } & Loaded);
 
 const INTRO = 'Parcel volumes and delivery outcomes for the dates you choose.';
-
+const DAILY_PAGE_SIZE = 15;
 const rangeRules: FormRules<DateRange> = {
   from: (values) => validateRange(values).from,
   to: (values) => validateRange(values).to,
@@ -393,6 +397,12 @@ function percent(value: number) {
 
 function ReportsReady({ daily, outcomes }: Loaded) {
   const { totals } = outcomes;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(daily.length / DAILY_PAGE_SIZE));
+  const visibleDays = daily.slice(
+    (page - 1) * DAILY_PAGE_SIZE,
+    page * DAILY_PAGE_SIZE,
+  );
   return (
     <>
       <Section
@@ -455,8 +465,14 @@ function ReportsReady({ daily, outcomes }: Loaded) {
         <DataTable
           caption="Daily parcels"
           columns={dailyColumns}
-          rows={daily}
+          rows={visibleDays}
           getRowId={(row) => row.date}
+        />
+        <TablePagination
+          page={page}
+          totalPages={totalPages}
+          totalItems={daily.length}
+          onPageChange={setPage}
         />
       </Section>
     </>

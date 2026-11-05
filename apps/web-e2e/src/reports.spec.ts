@@ -66,6 +66,29 @@ test('an administrator sees outcomes, the chart and the daily table', async ({
   ).toBeVisible();
   await expect(page.getByText('Tallest day: 46.')).toBeVisible();
 });
+
+test('a long daily table is split into pages', async ({ page }) => {
+  const longDaily = Array.from({ length: 40 }, (_, index) => ({
+    date: new Date(Date.UTC(2026, 9, 1 + index)).toISOString().slice(0, 10),
+    created: 1,
+    delivered: 1,
+    failed: 0,
+  }));
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(longDaily),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+
+  const table = page.getByRole('table', { name: 'Daily parcels' });
+  await expect(table.getByRole('row')).toHaveCount(16);
+  await expect(page.getByText('Page 1 of 3')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Previous' })).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByText('Page 2 of 3')).toBeVisible();
+  await expect(table.getByRole('cell', { name: '16 Oct 2026' })).toBeVisible();
+});
 test('each day of the chart has its numbers as a tooltip', async ({ page }) => {
   await signInAs(page, 'ADMIN', {
     'GET /reports/daily': ok(daily),
