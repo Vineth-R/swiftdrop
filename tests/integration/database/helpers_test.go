@@ -32,6 +32,7 @@ var parcelDownMigrations = []string{
 	"migrations/parcel/000004_price_breakdown_total.down.sql",
 	"migrations/parcel/000003_dispatch_foundations.down.sql",
 	"migrations/parcel/000002_tables.down.sql",
+	"migrations/parcel/000001_initial_schema.down.sql",
 }
 
 // newIsolatedDatabase creates a uniquely named database on the server named by
@@ -278,6 +279,62 @@ func indexExists(t *testing.T, ctx context.Context, conn *pgx.Conn, table, index
 		t.Fatalf("query index %s: %v", index, err)
 	}
 	return exists
+}
+
+// indexDefinition returns the indexed key columns and the partial-index
+// predicate (empty when the index is not partial). It verifies the actual
+// definition rather than only the index name.
+func indexDefinition(t *testing.T, ctx context.Context, conn *pgx.Conn, index string) ([]string, string) {
+	t.Helper()
+	var columns []string
+	var predicate *string
+	err := conn.QueryRow(ctx, `
+		SELECT
+			ARRAY(
+				SELECT a.attname
+				FROM unnest(i.indkey) WITH ORDINALITY AS key(attnum, ord)
+				JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = key.attnum
+				ORDER BY key.ord
+			),
+			pg_get_expr(i.indpred, i.indrelid)
+		FROM pg_index i
+		JOIN pg_class c ON c.oid = i.indexrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'parcel' AND c.relname = $1`, index).Scan(&columns, &predicate)
+	if err != nil {
+		t.Fatalf("query index definition %s: %v", index, err)
+	}
+	if predicate == nil {
+		return columns, ""
+	}
+	return columns, *predicate
+}
+
+func schemaExists(t *testing.T, ctx context.Context, conn *pgx.Conn, schema string) bool {
+	t.Helper()
+	var exists bool
+	err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_namespace WHERE nspname = $1
+		)`, schema).Scan(&exists)
+	if err != nil {
+		t.Fatalf("query schema %s: %v", schema, err)
+	}
+	return exists
+}
+
+// execSQLFile applies a migration file and returns the error instead of
+// failing the test. Rollback-precondition tests use it to assert a clear,
+// atomic failure.
+func execSQLFile(ctx context.Context, conn *pgx.Conn, relativePath string) error {
+	sql, err := os.ReadFile(repositoryPath(relativePath))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", relativePath, err)
+	}
+	if _, err := conn.PgConn().Exec(ctx, string(sql)).ReadAll(); err != nil {
+		return fmt.Errorf("apply %s: %w", relativePath, err)
+	}
+	return nil
 }
 
 func constraintExists(t *testing.T, ctx context.Context, conn *pgx.Conn, table, constraint string) bool {

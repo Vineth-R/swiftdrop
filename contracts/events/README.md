@@ -18,13 +18,13 @@ Each event file follows `<event_name>.schema.json` and uses JSON Schema draft 20
 
 ## Source of truth and compatibility layers
 
-| Layer                     | Contract                                                                                                                                                                                                                            |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Database outbox storage   | Unversioned labels `parcel.created`, `parcel.assigned`, and `parcel.status_changed`. The stored `routing_key` is a legacy/internal value and is not the published routing key. The table exists; no writer or relay is implemented. |
-| Published RabbitMQ events | Versioned event names with the same versioned routing key. This is the canonical bus contract. Producers are not implemented.                                                                                                       |
-| Internal envelope         | `packages/go-common/messaging.Envelope`: snake_case metadata and a nested object in `data`. Envelope validation is implemented.                                                                                                     |
-| Public merchant webhook   | The API v1.1 camelCase projection with public `eventType: parcel.status_changed` and `schemaVersion: 1`. Delivery and signing are not implemented.                                                                                  |
-| Legacy work items         | `notification.requested.v1` and `webhook.delivery.requested.v1` have consumers but no producers. They are not the target domain-event contracts.                                                                                    |
+| Layer                     | Contract                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Database outbox storage   | Unversioned labels `parcel.created`, `parcel.assigned`, and `parcel.status_changed` with the exact stored routing keys below. The database rejects `.v1` labels and mixed pairs; parcel `000005_outbox_event_types` reasserts the contract. The stored `routing_key` is a legacy/internal value and is not the published routing key. The table exists; no writer or relay is implemented. |
+| Published RabbitMQ events | Versioned event names with the same versioned routing key. This is the canonical bus contract. Producers are not implemented.                                                                                                                                                                                                                                                              |
+| Internal envelope         | `packages/go-common/messaging.Envelope`: snake_case metadata and a nested object in `data`. Envelope validation is implemented.                                                                                                                                                                                                                                                            |
+| Public merchant webhook   | The API v1.1 camelCase projection with public `eventType: parcel.status_changed` and `schemaVersion: 1`. Delivery and signing are not implemented.                                                                                                                                                                                                                                         |
+| Legacy work items         | `notification.requested.v1` and `webhook.delivery.requested.v1` have consumers but no producers. They are not the target domain-event contracts.                                                                                                                                                                                                                                           |
 
 Do not use the database `routing_key` column directly as a RabbitMQ routing key. The relay owns the storage-to-bus mapping.
 
@@ -43,6 +43,8 @@ Every event uses the same envelope fields:
 | `data`           | object             | yes      | Event-specific payload defined by the schema.                  |
 
 An example implementation lives in `packages/go-common/messaging/envelope.go`.
+
+The internal envelope uses `event_version` (an integer), not `schemaVersion`. `schemaVersion` belongs only to the public merchant webhook projection, which keeps the unversioned public `eventType: parcel.status_changed` and adds `schemaVersion: 1` for API v1.1 compatibility. Do not add `schemaVersion` to the internal envelope or store it in the outbox.
 
 ## Envelope validation (implemented)
 
@@ -72,7 +74,7 @@ The shared consumer invokes `messaging.ValidateMessage` before calling a handler
 
 ## Outbox storage and published mapping
 
-The transactional outbox is the source record for parcel events. The existing database labels are preserved; no migration is required for this contract:
+The transactional outbox is the source record for parcel events. The unversioned storage labels and exact pairs below are enforced by the database; parcel `000005_outbox_event_types` reasserts them and rejects `.v1` labels and mixed pairs:
 
 | Storage label           | Stored routing key (legacy) | Published event type       | Published routing key      |
 | ----------------------- | --------------------------- | -------------------------- | -------------------------- |

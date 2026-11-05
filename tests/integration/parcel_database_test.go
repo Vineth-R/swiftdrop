@@ -42,6 +42,28 @@ func TestParcelMigrations(t *testing.T) {
 			t.Fatalf("parcel.%s is missing", table)
 		}
 	}
+	var lastErrorType string
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT data_type FROM information_schema.columns
+		WHERE table_schema = 'parcel' AND table_name = 'outbox_events' AND column_name = 'last_error'`,
+	).Scan(&lastErrorType); err != nil {
+		t.Fatalf("inspect outbox last_error type: %v", err)
+	}
+	if lastErrorType != "text" {
+		t.Fatalf("outbox_events.last_error type = %s; want text", lastErrorType)
+	}
+	for _, index := range []string{
+		"parcel.idx_outbox_events_published_cleanup",
+		"parcel.idx_parcel_assignments_courier_workload",
+	} {
+		var exists bool
+		if err := database.Pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, index).Scan(&exists); err != nil {
+			t.Fatalf("inspect index %s: %v", index, err)
+		}
+		if !exists {
+			t.Fatalf("index %s is missing", index)
+		}
+	}
 	var crossSchemaKeys int
 	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM pg_constraint AS constraint_record
 		JOIN pg_class AS owning_table ON owning_table.oid = constraint_record.conrelid
