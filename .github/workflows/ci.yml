@@ -269,6 +269,7 @@ jobs:
     outputs:
       services: ${{ steps.matrix.outputs.services }}
       access: ${{ steps.filter.outputs.access }}
+      notificationflow: ${{ steps.filter.outputs.notificationflow }}
     steps:
       - uses: actions/checkout@v5
 
@@ -346,6 +347,20 @@ jobs:
               - 'scripts/migrate.sh'
               - 'scripts/verify-db.sh'
               - '.env.example'
+            notificationflow:
+              - 'apps/services/notification-worker/**'
+              - 'packages/go-common/**'
+              - 'migrations/notification/**'
+              - 'infra/docker/postgres/init/01-schemas.sql'
+              - 'tests/integration/notificationflow/**'
+              - 'docker-compose.yml'
+              - 'infra/docker/go.Dockerfile'
+              - 'scripts/migrate.sh'
+              - 'Makefile'
+              - '.env.example'
+              - 'go.mod'
+              - 'go.sum'
+              - '.github/workflows/ci.yml'
 
       - name: Separate Docker services from access-only changes
         id: matrix
@@ -353,7 +368,7 @@ jobs:
           CHANGED: ${{ steps.filter.outputs.changes }}
         run: |
           set -euo pipefail
-          services="$(jq -c '[.[] | select(. != "access")]' <<< "${CHANGED:-[]}")"
+          services="$(jq -c '[.[] | select(. != "access") | select(. != "notificationflow")]' <<< "${CHANGED:-[]}")"
           echo "services=${services}" >> "$GITHUB_OUTPUT"
 
   docker:
@@ -444,6 +459,58 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  notificationflow:
+    name: Notification worker E2E (Compose)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.notificationflow == 'true'
+    env:
+      COMPOSE_PROJECT_NAME: swiftdrop-notificationflow
+      RABBITMQ_RETRY_DELAY: 5s
+      RABBITMQ_MAX_RETRIES: '2'
+      NOTIFICATIONFLOW_RETRY_WAIT: 60s
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare local environment
+        run: cp .env.example .env
+
+      - name: Build the notification worker image
+        run: docker compose build notification-worker
+
+      - name: Start the dependencies
+        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit
+
+      - name: Apply database migrations
+        run: make migrate
+
+      - name: Start the notification worker
+        run: docker compose up -d --wait --wait-timeout 300 notification-worker
+
+      - name: Run the notification worker E2E tests
+        run: |
+          set -euo pipefail
+          go test -race -tags=notificationflow -count=1 -v ./tests/integration/notificationflow/... | tee notificationflow.log
+
+          if grep -q -- '--- SKIP' notificationflow.log; then
+            echo "::error::Notification worker E2E tests were skipped; the Compose services must be reachable."
+            exit 1
+          fi
+
+      - name: Show service logs after a failure
+        if: failure()
+        run: docker compose logs --tail=200 notification-worker mailpit rabbitmq postgres
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
+
   gate:
     name: Required CI gate
     if: always()
@@ -457,6 +524,7 @@ jobs:
       - changes
       - docker
       - access
+      - notificationflow
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -471,6 +539,7 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
           ACCESS_RESULT: ${{ needs.access.result }}
+          NOTIFICATIONFLOW_RESULT: ${{ needs.notificationflow.result }}
         run: |
           set -euo pipefail
           failed=0
@@ -505,6 +574,7 @@ jobs:
           check_required "changes" "$CHANGES_RESULT"
           check_optional "docker" "$DOCKER_RESULT"
           check_optional "access" "$ACCESS_RESULT"
+          check_optional "notificationflow" "$NOTIFICATIONFLOW_RESULT"
 
           exit "$failed"
 
