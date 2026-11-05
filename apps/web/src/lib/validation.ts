@@ -98,6 +98,9 @@ export function validateWeight(value: string): string | undefined {
     ? undefined
     : 'Enter a weight of 0 or more, with up to two decimals.';
 }
+/** Our wording for a tracking number in the wrong format (board page 37). */
+export const TRACKING_NUMBER_MESSAGE =
+  'Check the number. Ours are 11 characters, starting SDK or SDN.';
 
 /**
  * Our own copy for a field the API rejected. The server's wording is never
@@ -120,6 +123,12 @@ const serverMessages: Record<string, string> = {
   surcharge: 'Enter an amount of 0 or more, with up to two decimals.',
   minWeightKg: 'Enter a weight of 0 or more, with up to two decimals.',
   maxWeightKg: 'Enter a weight above the "over" weight.',
+  trackingNumber: TRACKING_NUMBER_MESSAGE,
+  role: 'Choose a role.',
+  courierProfile: 'Check the courier details.',
+  'courierProfile.vehicleType': 'Use 30 characters or fewer.',
+  'courierProfile.vehicleNumber': 'Use 20 characters or fewer.',
+  'courierProfile.homeZoneId': 'Choose a zone from the list.',
 };
 
 export function serverFieldMessage(field: string): string | undefined {
