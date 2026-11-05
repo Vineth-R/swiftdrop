@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/pricing"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
 
 const pricingIntegrationTimeout = 120 * time.Second
@@ -226,6 +227,20 @@ func TestPricingHTTPQuoteAgainstDatabase(t *testing.T) {
 		})
 	}
 
+	for _, test := range []struct{ size, wantSurcharge, wantTotal string }{
+		{size: "SMALL", wantSurcharge: "0.00", wantTotal: "550.00"},
+		{size: "MEDIUM", wantSurcharge: "150.00", wantTotal: "700.00"},
+		{size: "LARGE", wantSurcharge: "400.00", wantTotal: "950.00"},
+		{size: "OVERSIZED", wantSurcharge: "900.00", wantTotal: "1450.00"},
+	} {
+		t.Run("size "+test.size, func(t *testing.T) {
+			got := quote(t, "2", test.size)
+			if got["sizeSurcharge"] != test.wantSurcharge || got["total"] != test.wantTotal {
+				t.Fatalf("quote %v, want surcharge %s total %s", got, test.wantSurcharge, test.wantTotal)
+			}
+		})
+	}
+
 	t.Run("above maximum", func(t *testing.T) {
 		recorder := pricingCall(router, http.MethodPost, "/pricing/estimate", pricingQuoteBody(origin, destination, "25.01", "SMALL"))
 		if recorder.Code != http.StatusUnprocessableEntity || decodeErrorCode(t, recorder) != "WEIGHT_NOT_PRICED" {
@@ -328,6 +343,64 @@ func TestPricingHTTPZonesAgainstDatabase(t *testing.T) {
 		failedRouter := newPricingIntegrationRouter(t, conn)
 		recorder := pricingCall(failedRouter, http.MethodGet, "/zones", "")
 		if recorder.Code != http.StatusInternalServerError || decodeErrorCode(t, recorder) != "INTERNAL_ERROR" {
+			t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
+func TestPricingHTTPAdminChangesAgainstDatabase(t *testing.T) {
+	ctx, conn := newPricingTestDatabase(t)
+	origin := pricingZoneID(t, ctx, conn, "CMB")
+	destination := pricingZoneID(t, ctx, conn, "KDY")
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: pricing.NewRepository(conn), AccessSecret: testSecret})
+	if err != nil {
+		t.Fatalf("build pricing router: %v", err)
+	}
+	token := adminToken(t, auth.RoleAdmin)
+	admin := func(method, path, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Authorization", "Bearer "+token)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	for _, test := range []struct{ name, path, body, code string }{
+		{name: "overlapping band", path: "/admin/pricing/bands", body: `{"minWeightKg":4,"maxWeightKg":6,"charge":1}`, code: "BAND_OVERLAP"},
+		{name: "duplicate zone code", path: "/admin/zones", body: `{"code":"CMB","name":"Duplicate"}`, code: "ZONE_CODE_EXISTS"},
+		{name: "duplicate route", path: "/admin/pricing/rules", body: fmt.Sprintf(`{"originZoneId":%q,"destinationZoneId":%q,"baseFee":1}`, origin, destination), code: "RULE_EXISTS"},
+	} {
+		t.Run(test.name+" refused", func(t *testing.T) {
+			recorder := admin(http.MethodPost, test.path, test.body)
+			if recorder.Code != http.StatusConflict || decodeErrorCode(t, recorder) != test.code {
+				t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+
+	// The lower bound is exclusive, so a band may start where the last one ends.
+	t.Run("touching band accepted and priced", func(t *testing.T) {
+		recorder := admin(http.MethodPost, "/admin/pricing/bands", `{"minWeightKg":25,"maxWeightKg":30,"charge":700}`)
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+		}
+		recorder = pricingCall(router, http.MethodPost, "/pricing/estimate", pricingQuoteBody(origin, destination, "30", "SMALL"))
+		if recorder.Code != http.StatusOK || decodeQuote(t, recorder)["weightCharge"] != "700.00" {
+			t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+		}
+	})
+
+	t.Run("rule change gives a new estimate", func(t *testing.T) {
+		var rule string
+		if err := conn.QueryRow(ctx, "SELECT id::text FROM pricing.pricing_rules WHERE origin_zone_id=$1 AND destination_zone_id=$2 AND is_active", origin, destination).Scan(&rule); err != nil {
+			t.Fatal(err)
+		}
+		if recorder := admin(http.MethodPatch, "/admin/pricing/rules/"+rule, `{"baseFee":500}`); recorder.Code != http.StatusOK {
+			t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
+		}
+		recorder := pricingCall(router, http.MethodPost, "/pricing/estimate", pricingQuoteBody(origin, destination, "2", "SMALL"))
+		if recorder.Code != http.StatusOK || decodeQuote(t, recorder)["total"] != "600.00" {
 			t.Fatalf("status %d, body %s", recorder.Code, recorder.Body.String())
 		}
 	})

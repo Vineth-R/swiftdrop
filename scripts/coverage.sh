@@ -7,7 +7,7 @@
 #   TEST_DATABASE_URL  When set, the PostgreSQL integration tests run too (build
 #                      tag integration). The URL must allow CREATE DATABASE.
 #   COVERAGE_MIN       Space separated service=percent gates. A service below its
-#                      gate fails the run. Default: "identity=60" (task sheet M2.4).
+#                      gate fails the run. Default: "identity=60 pricing=70" (task sheet).
 #   COVERAGE_PROFILE   Profile written by go test. Default: coverage.out
 #   COVERAGE_SUMMARY   Markdown table written for pull request descriptions.
 #                      Default: coverage-summary.md
@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 
 profile="${COVERAGE_PROFILE:-coverage.out}"
 summary="${COVERAGE_SUMMARY:-coverage-summary.md}"
-gates="${COVERAGE_MIN-identity=60}"
+gates="${COVERAGE_MIN-identity=60 pricing=70}"
 
 tags=()
 database="PostgreSQL tests not included (TEST_DATABASE_URL is not set)"

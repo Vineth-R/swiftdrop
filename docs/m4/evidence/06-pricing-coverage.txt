@@ -1,0 +1,14 @@
+# Pricing coverage on Windows. scripts/coverage.sh needs -race (a C compiler, absent here) and go test ./... cannot build two workers on Windows (syscall.Kill), so pricing was measured directly. The gate itself runs in CI.
+$ go test -count=1 -covermode=atomic -coverprofile=pricing.out ./apps/services/pricing/...
+	github.com/Vineth-R/swiftdrop/apps/services/pricing		coverage: 0.0% of statements
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/config	1.548s	coverage: 77.8% of statements
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http	0.473s	coverage: 77.4% of statements
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/pricing	1.518s	coverage: 75.1% of statements
+total:											(statements)	70.9%
+
+$ TEST_DATABASE_URL=<throwaway> go test -count=1 -tags=integration -covermode=atomic -coverprofile=pricing-db.out ./apps/services/pricing/...
+	github.com/Vineth-R/swiftdrop/apps/services/pricing		coverage: 0.0% of statements
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/config	5.230s	coverage: 77.8% of statements
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http	13.647s	coverage: 80.4% of statements
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/pricing	3.112s	coverage: 75.1% of statements
+total:											(statements)	71.8%
