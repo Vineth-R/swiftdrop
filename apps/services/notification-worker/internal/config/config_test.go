@@ -82,6 +82,24 @@ func TestLoadFrom(t *testing.T) {
 	if err := config.SMTP.Validate(); err != nil {
 		t.Fatalf("SMTP config does not validate: %v", err)
 	}
+	if config.IdentityBaseURL != "http://identity:8081" {
+		t.Fatalf("IdentityBaseURL = %q", config.IdentityBaseURL)
+	}
+	if config.IdentityTimeout != 3*time.Second {
+		t.Fatalf("IdentityTimeout = %v, want 3s", config.IdentityTimeout)
+	}
+	if config.ParcelCreatedQueue != "notification.parcel.created.v1" || config.ParcelCreatedRoutingKey != "parcel.created.v1" {
+		t.Fatalf("parcel created config = %q/%q", config.ParcelCreatedQueue, config.ParcelCreatedRoutingKey)
+	}
+	if config.ParcelStatusQueue != "notification.parcel.status_changed.v1" || config.ParcelStatusRoutingKey != "parcel.status_changed.v1" {
+		t.Fatalf("parcel status config = %q/%q", config.ParcelStatusQueue, config.ParcelStatusRoutingKey)
+	}
+	if config.FrontendBaseURL != "http://localhost:8080" || config.SupportEmail != "" {
+		t.Fatalf("email site config = %q/%q", config.FrontendBaseURL, config.SupportEmail)
+	}
+	if config.InternalToken != "" || config.InternalTokenProblem == "" {
+		t.Fatalf("internal token config = %q/%q, want empty token and a problem", config.InternalToken, config.InternalTokenProblem)
+	}
 }
 
 func TestLoadFromParsesHTTPConfig(t *testing.T) {
@@ -423,6 +441,138 @@ func TestLoadFromAccessSecret(t *testing.T) {
 			}
 			if config.AccessSecret != test.want {
 				t.Fatalf("AccessSecret = %q, want %q", config.AccessSecret, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadFromParsesIdentityAndParcelConfig(t *testing.T) {
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL":                            "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+		"APP_ENV":                                 "development",
+		"INTERNAL_TOKEN":                          "change-me-internal-token",
+		"IDENTITY_BASE_URL":                       "https://identity.example:8443/",
+		"IDENTITY_TIMEOUT":                        "2s",
+		"NOTIFICATION_PARCEL_CREATED_QUEUE":       "notification.parcel.created.test",
+		"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": "parcel.created.v1",
+		"NOTIFICATION_PARCEL_STATUS_QUEUE":        "notification.parcel.status_changed.test",
+		"NOTIFICATION_PARCEL_STATUS_ROUTING_KEY":  "parcel.status_changed.v1",
+		"FRONTEND_BASE_URL":                       "https://app.example.test/",
+		"SUPPORT_EMAIL":                           "support@example.test",
+	})
+
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+	if config.IdentityBaseURL != "https://identity.example:8443" {
+		t.Fatalf("IdentityBaseURL = %q", config.IdentityBaseURL)
+	}
+	if config.IdentityTimeout != 2*time.Second {
+		t.Fatalf("IdentityTimeout = %v, want 2s", config.IdentityTimeout)
+	}
+	if config.InternalToken != "change-me-internal-token" || config.InternalTokenProblem != "" {
+		t.Fatalf("internal token config = %q/%q", config.InternalToken, config.InternalTokenProblem)
+	}
+	if config.ParcelCreatedQueue != "notification.parcel.created.test" ||
+		config.ParcelCreatedRoutingKey != "parcel.created.v1" ||
+		config.ParcelStatusQueue != "notification.parcel.status_changed.test" ||
+		config.ParcelStatusRoutingKey != "parcel.status_changed.v1" {
+		t.Fatalf("parcel queue config = %q/%q, %q/%q",
+			config.ParcelCreatedQueue, config.ParcelCreatedRoutingKey,
+			config.ParcelStatusQueue, config.ParcelStatusRoutingKey)
+	}
+	if config.FrontendBaseURL != "https://app.example.test" || config.SupportEmail != "support@example.test" {
+		t.Fatalf("email site config = %q/%q", config.FrontendBaseURL, config.SupportEmail)
+	}
+}
+
+func TestLoadFromValidatesDistinctNotificationRoutingKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		values       map[string]string
+		wantConflict []string
+	}{
+		{name: "all distinct"},
+		{
+			name:         "legacy equals parcel created",
+			values:       map[string]string{"NOTIFICATION_ROUTING_KEY": "parcel.created.v1"},
+			wantConflict: []string{"NOTIFICATION_ROUTING_KEY", "NOTIFICATION_PARCEL_CREATED_ROUTING_KEY"},
+		},
+		{
+			name:         "legacy equals parcel status",
+			values:       map[string]string{"NOTIFICATION_ROUTING_KEY": "parcel.status_changed.v1"},
+			wantConflict: []string{"NOTIFICATION_ROUTING_KEY", "NOTIFICATION_PARCEL_STATUS_ROUTING_KEY"},
+		},
+		{
+			name:         "parcel created equals parcel status",
+			values:       map[string]string{"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": "parcel.status_changed.v1"},
+			wantConflict: []string{"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY", "NOTIFICATION_PARCEL_STATUS_ROUTING_KEY"},
+		},
+		{
+			name: "all equal",
+			values: map[string]string{
+				"NOTIFICATION_ROUTING_KEY":                "shared.key",
+				"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": "shared.key",
+				"NOTIFICATION_PARCEL_STATUS_ROUTING_KEY":  "shared.key",
+			},
+			wantConflict: []string{"NOTIFICATION_ROUTING_KEY", "NOTIFICATION_PARCEL_CREATED_ROUTING_KEY"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			values := map[string]string{"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"}
+			for key, value := range test.values {
+				values[key] = value
+			}
+
+			config, err := LoadFrom(newLoader(values))
+			if len(test.wantConflict) == 0 {
+				if err != nil {
+					t.Fatalf("LoadFrom() returned error: %v", err)
+				}
+				if config.RoutingKey != "notification.requested.v1" ||
+					config.ParcelCreatedRoutingKey != "parcel.created.v1" ||
+					config.ParcelStatusRoutingKey != "parcel.status_changed.v1" {
+					t.Fatalf("routing keys = %q/%q/%q", config.RoutingKey, config.ParcelCreatedRoutingKey, config.ParcelStatusRoutingKey)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("LoadFrom() error = nil, want a configuration error")
+			}
+			for _, key := range test.wantConflict {
+				if !strings.Contains(err.Error(), key) {
+					t.Fatalf("error %q does not identify %s", err.Error(), key)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadFromRejectsInvalidIdentityConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{name: "identity base URL", values: map[string]string{"IDENTITY_BASE_URL": "identity:8081"}},
+		{name: "identity timeout", values: map[string]string{"IDENTITY_TIMEOUT": "0s"}},
+		{name: "duplicate queue", values: map[string]string{"NOTIFICATION_PARCEL_CREATED_QUEUE": "notification.requested.v1"}},
+		{name: "duplicate parcel queue", values: map[string]string{"NOTIFICATION_PARCEL_CREATED_QUEUE": "notification.parcel.status_changed.v1"}},
+		{name: "duplicate routing key", values: map[string]string{"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": "parcel.status_changed.v1"}},
+		{name: "frontend base URL", values: map[string]string{"FRONTEND_BASE_URL": "app.example.test"}},
+		{name: "support email", values: map[string]string{"SUPPORT_EMAIL": "not-an-email"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			values := map[string]string{"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"}
+			for key, value := range test.values {
+				values[key] = value
+			}
+			if _, err := LoadFrom(newLoader(values)); err == nil {
+				t.Fatal("LoadFrom() error = nil, want a configuration error")
 			}
 		})
 	}

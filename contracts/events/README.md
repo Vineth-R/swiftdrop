@@ -134,11 +134,11 @@ Each schema validates the canonical envelope (`event_id`, `event_type`, `event_v
 
 Domain event payloads must not contain phone numbers, email addresses, physical addresses, passwords, JWTs or access tokens, webhook signing secrets, or raw authentication credentials. Contact details are resolved through the appropriate internal service. Parcel event schemas therefore expose identifiers and lifecycle attributes, not contact data.
 
-No producer exists for these schemas yet. The contract is final, but implementation remains pending.
+No producer exists for these schemas yet; the notification consumer is implemented for customer-owned parcels. The contract is final, but the parcel producer remains pending.
 
 ### Notification rendering (implemented)
 
-The notification worker's current contract is the legacy `notification.requested.v1` schema. It validates the envelope, the event type and version, and the `data` fields it uses before delivering anything. Invalid `data` is a permanent failure. The v1 direction below is the target; it is not implemented in this task.
+The notification worker supports the legacy `notification.requested.v1` work item and the customer-owned `parcel.created.v1` and `parcel.status_changed.v1` domain events. It validates the envelope, the event type and version, and the `data` fields it uses before delivering anything. Invalid `data` is a permanent failure. For domain events it resolves the customer's contact through the identity internal endpoint and sends the branded parcel email; merchant-owned events are unsupported and are dead-lettered. The legacy path is unchanged.
 
 The notification worker requires `data.parcel_id` as a UUID. It is the parcel the notification belongs to and is stored in `notification.notification_logs.parcel_id`, which is `NOT NULL`. A missing or malformed `parcel_id` is a permanent failure and does not trigger delivery or a delivery-log write.
 
@@ -182,7 +182,7 @@ Architectural options requiring approval:
 - an explicitly approved internal notification-command contract;
 - or limiting the notification target to customer-owned parcels until one of the above is approved.
 
-The current notification worker and its `notification.requested.v1` consumer remain unchanged in this task. Do not treat this target direction as implemented.
+The customer-owned domain-event path is implemented. Merchant-owned parcel notifications remain unsupported and are dead-lettered until an authorized contact-resolution mechanism is approved. The legacy `notification.requested.v1` consumer remains.
 
 Per-event schemas may be closed for their specific payload, as the notification example is. Additive changes are still compatible for consumers that ignore unknown fields; update the schema within the same major version when adding optional fields. Adding a required field, removing a field, changing a type, or changing semantics is a breaking change that requires a new major version.
 
@@ -210,13 +210,15 @@ The internal trigger for the target flow is `parcel.status_changed.v1`; no produ
 - Published routing key: the versioned event name.
 - Current implemented worker queues:
   - `notification.requested.v1` (legacy notification work item; no producer)
+  - `notification.parcel.created.v1` (bound to `parcel.created.v1`)
+  - `notification.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
   - `webhook.delivery.requested.v1` (legacy webhook work item; no producer)
-- Target consumer bindings:
-  - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1`
-  - Webhook worker: `parcel.status_changed.v1`
-  - Realtime: `parcel.assigned.v1`, `parcel.status_changed.v1`
-  - Merchant integration: `parcel.status_changed.v1`
-- Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. When the target bindings are implemented, introduce new queues or an explicit migration; this task changes documentation only.
+- Consumer bindings:
+  - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned parcels; merchant-owned unsupported)
+  - Webhook worker: `parcel.status_changed.v1` (target; not implemented)
+  - Realtime: `parcel.assigned.v1`, `parcel.status_changed.v1` (target; not implemented)
+  - Merchant integration: `parcel.status_changed.v1` (target; not implemented)
+- Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. The notification worker's parcel consumers use separate durable queues; future consumers should add new durable queues or an explicit queue migration rather than changing an existing queue's arguments.
 - Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
 - A worker routing key must not fan out to multiple worker queues. Retry re-entry preserves the original routing key.
 
@@ -226,7 +228,7 @@ The following are contracts and target architecture, not evidence of working fun
 
 - Parcel outbox writer and relay: not implemented.
 - Parcel event producer: not implemented.
-- Notification domain-event consumer: not implemented; the current consumer uses `notification.requested.v1`.
+- Notification domain-event consumer: implemented for customer-owned `parcel.created.v1` and `parcel.status_changed.v1`; merchant-owned events are dead-lettered as unsupported. The legacy `notification.requested.v1` consumer remains.
 - Webhook delivery, signing, and attempt logging: not implemented; the current worker only logs a legacy work item.
 - Realtime and merchant event consumers: not implemented.
 

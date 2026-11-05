@@ -15,6 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
@@ -111,10 +113,60 @@ func (s *fakeStore) failureEntries() []idempotency.LogEntry {
 	return append([]idempotency.LogEntry(nil), s.failures...)
 }
 
+var testSite = emails.Site{BaseURL: "https://app.example.test", SupportEmail: "support@example.test"}
+
+type fakeContacts struct {
+	mu      sync.Mutex
+	contact identityclient.Contact
+	err     error
+	calls   int
+}
+
+func newFakeContacts() *fakeContacts {
+	return &fakeContacts{contact: identityclient.Contact{
+		FullName: "Test Customer",
+		Email:    "customer@example.test",
+	}}
+}
+
+func (f *fakeContacts) Contact(_ context.Context, _ string) (identityclient.Contact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return identityclient.Contact{}, f.err
+	}
+	return f.contact, nil
+}
+
+func (f *fakeContacts) setError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
+}
+
+func (f *fakeContacts) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func testHandler(logger *slog.Logger, sender mailer.Mailer, store *fakeStore) *Handler {
+	return New(logger, sender, store, newFakeContacts(), testSite)
+}
+
 func newFakeHandler() (*Handler, *mailer.Mock, *fakeStore) {
 	sender := &mailer.Mock{}
 	store := newFakeStore()
-	return New(slog.New(slog.NewTextHandler(io.Discard, nil)), sender, store), sender, store
+	return testHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), sender, store), sender, store
+}
+
+func newDomainHandler() (*Handler, *mailer.Mock, *fakeStore, *fakeContacts) {
+	sender := &mailer.Mock{}
+	store := newFakeStore()
+	contacts := newFakeContacts()
+	handler := New(slog.New(slog.NewTextHandler(io.Discard, nil)), sender, store, contacts, testSite)
+	return handler, sender, store, contacts
 }
 
 func newHandler() (*Handler, *mailer.Mock) {
@@ -236,7 +288,7 @@ func TestHandleRejectsInvalidMessages(t *testing.T) {
 
 	envelopes := map[string]messaging.Envelope{
 		"wrong event type": {
-			ID: testEventID, Type: "parcel.created.v1", Version: 1,
+			ID: testEventID, Type: "parcel.assigned.v1", Version: 1,
 			OccurredAt: time.Now().UTC(), Producer: "parcel", Data: json.RawMessage(validData),
 		},
 		"wrong event version": {
@@ -344,7 +396,7 @@ func (s failingSender) Send(context.Context, mailer.Message) error {
 func TestHandleRetryableDeliveryFailurePersistsPending(t *testing.T) {
 	var logs bytes.Buffer
 	store := newFakeStore()
-	handler := New(
+	handler := testHandler(
 		slog.New(slog.NewJSONHandler(&logs, nil)),
 		failingSender{err: errors.New("smtp connection refused")},
 		store,
@@ -382,7 +434,7 @@ func TestHandleRetryableDeliveryFailurePersistsPending(t *testing.T) {
 
 func TestHandlePermanentDeliveryFailurePersistsFailed(t *testing.T) {
 	store := newFakeStore()
-	handler := New(
+	handler := testHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		failingSender{err: mailer.ErrInvalidMessage},
 		store,
@@ -434,7 +486,7 @@ func TestHandlePersistsFailedForUnsupportedSMS(t *testing.T) {
 func TestHandleRedactsRecipientFromDeliveryErrors(t *testing.T) {
 	var logs bytes.Buffer
 	store := newFakeStore()
-	handler := New(
+	handler := testHandler(
 		slog.New(slog.NewJSONHandler(&logs, nil)),
 		failingSender{err: errors.New("550 customer@example.com rejected")},
 		store,
@@ -463,7 +515,7 @@ func TestHandleRedactsRecipientFromDeliveryErrors(t *testing.T) {
 func TestHandleLogsOutcomeWithoutSensitivePayload(t *testing.T) {
 	var logs bytes.Buffer
 	sender := &mailer.Mock{}
-	handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), sender, newFakeStore())
+	handler := testHandler(slog.New(slog.NewJSONHandler(&logs, nil)), sender, newFakeStore())
 	body := envelopeBody(t, `{
 		"recipient":"customer@example.com",
 		"channel":"email",
@@ -588,7 +640,7 @@ func TestHandleRetriesWhenDeliveredLogFails(t *testing.T) {
 func TestHandleRetriesWhenFailureLogFails(t *testing.T) {
 	store := newFakeStore()
 	store.failureErr = errors.New("database unavailable")
-	handler := New(
+	handler := testHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		failingSender{err: errors.New("smtp connection refused")},
 		store,
@@ -710,7 +762,7 @@ func TestHandleDoesNotLogStoreErrors(t *testing.T) {
 		var logs bytes.Buffer
 		store := newFakeStore()
 		store.lookupErr = errors.New(driverText)
-		handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store)
+		handler := testHandler(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store)
 		body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
 
 		err := handler.Handle(context.Background(), messaging.Message{Body: body})
@@ -721,7 +773,7 @@ func TestHandleDoesNotLogStoreErrors(t *testing.T) {
 		var logs bytes.Buffer
 		store := newFakeStore()
 		store.deliverErr = errors.New(driverText)
-		handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store)
+		handler := testHandler(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store)
 		body := envelopeBody(t, `{"recipient":"customer@example.com","channel":"email","template":"Your parcel has shipped"}`)
 
 		err := handler.Handle(context.Background(), messaging.Message{Body: body})
@@ -732,7 +784,7 @@ func TestHandleDoesNotLogStoreErrors(t *testing.T) {
 		var logs bytes.Buffer
 		store := newFakeStore()
 		store.failureErr = errors.New(driverText)
-		handler := New(
+		handler := testHandler(
 			slog.New(slog.NewJSONHandler(&logs, nil)),
 			failingSender{err: errors.New("smtp connection refused")},
 			store,

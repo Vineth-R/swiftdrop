@@ -131,55 +131,65 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
 
 ## Notification worker end-to-end (notificationflow)
 
-`tests/integration/notificationflow` (tag `notificationflow`) exercises the **running** notification worker container against the real RabbitMQ, PostgreSQL, Mailpit, and notification schema. It publishes the repository's existing `notification.requested.v1` envelope directly to the configured exchange; it does not implement a parcel producer, outbox writer, or relay.
+`tests/integration/notificationflow` (tag `notificationflow`) exercises the **running** notification worker container against real RabbitMQ, PostgreSQL, Mailpit, identity and the notification schema. It covers the legacy `notification.requested.v1` work item and the D6.1 `parcel.created.v1`/`parcel.status_changed.v1` domain events for customer-owned parcels. The test publishes contract-valid events directly; it does not implement a parcel producer, outbox writer, relay, or the complete M1.8c flow.
 
 Coverage:
 
-| Scenario           | Assertions                                                                                                                                                                                                            |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Valid event        | One email in Mailpit with the expected subject/body; one `SENT` notification log with `sent_at`; one `processed_events` row.                                                                                          |
-| Duplicate event    | Re-publishing the identical envelope is confirmed and routed by the broker; the worker logs `notification already processed` for the event; no second email, one log row, one processed row, and unchanged `sent_at`. |
-| Unroutable publish | A message published with an unmatched routing key is returned and rejected by mandatory/confirm handling; no email, log, or processed row is created.                                                                 |
-| Invalid events     | Malformed JSON, an unsupported event type, and invalid notification data are dead-lettered as `permanent`; no email, log, or processed row is created; a later valid event still succeeds.                            |
-| SMTP failure       | With Mailpit stopped, the worker records `PENDING`, does not mark the event processed, stays alive, and reaches `SENT` after Mailpit returns and the retry fires.                                                     |
+| Scenario                    | Assertions                                                                                                                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Legacy valid event          | One email in Mailpit with the expected subject/body; one `SENT` notification log with `sent_at`; one `processed_events` row.                                                                                                    |
+| Legacy duplicate            | Re-publishing the identical envelope is confirmed and routed by the broker; the worker logs `notification already processed`; no second email, one log row, one processed row, and unchanged `sent_at`.                         |
+| Legacy unroutable publish   | A message published with an unmatched routing key is returned and rejected by mandatory/confirm handling; no email, log, or processed row is created.                                                                           |
+| Legacy invalid events       | Malformed JSON, an unsupported event type, and invalid notification data are dead-lettered as `permanent`; no email, log, or processed row is created; a later valid event still succeeds.                                      |
+| Legacy SMTP failure         | With Mailpit stopped, the worker records `PENDING`, does not mark the event processed, stays alive, and reaches `SENT` after Mailpit returns and the retry fires.                                                               |
+| `parcel.created.v1`         | A real customer is registered through identity; the worker resolves the customer's contact through the identity internal API, sends one email, writes one `SENT` log with the tracking number, and records one processed event. |
+| `parcel.status_changed.v1`  | The worker renders status-specific content, including the previous/current status and the tracking number; one email, log and processed event.                                                                                  |
+| Domain duplicate            | Republishing the same domain event sends no second email, keeps one log and one processed row, and leaves `sent_at` unchanged.                                                                                                  |
+| Merchant-owned domain event | The worker recognizes the unsupported owner, sends no email, writes no log/processed row, and dead-letters the event as `permanent`.                                                                                            |
+| Invalid domain event        | Missing/invalid contract fields are dead-lettered as `permanent` with no email, log or processed row.                                                                                                                           |
+| Identity user not found     | A 404 from identity is permanent; the event is dead-lettered with no email/log/processed row.                                                                                                                                   |
+| Identity unavailable        | With identity stopped, the worker retries, then dead-letters as `retry_exhausted`; no email/log/processed row; identity is restored.                                                                                            |
+| Domain SMTP failure         | With Mailpit stopped, the domain notification is `PENDING` and not processed; after Mailpit returns, the retry sends one email and records `SENT`/processed.                                                                    |
 
-Required services (disposable local Compose stack): `postgres`, `rabbitmq` (management enabled), `mailpit`, and `notification-worker`. Migrations must be applied so `notification.notification_logs` and `notification.processed_events` exist. The test reaches PostgreSQL through `docker compose exec`, so PostgreSQL does not need a published host port. The suite requires `COMPOSE_PROJECT_NAME` to be set to a dedicated project other than `swiftdrop`; it refuses to run otherwise because the SMTP outage test stops Mailpit.
+Required services (disposable local Compose stack): `postgres`, `rabbitmq` (management enabled), `mailpit`, `identity`, and `notification-worker`. The identity override publishes identity on `127.0.0.1:18081` for registration. Migrations must be applied so the identity and notification schemas exist. The test reaches PostgreSQL through `docker compose exec`, so PostgreSQL does not need a published host port. The suite requires `COMPOSE_PROJECT_NAME` to be set to a dedicated project other than `swiftdrop`; it refuses to run otherwise because the outage tests stop Mailpit and identity.
 
-Run locally from the repository root. Use the **same** `COMPOSE_PROJECT_NAME` for the stack, `make migrate`, worker startup, and the test:
+Run locally from the repository root. Use the **same** `COMPOSE_PROJECT_NAME` and `COMPOSE_FILE` for the stack, `make migrate`, worker startup, and the test:
 
 ```sh
 cp .env.example .env
 export COMPOSE_PROJECT_NAME=swiftdrop-notificationflow
-docker compose build notification-worker
-docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit
+export COMPOSE_FILE=docker-compose.yml:tests/integration/notificationflow/docker-compose.identity.yml
+docker compose build notification-worker identity
+docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit identity
 make migrate
 RABBITMQ_RETRY_DELAY=5s RABBITMQ_MAX_RETRIES=2 \
   docker compose up -d --wait --wait-timeout 300 notification-worker
 
-NOTIFICATIONFLOW_RETRY_WAIT=60s \
+NOTIFICATIONFLOW_IDENTITY_URL=http://127.0.0.1:18081 NOTIFICATIONFLOW_RETRY_WAIT=60s \
   go test -race -tags=notificationflow -count=1 -v ./tests/integration/notificationflow/...
 
 # Dispose of the dedicated test project only.
 docker compose down -v
 ```
 
-The SMTP-failure case runs `docker compose stop mailpit` and restores it in cleanup. The suite refuses to run unless `COMPOSE_PROJECT_NAME` is set to a dedicated project other than `swiftdrop`, and every Compose command in the harness is pinned to that project with `-p`. The duplicate test reads the worker log for `notification already processed`; keep `LOG_LEVEL=info` (the default). The suite does not skip when a dependency is missing; it fails with the readiness error.
+`COMPOSE_FILE` uses `:` as the separator on Linux and macOS and `;` on Windows. The identity service sends a welcome email on registration, so the domain tests filter Mailpit by the tracking number in the subject. The SMTP-failure case stops Mailpit; the identity-unavailable case stops identity; both restore the service in cleanup. The suite refuses the default `swiftdrop` project, and every Compose command in the harness is pinned to the validated project with `-p`. The duplicate test reads the worker log for `notification already processed`; keep `LOG_LEVEL=info` (the default). The suite does not skip when a dependency is missing; it fails with the readiness error.
 
-Optional overrides: `NOTIFICATIONFLOW_RABBITMQ_URL`, `NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL`, `NOTIFICATIONFLOW_RABBITMQ_USER`, `NOTIFICATIONFLOW_RABBITMQ_PASSWORD`, `NOTIFICATIONFLOW_MAILPIT_URL`, `NOTIFICATIONFLOW_EXCHANGE`, `NOTIFICATIONFLOW_QUEUE`, `NOTIFICATIONFLOW_ROUTING_KEY`, and `NOTIFICATIONFLOW_RETRY_WAIT`. If you use a custom Compose file, export `COMPOSE_FILE` for `docker compose`, `make migrate`, and the tests so they all use the same files.
+Optional overrides: `NOTIFICATIONFLOW_RABBITMQ_URL`, `NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL`, `NOTIFICATIONFLOW_RABBITMQ_USER`, `NOTIFICATIONFLOW_RABBITMQ_PASSWORD`, `NOTIFICATIONFLOW_MAILPIT_URL`, `NOTIFICATIONFLOW_EXCHANGE`, `NOTIFICATIONFLOW_QUEUE`, `NOTIFICATIONFLOW_ROUTING_KEY`, `NOTIFICATIONFLOW_IDENTITY_URL`, `NOTIFICATIONFLOW_PARCEL_CREATED_QUEUE`, `NOTIFICATIONFLOW_PARCEL_CREATED_ROUTING_KEY`, `NOTIFICATIONFLOW_PARCEL_STATUS_QUEUE`, `NOTIFICATIONFLOW_PARCEL_STATUS_ROUTING_KEY`, and `NOTIFICATIONFLOW_RETRY_WAIT`. If you use a custom Compose file, export `COMPOSE_FILE` for `docker compose`, `make migrate`, and the tests so they all use the same files.
 
-CI: the path-filtered `notificationflow` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds only the notification-worker image, starts the same four services under `COMPOSE_PROJECT_NAME=swiftdrop-notificationflow`, applies migrations, runs the suite with `-race`, fails on `--- SKIP`, and removes the dedicated project. It runs when the notification worker, shared Go packages, notification migrations, Compose, migration scripts, or this suite change.
+CI: the path-filtered `notificationflow` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds the notification-worker and identity images, starts postgres/rabbitmq/mailpit/identity, applies migrations, starts the worker, runs the suite with `-race`, fails on `--- SKIP`, and removes the dedicated project. It runs when the notification worker, identity, shared Go packages, notification migrations, Compose, migration scripts, or this suite change.
 
 What this suite does **not** prove:
 
-- It does not implement or validate the parcel producer, transactional outbox, outbox relay, parcel status-change API, identity contact lookup, webhook delivery, realtime delivery, or merchant order sync.
-- It does not prove the complete M1.8 flow: no parcel status change causes the event; the event is published by the test, not by a service.
-- The contract documentation now defines the approved versioned event names, envelope, and webhook projection, but this suite still validates only the current repository/runtime contract. It does not prove the target topology or parcel producer/relay exists.
+- It does not implement or validate the parcel producer, transactional outbox, outbox relay, or parcel status-change API. The domain events are published by the test, not by a parcel service.
+- It does not prove the complete M1.8c flow: no real parcel status change causes the event.
+- Merchant-owned parcel notifications remain unsupported and are dead-lettered; no merchant contact-resolution path is implemented.
+- Webhook delivery, realtime delivery, and merchant order synchronization are out of scope.
 - It does not prove exactly-once delivery. The worker is at-least-once: a crash after SMTP acceptance and before the database commit, or two concurrent workers, can still produce a duplicate email. Sequential redelivery after successful processing is deduplicated.
-- Retry exhaustion is not observable by the handler, so a notification log can remain `PENDING` after the message is dead-lettered. The SMTP-failure test restores Mailpit before retries exhaust and asserts recovery, not final failure state.
-- Invalid events remain in the dead-letter queue. The test peeks with `ack_requeue_true` and searches for its unique event ID; it does not purge the shared queue.
-- The test requires Docker Compose, the repository's service names, and the RabbitMQ management API. It is not a substitute for the Admin Notification Logs API/UI tests.
+- Retry exhaustion is not observable by the handler, so a notification log can remain `PENDING` after the message is dead-lettered.
+- Invalid and merchant-owned events remain in the dead-letter queue. The test peeks with `ack_requeue_true` and searches for its unique event ID; it does not purge the shared queue.
+- The test requires Docker Compose, identity, the repository's service names, and the RabbitMQ management API. It is not a substitute for the Admin Notification Logs API/UI tests.
 
-Isolation and cleanup: every run uses fresh UUIDs and unique recipients. The suite refuses the default `swiftdrop` project and pins every Compose command to the validated `COMPOSE_PROJECT_NAME`, so the SMTP outage test cannot stop another stack. Cleanup deletes only the notification rows and Mailpit messages created by that run. It never drops a schema or database, deletes a Docker volume, purges a shared queue, or removes the worker's exchange/queue topology.
+Isolation and cleanup: every run uses fresh UUIDs and unique recipients. The suite refuses the default `swiftdrop` project and pins every Compose command to the validated `COMPOSE_PROJECT_NAME`, so the outage tests cannot stop another stack. Cleanup deletes only the notification rows and Mailpit messages created by that run. It never drops a schema or database, deletes a Docker volume, purges a shared queue, or removes the worker's exchange/queue topology. The registered identity fixture remains in the disposable project's database; `docker compose down -v` removes it.
 
 ## Demo-user seed
 

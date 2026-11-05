@@ -40,20 +40,25 @@ const (
 
 // harness owns the test configuration and the rows/messages this run created.
 type harness struct {
-	repoRoot       string
-	composeProject string
-	rabbitURL      string
-	managementURL  string
-	managementUser string
-	managementPass string
-	mailpitURL     string
-	exchange       string
-	queue          string
-	routingKey     string
-	retryWait      time.Duration
-	httpClient     *http.Client
-	eventIDs       []string
-	recipients     []string
+	repoRoot                string
+	composeProject          string
+	rabbitURL               string
+	managementURL           string
+	managementUser          string
+	managementPass          string
+	mailpitURL              string
+	exchange                string
+	queue                   string
+	routingKey              string
+	identityURL             string
+	parcelCreatedQueue      string
+	parcelCreatedRoutingKey string
+	parcelStatusQueue       string
+	parcelStatusRoutingKey  string
+	retryWait               time.Duration
+	httpClient              *http.Client
+	eventIDs                []string
+	recipients              []string
 }
 
 var (
@@ -65,18 +70,23 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 
 	h := &harness{
-		repoRoot:       findRepoRoot(t),
-		composeProject: dedicatedComposeProject(t),
-		rabbitURL:      envOr("NOTIFICATIONFLOW_RABBITMQ_URL", "amqp://swiftdrop:swiftdrop@127.0.0.1:5672/"),
-		managementURL:  strings.TrimRight(envOr("NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL", "http://127.0.0.1:15672"), "/"),
-		managementUser: envOr("NOTIFICATIONFLOW_RABBITMQ_USER", "swiftdrop"),
-		managementPass: envOr("NOTIFICATIONFLOW_RABBITMQ_PASSWORD", "swiftdrop"),
-		mailpitURL:     strings.TrimRight(envOr("NOTIFICATIONFLOW_MAILPIT_URL", "http://127.0.0.1:8025"), "/"),
-		exchange:       envOr("NOTIFICATIONFLOW_EXCHANGE", "swiftdrop.events"),
-		queue:          envOr("NOTIFICATIONFLOW_QUEUE", "notification.requested.v1"),
-		routingKey:     strings.TrimSpace(os.Getenv("NOTIFICATIONFLOW_ROUTING_KEY")),
-		retryWait:      envDuration(t, "NOTIFICATIONFLOW_RETRY_WAIT", 60*time.Second),
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		repoRoot:                findRepoRoot(t),
+		composeProject:          dedicatedComposeProject(t),
+		rabbitURL:               envOr("NOTIFICATIONFLOW_RABBITMQ_URL", "amqp://swiftdrop:swiftdrop@127.0.0.1:5672/"),
+		managementURL:           strings.TrimRight(envOr("NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL", "http://127.0.0.1:15672"), "/"),
+		managementUser:          envOr("NOTIFICATIONFLOW_RABBITMQ_USER", "swiftdrop"),
+		managementPass:          envOr("NOTIFICATIONFLOW_RABBITMQ_PASSWORD", "swiftdrop"),
+		mailpitURL:              strings.TrimRight(envOr("NOTIFICATIONFLOW_MAILPIT_URL", "http://127.0.0.1:8025"), "/"),
+		exchange:                envOr("NOTIFICATIONFLOW_EXCHANGE", "swiftdrop.events"),
+		queue:                   envOr("NOTIFICATIONFLOW_QUEUE", "notification.requested.v1"),
+		routingKey:              strings.TrimSpace(os.Getenv("NOTIFICATIONFLOW_ROUTING_KEY")),
+		identityURL:             strings.TrimRight(envOr("NOTIFICATIONFLOW_IDENTITY_URL", "http://127.0.0.1:18081"), "/"),
+		parcelCreatedQueue:      envOr("NOTIFICATIONFLOW_PARCEL_CREATED_QUEUE", "notification.parcel.created.v1"),
+		parcelCreatedRoutingKey: envOr("NOTIFICATIONFLOW_PARCEL_CREATED_ROUTING_KEY", "parcel.created.v1"),
+		parcelStatusQueue:       envOr("NOTIFICATIONFLOW_PARCEL_STATUS_QUEUE", "notification.parcel.status_changed.v1"),
+		parcelStatusRoutingKey:  envOr("NOTIFICATIONFLOW_PARCEL_STATUS_ROUTING_KEY", "parcel.status_changed.v1"),
+		retryWait:               envDuration(t, "NOTIFICATIONFLOW_RETRY_WAIT", 60*time.Second),
+		httpClient:              &http.Client{Timeout: 10 * time.Second},
 	}
 	if h.routingKey == "" {
 		h.routingKey = h.queue
@@ -130,7 +140,10 @@ func (h *harness) waitReady() error {
 	}{
 		{"RabbitMQ management API", 60 * time.Second, h.pingManagement},
 		{"RabbitMQ AMQP", 60 * time.Second, h.pingAMQP},
-		{"notification worker queue consumer", 60 * time.Second, h.pingConsumer},
+		{"notification worker legacy queue consumer", 60 * time.Second, func() error { return h.pingQueue(h.queue) }},
+		{"notification worker parcel-created queue consumer", 60 * time.Second, func() error { return h.pingQueue(h.parcelCreatedQueue) }},
+		{"notification worker parcel-status queue consumer", 60 * time.Second, func() error { return h.pingQueue(h.parcelStatusQueue) }},
+		{"identity", 60 * time.Second, h.pingIdentity},
 		{"Mailpit", 30 * time.Second, h.pingMailpit},
 		{"PostgreSQL", 30 * time.Second, h.pingDatabase},
 		{"notification tables", 30 * time.Second, h.pingTables},
@@ -167,12 +180,28 @@ func dialAMQP(rawURL string, timeout time.Duration) (*amqp.Connection, error) {
 }
 
 func (h *harness) pingConsumer() error {
-	info, err := h.queueInfo(h.queue)
+	return h.pingQueue(h.queue)
+}
+
+func (h *harness) pingQueue(queue string) error {
+	info, err := h.queueInfo(queue)
 	if err != nil {
 		return err
 	}
 	if info.Consumers < 1 {
-		return fmt.Errorf("queue %s has %d consumers; start the notification-worker service", h.queue, info.Consumers)
+		return fmt.Errorf("queue %s has %d consumers; start the notification-worker service", queue, info.Consumers)
+	}
+	return nil
+}
+
+func (h *harness) pingIdentity() error {
+	response, err := h.httpClient.Get(h.identityURL + "/ready")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("identity /ready returned %d", response.StatusCode)
 	}
 	return nil
 }
@@ -305,17 +334,21 @@ type dlqMessage struct {
 // dlqPeek reads dead-letter messages without consuming them. ack_requeue_true
 // keeps the queue intact, so repeated runs can still inspect their own marker.
 func (h *harness) dlqPeek(t *testing.T) []dlqMessage {
+	return h.dlqPeekQueue(t, h.queue)
+}
+
+func (h *harness) dlqPeekQueue(t *testing.T, queue string) []dlqMessage {
 	t.Helper()
 
 	var messages []dlqMessage
-	path := "/api/queues/%2F/" + url.PathEscape(h.queue+".dlq") + "/get"
+	path := "/api/queues/%2F/" + url.PathEscape(queue+".dlq") + "/get"
 	body := map[string]any{
 		"count":    1000,
 		"ackmode":  "ack_requeue_true",
 		"encoding": "auto",
 	}
 	if err := h.managementRequest(http.MethodPost, path, body, &messages); err != nil {
-		t.Fatalf("peek dead-letter queue: %v", err)
+		t.Fatalf("peek dead-letter queue %s: %v", queue, err)
 	}
 	return messages
 }
@@ -462,6 +495,89 @@ func (h *harness) waitForMailpit(t *testing.T, recipient string, want int, timeo
 	return messages
 }
 
+// waitForMailpitSubject waits for messages whose subject contains contains.
+// Registration sends a welcome email to the same customer, so the parcel test
+// filters by the tracking number in the subject.
+func (h *harness) waitForMailpitSubject(t *testing.T, recipient, contains string, want int, timeout time.Duration) []mailpitSummary {
+	t.Helper()
+
+	matches := func(messages []mailpitSummary) []mailpitSummary {
+		matched := make([]mailpitSummary, 0, len(messages))
+		for _, message := range messages {
+			if strings.Contains(message.Subject, contains) {
+				matched = append(matched, message)
+			}
+		}
+		return matched
+	}
+
+	err := waitFor(timeout, fmt.Sprintf("Mailpit messages for %s containing %q", recipient, contains), func() error {
+		messages, err := h.mailpitSearch(recipient)
+		if err != nil {
+			return err
+		}
+		if got := len(matches(messages)); got < want {
+			return fmt.Errorf("got %d matching messages, want at least %d", got, want)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := h.mailpitSearch(recipient)
+	if err != nil {
+		t.Fatalf("search Mailpit for %s: %v", recipient, err)
+	}
+	return matches(messages)
+}
+
+// registerCustomer creates a real customer through the identity public API.
+func (h *harness) registerCustomer(t *testing.T) (string, string) {
+	t.Helper()
+
+	email := "notificationflow.domain." + h.runID(t) + "@example.test"
+	payload, err := json.Marshal(map[string]string{
+		"email":    email,
+		"password": "Str0ngPass!",
+		"fullName": "Domain Flow Customer",
+		"phone":    "+15555550100",
+	})
+	if err != nil {
+		t.Fatalf("encode registration: %v", err)
+	}
+
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, h.identityURL+"/auth/register", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("build registration request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := h.httpClient.Do(request)
+	if err != nil {
+		t.Fatalf("register customer: %v", err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("identity register returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var envelope struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		t.Fatalf("decode registration response: %v", err)
+	}
+	if envelope.Data.ID == "" {
+		t.Fatalf("identity register returned no account ID: %s", strings.TrimSpace(string(body)))
+	}
+	h.trackRecipient(email)
+	return envelope.Data.ID, email
+}
+
 // query runs one statement through the Compose PostgreSQL service. It never
 // publishes a database port, so the test works with the repository's default
 // network topology.
@@ -567,6 +683,35 @@ func (h *harness) startMailpitBestEffort() {
 	}
 	if err := waitFor(30*time.Second, "Mailpit", h.pingMailpit); err != nil {
 		fmt.Fprintf(os.Stderr, "notificationflow: wait for Mailpit: %v\n", err)
+	}
+}
+
+func (h *harness) stopIdentity(t *testing.T) {
+	t.Helper()
+	if err := h.composeErr("stop", "identity"); err != nil {
+		t.Fatalf("stop identity: %v", err)
+	}
+}
+
+func (h *harness) startIdentity(t *testing.T) {
+	t.Helper()
+	if err := h.composeErr("start", "identity"); err != nil {
+		t.Fatalf("start identity: %v", err)
+	}
+	if err := waitFor(30*time.Second, "identity", h.pingIdentity); err != nil {
+		t.Fatalf("start identity: %v", err)
+	}
+}
+
+// startIdentityBestEffort is used from t.Cleanup, where t.Fatalf would abort
+// the remaining cleanup work.
+func (h *harness) startIdentityBestEffort() {
+	if err := h.composeErr("start", "identity"); err != nil {
+		fmt.Fprintf(os.Stderr, "notificationflow: restart identity: %v\n", err)
+		return
+	}
+	if err := waitFor(30*time.Second, "identity", h.pingIdentity); err != nil {
+		fmt.Fprintf(os.Stderr, "notificationflow: wait for identity: %v\n", err)
 	}
 }
 
