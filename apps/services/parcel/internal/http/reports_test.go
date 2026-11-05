@@ -43,19 +43,43 @@ func reportRouter(t *testing.T, options Options) *gin.Engine {
 	return router
 }
 
-func reportRequest(t *testing.T, router *gin.Engine, path string, role auth.Role) *httptest.ResponseRecorder {
+type reportAuth struct {
+	role       auth.Role
+	token      string
+	cookieName string
+	bearer     bool
+}
+
+func issueReportToken(t *testing.T, role auth.Role) string {
+	t.Helper()
+	manager, err := auth.NewTokenManager(reportTestSecret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := manager.Issue("00000000-0000-0000-0000-000000000001", role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func reportRequest(t *testing.T, router *gin.Engine, path string, options reportAuth) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, path, nil)
-	if role != "" {
-		manager, err := auth.NewTokenManager(reportTestSecret, time.Hour)
-		if err != nil {
-			t.Fatal(err)
+	token := options.token
+	if token == "" && options.role != "" {
+		token = issueReportToken(t, options.role)
+	}
+	if token != "" {
+		if options.bearer {
+			request.Header.Set("Authorization", "Bearer "+token)
+		} else {
+			cookieName := options.cookieName
+			if cookieName == "" {
+				cookieName = "sd_access"
+			}
+			request.AddCookie(&http.Cookie{Name: cookieName, Value: token})
 		}
-		token, _, err := manager.Issue("00000000-0000-0000-0000-000000000001", role)
-		if err != nil {
-			t.Fatal(err)
-		}
-		request.AddCookie(&http.Cookie{Name: "sd_access", Value: token})
 	}
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
@@ -83,7 +107,7 @@ func TestReportsAccessByRole(t *testing.T) {
 	for _, path := range []string{"/reports/daily", "/reports/outcomes"} {
 		for _, tc := range cases {
 			t.Run(path+" "+tc.name, func(t *testing.T) {
-				recorder := reportRequest(t, router, path, tc.role)
+				recorder := reportRequest(t, router, path, reportAuth{role: tc.role})
 				if recorder.Code != tc.want {
 					t.Fatalf("status = %d, want %d; body %s", recorder.Code, tc.want, recorder.Body.String())
 				}
@@ -100,7 +124,7 @@ func TestDailyResponseShape(t *testing.T) {
 		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 4, Delivered: 3, Failed: 1}}},
 		AccessSecret: reportTestSecret,
 	})
-	recorder := reportRequest(t, router, "/reports/daily", auth.RoleAdmin)
+	recorder := reportRequest(t, router, "/reports/daily", reportAuth{role: auth.RoleAdmin})
 
 	var body struct {
 		Data []map[string]any `json:"data"`
@@ -127,7 +151,7 @@ func TestOutcomesResponseShape(t *testing.T) {
 		}},
 		AccessSecret: reportTestSecret,
 	})
-	recorder := reportRequest(t, router, "/reports/outcomes", auth.RoleAdmin)
+	recorder := reportRequest(t, router, "/reports/outcomes", reportAuth{role: auth.RoleAdmin})
 
 	body := recorder.Body.String()
 	for _, want := range []string{`"successRate":75`, `"failureRate":25`, `"inProgress":2`, `"topFailureReasons":[{"reason":"Recipient not available","count":2}]`} {
@@ -144,16 +168,19 @@ func TestReportsRejectBadRange(t *testing.T) {
 		"/reports/daily?from=not-a-date",
 		"/reports/outcomes?from=2026-01-01&to=2026-11-01",
 	} {
-		recorder := reportRequest(t, router, path, auth.RoleAdmin)
+		recorder := reportRequest(t, router, path, reportAuth{role: auth.RoleAdmin})
 		if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), "VALIDATION_ERROR") {
 			t.Fatalf("%s: status %d body %s", path, recorder.Code, recorder.Body.String())
+		}
+		if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("%s: Cache-Control = %q, want no-store", path, got)
 		}
 	}
 }
 
 func TestReportsDatabaseUnavailable(t *testing.T) {
 	router := reportRouter(t, Options{Reports: reportFixture{err: reports.ErrUnavailable}, AccessSecret: reportTestSecret})
-	recorder := reportRequest(t, router, "/reports/daily", auth.RoleAdmin)
+	recorder := reportRequest(t, router, "/reports/daily", reportAuth{role: auth.RoleAdmin})
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", recorder.Code)
 	}
@@ -161,8 +188,110 @@ func TestReportsDatabaseUnavailable(t *testing.T) {
 
 func TestReportsFailClosedWithoutSecret(t *testing.T) {
 	router := reportRouter(t, Options{Reports: reportFixture{}})
-	recorder := reportRequest(t, router, "/reports/daily", auth.RoleAdmin)
+	recorder := reportRequest(t, router, "/reports/daily", reportAuth{role: auth.RoleAdmin})
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", recorder.Code)
+	}
+}
+
+func reportErrorCode(t *testing.T, recorder *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not an error envelope: %v (%s)", err, recorder.Body.String())
+	}
+	return body.Error.Code
+}
+
+func TestReportsCustomCookieName(t *testing.T) {
+	router := reportRouter(t, Options{
+		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 1}}},
+		AccessSecret: reportTestSecret,
+		CookieName:   "sd_ops",
+	})
+	token := issueReportToken(t, auth.RoleDispatcher)
+
+	recorder := reportRequest(t, router, "/reports/daily", reportAuth{token: token, cookieName: "sd_ops"})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("custom cookie status = %d, want 200; body %s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = reportRequest(t, router, "/reports/daily", reportAuth{token: token, cookieName: "sd_access"})
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("default cookie status = %d, want 401; body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestReportsBearerAuthentication(t *testing.T) {
+	router := reportRouter(t, Options{
+		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 1}}},
+		AccessSecret: reportTestSecret,
+	})
+	recorder := reportRequest(t, router, "/reports/daily", reportAuth{role: auth.RoleDispatcher, bearer: true})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("bearer status = %d, want 200; body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestReportsRejectsInvalidAndExpiredTokens(t *testing.T) {
+	router := reportRouter(t, Options{
+		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 1}}},
+		AccessSecret: reportTestSecret,
+	})
+
+	invalid := reportRequest(t, router, "/reports/daily", reportAuth{token: "not-a-token"})
+	if invalid.Code != http.StatusUnauthorized || reportErrorCode(t, invalid) != "UNAUTHENTICATED" {
+		t.Fatalf("invalid token = %d %s, want 401 UNAUTHENTICATED", invalid.Code, reportErrorCode(t, invalid))
+	}
+
+	expiredManager, err := auth.NewTokenManager(reportTestSecret, time.Hour, auth.WithClock(func() time.Time {
+		return time.Now().Add(-2 * time.Hour)
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredToken, _, err := expiredManager.Issue("00000000-0000-0000-0000-000000000001", auth.RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired := reportRequest(t, router, "/reports/daily", reportAuth{token: expiredToken})
+	if expired.Code != http.StatusUnauthorized || reportErrorCode(t, expired) != "TOKEN_EXPIRED" {
+		t.Fatalf("expired token = %d %s, want 401 TOKEN_EXPIRED", expired.Code, reportErrorCode(t, expired))
+	}
+}
+
+type recordingReportStore struct {
+	last reports.Range
+}
+
+func (s *recordingReportStore) Daily(_ context.Context, rng reports.Range) ([]reports.DailyRow, error) {
+	s.last = rng
+	return []reports.DailyRow{{Date: "2026-11-01", Created: 1}}, nil
+}
+
+func (s *recordingReportStore) Outcomes(_ context.Context, rng reports.Range) (reports.Outcomes, error) {
+	s.last = rng
+	return reports.Outcomes{From: "2026-11-01", To: "2026-11-03"}, nil
+}
+
+func TestReportsPassParsedRangeToStore(t *testing.T) {
+	store := &recordingReportStore{}
+	router := reportRouter(t, Options{Reports: store, AccessSecret: reportTestSecret})
+
+	for _, path := range []string{"/reports/daily", "/reports/outcomes"} {
+		recorder := reportRequest(t, router, path+"?from=2026-11-01&to=2026-11-03", reportAuth{role: auth.RoleAdmin})
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200; body %s", path, recorder.Code, recorder.Body.String())
+		}
+		if got := store.last.From.Format("2006-01-02"); got != "2026-11-01" {
+			t.Fatalf("%s: from = %s, want 2026-11-01", path, got)
+		}
+		if got := store.last.To.Format("2006-01-02"); got != "2026-11-03" {
+			t.Fatalf("%s: to = %s, want 2026-11-03", path, got)
+		}
 	}
 }
