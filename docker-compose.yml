@@ -1,4 +1,7 @@
-name: swiftdrop
+# Default Compose project. Set COMPOSE_PROJECT_NAME to run a second checkout
+# side by side with its own containers and volumes, for example:
+#   COMPOSE_PROJECT_NAME=swiftdrop-verify make up-build
+name: ${COMPOSE_PROJECT_NAME:-swiftdrop}
 
 x-app-env: &app-env
   APP_ENV: ${APP_ENV:-development}

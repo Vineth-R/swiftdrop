@@ -4,7 +4,7 @@ COMPOSE ?= docker compose
 BUILD_SERVICES ?= identity parcel pricing merchant realtime notification-worker webhook-worker web
 BUILD_FLAGS ?=
 
-.PHONY: help build up up-build down logs preflight require-images ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test test-db test-access coverage email-preview email-send-preview
+.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-down db-verify db-reset seed check-routes test test-db test-access coverage email-preview email-send-preview
 
 help:
 	@echo "Targets:"
@@ -14,9 +14,11 @@ help:
 	@echo "  make down           stop the stack without deleting data"
 	@echo "  make logs           follow service logs"
 	@echo "  make migrate        apply all service migrations"
+	@echo "  make db-verify      verify the documented database baseline (read-only)"
 	@echo "  make seed           create the five deterministic demo users"
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
 	@echo "  make check-routes   verify gateway routing against the running stack"
+	@echo "  make project-name   print the resolved Compose project name"
 	@echo "  make db-reset       delete local volumes and rebuild (destructive)"
 	@echo "  make test           run every Go test with the race detector (no database needed)"
 	@echo "  make test-db        run PostgreSQL integration tests against TEST_DATABASE_URL"
@@ -24,6 +26,9 @@ help:
 	@echo "  make coverage       run the Go tests and print coverage per service and in total"
 	@echo "  make email-preview  render every email to tmp/email-preview/index.html"
 	@echo "  make email-send-preview  send every email to Mailpit (http://localhost:8025)"
+
+project-name:
+	@$(COMPOSE) config 2>/dev/null | awk '/^name:/{print $$2; exit}'
 
 preflight:
 	@if [ ! -f .env ] && { [ -z "$${POSTGRES_USER:-}" ] || [ -z "$${POSTGRES_DB:-}" ]; }; then \
@@ -85,6 +90,9 @@ migrate: preflight bootstrap-db
 
 migrate-down: preflight bootstrap-db
 	$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate down
+
+db-verify: ensure-postgres
+	@COMPOSE="$(COMPOSE)" ./scripts/verify-db.sh
 
 seed:
 	@if [ -z "$${DATABASE_URL:-}" ]; then \

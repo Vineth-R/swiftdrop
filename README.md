@@ -28,7 +28,7 @@ Identity authentication, pricing estimates/zones/internal quote and admin config
 | `@org/web`            | Next.js frontend                                           | 3000          |
 | Nginx                 | Public HTTP entry point                                    | 8080          |
 
-Only the gateway (`http://localhost:8080`) is published. Service ports below are internal to the Compose network. Services communicate synchronously over HTTP when a caller needs an immediate result. Asynchronous work uses RabbitMQ. Each persisting service owns its PostgreSQL schema and must not modify another service's tables. Realtime currently has no schema or persistence. Read [`docs/architecture.md`](docs/architecture.md) for service boundaries, routing, event conventions, lifecycle behavior, and readiness semantics; this README does not repeat the full architecture.
+Application access is through the gateway (`http://localhost:8080`). The Compose file also publishes development and infrastructure ports: RabbitMQ AMQP on `5672` and its management UI on `15672`, and Mailpit SMTP on `1025` and its web UI on `8025`. The service ports in the table above are internal to the Compose network and are not published to the host. Override any published port with the matching `.env` variable (`NGINX_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `MAILPIT_SMTP_PORT`, `MAILPIT_UI_PORT`). Services communicate synchronously over HTTP when a caller needs an immediate result. Asynchronous work uses RabbitMQ. Each persisting service owns its PostgreSQL schema and must not modify another service's tables. Realtime currently has no schema or persistence. Read [`docs/architecture.md`](docs/architecture.md) for service boundaries, routing, event conventions, lifecycle behavior, and readiness semantics; this README does not repeat the full architecture.
 
 ## Repository structure
 
@@ -63,7 +63,7 @@ Each Go service has `main.go`, `internal/config`, and either `internal/http` or 
 ## Prerequisites
 
 - Go **1.27.3** or a compatible 1.27 toolchain (`go.mod` is the source of truth).
-- Node.js **24**, the CI version.
+- Node.js **24**, the supported and CI-tested version. Other Node.js versions are not officially supported.
 - pnpm **12.15.0** through Corepack.
 - Docker with Docker Compose v2.
 - `curl`, used by the gateway route verification.
@@ -76,7 +76,7 @@ corepack enable
 corepack prepare pnpm@12.15.0 --activate
 ```
 
-`make` drives the database helpers and local demo seed (`make migrate`, `make migrate-down`, `make db-reset`, `make seed`, `make check-routes`). Nx and Go commands remain available for everything else.
+`make` drives the database helpers and local demo seed (`make migrate`, `make migrate-down`, `make db-verify`, `make db-reset`, `make seed`, `make check-routes`). Nx and Go commands remain available for everything else.
 
 ## Install and configure
 
@@ -96,6 +96,17 @@ set -a
 . ./.env
 set +a
 ```
+
+### Run a second clone safely
+
+Compose namespaces containers, networks, and volumes by project name. The default project name is `swiftdrop`; set `COMPOSE_PROJECT_NAME` to give a second checkout its own resources:
+
+```sh
+COMPOSE_PROJECT_NAME=swiftdrop-verify make up-build
+COMPOSE_PROJECT_NAME=swiftdrop-verify make down
+```
+
+Use `make project-name` to print the resolved project name. Compose resources are prefixed with it (for example `swiftdrop-verify-postgres-1` and `swiftdrop-verify_postgres-data`). Project isolation does not change published host ports, so if two stacks run at the same time, choose different ports in the second clone's `.env` (or export them), for example `NGINX_PORT=8180`, `RABBITMQ_PORT=5772`, `RABBITMQ_MANAGEMENT_PORT=15673`, `MAILPIT_SMTP_PORT=1125`, and `MAILPIT_UI_PORT=8125`. `make down` keeps that project's volumes; only `make db-reset` deletes them, and only for the selected project.
 
 The integration branch is `development`. Create feature branches from it and open pull requests into `development`. Do not push directly to `development` or `main`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the branch, pull request, review, and merge workflow.
 
@@ -137,6 +148,8 @@ If `.env` is missing and required variables are not exported, or `JWT_ACCESS_SEC
 | `make up-build`                | Build images, then run the full `make up` workflow               |
 | `docker compose up --build -d` | Start only; **builds but does not migrate**                      |
 | `make migrate`                 | Apply all service migrations                                     |
+| `make db-verify`               | Verify the documented database baseline (read-only)              |
+| `make project-name`            | Print the resolved Compose project name                          |
 | `make seed`                    | Create the five deterministic demo users                         |
 | `make migrate-down`            | Roll back **one migration per service** (destructive; see below) |
 | `make check-routes`            | Verify gateway routing against the running stack                 |
@@ -152,7 +165,7 @@ docker compose up -d rabbitmq        # workers and broker-backed integration tes
 docker compose up -d mailpit         # local email UI
 ```
 
-PostgreSQL is internal to the Compose network and does not publish a host port. `make migrate` runs inside the Compose network. To run Go services or PostgreSQL integration tests on the host, point `DATABASE_URL`/`TEST_DATABASE_URL` at a PostgreSQL instance you run separately (for example a local PostgreSQL install on `localhost:5432`); do not add a host port to `docker-compose.yml` just for local tests.
+PostgreSQL is internal to the Compose network and does not publish a host port. Containers connect to it at `postgres:5432`; Compose builds that URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`, so services and `make migrate` never use the `localhost` URL. The `DATABASE_URL` in `.env.example` is a **host-side** default for tools such as `psql`, `go run`, `make seed`, and PostgreSQL integration tests, and only works when a PostgreSQL instance is reachable at `localhost:5432` (for example a separate local installation). It cannot reach the Compose database. Do not use `localhost` from inside a container, and do not add a host port to `docker-compose.yml` just for local tests.
 
 ## Sending email
 
@@ -217,6 +230,14 @@ make migrate
 `make migrate` runs `scripts/migrate.sh` inside the pinned `migrate/migrate:v4.18.3` container. It uses the Compose-resolved `DATABASE_URL` (from `.env` or exported variables), so custom credentials are honored, and it never prints the URL. It bootstraps `public.set_updated_at()` and applies identity → pricing → parcel → merchant → notification, each with its own `<service>_schema_migrations` version table.
 
 Expected result: 26 tables and seeds `5/5/25/4/4`.
+
+Verify the baseline without writing to the database:
+
+```sh
+make db-verify
+```
+
+`make db-verify` runs read-only queries through the Compose `postgres` service with `default_transaction_read_only=on`. It checks the five schemas, 26 base tables, five identity roles, five pricing zones, 25 pricing rules, four weight bands, and four size surcharges, then prints `PASS`/`FAIL` for each check and exits non-zero if any expectation is not met. It does not run migrations, reset data, or print credentials.
 
 **Windows and line endings.** Git for Windows may convert shell scripts to CRLF, which breaks execution in the Linux migration container. `.gitattributes` forces LF for `*.sh` and `Makefile`; do not override it. If an existing clone still fails with `bad interpreter: /bin/sh^M` or `$'\r': command not found`, preserve any local edits and re-checkout only the affected scripts:
 
@@ -419,6 +440,25 @@ curl -i -X POST http://localhost:8080/api/v1/auth/login \
 
 Login sets the HttpOnly `sd_access` (15 minutes) and `sd_refresh` (7 days) cookies and, in token mode, also returns `accessToken` and `refreshToken` in the body. Five wrong passwords lock the account for 15 minutes (`423 ACCOUNT_LOCKED`), and login and register are limited to 10 requests per minute per client address. `JWT_ACCESS_SECRET` is required; outside development it must be at least 32 random bytes. Admin endpoints require an ADMIN account; use the demo ADMIN created by `make seed` or another ADMIN account.
 
+### Google OAuth (opt-in)
+
+Google sign-in is implemented. It stays disabled until you configure your own OAuth client; SwiftDrop does not ship credentials. Keep real client IDs and secrets in your untracked `.env` only.
+
+1. In Google Cloud Console, create an OAuth 2.0 Client ID of type **Web application**.
+2. Add the authorized redirect URI exactly: `http://localhost:8080/api/v1/auth/google/callback`. The browser must reach the callback through the gateway, not through the Next.js development origin.
+3. Set these values in `.env` (or export them before starting the service on the host), then recreate the identity container:
+   ```sh
+   GOOGLE_CLIENT_ID=your-client-id
+   GOOGLE_CLIENT_SECRET=your-client-secret
+   GOOGLE_REDIRECT_URI=http://localhost:8080/api/v1/auth/google/callback
+   ```
+   ```sh
+   docker compose up -d --force-recreate identity
+   ```
+4. Start the flow at <http://localhost:8080/api/v1/auth/google/login> (the login screen links to it) and complete consent in a browser.
+
+The identity service reads `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` from its process environment. If any is missing, or the redirect URI is not an absolute HTTP(S) URL, the service logs a warning naming the missing settings (never their values) and does not mount `/auth/google/login` or `/auth/google/callback`; those paths return `404 NOT_FOUND`. Email/password authentication continues to work. See [`docs/identity-m2-handoff.md`](docs/identity-m2-handoff.md) for the browser flow and error behaviour.
+
 ### Demo seed
 
 `make seed` creates one ADMIN, one DISPATCHER, two COURIER accounts with valid courier profiles, and one CUSTOMER. It is a local development tool and never runs during service startup, Compose startup, or migrations. It seeds identity users only; merchants, API keys, parcels, orders, notifications and delivery logs are intentionally excluded until their dependencies are ready.
@@ -529,7 +569,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 
 Implemented: repository structure, service entry points, health and readiness endpoints, environment configuration with case-insensitive and trimmed values, structured logging, request IDs, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB HTTP header limit, shared infrastructure, event envelope and message framing validation, bounded RabbitMQ retry and dead-letter routing with publisher confirms, reconnect backoff with jitter, unit and broker-backed messaging integration tests, one Playwright example test run Chromium-only in CI, Dockerfiles, Compose infrastructure, Nginx routing, migration and event conventions, Nx targets, CI, and documentation.
 
-Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), forward merchant constraints, Mailpit, gateway-only published ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
+Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), forward merchant constraints, Mailpit, published gateway and development infrastructure ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
 
 M4 implemented: `POST /pricing/estimate`, `GET /zones`, authenticated internal quote/zone lookups, ADMIN pricing configuration with transactional audit logging, exact decimal LKR calculations, bounded public rate limiting, trusted-proxy handling, and anonymous `GET /tracking/{trackingNumber}` backed by real parcel/status-history rows. The internal quote is available to M5, but M5's parcel-creation consumer and camelCase-to-snake_case `price_breakdown` mapping are not implemented in this branch.
 
