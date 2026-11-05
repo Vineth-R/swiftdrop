@@ -23,6 +23,11 @@ export function normalizeTrackingNumber(trackingNumber: string): string {
   return trackingNumber.trim().toUpperCase();
 }
 
+/** SD, then K or N, then 8 capitals or digits: what the service accepts. */
+export function isTrackingNumber(trackingNumber: string): boolean {
+  return /^SD[KN][A-Z0-9]{8}$/.test(trackingNumber);
+}
+
 /**
  * Cleans up the number itself, and copies the public fields by name so that
  * anything else in the response can never reach a public page.
