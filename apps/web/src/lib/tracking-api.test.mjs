@@ -3,7 +3,7 @@ import { afterEach, test } from 'node:test';
 
 import { fail, failNetwork, ok, restoreFetch } from './api-test-support.mjs';
 
-const { getTracking, normalizeTrackingNumber } =
+const { getTracking, isTrackingNumber, normalizeTrackingNumber } =
   await import('./tracking-api.ts');
 
 const tracking = {
@@ -39,6 +39,24 @@ for (const typed of ['sdk7m2q9xp4', '  SDK7M2Q9XP4  ', '\tsdk7M2q9xP4\n']) {
     assert.equal(calls[0].url, '/api/v1/tracking/SDK7M2Q9XP4');
   });
 }
+
+test('isTrackingNumber accepts only what the service accepts', () => {
+  for (const good of ['SDK7M2Q9XP4', 'SDN1A2B3C4D', 'SDK00000000']) {
+    assert.equal(isTrackingNumber(good), true, good);
+  }
+  for (const bad of [
+    '',
+    'sdk7m2q9xp4',
+    'SDX7M2Q9XP4',
+    'SDK7M2Q9XP',
+    'SDK7M2Q9XP44',
+    'SDK7M2Q9X-4',
+    ' SDK7M2Q9XP4',
+    'SDK7M2Q9XP4\n',
+  ]) {
+    assert.equal(isTrackingNumber(bad), false, JSON.stringify(bad));
+  }
+});
 
 test('a number cannot change the path', async () => {
   const calls = ok(tracking);

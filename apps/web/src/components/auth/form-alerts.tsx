@@ -8,10 +8,14 @@ import { ReferenceLine } from '@/components/ui/reference-line';
 export function RateLimitedAlert({
   remaining,
   alertRef,
+  isPublic,
 }: {
   remaining: number;
   alertRef?: Ref<HTMLDivElement>;
+  /** On a page with no login, leaves out the line about the account. */
+  isPublic?: boolean;
 }) {
+  const reassurance = isPublic ? '' : ' Nothing is wrong with your account.';
   return (
     <Alert
       ref={alertRef}
@@ -25,10 +29,10 @@ export function RateLimitedAlert({
           <span className="font-mono font-semibold text-text">
             {remaining} seconds
           </span>{' '}
-          and try again. Nothing is wrong with your account.
+          and try again.{reassurance}
         </>
       ) : (
-        'You can try again now. Nothing is wrong with your account.'
+        `You can try again now.${reassurance}`
       )}
     </Alert>
   );
