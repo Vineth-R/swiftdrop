@@ -49,7 +49,10 @@ test('an administrator sees outcomes, the chart and the daily table', async ({
   await expect(page.getByText(/352 of 410 parcels created/)).toBeVisible();
   await expect(page.getByText('94.37%')).toBeVisible();
   await expect(page.getByText('5.63%')).toBeVisible();
-  await expect(page.getByText('Recipient not available')).toBeVisible();
+  const reasons = page.getByRole('table', { name: 'Top failure reasons' });
+  await expect(
+    reasons.getByRole('cell', { name: 'Recipient not available' }),
+  ).toBeVisible();
 
   const dailyTable = page.getByRole('table', { name: 'Daily parcels' });
   await expect(dailyTable.getByRole('row')).toHaveCount(3);
@@ -185,7 +188,11 @@ test('a server fault shows a reference, hides the server words and can be retrie
   });
   await page.goto('/reports');
 
-  const alert = page.getByRole('alert');
+  // Next.js keeps an empty role="alert" route announcer on every page,
+  // so pick ours by its text.
+  const alert = page
+    .getByRole('alert')
+    .filter({ hasText: 'Reports could not be loaded' });
   await expect(alert).toContainText('Reports could not be loaded');
   await expect(alert).toContainText(REQUEST_ID);
   await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
@@ -193,7 +200,7 @@ test('a server fault shows a reference, hides the server words and can be retrie
   failing = false;
   await alert.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('94.37%')).toBeVisible();
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(alert).toHaveCount(0);
 });
 
 test('a dispatcher sees the reports too', async ({ page }) => {
@@ -239,7 +246,7 @@ test('on a phone nothing scrolls sideways', async ({ page }) => {
   await page.goto('/reports');
   await expect(page.getByText('94.37%')).toBeVisible();
 
-    const overflow = await page.evaluate(
+  const overflow = await page.evaluate(
     'document.documentElement.scrollWidth - document.documentElement.clientWidth',
   );
   expect(overflow, 'the reports page scrolls sideways').toBe(0);
