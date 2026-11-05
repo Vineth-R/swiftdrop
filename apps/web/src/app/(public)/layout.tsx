@@ -8,5 +8,6 @@ export default function PublicGroupLayout({
 }: {
   children: ReactNode;
 }) {
-  return <PublicLayout>{children}</PublicLayout>;
+  // The tracking board is two columns on a laptop, so the column is wide.
+  return <PublicLayout width="wide">{children}</PublicLayout>;
 }

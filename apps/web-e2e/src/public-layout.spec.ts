@@ -78,13 +78,14 @@ test.describe('PublicLayout at /track', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('on a laptop the content is a reading column, on a phone it fills the width', async ({
+  test('on a laptop the content is the wide column, on a phone it fills the width', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/track');
     const wide = await page.locator('main#main').boundingBox();
-    expect(wide!.width).toBeLessThanOrEqual(640);
+    expect(wide!.width).toBeGreaterThan(640);
+    expect(wide!.width).toBeLessThanOrEqual(1200);
 
     await page.setViewportSize({ width: 360, height: 800 });
     const narrow = await page.locator('main#main').boundingBox();
