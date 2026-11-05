@@ -297,8 +297,11 @@ func TestReportNinetyDayRangeAndIndexUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("90-day daily report: %v", err)
 	}
-	if len(rows) != 90 || rows[0].Date != "2026-03-01" || rows[89].Date != "2026-05-29" {
-		t.Fatalf("90-day daily rows = %d (%s..%s), want 90 rows from 2026-03-01 to 2026-05-29", len(rows), rows[0].Date, rows[len(rows)-1].Date)
+	if len(rows) != 90 {
+		t.Fatalf("90-day daily rows = %d, want 90", len(rows))
+	}
+	if rows[0].Date != "2026-03-01" || rows[89].Date != "2026-05-29" {
+		t.Fatalf("90-day daily range = %s..%s, want 2026-03-01..2026-05-29", rows[0].Date, rows[89].Date)
 	}
 
 	result, err := repository.Outcomes(ctx, Range{From: from, To: to})
