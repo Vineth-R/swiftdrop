@@ -1,0 +1,70 @@
+import { ApiError, apiWithMeta, type ApiMeta } from './api';
+import type { ParcelStatus } from './tokens';
+
+export type CompletedDeliveryStatus = 'DELIVERED' | 'FAILED';
+
+/** API v1.1 §6.1. Completion times and failure reasons are not list fields. */
+export type CourierDelivery = {
+  id: string;
+  trackingNumber: string;
+  status: ParcelStatus;
+  pickupAddress: string;
+  dropoffAddress?: string | null;
+  dropoffCity?: string | null;
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  weightKg: number;
+  assignedAt: string;
+};
+
+export type CourierDeliveryPage = {
+  items: CourierDelivery[];
+  pagination: NonNullable<ApiMeta['pagination']>;
+};
+
+export async function listCourierDeliveries({
+  date,
+  status,
+  page,
+  signal,
+}: {
+  /** Calendar date (YYYY-MM-DD) in Asia/Colombo, not a UTC timestamp. */
+  date: string;
+  status: CompletedDeliveryStatus;
+  page: number;
+  signal?: AbortSignal;
+}): Promise<CourierDeliveryPage> {
+  const query = new URLSearchParams({
+    date,
+    status,
+    page: String(page),
+    pageSize: '20',
+  });
+  const { data, meta } = await apiWithMeta<CourierDelivery[]>(
+    `/courier/deliveries?${query}`,
+    { signal },
+  );
+  const pagination = meta.pagination;
+
+  // Missing metadata is a contract error, never an invented single-page result.
+  if (
+    !Array.isArray(data) ||
+    !pagination ||
+    !Number.isInteger(pagination.page) ||
+    pagination.page !== page ||
+    !Number.isInteger(pagination.pageSize) ||
+    pagination.pageSize < 1 ||
+    !Number.isInteger(pagination.totalItems) ||
+    pagination.totalItems < 0 ||
+    !Number.isInteger(pagination.totalPages) ||
+    pagination.totalPages < 0
+  ) {
+    throw new ApiError({
+      code: 'INTERNAL',
+      status: 200,
+      requestId: meta.requestId,
+    });
+  }
+
+  return { items: data, pagination };
+}
