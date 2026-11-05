@@ -38,6 +38,12 @@ type Range struct {
 	To   time.Time
 }
 
+// dateArgs returns the range as ISO dates. The queries cast these strings to
+// date explicitly, so PostgreSQL's session timezone cannot shift the range.
+func (r Range) dateArgs() (string, string) {
+	return r.From.Format(dateLayout), r.To.Format(dateLayout)
+}
+
 // ParseRange reads the from and to query values. Empty values fall back to the
 // last defaultDays days ending today (UTC). Problems are added to issues and
 // ok is false. The range may not run backwards or be longer than MaxRangeDays.
@@ -153,6 +159,7 @@ func NewRepository(db DB) *Repository { return &Repository{db: db} }
 // Daily counts parcels created, delivered and failed on each day of the range.
 // Created uses created_at, delivered uses delivered_at and failed uses failed_at,
 // so a parcel created on Monday and delivered on Tuesday counts on both days.
+// $1 and $2 are ISO date strings; date parsing never uses the session timezone.
 const dailySQL = `
 WITH days AS (
     SELECT generate_series($1::date, $2::date, interval '1 day')::date AS day
@@ -193,7 +200,8 @@ func (r *Repository) Daily(ctx context.Context, rng Range) ([]DailyRow, error) {
 	if r.db == nil {
 		return nil, ErrUnavailable
 	}
-	rows, err := r.db.Query(ctx, dailySQL, rng.From, rng.To)
+	from, to := rng.dateArgs()
+	rows, err := r.db.Query(ctx, dailySQL, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("query daily report: %w", err)
 	}
@@ -215,6 +223,7 @@ func (r *Repository) Daily(ctx context.Context, rng Range) ([]DailyRow, error) {
 
 // Outcomes follows the parcels created in the range and counts where each one
 // is now, so created = delivered + failed + inProgress always holds.
+// $1 and $2 are ISO date strings; date parsing never uses the session timezone.
 const outcomeTotalsSQL = `
 SELECT count(*)::int,
        (count(*) FILTER (WHERE status = 'DELIVERED'))::int,
@@ -240,11 +249,12 @@ func (r *Repository) Outcomes(ctx context.Context, rng Range) (Outcomes, error) 
 		return Outcomes{}, ErrUnavailable
 	}
 	var created, delivered, failed int
-	if err := r.db.QueryRow(ctx, outcomeTotalsSQL, rng.From, rng.To).Scan(&created, &delivered, &failed); err != nil {
+	from, to := rng.dateArgs()
+	if err := r.db.QueryRow(ctx, outcomeTotalsSQL, from, to).Scan(&created, &delivered, &failed); err != nil {
 		return Outcomes{}, fmt.Errorf("query outcome totals: %w", err)
 	}
 
-	rows, err := r.db.Query(ctx, outcomeReasonsSQL, rng.From, rng.To, TopFailureReasonLimit)
+	rows, err := r.db.Query(ctx, outcomeReasonsSQL, from, to, TopFailureReasonLimit)
 	if err != nil {
 		return Outcomes{}, fmt.Errorf("query failure reasons: %w", err)
 	}
