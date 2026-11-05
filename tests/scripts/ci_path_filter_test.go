@@ -260,6 +260,7 @@ func TestCIPathFiltersRouteNotificationFlowChanges(t *testing.T) {
 	}{
 		{"notificationflow suite", []string{"tests/integration/notificationflow/harness_test.go"}, true},
 		{"notification worker source", []string{"apps/services/notification-worker/internal/worker/worker.go"}, true},
+		{"identity internal source", []string{"apps/services/identity/internal/http/internal.go"}, true},
 		{"shared go package", []string{"packages/go-common/messaging/consumer.go"}, true},
 		{"notification migration", []string{"migrations/notification/000002_tables.up.sql"}, true},
 		{"postgres init", []string{"infra/docker/postgres/init/01-schemas.sql"}, true},
