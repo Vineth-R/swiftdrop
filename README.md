@@ -282,7 +282,7 @@ The application is available at <http://localhost:3000>. Run the frontend unit t
 
 The browser only ever calls `/api/v1/...` on its own origin. In development, Next proxies those calls to the gateway at `http://127.0.0.1:8080` (set `API_PROXY_TARGET` to use another address), so the session cookies stay first-party. Start the backend first with `make up`, otherwise sign-in, register and password reset fail with "We could not reach SwiftDrop". Google sign-in only completes from <http://localhost:8080>, because its redirect address is the gateway.
 
-The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, a placeholder `/dashboard`, `/profile`, `/profile/security` the ADMIN `/admin/users` and `/admin/notification-logs`, and the public `/track`. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
+The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, a placeholder `/dashboard`, `/profile`, `/profile/security` and the ADMIN `/admin/users` and `/admin/notification-logs`. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
 
 ## Run an individual HTTP service
 
@@ -397,7 +397,7 @@ pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"
 
 The Playwright configuration also defines Firefox and WebKit projects, but CI runs Chromium only in this phase.
 
-The E2E suite includes `track.spec.ts`, which covers the public `/track` page without a backend: found, not found, a wrong format, rate limiting, server faults, shared links and that no private text appears. It also includes `admin-users.spec.ts`, which covers the ADMIN `/admin/users` screen without a backend: the user list, search, the role and account filters, pagination, activate and deactivate with confirmation, the self-deactivation guard, and the loading, empty, error and no-permission states.
+The E2E suite includes `admin-users.spec.ts`, which covers the ADMIN `/admin/users` screen without a backend: the user list, search, the role and account filters, pagination, activate and deactivate with confirmation, the self-deactivation guard, and the loading, empty, error and no-permission states.
 
 Go targets run from the repository root so the single root module and shared packages resolve correctly. `go.mod`, `go.sum`, and `packages/go-common` are part of every Go target's Nx cache key.
 
@@ -591,4 +591,4 @@ Merchant-owner follow-up: the merchant repository uses `database/sql` and is not
 
 Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: ADMIN notification delivery-log reads and the ADMIN notification-log screen, with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`).
 
-Not implemented: parcel lifecycle and dispatch write APIs, M5's parcel-creation consumer, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the pricing administration UI, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
+Not implemented: parcel lifecycle and dispatch write APIs, M5's parcel-creation consumer, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the pricing administration UI, the optional `/track` mobile UI, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
