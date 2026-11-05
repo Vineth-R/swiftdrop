@@ -439,6 +439,7 @@ test.describe('admin pricing', () => {
         .getByRole('button', { name: 'Edit the 1.00 kg to 5.00 kg band' })
         .click();
       const dialog = page.getByRole('dialog', { name: 'Edit weight band' });
+      await expect(dialog.getByLabel('Charge')).toHaveValue('100.00');
       await dialog.getByLabel('Charge').fill('120');
       await dialog.getByRole('button', { name: 'Save band' }).click();
       await expect(
