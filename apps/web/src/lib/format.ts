@@ -14,6 +14,21 @@ const date = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Colombo',
 });
 
+const money = new Intl.NumberFormat('en-GB', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** "LKR 550.00". */
+export function formatLkr(amount: number): string {
+  return `LKR ${money.format(amount)}`;
+}
+
+/** "2.50 kg". */
+export function formatKg(weight: number): string {
+  return `${money.format(weight)} kg`;
+}
+
 /** "4 Nov 2026, 14:05" from an ISO timestamp. An unreadable value gives an empty string. */
 export function formatDateTime(iso: string): string {
   const value = new Date(iso);

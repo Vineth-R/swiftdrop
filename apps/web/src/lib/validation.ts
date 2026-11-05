@@ -77,6 +77,28 @@ export function validateConfirmation(
     : 'The two passwords do not match.';
 }
 
+/** Up to two decimals, as the API stores money and weights. */
+const DECIMAL = /^\d+(\.\d{1,2})?$/;
+
+/** A base fee must be above 0. A band charge or a surcharge may be 0. */
+export function validateAmount(
+  value: string,
+  { isZeroAllowed }: { isZeroAllowed: boolean },
+): string | undefined {
+  const text = value.trim();
+  const isValid = DECIMAL.test(text) && (isZeroAllowed || Number(text) > 0);
+  if (isValid) return undefined;
+  return isZeroAllowed
+    ? 'Enter an amount of 0 or more, with up to two decimals.'
+    : 'Enter an amount above 0, with up to two decimals.';
+}
+
+export function validateWeight(value: string): string | undefined {
+  return DECIMAL.test(value.trim())
+    ? undefined
+    : 'Enter a weight of 0 or more, with up to two decimals.';
+}
+
 /**
  * Our own copy for a field the API rejected. The server's wording is never
  * shown: it is written for developers and may repeat what was typed.
@@ -88,6 +110,16 @@ const serverMessages: Record<string, string> = {
   currentPassword: 'Enter your current password.',
   fullName: 'Enter between 2 and 150 characters.',
   phone: 'Enter a full number, for example 71 234 5678.',
+  code: 'Enter a code of up to 20 characters.',
+  name: 'Enter a name of up to 100 characters.',
+  districts: 'Enter the districts, separated by commas.',
+  originZoneId: 'Choose a zone.',
+  destinationZoneId: 'Choose a zone.',
+  baseFee: 'Enter an amount above 0, with up to two decimals.',
+  charge: 'Enter an amount of 0 or more, with up to two decimals.',
+  surcharge: 'Enter an amount of 0 or more, with up to two decimals.',
+  minWeightKg: 'Enter a weight of 0 or more, with up to two decimals.',
+  maxWeightKg: 'Enter a weight above the "over" weight.',
 };
 
 export function serverFieldMessage(field: string): string | undefined {

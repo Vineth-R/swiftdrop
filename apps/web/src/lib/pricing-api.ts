@@ -56,7 +56,18 @@ export type WeightBand = {
 
 export type SizeSurcharge = { sizeCategory: SizeCategory; surcharge: number };
 
-type Page = { page?: number; pageSize?: number };
+/** The page size the admin screens ask for. 100 is the API's maximum. */
+export const PRICING_PAGE_SIZE = 20;
+export const PRICING_MAX_PAGE_SIZE = 100;
+
+type Page = {
+  page?: number;
+  pageSize?: number;
+  /** The API orders by id by default, which reads as random on a screen. */
+  sort?: 'createdAt:asc';
+};
+
+export type AdminZoneQuery = Page & { isActive?: boolean };
 
 export type PricingRuleQuery = Page & {
   originZoneId?: string;
@@ -65,7 +76,7 @@ export type PricingRuleQuery = Page & {
 };
 
 /** Leaves out what is not set. `isActive: false` is a filter, so it stays. */
-function toQueryString(query: PricingRuleQuery): string {
+function toQueryString(query: AdminZoneQuery | PricingRuleQuery): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined && value !== '') params.set(key, String(value));
@@ -89,6 +100,16 @@ export function estimate(
 /** Section 3.2. Public. Fills the pickup and destination dropdowns. */
 export function getZones(signal?: AbortSignal): Promise<Zone[]> {
   return api<Zone[]>('/zones', { signal });
+}
+
+/** Section 3.13. Admin only. Unlike getZones, it includes inactive zones. */
+export function listAdminZones(
+  query: AdminZoneQuery = {},
+  signal?: AbortSignal,
+): Promise<{ data: AdminZone[]; meta: ApiMeta }> {
+  return apiWithMeta<AdminZone[]>(`/admin/zones${toQueryString(query)}`, {
+    signal,
+  });
 }
 
 /** Section 3.3. Admin only. */

@@ -16,6 +16,7 @@ const {
   createZone,
   estimate,
   getZones,
+  listAdminZones,
   listPricingRules,
   listSizeSurcharges,
   listWeightBands,
@@ -35,6 +36,18 @@ afterEach(restoreFetch);
 for (const [name, run, method, path, body] of [
   ['estimate', () => estimate(input), 'POST', '/pricing/estimate', input],
   ['getZones', () => getZones(), 'GET', '/zones'],
+  [
+    'listAdminZones without a query',
+    () => listAdminZones(),
+    'GET',
+    '/admin/zones',
+  ],
+  [
+    'listAdminZones with a filter and paging',
+    () => listAdminZones({ isActive: false, page: 2, sort: 'createdAt:asc' }),
+    'GET',
+    '/admin/zones?isActive=false&page=2&sort=createdAt%3Aasc',
+  ],
   [
     'createZone',
     () => createZone({ code: 'GLE', name: 'Galle', districts: ['Galle'] }),
