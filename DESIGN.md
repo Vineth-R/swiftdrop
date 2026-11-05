@@ -183,7 +183,7 @@ There are exactly four layout templates. Do not invent a fifth.
 
 **What the `(app)` group does for you.** `app/(app)/layout.tsx` checks the login cookie (a splash, then a redirect to `/login` that returns afterwards), picks the shell for the signed-in role, and shows the 403 and 404 pages inside it. A sidebar entry whose page is not built shows the 404. When the 15-minute access token expires, `api()` renews it and retries.
 
-**A public page** goes in `app/(public)/<route>/page.tsx`. The group gives it `PublicLayout` (logo, theme switch, Log in, one reading column) and no login check, so a signed-out visitor and a signed-in one both see it. Everything on it is public: show status, cities and times, never names, phone numbers, addresses or fees (rule 11). `/track` is a stand-in until the tracking page (API 4.6) replaces it; build that page from `PageHeader`, `WaybillStub isPublic` and `Timeline`.
+**A public page** goes in `app/(public)/<route>/page.tsx`. The group gives it `PublicLayout` (logo, theme switch, Log in, one reading column) and no login check, so a signed-out visitor and a signed-in one both see it. Everything on it is public: show status, cities and times, never names, phone numbers, addresses or fees (rule 11). `/track` is the worked example (API 4.6): `PageHeader`, then a form, `WaybillStub isPublic` and `Timeline`.
 
 **A new screen** is two files:
 
