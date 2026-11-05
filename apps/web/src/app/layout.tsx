@@ -1,7 +1,7 @@
 import localFont from 'next/font/local';
 
-import { ToastProvider } from '../components/ui/toast';
-import { THEME_INIT } from '../lib/theme';
+import { ToastProvider } from '@/components/ui/toast';
+import { THEME_INIT } from '@/lib/theme';
 import './globals.css';
 
 export const metadata = {

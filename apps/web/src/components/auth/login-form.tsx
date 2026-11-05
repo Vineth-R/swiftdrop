@@ -11,31 +11,29 @@ import {
   type FormEvent,
 } from 'react';
 
-import { ApiError } from '../../lib/api';
-import { googleLoginUrl } from '../../lib/auth-api';
-import { homeFor } from '../../lib/nav';
-import { safeNext } from '../../lib/redirect';
-import { useSession } from '../../lib/session';
-import { formatClock, useCountdown } from '../../lib/use-countdown';
-import { useForm, type FormRules } from '../../lib/use-form';
+import { ApiError } from '@/lib/api';
+import { classifyApiError, type ApiProblem } from '@/lib/api-problem';
+import { googleLoginUrl } from '@/lib/auth-api';
+import { DEFAULT_AUTH_ROUTE } from '@/lib/constants';
+import { homeFor } from '@/lib/nav';
+import { safeNext } from '@/lib/redirect';
+import { useSession } from '@/lib/session';
+import { formatClock, useCountdown } from '@/lib/use-countdown';
+import { useForm, type FormRules } from '@/lib/use-form';
 import {
   serverFieldMessage,
   validateEmail,
   validateRequiredPassword,
-} from '../../lib/validation';
-import { Alert } from '../ui/alert';
-import { Button, ButtonLink } from '../ui/button';
-import { TextField } from '../ui/field';
-import { PasswordField } from '../ui/password-field';
-import { RateLimitedAlert, ServerFaultAlert } from './form-alerts';
+} from '@/lib/validation';
+import { Alert } from '@/components/ui/alert';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { TextField } from '@/components/ui/field';
+import { PasswordField } from '@/components/ui/password-field';
+import { ApiProblemAlerts } from './api-problem-alerts';
 import { GoogleButton, OrDivider } from './google-button';
 
 type Banner =
-  | { kind: 'invalid' }
-  | { kind: 'locked' }
-  | { kind: 'rate-limited'; seconds: number }
-  | { kind: 'oauth' }
-  | { kind: 'server'; requestId?: string; isNetwork: boolean };
+  { kind: 'invalid' } | { kind: 'locked' } | { kind: 'oauth' } | ApiProblem;
 
 const rules: FormRules<{ email: string; password: string }> = {
   email: (v) => validateEmail(v.email),
@@ -90,7 +88,7 @@ export function LoginForm() {
     setIsLoading(true);
     try {
       const user = await signIn(form.values.email, form.values.password);
-      router.replace(safeNext(next, homeFor(user.role)));
+      router.replace(next || homeFor(user.role));
     } catch (error) {
       setIsLoading(false);
       handleFailure(error);
@@ -98,49 +96,38 @@ export function LoginForm() {
   }
 
   function handleFailure(error: unknown) {
-    if (!(error instanceof ApiError)) {
-      setBanner({ kind: 'server', isNetwork: false });
-      return;
-    }
-    switch (error.code) {
-      case 'INVALID_CREDENTIALS':
-        // Clear the password quietly: the alert already says what is wrong.
-        form.setValue('password', '');
-        form.resetValidation();
-        setBanner({ kind: 'invalid' });
-        break;
-      case 'ACCOUNT_LOCKED':
-        setBanner({ kind: 'locked' });
-        break;
-      case 'ACCOUNT_DEACTIVATED':
-        setIsDeactivated(true);
-        break;
-      case 'RATE_LIMITED':
-        // The typed password is kept; only the button waits.
-        setBanner({ kind: 'rate-limited', seconds: error.retryAfter ?? 60 });
-        break;
-      case 'VALIDATION_FAILED': {
-        const fields: Partial<Record<'email' | 'password', string>> = {};
-        for (const issue of error.issues) {
-          const message = serverFieldMessage(issue.field);
-          if (issue.field === 'email' || issue.field === 'password') {
-            fields[issue.field] = message;
-          }
-        }
-        if (fields.email || fields.password) form.setServerErrors(fields);
-        else setBanner({ kind: 'server', isNetwork: false });
-        break;
+    if (error instanceof ApiError) {
+      switch (error.code) {
+        case 'INVALID_CREDENTIALS':
+          // Clear the password quietly: the alert already says what is wrong.
+          form.setValue('password', '');
+          form.resetValidation();
+          setBanner({ kind: 'invalid' });
+          return;
+        case 'ACCOUNT_LOCKED':
+          setBanner({ kind: 'locked' });
+          return;
+        case 'ACCOUNT_DEACTIVATED':
+          setIsDeactivated(true);
+          return;
       }
-      default:
-        setBanner({
-          kind: 'server',
-          isNetwork: error.code === 'NETWORK',
-          requestId:
-            error.isServerFault && error.code !== 'NETWORK'
-              ? error.requestId
-              : undefined,
-        });
     }
+
+    const classified = classifyApiError(error);
+    if (classified.kind === 'validation') {
+      const fields: Partial<Record<'email' | 'password', string>> = {};
+      for (const issue of classified.issues) {
+        const message = serverFieldMessage(issue.field);
+        if (issue.field === 'email' || issue.field === 'password') {
+          fields[issue.field] = message;
+        }
+      }
+      if (fields.email || fields.password) {
+        form.setServerErrors(fields);
+        return;
+      }
+    }
+    setBanner(classified);
   }
 
   if (isDeactivated) {
@@ -222,7 +209,7 @@ export function LoginForm() {
       </form>
 
       <OrDivider />
-      <GoogleButton href={googleLoginUrl(next || '/dashboard')}>
+      <GoogleButton href={googleLoginUrl(next || DEFAULT_AUTH_ROUTE)}>
         Continue with Google
       </GoogleButton>
     </>
@@ -267,8 +254,6 @@ function LoginBanner({
           .
         </Alert>
       );
-    case 'rate-limited':
-      return <RateLimitedAlert alertRef={alertRef} remaining={remaining} />;
     case 'oauth':
       return (
         <Alert
@@ -279,12 +264,12 @@ function LoginBanner({
           Please try again, or log in with your email and password.
         </Alert>
       );
-    case 'server':
+    default:
       return (
-        <ServerFaultAlert
+        <ApiProblemAlerts
+          problem={banner}
           alertRef={alertRef}
-          isNetwork={banner.isNetwork}
-          requestId={banner.requestId}
+          remaining={remaining}
         />
       );
   }

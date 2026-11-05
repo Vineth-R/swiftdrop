@@ -1,25 +1,25 @@
 import { Lock, PackageOpen, Plus } from 'lucide-react';
 
-import { SystemPage } from '../../components/layout/system-page';
-import { Alert } from '../../components/ui/alert';
-import { Avatar } from '../../components/ui/avatar';
-import { Banner } from '../../components/ui/banner';
-import { Button, ButtonLink } from '../../components/ui/button';
-import { EmptyState } from '../../components/ui/empty-state';
-import { ErrorSummary } from '../../components/ui/error-summary';
-import { TextField } from '../../components/ui/field';
-import { Logo, LogoMark } from '../../components/ui/logo';
-import { PasswordField } from '../../components/ui/password-field';
-import { RoleBadge } from '../../components/ui/role-badge';
-import { RouteLine } from '../../components/ui/route-line';
+import { SystemPage } from '@/components/layout/system-page';
+import { Alert } from '@/components/ui/alert';
+import { Avatar } from '@/components/ui/avatar';
+import { Banner } from '@/components/ui/banner';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorSummary } from '@/components/ui/error-summary';
+import { TextField } from '@/components/ui/field';
+import { Logo, LogoMark } from '@/components/ui/logo';
+import { PasswordField } from '@/components/ui/password-field';
+import { RoleBadge } from '@/components/ui/role-badge';
+import { RouteLine } from '@/components/ui/route-line';
 import {
   Skeleton,
   SkeletonGroup,
   SkeletonText,
-} from '../../components/ui/skeleton';
-import { Spinner } from '../../components/ui/spinner';
-import type { ButtonVariant } from '../../components/ui/button';
-import { roles } from '../../lib/tokens';
+} from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
+import type { ButtonVariant } from '@/components/ui/button';
+import { roles } from '@/lib/tokens';
 
 const variants: { variant: ButtonVariant; label: string; note: string }[] = [
   { variant: 'primary', label: 'Create', note: 'Ink fill' },

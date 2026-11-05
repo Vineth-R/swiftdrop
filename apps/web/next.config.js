@@ -2,6 +2,9 @@
 
 const { join } = require('node:path');
 
+// Single source of truth, shared with src/lib/constants.ts.
+const { base: apiBase } = require('./src/lib/api-config.json');
+
 /**
  * `nx dev` serves the app on :3000 while the API lives behind the Nginx
  * gateway on :8080. Proxying /api/v1 through Next keeps the browser on one
@@ -27,8 +30,8 @@ const nextConfig = {
     if (!apiProxyTarget) return [];
     return [
       {
-        source: '/api/v1/:path*',
-        destination: `${apiProxyTarget}/api/v1/:path*`,
+        source: `${apiBase}/:path*`,
+        destination: `${apiProxyTarget}${apiBase}/:path*`,
       },
     ];
   },

@@ -344,6 +344,12 @@ jobs:
       - name: Validate event contracts
         run: node --test "tests/contracts/*.test.mjs"
 
+      - name: Test web unit suite
+        run: pnpm exec nx test @org/web --skip-nx-cache
+
+      - name: Typecheck web
+        run: pnpm exec nx typecheck @org/web --skip-nx-cache
+
       - name: Lint and build web
         run: pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e
 

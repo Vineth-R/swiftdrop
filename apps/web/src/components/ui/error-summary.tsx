@@ -3,7 +3,8 @@
 import { SquareX } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
-import { cn } from '../../lib/cn';
+import { cn } from '@/lib/cn';
+import { ReferenceLine } from './reference-line';
 
 export type ErrorSummaryIssue = {
   /** Id of the field, so the item can link to it. */
@@ -78,11 +79,7 @@ export function ErrorSummary({
           </li>
         ))}
       </ol>
-      {requestId && (
-        <span className="select-all font-mono text-overline text-text-faint">
-          Reference {requestId}
-        </span>
-      )}
+      <ReferenceLine requestId={requestId} />
     </div>
   );
 }

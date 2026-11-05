@@ -3,8 +3,14 @@
 import { Check } from 'lucide-react';
 import { useEffect, useId, useMemo, useState, type ChangeEvent } from 'react';
 
-import { cn } from '../../lib/utils';
-import { checkPassword, strengthLabels } from '../../lib/password';
+import { cn } from '@/lib/utils';
+import {
+  checkPassword,
+  passwordByteLength,
+  passwordCharacterLength,
+  PASSWORD_MAX_BYTES,
+  strengthLabels,
+} from '@/lib/password';
 import { Button } from './button';
 import { Input } from './input';
 import {
@@ -33,6 +39,8 @@ export function PasswordChecklist({
   className,
 }: PasswordChecklistProps) {
   const { rules, score } = useMemo(() => checkPassword(value), [value]);
+  const characters = useMemo(() => passwordCharacterLength(value), [value]);
+  const bytes = useMemo(() => passwordByteLength(value), [value]);
   const fill =
     score === 4 ? 'bg-success' : score >= 2 ? 'bg-warning' : 'bg-danger';
 
@@ -54,7 +62,7 @@ export function PasswordChecklist({
           {strengthLabels[score]}
         </span>
         <span className="tabular font-mono text-overline text-text-faint">
-          {value.length} / 72
+          {characters} characters · {bytes} / {PASSWORD_MAX_BYTES} bytes
         </span>
       </div>
       <ul

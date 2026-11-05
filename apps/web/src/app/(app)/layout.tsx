@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 
-import { SignedInOnly } from '../../components/auth/session-gates';
-import { RoleShell } from '../../components/layout/role-shell';
-import { SessionProvider } from '../../lib/session';
+import { SignedInOnly } from '@/components/auth/session-gates';
+import { RoleShell } from '@/components/layout/role-shell';
+import { SessionProvider } from '@/lib/session';
 
 /**
  * Every signed-in screen lives under this group. The session gate shows the

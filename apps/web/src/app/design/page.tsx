@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-import { ThemeSwitch } from '../../components/ui/theme-switch';
+import { ThemeSwitch } from '@/components/ui/theme-switch';
 import { ComponentsSection } from './components-section';
 import { KitMoreSection } from './kit-more-section';
 import { KitSection } from './kit-section';
@@ -12,7 +12,7 @@ import {
   shadowTokens,
   spaceScale,
   textScale,
-} from '../../lib/tokens';
+} from '@/lib/tokens';
 
 export const metadata: Metadata = {
   title: 'Design tokens — SwiftDrop',
