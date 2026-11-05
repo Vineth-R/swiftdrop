@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type { ComponentProps, ReactNode, Ref } from 'react';
 
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 
 export type AlertTone = 'info' | 'success' | 'warning' | 'danger';
 

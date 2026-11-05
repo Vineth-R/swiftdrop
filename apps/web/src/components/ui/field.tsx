@@ -1,7 +1,7 @@
 import { Check, CircleAlert } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 import { Input } from './input';
 import { Label } from './label';
 

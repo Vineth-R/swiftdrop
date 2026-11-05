@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import { DEFAULT_AUTH_ROUTE } from './constants';
 import type { Role } from './tokens';
 
 /**
@@ -27,11 +28,11 @@ import type { Role } from './tokens';
  * role's first screen, for example DISPATCHER to '/unassigned'.
  */
 const roleHome: Record<Role, string> = {
-  CUSTOMER: '/dashboard',
-  MERCHANT: '/dashboard',
-  COURIER: '/dashboard',
-  DISPATCHER: '/dashboard',
-  ADMIN: '/dashboard',
+  CUSTOMER: DEFAULT_AUTH_ROUTE,
+  MERCHANT: DEFAULT_AUTH_ROUTE,
+  COURIER: DEFAULT_AUTH_ROUTE,
+  DISPATCHER: DEFAULT_AUTH_ROUTE,
+  ADMIN: DEFAULT_AUTH_ROUTE,
 };
 
 export function homeFor(role: Role): string {

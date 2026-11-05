@@ -368,7 +368,7 @@ const form = useForm<Values>({ recipient: '' }, rules);
 - **A 422 from the API** carries `error.issues[].field`. Map each field to our own wording with `serverFieldMessage()` and call `form.setServerErrors(...)`. Add a message for a new field to `serverMessages` in `lib/validation.ts`. Never print the server's text.
 - **Keep what was typed** after any failure. Show `isLoading` while saving. After success, say so in plain words (`Alert tone="success"`) or move on.
 - **Edit forms send only what changed**, and the Save button stays off until something changes (see the profile form).
-- **A phone number** is E.164 for the API (`+94771234567`). A Sri Lankan number typed after a fixed `+94` prefix goes through `toSriLankanE164()`. A password follows the same rules everywhere: 8 to 72 characters with an upper case letter, a lower case letter and a digit (`lib/password.ts`).
+- **A phone number** is E.164 for the API (`+94771234567`). A Sri Lankan number typed after a fixed `+94` prefix goes through `toSriLankanE164()`. A password follows the same rules everywhere: at least 8 characters, at most 72 UTF-8 bytes, with an upper case letter, a lower case letter and a digit (`lib/password.ts`).
 - Every field has a real `label`, and an `id` that is unique on the page.
 
 ## 10. Talking to the API

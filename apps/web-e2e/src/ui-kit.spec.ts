@@ -68,14 +68,14 @@ test.describe('PasswordField', () => {
     await input.fill('abc');
 
     const list = page.getByRole('list').filter({ hasText: 'One digit' });
-    await expect(list).toContainText('8 to 72 characters');
+    await expect(list).toContainText('At least 8 characters, maximum 72 bytes');
     await expect(list.getByText('One lower case letter')).toBeVisible();
-    await expect(page.getByText('3 / 72')).toBeVisible();
+    await expect(page.getByText('3 characters · 3 / 72 bytes')).toBeVisible();
     await expect(page.getByText('Weak — two more to go')).toBeVisible();
 
     await input.fill('Colombo26');
     await expect(page.getByText('Meets the rule')).toBeVisible();
-    await expect(page.getByText('9 / 72')).toBeVisible();
+    await expect(page.getByText('9 characters · 9 / 72 bytes')).toBeVisible();
   });
 
   test('the checklist is announced politely', async ({ page }) => {

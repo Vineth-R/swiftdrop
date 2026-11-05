@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 
-import { RecoveryPanel } from '../../../components/auth/panels';
-import { ResetPasswordForm } from '../../../components/auth/reset-form';
-import { AuthLayout } from '../../../components/layout/auth-layout';
+import { RecoveryPanel } from '@/components/auth/panels';
+import { ResetPasswordForm } from '@/components/auth/reset-form';
+import { AuthLayout } from '@/components/layout/auth-layout';
 
 export const metadata: Metadata = {
   title: 'Set a new password — SwiftDrop',

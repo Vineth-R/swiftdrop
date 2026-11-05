@@ -2,7 +2,7 @@ import { cva } from 'class-variance-authority';
 import Link from 'next/link';
 import type { ComponentProps, ReactNode } from 'react';
 
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 import { Spinner } from './spinner';
 
 export type ButtonVariant =

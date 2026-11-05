@@ -1,7 +1,12 @@
-import { buttonClasses } from '../ui/button';
-import { cn } from '../../lib/cn';
+import { buttonClasses } from '@/components/ui/button';
+import { cn } from '@/lib/cn';
 
 /* eslint-disable swiftdrop/no-raw-colors -- Google's own brand colours: the mark must not follow our palette. */
+/**
+ * Google's official brand colours. These hexadecimal values are intentional
+ * brand artwork, not design-system colours, so they are exempt from the
+ * project's tokens-only styling rule. Do not replace them with theme tokens.
+ */
 function GoogleMark() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">

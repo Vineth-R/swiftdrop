@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 
-import { cn } from '../../lib/cn';
-import { Logo } from '../ui/logo';
-import { RouteLine } from '../ui/route-line';
-import { ThemeSwitch } from '../ui/theme-switch';
+import { cn } from '@/lib/cn';
+import { Logo } from '@/components/ui/logo';
+import { RouteLine } from '@/components/ui/route-line';
+import { ThemeSwitch } from '@/components/ui/theme-switch';
 
 type AuthLayoutProps = {
   /** A brand panel. Hidden below 768px, where only the header remains. */

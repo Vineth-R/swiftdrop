@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 
-import { Button } from '../ui/button';
-import { LogoMark } from '../ui/logo';
-import { RouteLine } from '../ui/route-line';
+import { SPLASH_SLOW_MS } from '@/lib/constants';
+import { Button } from '@/components/ui/button';
+import { LogoMark } from '@/components/ui/logo';
+import { RouteLine } from '@/components/ui/route-line';
 
 type SplashProps = {
   /**
@@ -25,7 +26,7 @@ export function Splash({ state = 'checking', onRetry }: SplashProps) {
 
   useEffect(() => {
     if (state !== 'checking') return;
-    const timer = window.setTimeout(() => setIsSlow(true), 3000);
+    const timer = window.setTimeout(() => setIsSlow(true), SPLASH_SLOW_MS);
     return () => window.clearTimeout(timer);
   }, [state]);
 

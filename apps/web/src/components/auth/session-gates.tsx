@@ -3,9 +3,9 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, type ReactNode } from 'react';
 
-import { homeFor } from '../../lib/nav';
-import { safeNext } from '../../lib/redirect';
-import { useSession, type SessionState } from '../../lib/session';
+import { homeFor } from '@/lib/nav';
+import { safeNext } from '@/lib/redirect';
+import { useSession, type SessionState } from '@/lib/session';
 import { Splash } from './splash';
 
 /**

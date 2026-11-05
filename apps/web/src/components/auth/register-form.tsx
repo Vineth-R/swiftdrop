@@ -4,13 +4,15 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { ApiError } from '../../lib/api';
-import { googleLoginUrl, register } from '../../lib/auth-api';
-import { homeFor } from '../../lib/nav';
-import { safeNext } from '../../lib/redirect';
-import { useSession } from '../../lib/session';
-import { formatClock, useCountdown } from '../../lib/use-countdown';
-import { useForm, type FormRules } from '../../lib/use-form';
+import { ApiError } from '@/lib/api';
+import { classifyApiError, type ApiProblem } from '@/lib/api-problem';
+import { googleLoginUrl, register } from '@/lib/auth-api';
+import { DEFAULT_AUTH_ROUTE, REGISTER_REDIRECT_SECONDS } from '@/lib/constants';
+import { homeFor } from '@/lib/nav';
+import { safeNext } from '@/lib/redirect';
+import { useSession } from '@/lib/session';
+import { formatClock, useCountdown } from '@/lib/use-countdown';
+import { useForm, type FormRules } from '@/lib/use-form';
 import {
   serverFieldMessage,
   toSriLankanE164,
@@ -19,13 +21,16 @@ import {
   validateFullName,
   validateNewPassword,
   validatePhone,
-} from '../../lib/validation';
-import { Alert } from '../ui/alert';
-import { Button, ButtonLink } from '../ui/button';
-import { ErrorSummary, type ErrorSummaryIssue } from '../ui/error-summary';
-import { TextField } from '../ui/field';
-import { PasswordField } from '../ui/password-field';
-import { RateLimitedAlert, ServerFaultAlert } from './form-alerts';
+} from '@/lib/validation';
+import { Alert } from '@/components/ui/alert';
+import { Button, ButtonLink } from '@/components/ui/button';
+import {
+  ErrorSummary,
+  type ErrorSummaryIssue,
+} from '@/components/ui/error-summary';
+import { TextField } from '@/components/ui/field';
+import { PasswordField } from '@/components/ui/password-field';
+import { ApiProblemAlerts } from './api-problem-alerts';
 import { GoogleButton, OrDivider } from './google-button';
 
 type Values = {
@@ -37,8 +42,11 @@ type Values = {
 };
 type Field = keyof Values;
 
-/** Stands in for the "already registered" message, which carries links. */
-const EMAIL_IN_USE = 'EMAIL_IN_USE';
+/**
+ * Client-only marker for the email field. It is deliberately not the API's
+ * EMAIL_ALREADY_EXISTS code: transport vocabulary stays in the API layer.
+ */
+const EMAIL_IN_USE_FIELD = 'client.email-in-use';
 
 const rules: FormRules<Values> = {
   fullName: (v) => validateFullName(v.fullName),
@@ -58,10 +66,7 @@ const labels: Record<Field, string> = {
 
 const fieldId = (field: Field) => `register-${field}`;
 
-type Banner =
-  | { kind: 'rate-limited'; seconds: number }
-  | { kind: 'server'; requestId?: string; isNetwork: boolean }
-  | { kind: 'signed-out-after-create' };
+type Banner = ApiProblem | { kind: 'signed-out-after-create' };
 
 export function RegisterForm() {
   const router = useRouter();
@@ -86,7 +91,7 @@ export function RegisterForm() {
   const waiting = useCountdown(waitSeconds);
   const isWaiting = banner?.kind === 'rate-limited' && waiting > 0;
 
-  const redirectIn = useCountdown(createdAs ? 3 : null);
+  const redirectIn = useCountdown(createdAs ? REGISTER_REDIRECT_SECONDS : null);
   useEffect(() => {
     if (createdAs && redirectIn === 0) router.replace(createdAs.to);
   }, [createdAs, redirectIn, router]);
@@ -101,7 +106,7 @@ export function RegisterForm() {
       fieldId: fieldId(field),
       label: labels[field],
       message:
-        form.errors[field] === EMAIL_IN_USE
+        form.errors[field] === EMAIL_IN_USE_FIELD
           ? 'this email is already registered.'
           : (form.errors[field] ?? '').replace(/^./, (c) => c.toLowerCase()),
     }));
@@ -134,7 +139,7 @@ export function RegisterForm() {
       const user = await signIn(form.values.email, form.values.password);
       setCreatedAs({
         email: user.email,
-        to: safeNext(next, homeFor(user.role)),
+        to: next || homeFor(user.role),
       });
     } catch {
       setIsLoading(false);
@@ -143,40 +148,27 @@ export function RegisterForm() {
   }
 
   function handleFailure(error: unknown) {
-    if (!(error instanceof ApiError)) {
-      setBanner({ kind: 'server', isNetwork: false });
+    if (error instanceof ApiError && error.code === 'EMAIL_IN_USE') {
+      form.setServerErrors({ email: EMAIL_IN_USE_FIELD });
+      setFailedSubmits((count) => count + 1);
       return;
     }
-    switch (error.code) {
-      case 'EMAIL_IN_USE':
-        form.setServerErrors({ email: EMAIL_IN_USE });
-        setFailedSubmits((count) => count + 1);
-        break;
-      case 'VALIDATION_FAILED': {
-        const fields: Partial<Record<Field, string>> = {};
-        for (const issue of error.issues) {
-          const message = serverFieldMessage(issue.field);
-          if (message && issue.field in labels)
-            fields[issue.field as Field] = message;
-        }
-        if (Object.keys(fields).length > 0) {
-          form.setServerErrors(fields);
-          setFailedSubmits((count) => count + 1);
-        } else {
-          setBanner({ kind: 'server', isNetwork: false });
-        }
-        break;
+
+    const classified = classifyApiError(error);
+    if (classified.kind === 'validation') {
+      const fields: Partial<Record<Field, string>> = {};
+      for (const issue of classified.issues) {
+        const message = serverFieldMessage(issue.field);
+        if (message && issue.field in labels)
+          fields[issue.field as Field] = message;
       }
-      case 'RATE_LIMITED':
-        setBanner({ kind: 'rate-limited', seconds: error.retryAfter ?? 60 });
-        break;
-      default:
-        setBanner({
-          kind: 'server',
-          isNetwork: error.code === 'NETWORK',
-          requestId: error.code === 'INTERNAL' ? error.requestId : undefined,
-        });
+      if (Object.keys(fields).length > 0) {
+        form.setServerErrors(fields);
+        setFailedSubmits((count) => count + 1);
+        return;
+      }
     }
+    setBanner(classified);
   }
 
   if (createdAs) {
@@ -197,7 +189,7 @@ export function RegisterForm() {
   }
 
   const emailError =
-    form.errors.email === EMAIL_IN_USE ? (
+    form.errors.email === EMAIL_IN_USE_FIELD ? (
       <>
         This email is already registered.{' '}
         <Link
@@ -221,14 +213,11 @@ export function RegisterForm() {
 
   return (
     <>
-      {banner?.kind === 'rate-limited' && (
-        <RateLimitedAlert alertRef={alertRef} remaining={waiting} />
-      )}
-      {banner?.kind === 'server' && (
-        <ServerFaultAlert
+      {banner && banner.kind !== 'signed-out-after-create' && (
+        <ApiProblemAlerts
+          problem={banner}
           alertRef={alertRef}
-          isNetwork={banner.isNetwork}
-          requestId={banner.requestId}
+          remaining={waiting}
         />
       )}
       {banner?.kind === 'signed-out-after-create' && (
@@ -337,7 +326,7 @@ export function RegisterForm() {
       </form>
 
       <OrDivider />
-      <GoogleButton href={googleLoginUrl(next || '/dashboard')}>
+      <GoogleButton href={googleLoginUrl(next || DEFAULT_AUTH_ROUTE)}>
         Sign up with Google
       </GoogleButton>
     </>

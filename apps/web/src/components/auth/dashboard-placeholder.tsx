@@ -1,8 +1,8 @@
 'use client';
 
-import { useSession } from '../../lib/session';
-import { PageHeader } from '../layout/page-header';
-import { Section } from '../layout/section';
+import { PageHeader } from '@/components/layout/page-header';
+import { Section } from '@/components/layout/section';
+import { useSession } from '@/lib/session';
 
 /**
  * Stands in for every role's dashboard until it exists. It proves the sign-in,

@@ -2,12 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
 
-import { RegisterPanel } from '../../../components/auth/panels';
-import { RegisterForm } from '../../../components/auth/register-form';
-import {
-  AuthHeading,
-  AuthLayout,
-} from '../../../components/layout/auth-layout';
+import { RegisterPanel } from '@/components/auth/panels';
+import { RegisterForm } from '@/components/auth/register-form';
+import { AuthHeading, AuthLayout } from '@/components/layout/auth-layout';
 
 export const metadata: Metadata = { title: 'Create your account — SwiftDrop' };
 

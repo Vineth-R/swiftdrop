@@ -282,7 +282,7 @@ Email and password authentication is implemented in the identity service, and `p
 - Follow accessibility practices and responsive design. The existing ESLint setup includes `jsx-a11y`.
 - Style with Tailwind v4 utilities against the design tokens in `apps/web/src/app/globals.css`. Use tokens only: no raw hex values, off-scale spacing or second icon family (Lucide only). `/design` shows every token in light and dark. shadcn/ui is the approved component foundation; do not add another UI library or a state-management library without approval.
 - Avoid unnecessary client-side JavaScript and dependencies.
-- The existing `/api/hello` route is an example. Do not confuse it with the Go `/api/v1/` namespace.
+- Browser code calls the Go API only through `/api/v1/...`; the Next.js app exposes no example API route. Do not confuse Next.js routes with the Go `/api/v1/` namespace.
 - Signed-in screens go in `apps/web/src/app/(app)/<name>/page.tsx`. That group's layout already provides the session gate (splash, redirect to `/login`) and the shell for the person's role, so a page only renders its own content. Start every page with `PageHeader`, then `Section`s.
 - Add a screen to the sidebar (or the courier's bottom tabs) in `apps/web/src/lib/nav.ts`. Hiding a link never protects a page: wrap a role-limited page's content in `RequireRole`, and the API checks again. A page that is not built yet shows the shell's 404.
 - `apps/web` currently contains the shadcn/ui foundation (`components/ui`), the design system (`/design`), the auth screens, the app shell, the profile and security pages (`/profile`, `/profile/security`, a worked example of a form screen), a placeholder dashboard, the ADMIN users list (`/admin/users`) and the ADMIN notification-log screen. Other role screens are still to be built.
@@ -310,6 +310,7 @@ Add or update tests for every meaningful change.
 ### Frontend
 
 - Test meaningful component and application behavior when the UI is implemented.
+- Pure frontend logic is unit-tested with Vitest under `apps/web/src/**/*.spec.ts`; run `pnpm exec nx test @org/web`. Component and flow behavior stays in Playwright.
 - Use the existing Nx Playwright target for important end-to-end workflows.
 - The design lint rules in `apps/web/eslint-rules` have their own tests: `node --test "apps/web/eslint-rules/*.test.mjs"`. CI runs them, and you run them when you change a rule.
 - Do not add a new test framework without approval.
@@ -330,7 +331,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 - Use pnpm only for JavaScript dependencies. Do not use npm or Yarn.
 - Do not modify dependency versions or lockfiles unless the task requires it.
 - Use Nx for configured tasks. Inspect available targets before invoking them.
-- `@org/web` targets: `build`, `dev`, `start`, `serve-static`, `build-deps`, `watch-deps`, `lint`. It has no `test` target and no `typecheck` target; the Next build performs type checking.
+- `@org/web` targets: `build`, `dev`, `start`, `serve-static`, `build-deps`, `watch-deps`, `lint`, `test`, `typecheck`. `test` runs the Vitest unit suite; `typecheck` checks the unit tests and Vitest config; the Next build performs application type checking.
 - `@org/web-e2e` targets: `lint`, `typecheck`, `e2e`, and Playwright CI targets. It has no `build` target.
 - Go projects have `build`, `test`, `lint`, and `serve` targets. `go-common` has `build`, `test`, and `lint`.
 - Run Go targets from the repository root. They depend on the root module and `packages/go-common`.
@@ -347,6 +348,8 @@ Never claim tests passed unless they were actually run and passed. Report any ch
   pnpm exec nx dev @org/web
   pnpm exec nx build @org/web
   pnpm exec nx lint @org/web
+  pnpm exec nx test @org/web
+  pnpm exec nx typecheck @org/web
   pnpm exec nx lint @org/web-e2e
   pnpm exec nx typecheck @org/web-e2e
   pnpm exec nx e2e @org/web-e2e
@@ -356,7 +359,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
   TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' go test -tags=integration ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/...
   ```
 - `pnpm exec nx lint @org/web` and `pnpm exec nx build @org/web` are valid. `pnpm exec nx serve @org/web` is not; use `dev` or `start`.
-- The CI frontend command is `pnpm exec nx run-many -t lint typecheck build --projects=@org/web,@org/web-e2e`. Nx runs only targets that are configured for each project.
+- The CI frontend job runs the design-lint and API-client Node tests, `pnpm exec nx test @org/web`, `pnpm exec nx typecheck @org/web`, `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and `pnpm exec nx typecheck @org/web-e2e`. Nx runs only targets that are configured for each project.
 - CI runs Playwright E2E for Chromium only with `pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"`. The Playwright config still defines Firefox and WebKit projects for local use.
 - Run `pnpm exec prettier --write` and `pnpm exec prettier --check` on changed documentation and frontend files. Prettier ignores the third-party skill directories.
 

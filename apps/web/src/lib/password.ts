@@ -1,9 +1,10 @@
 /**
  * The password rule shown to people, matching the API (Registration, reset and
- * change password): 8 to 72 bytes with one upper case letter, one lower case
- * letter and one digit. The backend stays authoritative; this only guides.
+ * change password): at least 8 Unicode characters, at most 72 UTF-8 bytes,
+ * with an upper case letter, a lower case letter and a digit. The backend stays
+ * authoritative; this only guides.
  */
-export const PASSWORD_MIN_LENGTH = 8;
+export const PASSWORD_MIN_CHARACTERS = 8;
 export const PASSWORD_MAX_BYTES = 72;
 
 export type PasswordRuleId = 'length' | 'upper' | 'lower' | 'digit';
@@ -30,17 +31,37 @@ export const strengthLabels = [
   'Meets the rule',
 ] as const;
 
+/** Unicode code points, matching Go's utf8.RuneCountInString. */
+export function passwordCharacterLength(value: string): number {
+  return [...value].length;
+}
+
+/** UTF-8 byte length, the measurement the API's 72-byte limit uses. */
+export function passwordByteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
 export function checkPassword(value: string): PasswordCheck {
-  const bytes = new TextEncoder().encode(value).length;
+  const characters = passwordCharacterLength(value);
+  const bytes = passwordByteLength(value);
   const rules: PasswordRule[] = [
     {
       id: 'length',
-      label: '8 to 72 characters',
-      isMet: bytes >= PASSWORD_MIN_LENGTH && bytes <= PASSWORD_MAX_BYTES,
+      label: 'At least 8 characters, maximum 72 bytes',
+      isMet:
+        characters >= PASSWORD_MIN_CHARACTERS && bytes <= PASSWORD_MAX_BYTES,
     },
-    { id: 'upper', label: 'One upper case letter', isMet: /[A-Z]/.test(value) },
-    { id: 'lower', label: 'One lower case letter', isMet: /[a-z]/.test(value) },
-    { id: 'digit', label: 'One digit', isMet: /[0-9]/.test(value) },
+    {
+      id: 'upper',
+      label: 'One upper case letter',
+      isMet: /\p{Lu}/u.test(value),
+    },
+    {
+      id: 'lower',
+      label: 'One lower case letter',
+      isMet: /\p{Ll}/u.test(value),
+    },
+    { id: 'digit', label: 'One digit', isMet: /\p{Nd}/u.test(value) },
   ];
   const score = rules.filter((rule) => rule.isMet).length;
   return { rules, score, isValid: score === rules.length };

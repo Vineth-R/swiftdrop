@@ -1,3 +1,5 @@
+import { DEFAULT_AUTH_ROUTE } from './constants';
+
 const AUTH_PATHS =
   /^\/(login|register|forgot-password|reset-password|signed-out)(\/|\?|#|$)/;
 
@@ -16,7 +18,7 @@ function hasControlCharacter(value: string): boolean {
  */
 export function safeNext(
   value: string | null | undefined,
-  fallback = '/dashboard',
+  fallback = DEFAULT_AUTH_ROUTE,
 ): string {
   if (!value || !value.startsWith('/') || value.startsWith('//'))
     return fallback;

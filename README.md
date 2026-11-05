@@ -278,7 +278,7 @@ Set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in `.env` (or export
 pnpm exec nx dev @org/web
 ```
 
-The application is available at <http://localhost:3000>. The existing `/api/hello` route remains available.
+The application is available at <http://localhost:3000>. Run the frontend unit tests with `pnpm exec nx test @org/web`; browser flows run through Playwright with `pnpm exec nx e2e @org/web-e2e`.
 
 The browser only ever calls `/api/v1/...` on its own origin. In development, Next proxies those calls to the gateway at `http://127.0.0.1:8080` (set `API_PROXY_TARGET` to use another address), so the session cookies stay first-party. Start the backend first with `make up`, otherwise sign-in, register and password reset fail with "We could not reach SwiftDrop". Google sign-in only completes from <http://localhost:8080>, because its redirect address is the gateway.
 

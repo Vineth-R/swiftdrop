@@ -107,7 +107,9 @@ All HTTP services share the same edge-facing behavior:
 - Servers set a 1 MiB header limit by default and route `http.Server.ErrorLog` through the structured logger.
 - `X-Request-Id` is echoed or generated on every response and appears as `meta.requestId` in errors.
 
-The Next.js application serves `/` and its own routes, including `/api/hello`. Nothing else outside `/api/v1/` and `/ws` is proxied to Go services.
+The Next.js application serves `/` and its own routes. Nothing else outside `/api/v1/` and `/ws` is proxied to Go services.
+
+Browser requests use same-origin credentials, `SameSite=Lax` cookies and a JSON content type. Together these narrow CSRF exposure, because a cross-site HTML form cannot send a JSON body without a CORS preflight. They are mitigations, not a complete CSRF defence, and no CSRF token exists until the API contract and backend implement one.
 
 ## Configuration
 
