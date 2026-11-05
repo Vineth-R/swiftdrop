@@ -12,6 +12,8 @@ type Config struct {
 	LogLevel       string
 	DatabaseURL    string
 	TrustedProxies []string
+	AccessSecret   string
+	CookieName     string
 }
 
 func Load() (Config, error) {
@@ -44,6 +46,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		LogLevel:       logLevel,
 		DatabaseURL:    loader.String("DATABASE_URL", ""),
 		TrustedProxies: proxies,
+		AccessSecret:   loader.String("JWT_ACCESS_SECRET", ""),
+		CookieName:     loader.String("COOKIE_NAME", "sd_access"),
 	}, nil
 }
 

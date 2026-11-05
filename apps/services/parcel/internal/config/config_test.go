@@ -28,15 +28,23 @@ func TestLoadFromDefaults(t *testing.T) {
 	if config.Addr() != ":8082" {
 		t.Fatalf("Addr() = %q, want :8082", config.Addr())
 	}
+	if config.AccessSecret != "" {
+		t.Fatalf("AccessSecret = %q, want empty", config.AccessSecret)
+	}
+	if config.CookieName != "sd_access" {
+		t.Fatalf("CookieName = %q, want sd_access", config.CookieName)
+	}
 }
 
 func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		values := map[string]string{
-			"APP_ENV":      " PRODUCTION ",
-			"LOG_LEVEL":    "WARNING",
-			"PORT":         " 9092 ",
-			"DATABASE_URL": " postgres://example ",
+			"APP_ENV":           " PRODUCTION ",
+			"LOG_LEVEL":         "WARNING",
+			"PORT":              " 9092 ",
+			"DATABASE_URL":      " postgres://example ",
+			"JWT_ACCESS_SECRET": " report-secret ",
+			"COOKIE_NAME":       " sd_ops ",
 		}
 		value, ok := values[key]
 		return value, ok
@@ -58,6 +66,12 @@ func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 	}
 	if config.DatabaseURL != "postgres://example" {
 		t.Fatalf("DatabaseURL = %q", config.DatabaseURL)
+	}
+	if config.AccessSecret != "report-secret" {
+		t.Fatalf("AccessSecret = %q, want report-secret", config.AccessSecret)
+	}
+	if config.CookieName != "sd_ops" {
+		t.Fatalf("CookieName = %q, want sd_ops", config.CookieName)
 	}
 }
 

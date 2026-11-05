@@ -162,6 +162,19 @@ Recorded local verification:
 
 Broader verification remains blocked: the full parcel test suite failed during compilation of existing dependencies, including `github.com/ugorji/go/codec`, because Windows exhausted paging memory (`errno=1455`). The Nx workflow was unavailable because pnpm/Node tool bootstrap exhausted memory. Neither the full parcel suite nor the Nx suites are recorded as passing. No shared infrastructure or system memory settings were changed to work around these limitations.
 
+## Parcel report queries
+
+`apps/services/parcel/internal/reports/reports_integration_test.go` uses the parcel fixture in `parceltest` and the real migrations. It verifies daily created/delivered/failed event counts, inclusive UTC boundaries while the database session timezone is `America/New_York`, zero-day filling, outcome totals and rates, top-five failure-reason ordering, empty/no-failure results, and the maximum 90-day range with index-backed plans.
+
+The fixture requires `PARCEL_TEST_DATABASE_URL` (the login needs `CREATEDB`) and the `migrate` CLI on `PATH`, matching `tests/integration/parcel_database_test.go`.
+
+```sh
+PARCEL_TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  go test -race -count=1 -tags=integration,postgres -v ./apps/services/parcel/internal/reports/...
+```
+
+`scripts/reports-test-data.sql` is separate local demo data for the reports API. It is safe to run repeatedly and removes only rows with `sender_name = 'REPORT TEST'`; it briefly disables the append-only history trigger inside its transaction, so it must run as the parcel schema owner (the local Compose PostgreSQL user), never against a shared database.
+
 ## RabbitMQ foundation tests
 
 Broker-backed tests are guarded by the `integration` build tag, so `go test ./...` does not require a broker. The scenarios below exercise shared messaging mechanics, not complete API v1.1 business-event integration.

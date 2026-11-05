@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, and ADMIN notification-log reads and UI are implemented. Parcel lifecycle writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md) and [`docs/architecture.md`](docs/architecture.md).
+Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, DISPATCHER/ADMIN parcel reports, and ADMIN notification-log reads and UI are implemented. Parcel lifecycle writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
@@ -16,17 +16,17 @@ Identity authentication, pricing estimates/zones/internal quote and admin config
 
 ## Architecture
 
-| Service               | Responsibility                                             | Internal port |
-| --------------------- | ---------------------------------------------------------- | ------------- |
-| `identity`            | Authentication, admin users, couriers, internal lookups    | 8081          |
-| `parcel`              | Anonymous public tracking; lifecycle writes are planned    | 8082          |
-| `pricing`             | Delivery quotes, zones, and ADMIN pricing configuration    | 8083          |
-| `merchant`            | Future merchant accounts, settings, and API credentials    | 8084          |
-| `realtime`            | Future live tracking over WebSocket or Server-Sent Events  | 8085          |
-| `notification-worker` | Notification delivery, email, ADMIN notification-log reads | 8086          |
-| `webhook-worker`      | Future outgoing webhook delivery                           | no HTTP port  |
-| `@org/web`            | Next.js frontend                                           | 3000          |
-| Nginx                 | Public HTTP entry point                                    | 8080          |
+| Service               | Responsibility                                                  | Internal port |
+| --------------------- | --------------------------------------------------------------- | ------------- |
+| `identity`            | Authentication, admin users, couriers, internal lookups         | 8081          |
+| `parcel`              | Anonymous tracking and DISPATCHER/ADMIN reports; writes planned | 8082          |
+| `pricing`             | Delivery quotes, zones, and ADMIN pricing configuration         | 8083          |
+| `merchant`            | Future merchant accounts, settings, and API credentials         | 8084          |
+| `realtime`            | Future live tracking over WebSocket or Server-Sent Events       | 8085          |
+| `notification-worker` | Notification delivery, email, ADMIN notification-log reads      | 8086          |
+| `webhook-worker`      | Future outgoing webhook delivery                                | no HTTP port  |
+| `@org/web`            | Next.js frontend                                                | 3000          |
+| Nginx                 | Public HTTP entry point                                         | 8080          |
 
 Application access is through the gateway (`http://localhost:8080`). The Compose file also publishes development and infrastructure ports: RabbitMQ AMQP on `5672` and its management UI on `15672`, and Mailpit SMTP on `1025` and its web UI on `8025`. The service ports in the table above are internal to the Compose network and are not published to the host. Override any published port with the matching `.env` variable (`NGINX_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `MAILPIT_SMTP_PORT`, `MAILPIT_UI_PORT`). Services communicate synchronously over HTTP when a caller needs an immediate result. Asynchronous work uses RabbitMQ. Each persisting service owns its PostgreSQL schema and must not modify another service's tables. Realtime currently has no schema or persistence. Read [`docs/architecture.md`](docs/architecture.md) for service boundaries, routing, event conventions, lifecycle behavior, and readiness semantics; this README does not repeat the full architecture.
 
@@ -363,7 +363,7 @@ Tests skip when `RABBITMQ_URL` is unset. CI sets it and fails the job if any int
 
 ### PostgreSQL integration tests
 
-Dispatch and pricing migration tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel/pricing baseline and dispatch migrations to a uniquely named, isolated database, then verify constraints, indexes, triggers, seed data, upgrade paths, and rollback/reapply. The pricing HTTP integration test in `apps/services/pricing/internal/http` exercises the real router, repository and seeded PostgreSQL data. The notification-log integration test in `apps/services/notification-worker/internal/notificationlog` applies the real notification migrations to an isolated database and verifies filtering, pagination, ordering and empty results. The processed-event cleanup integration test in `apps/services/notification-worker/internal/idempotency` uses a separate disposable database and verifies cutoff behavior, repeatability, cancellation, concurrency and delivery-log preservation.
+Dispatch and pricing migration tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel/pricing baseline and dispatch migrations to a uniquely named, isolated database, then verify constraints, indexes, triggers, seed data, upgrade paths, and rollback/reapply. The pricing HTTP integration test in `apps/services/pricing/internal/http` exercises the real router, repository and seeded PostgreSQL data. The parcel report query integration test in `apps/services/parcel/internal/reports` uses the parcel fixture and verifies UTC boundaries, zero-day filling, outcomes rates, top-five failure reasons and 90-day index use. The notification-log integration test in `apps/services/notification-worker/internal/notificationlog` applies the real notification migrations to an isolated database and verifies filtering, pagination, ordering and empty results. The processed-event cleanup integration test in `apps/services/notification-worker/internal/idempotency` uses a separate disposable database and verifies cutoff behavior, repeatability, cancellation, concurrency and delivery-log preservation.
 
 ```sh
 TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
@@ -572,6 +572,8 @@ Implemented: repository structure, service entry points, health and readiness en
 Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), forward merchant constraints, Mailpit, published gateway and development infrastructure ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
 
 M4 implemented: `POST /pricing/estimate`, `GET /zones`, authenticated internal quote/zone lookups, ADMIN pricing configuration with transactional audit logging, exact decimal LKR calculations, bounded public rate limiting, trusted-proxy handling, and anonymous `GET /tracking/{trackingNumber}` backed by real parcel/status-history rows. The internal quote is available to M5, but M5's parcel-creation consumer and camelCase-to-snake_case `price_breakdown` mapping are not implemented in this branch.
+
+M10.1 reports implemented in the parcel service: `GET /reports/daily` returns UTC event-date counts of created, delivered and failed parcels with zero-filled days, and `GET /reports/outcomes` returns totals, success/failure rates and the five most common failure reasons for parcels created in the range. Both require DISPATCHER or ADMIN access, default to 7 and 30 inclusive UTC dates respectively, reject ranges longer than 90 days, and set `Cache-Control: no-store`. The report routes fail closed with `503` when `JWT_ACCESS_SECRET` is not configured.
 
 Notification email delivery is implemented in the notification worker: `notification.requested.v1` is validated (including the required `parcel_id`), the `email` channel is sent through the shared SMTP mailer, `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`); the success log and processed-event writes share one transaction. A background scheduler deletes processed-event records older than 30 days at startup and every 24 hours by default. The worker also exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API through its internal HTTP port `8086`; recipients are masked and `status` can filter `PENDING`, `SENT` or `FAILED`. Delivery remains at-least-once, not exactly-once, and no event producer exists yet.
 
