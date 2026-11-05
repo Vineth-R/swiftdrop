@@ -72,3 +72,35 @@ export function setUserActive(
     { method: 'PATCH', body: { isActive } },
   );
 }
+
+/** The roles an administrator can create an account for (API v1.1 section 2.11). */
+export const createableRoles = ['COURIER', 'DISPATCHER', 'ADMIN'] as const;
+export type CreateableRole = (typeof createableRoles)[number];
+
+/** A courier's vehicle and home zone. Every part is optional. */
+export type NewCourierProfile = {
+  vehicleType?: string;
+  vehicleNumber?: string;
+  homeZoneId?: string;
+};
+
+/** The body of POST /admin/users (API v1.1 section 2.11). */
+export type NewStaffUser = {
+  email: string;
+  password: string;
+  fullName: string;
+  /** E.164, for example +94771234567. */
+  phone: string;
+  role: CreateableRole;
+  /** Required for COURIER and refused for every other role. */
+  courierProfile?: NewCourierProfile;
+};
+
+/**
+ * Creates a courier, dispatcher or administrator account (API v1.1 section
+ * 2.11). Admin only. The new user is told by email that the account exists;
+ * the email never carries the password.
+ */
+export function createAdminUser(input: NewStaffUser): Promise<AdminUser> {
+  return api<AdminUser>('/admin/users/', { method: 'POST', body: input });
+}
