@@ -1,6 +1,12 @@
 -- LOCAL TEST DATA for the reports API. Never run this outside your own machine.
 -- Safe to run again: it removes its own rows (sender_name = 'REPORT TEST') first.
 --
+-- parcel.parcel_status_history is append-only for application writes. This
+-- local-only script briefly disables only that trigger inside its transaction
+-- so it can remove its own history rows. PostgreSQL DDL is transactional, so
+-- COMMIT or ROLLBACK restores the trigger even when the script fails. Run it
+-- as the parcel schema owner (the local Compose PostgreSQL user).
+--
 -- Creates 60 parcels spread over the last 10 days (6 per day):
 --   30 DELIVERED, 10 FAILED (4 / 3 / 3 over three reasons), 10 IN_TRANSIT, 10 CREATED.
 -- Expected GET /reports/outcomes over a range covering all 10 days:
@@ -8,8 +14,11 @@
 
 START TRANSACTION;
 
+ALTER TABLE parcel.parcel_status_history DISABLE TRIGGER history_append_only;
 DELETE FROM parcel.parcel_status_history
  WHERE parcel_id IN (SELECT id FROM parcel.parcels WHERE sender_name = 'REPORT TEST');
+ALTER TABLE parcel.parcel_status_history ENABLE TRIGGER history_append_only;
+
 DELETE FROM parcel.parcels WHERE sender_name = 'REPORT TEST';
 
 INSERT INTO parcel.parcels (
