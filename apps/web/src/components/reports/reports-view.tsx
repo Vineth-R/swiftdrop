@@ -167,8 +167,8 @@ function ReportsContent() {
           }
         >
           Nothing was created, delivered or failed between{' '}
-          {formatReportDate(range.from)} and {formatReportDate(range.to)}. Try
-          a wider range.
+          {formatReportDate(range.from)} and {formatReportDate(range.to)}. Try a
+          wider range.
         </EmptyState>
       )}
       {state.status === 'ready' && !isEmpty(state) && (
