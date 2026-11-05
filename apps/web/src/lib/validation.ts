@@ -93,6 +93,11 @@ const serverMessages: Record<string, string> = {
   fullName: 'Enter between 2 and 150 characters.',
   phone: 'Enter a full number, for example 71 234 5678.',
   trackingNumber: TRACKING_NUMBER_MESSAGE,
+  role: 'Choose a role.',
+  courierProfile: 'Check the courier details.',
+  'courierProfile.vehicleType': 'Use 30 characters or fewer.',
+  'courierProfile.vehicleNumber': 'Use 20 characters or fewer.',
+  'courierProfile.homeZoneId': 'Choose a zone from the list.',
 };
 
 export function serverFieldMessage(field: string): string | undefined {

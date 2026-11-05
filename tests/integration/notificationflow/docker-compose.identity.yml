@@ -1,0 +1,4 @@
+services:
+  identity:
+    ports:
+      - '127.0.0.1:${NOTIFICATIONFLOW_IDENTITY_PORT:-18081}:8081'

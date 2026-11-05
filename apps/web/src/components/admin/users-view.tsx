@@ -15,7 +15,7 @@ import { roles, type Role } from '../../lib/tokens';
 import { PageHeader } from '../layout/page-header';
 import { Section } from '../layout/section';
 import { Alert } from '../ui/alert';
-import { Button } from '../ui/button';
+import { Button, ButtonLink } from '../ui/button';
 import { TablePagination } from '../ui/data-table';
 import { EmptyState } from '../ui/empty-state';
 import { TextField } from '../ui/field';
@@ -287,6 +287,7 @@ export function UsersView() {
       <PageHeader
         title="Users"
         description="Accounts for customers, merchants, couriers, dispatchers and administrators."
+        actions={<ButtonLink href="/admin/users/new">Create user</ButtonLink>}
       />
       <Section
         title="All users"
