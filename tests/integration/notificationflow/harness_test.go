@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,7 +42,6 @@ const (
 type harness struct {
 	repoRoot       string
 	composeProject string
-	composeFiles   []string
 	rabbitURL      string
 	managementURL  string
 	managementUser string
@@ -66,8 +66,7 @@ func newHarness(t *testing.T) *harness {
 
 	h := &harness{
 		repoRoot:       findRepoRoot(t),
-		composeProject: strings.TrimSpace(os.Getenv("NOTIFICATIONFLOW_COMPOSE_PROJECT")),
-		composeFiles:   splitList(os.Getenv("NOTIFICATIONFLOW_COMPOSE_FILES")),
+		composeProject: dedicatedComposeProject(t),
 		rabbitURL:      envOr("NOTIFICATIONFLOW_RABBITMQ_URL", "amqp://swiftdrop:swiftdrop@127.0.0.1:5672/"),
 		managementURL:  strings.TrimRight(envOr("NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL", "http://127.0.0.1:15672"), "/"),
 		managementUser: envOr("NOTIFICATIONFLOW_RABBITMQ_USER", "swiftdrop"),
@@ -84,6 +83,32 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(h.cleanup)
 	return h
+}
+
+var composeProjectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// dedicatedComposeProject requires an explicit, non-default Compose project.
+// The SMTP outage test stops Mailpit, so the suite must never target the
+// developer's normal swiftdrop stack.
+func dedicatedComposeProject(t *testing.T) string {
+	t.Helper()
+
+	project := strings.TrimSpace(os.Getenv("COMPOSE_PROJECT_NAME"))
+	if project == "" {
+		t.Fatalf("notificationflow E2E requires an explicit dedicated Compose project. " +
+			"Export COMPOSE_PROJECT_NAME=swiftdrop-notificationflow (or another unique name) and use the same value for " +
+			"docker compose, make migrate, worker startup, and the tests. The default swiftdrop project is refused " +
+			"because the SMTP outage test stops Mailpit.")
+	}
+	if project == "swiftdrop" {
+		t.Fatalf("notificationflow E2E refuses the default Compose project %q because the SMTP outage test stops Mailpit; "+
+			"use a dedicated project such as swiftdrop-notificationflow.", project)
+	}
+	if !composeProjectPattern.MatchString(project) {
+		t.Fatalf("COMPOSE_PROJECT_NAME %q is not a valid Compose project name; "+
+			"use lowercase letters, digits, hyphens, and underscores, starting with a letter or digit.", project)
+	}
+	return project
 }
 
 // requireStack waits once per test process for the worker, broker, database,
@@ -186,27 +211,41 @@ func (h *harness) pingTables() error {
 	return nil
 }
 
-// publish sends one message with the repository's event framing. It dials a
-// fresh connection so a broker restart cannot leave a stale channel behind.
+// publish sends one message and fails the test unless the broker confirms it
+// and routes it. It dials a fresh connection so a broker restart cannot leave
+// a stale channel behind.
 func (h *harness) publish(t *testing.T, eventID, body string) {
 	t.Helper()
+	if err := h.publishTo(eventID, body, h.routingKey); err != nil {
+		t.Fatalf("%v", err)
+	}
+}
 
+// publishTo publishes with publisher confirms and mandatory routing. A returned
+// message (no matching binding) or a missing confirm is an error, so callers
+// cannot mistake a dropped message for a successful publish.
+func (h *harness) publishTo(eventID, body, routingKey string) error {
 	connection, err := dialAMQP(h.rabbitURL, 10*time.Second)
 	if err != nil {
-		t.Fatalf("connect to RabbitMQ: %v", err)
+		return fmt.Errorf("connect to RabbitMQ: %w", err)
 	}
 	defer connection.Close()
 
 	channel, err := connection.Channel()
 	if err != nil {
-		t.Fatalf("open RabbitMQ channel: %v", err)
+		return fmt.Errorf("open RabbitMQ channel: %w", err)
 	}
 	defer channel.Close()
+
+	returns := channel.NotifyReturn(make(chan amqp.Return, 1))
+	if err := channel.Confirm(false); err != nil {
+		return fmt.Errorf("enable publisher confirms: %w", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err = channel.PublishWithContext(ctx, h.exchange, h.routingKey, false, false, amqp.Publishing{
+	confirmation, err := channel.PublishWithDeferredConfirmWithContext(ctx, h.exchange, routingKey, true, false, amqp.Publishing{
 		ContentType:   "application/json",
 		DeliveryMode:  amqp.Persistent,
 		MessageId:     eventID,
@@ -214,17 +253,35 @@ func (h *harness) publish(t *testing.T, eventID, body string) {
 		Body:          []byte(body),
 	})
 	if err != nil {
-		t.Fatalf("publish event %s to %s/%s: %v", eventID, h.exchange, h.routingKey, err)
+		return fmt.Errorf("publish event %s to %s/%s: %w", eventID, h.exchange, routingKey, err)
 	}
+
+	confirmed, err := confirmation.WaitContext(ctx)
+	if err != nil {
+		return fmt.Errorf("wait for publisher confirm for event %s to %s/%s: %w", eventID, h.exchange, routingKey, err)
+	}
+	if !confirmed {
+		return fmt.Errorf("broker did not confirm event %s to %s/%s", eventID, h.exchange, routingKey)
+	}
+
+	select {
+	case returned, ok := <-returns:
+		if ok {
+			return fmt.Errorf("message for event %s was returned from %s/%s: %d %s",
+				eventID, h.exchange, routingKey, returned.ReplyCode, returned.ReplyText)
+		}
+	default:
+	}
+
+	return nil
 }
 
 // queueInfo reads queue depth and consumer count through the RabbitMQ
 // management API. Using the management API avoids closing an AMQP channel when
 // the queue does not exist yet during readiness checks.
 type queueInfo struct {
-	Consumers              int `json:"consumers"`
-	Messages               int `json:"messages"`
-	MessagesUnacknowledged int `json:"messages_unacknowledged"`
+	Consumers int `json:"consumers"`
+	Messages  int `json:"messages"`
 }
 
 func (h *harness) queueInfo(queue string) (queueInfo, error) {
@@ -234,32 +291,6 @@ func (h *harness) queueInfo(queue string) (queueInfo, error) {
 		return queueInfo{}, err
 	}
 	return info, nil
-}
-
-func (h *harness) waitQueueDrained(t *testing.T, queue string, timeout time.Duration) {
-	t.Helper()
-
-	var zeroSince time.Time
-	err := waitFor(timeout, "queue "+queue+" to drain", func() error {
-		info, err := h.queueInfo(queue)
-		if err != nil {
-			return err
-		}
-		if info.Messages == 0 && info.MessagesUnacknowledged == 0 {
-			if zeroSince.IsZero() {
-				zeroSince = time.Now()
-			}
-			if time.Since(zeroSince) >= 750*time.Millisecond {
-				return nil
-			}
-			return fmt.Errorf("queue still settling")
-		}
-		zeroSince = time.Time{}
-		return fmt.Errorf("queue has %d messages and %d unacknowledged", info.Messages, info.MessagesUnacknowledged)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 type dlqMessage struct {
@@ -549,15 +580,44 @@ func (h *harness) composeErr(args ...string) error {
 	return nil
 }
 
+func (h *harness) composeLogs(service string) (string, error) {
+	command := exec.Command("docker", append(h.composeArgs(), "logs", "--no-color", "--tail=200", service)...)
+	command.Dir = h.repoRoot
+
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker compose logs %s: %w: %s", service, err, strings.TrimSpace(stderr.String()))
+	}
+	return string(output), nil
+}
+
+// waitForAlreadyProcessedLog proves the worker consumed the duplicate and hit
+// the existing processed-event path. The worker logs the event ID and
+// "notification already processed" on the same line.
+func (h *harness) waitForAlreadyProcessedLog(t *testing.T, eventID string, timeout time.Duration) {
+	t.Helper()
+
+	err := waitFor(timeout, "worker to log notification already processed for "+eventID, func() error {
+		logs, err := h.composeLogs("notification-worker")
+		if err != nil {
+			return err
+		}
+		for _, line := range strings.Split(logs, "\n") {
+			if strings.Contains(line, eventID) && strings.Contains(line, "notification already processed") {
+				return nil
+			}
+		}
+		return fmt.Errorf("worker has not logged notification already processed for event %s yet", eventID)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (h *harness) composeArgs() []string {
-	args := []string{"compose"}
-	if h.composeProject != "" {
-		args = append(args, "-p", h.composeProject)
-	}
-	for _, file := range h.composeFiles {
-		args = append(args, "-f", file)
-	}
-	return args
+	return []string{"compose", "-p", h.composeProject}
 }
 
 func (h *harness) trackEvent(eventID string) {
@@ -677,18 +737,4 @@ func envDuration(t *testing.T, key string, fallback time.Duration) time.Duration
 		t.Fatalf("%s must be a duration: %v", key, err)
 	}
 	return parsed
-}
-
-func splitList(value string) []string {
-	if strings.TrimSpace(value) == "" {
-		return nil
-	}
-	parts := strings.Split(value, ",")
-	items := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part = strings.TrimSpace(part); part != "" {
-			items = append(items, part)
-		}
-	}
-	return items
 }

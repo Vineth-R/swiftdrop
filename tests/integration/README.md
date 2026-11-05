@@ -135,16 +135,17 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
 
 Coverage:
 
-| Scenario        | Assertions                                                                                                                                                                                 |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Valid event     | One email in Mailpit with the expected subject/body; one `SENT` notification log with `sent_at`; one `processed_events` row.                                                               |
-| Duplicate event | Re-publishing the identical envelope produces no second email, keeps one log row, keeps one processed row, and does not change `sent_at`.                                                  |
-| Invalid events  | Malformed JSON, an unsupported event type, and invalid notification data are dead-lettered as `permanent`; no email, log, or processed row is created; a later valid event still succeeds. |
-| SMTP failure    | With Mailpit stopped, the worker records `PENDING`, does not mark the event processed, stays alive, and reaches `SENT` after Mailpit returns and the retry fires.                          |
+| Scenario           | Assertions                                                                                                                                                                                                            |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Valid event        | One email in Mailpit with the expected subject/body; one `SENT` notification log with `sent_at`; one `processed_events` row.                                                                                          |
+| Duplicate event    | Re-publishing the identical envelope is confirmed and routed by the broker; the worker logs `notification already processed` for the event; no second email, one log row, one processed row, and unchanged `sent_at`. |
+| Unroutable publish | A message published with an unmatched routing key is returned and rejected by mandatory/confirm handling; no email, log, or processed row is created.                                                                 |
+| Invalid events     | Malformed JSON, an unsupported event type, and invalid notification data are dead-lettered as `permanent`; no email, log, or processed row is created; a later valid event still succeeds.                            |
+| SMTP failure       | With Mailpit stopped, the worker records `PENDING`, does not mark the event processed, stays alive, and reaches `SENT` after Mailpit returns and the retry fires.                                                     |
 
-Required services (disposable local Compose stack): `postgres`, `rabbitmq` (management enabled), `mailpit`, and `notification-worker`. Migrations must be applied so `notification.notification_logs` and `notification.processed_events` exist. The test reaches PostgreSQL through `docker compose exec`, so PostgreSQL does not need a published host port.
+Required services (disposable local Compose stack): `postgres`, `rabbitmq` (management enabled), `mailpit`, and `notification-worker`. Migrations must be applied so `notification.notification_logs` and `notification.processed_events` exist. The test reaches PostgreSQL through `docker compose exec`, so PostgreSQL does not need a published host port. The suite requires `COMPOSE_PROJECT_NAME` to be set to a dedicated project other than `swiftdrop`; it refuses to run otherwise because the SMTP outage test stops Mailpit.
 
-Run locally from the repository root:
+Run locally from the repository root. Use the **same** `COMPOSE_PROJECT_NAME` for the stack, `make migrate`, worker startup, and the test:
 
 ```sh
 cp .env.example .env
@@ -155,16 +156,16 @@ make migrate
 RABBITMQ_RETRY_DELAY=5s RABBITMQ_MAX_RETRIES=2 \
   docker compose up -d --wait --wait-timeout 300 notification-worker
 
-COMPOSE_PROJECT_NAME=swiftdrop-notificationflow NOTIFICATIONFLOW_RETRY_WAIT=60s \
+NOTIFICATIONFLOW_RETRY_WAIT=60s \
   go test -race -tags=notificationflow -count=1 -v ./tests/integration/notificationflow/...
 
 # Dispose of the dedicated test project only.
 docker compose down -v
 ```
 
-The SMTP-failure case runs `docker compose stop mailpit` and restores it in cleanup. Use a dedicated Compose project name so stopping Mailpit cannot affect another stack. The suite does not skip when a dependency is missing; it fails with the readiness error.
+The SMTP-failure case runs `docker compose stop mailpit` and restores it in cleanup. The suite refuses to run unless `COMPOSE_PROJECT_NAME` is set to a dedicated project other than `swiftdrop`, and every Compose command in the harness is pinned to that project with `-p`. The duplicate test reads the worker log for `notification already processed`; keep `LOG_LEVEL=info` (the default). The suite does not skip when a dependency is missing; it fails with the readiness error.
 
-Optional overrides: `NOTIFICATIONFLOW_RABBITMQ_URL`, `NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL`, `NOTIFICATIONFLOW_RABBITMQ_USER`, `NOTIFICATIONFLOW_RABBITMQ_PASSWORD`, `NOTIFICATIONFLOW_MAILPIT_URL`, `NOTIFICATIONFLOW_EXCHANGE`, `NOTIFICATIONFLOW_QUEUE`, `NOTIFICATIONFLOW_ROUTING_KEY`, `NOTIFICATIONFLOW_COMPOSE_PROJECT`, `NOTIFICATIONFLOW_COMPOSE_FILES` (comma-separated), and `NOTIFICATIONFLOW_RETRY_WAIT`.
+Optional overrides: `NOTIFICATIONFLOW_RABBITMQ_URL`, `NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL`, `NOTIFICATIONFLOW_RABBITMQ_USER`, `NOTIFICATIONFLOW_RABBITMQ_PASSWORD`, `NOTIFICATIONFLOW_MAILPIT_URL`, `NOTIFICATIONFLOW_EXCHANGE`, `NOTIFICATIONFLOW_QUEUE`, `NOTIFICATIONFLOW_ROUTING_KEY`, and `NOTIFICATIONFLOW_RETRY_WAIT`. If you use a custom Compose file, export `COMPOSE_FILE` for `docker compose`, `make migrate`, and the tests so they all use the same files.
 
 CI: the path-filtered `notificationflow` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds only the notification-worker image, starts the same four services under `COMPOSE_PROJECT_NAME=swiftdrop-notificationflow`, applies migrations, runs the suite with `-race`, fails on `--- SKIP`, and removes the dedicated project. It runs when the notification worker, shared Go packages, notification migrations, Compose, migration scripts, or this suite change.
 
@@ -178,7 +179,7 @@ What this suite does **not** prove:
 - Invalid events remain in the dead-letter queue. The test peeks with `ack_requeue_true` and searches for its unique event ID; it does not purge the shared queue.
 - The test requires Docker Compose, the repository's service names, and the RabbitMQ management API. It is not a substitute for the Admin Notification Logs API/UI tests.
 
-Isolation and cleanup: every run uses fresh UUIDs and unique recipients. Cleanup deletes only the notification rows and Mailpit messages created by that run. It never drops a schema or database, deletes a Docker volume, purges a shared queue, or removes the worker's exchange/queue topology.
+Isolation and cleanup: every run uses fresh UUIDs and unique recipients. The suite refuses the default `swiftdrop` project and pins every Compose command to the validated `COMPOSE_PROJECT_NAME`, so the SMTP outage test cannot stop another stack. Cleanup deletes only the notification rows and Mailpit messages created by that run. It never drops a schema or database, deletes a Docker volume, purges a shared queue, or removes the worker's exchange/queue topology.
 
 ## Demo-user seed
 

@@ -96,10 +96,11 @@ func TestNotificationWorkerDeduplicatesRepeatedEvent(t *testing.T) {
 	sentAtBefore := h.scalar(t, "SELECT sent_at FROM notification.notification_logs WHERE event_id = "+
 		sqlLiteral(eventID)+" AND recipient = "+sqlLiteral(recipient))
 
-	// Republish the identical envelope, as a broker redelivery would.
+	// Republish the identical envelope, as a broker redelivery would. publish
+	// uses publisher confirms and mandatory routing, so this proves the broker
+	// accepted and routed the duplicate.
 	h.publish(t, eventID, body)
-	h.waitQueueDrained(t, h.queue, 15*time.Second)
-	time.Sleep(500 * time.Millisecond)
+	h.waitForAlreadyProcessedLog(t, eventID, 15*time.Second)
 
 	if got := h.mailpitCount(t, recipient); got != 1 {
 		t.Errorf("duplicate delivery produced %d emails, want 1", got)
@@ -115,6 +116,41 @@ func TestNotificationWorkerDeduplicatesRepeatedEvent(t *testing.T) {
 		sqlLiteral(eventID)+" AND recipient = "+sqlLiteral(recipient))
 	if sentAtAfter != sentAtBefore {
 		t.Errorf("sent_at changed from %q to %q; the duplicate was reprocessed", sentAtBefore, sentAtAfter)
+	}
+}
+
+// TestPublishRejectsUnroutableMessage proves the confirmed/mandatory publish
+// path cannot mistake a dropped message for a successful publish.
+func TestPublishRejectsUnroutableMessage(t *testing.T) {
+	h := newHarness(t)
+	requireStack(t, h)
+
+	runID := h.runID(t)
+	eventID := h.newUUID(t)
+	parcelID := h.newUUID(t)
+	recipient := "notificationflow.unroutable." + runID + "@example.test"
+	h.trackEvent(eventID)
+	h.trackRecipient(recipient)
+	body := validEvent(t, eventID, parcelID, recipient,
+		"Notification flow unroutable "+runID, nil)
+
+	err := h.publishTo(eventID, body, "notificationflow.unroutable."+runID)
+	if err == nil {
+		t.Fatal("publishing to an unroutable key succeeded; mandatory/confirm handling is not working")
+	}
+	if !strings.Contains(err.Error(), "returned") {
+		t.Fatalf("publish error = %v, want a returned-message error", err)
+	}
+
+	if got := h.mailpitCount(t, recipient); got != 0 {
+		t.Errorf("unroutable publish produced %d emails, want 0", got)
+	}
+	if got := h.count(t, "SELECT count(*) FROM notification.notification_logs WHERE event_id = "+sqlLiteral(eventID)); got != 0 {
+		t.Errorf("notification_logs rows for unroutable event %s = %d, want 0", eventID, got)
+	}
+	if got := h.count(t, "SELECT count(*) FROM notification.processed_events WHERE consumer = "+
+		sqlLiteral(consumerName)+" AND event_id = "+sqlLiteral(eventID)); got != 0 {
+		t.Errorf("processed_events rows for unroutable event %s = %d, want 0", eventID, got)
 	}
 }
 
