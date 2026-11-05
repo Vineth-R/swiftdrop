@@ -491,6 +491,7 @@ jobs:
               - '.env.example'
             notificationflow:
               - 'apps/services/notification-worker/**'
+              - 'apps/services/identity/**'
               - 'packages/go-common/**'
               - 'migrations/notification/**'
               - 'infra/docker/postgres/init/01-schemas.sql'
@@ -674,6 +675,8 @@ jobs:
     if: needs.changes.outputs.notificationflow == 'true'
     env:
       COMPOSE_PROJECT_NAME: swiftdrop-notificationflow
+      COMPOSE_FILE: docker-compose.yml:tests/integration/notificationflow/docker-compose.identity.yml
+      NOTIFICATIONFLOW_IDENTITY_URL: http://127.0.0.1:18081
       RABBITMQ_RETRY_DELAY: 5s
       RABBITMQ_MAX_RETRIES: '2'
       NOTIFICATIONFLOW_RETRY_WAIT: 60s
@@ -688,11 +691,11 @@ jobs:
       - name: Prepare local environment
         run: cp .env.example .env
 
-      - name: Build the notification worker image
-        run: docker compose build notification-worker
+      - name: Build the notification worker and identity images
+        run: docker compose build notification-worker identity
 
       - name: Start the dependencies
-        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit
+        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit identity
 
       - name: Apply database migrations
         run: make migrate
@@ -712,7 +715,7 @@ jobs:
 
       - name: Show service logs after a failure
         if: failure()
-        run: docker compose logs --tail=200 notification-worker mailpit rabbitmq postgres
+        run: docker compose logs --tail=200 notification-worker identity mailpit rabbitmq postgres
 
       - name: Stop the stack
         if: always()

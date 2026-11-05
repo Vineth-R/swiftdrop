@@ -3,7 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
@@ -35,6 +38,16 @@ type Config struct {
 	CookieName                     string
 	ProcessedEventsRetention       time.Duration
 	ProcessedEventsCleanupInterval time.Duration
+	IdentityBaseURL                string
+	IdentityTimeout                time.Duration
+	InternalToken                  string
+	InternalTokenProblem           string
+	ParcelCreatedQueue             string
+	ParcelCreatedRoutingKey        string
+	ParcelStatusQueue              string
+	ParcelStatusRoutingKey         string
+	FrontendBaseURL                string
+	SupportEmail                   string
 }
 
 func Load() (Config, error) {
@@ -137,6 +150,55 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	identityBaseURL := strings.TrimRight(strings.TrimSpace(loader.String("IDENTITY_BASE_URL", "http://identity:8081")), "/")
+	if err := validateBaseURL(identityBaseURL); err != nil {
+		return Config{}, fmt.Errorf("IDENTITY_BASE_URL: %w", err)
+	}
+
+	identityTimeout, err := loader.Duration("IDENTITY_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if identityTimeout < time.Millisecond {
+		return Config{}, errors.New("IDENTITY_TIMEOUT must be at least 1ms")
+	}
+
+	internalToken, internalTokenProblem := sharedconfig.LoadInternalToken(loader, appEnv)
+
+	parcelCreatedQueue := strings.TrimSpace(loader.String("NOTIFICATION_PARCEL_CREATED_QUEUE", "notification.parcel.created.v1"))
+	parcelCreatedRoutingKey := strings.TrimSpace(loader.String("NOTIFICATION_PARCEL_CREATED_ROUTING_KEY", "parcel.created.v1"))
+	parcelStatusQueue := strings.TrimSpace(loader.String("NOTIFICATION_PARCEL_STATUS_QUEUE", "notification.parcel.status_changed.v1"))
+	parcelStatusRoutingKey := strings.TrimSpace(loader.String("NOTIFICATION_PARCEL_STATUS_ROUTING_KEY", "parcel.status_changed.v1"))
+	for name, value := range map[string]string{
+		"NOTIFICATION_PARCEL_CREATED_QUEUE":       parcelCreatedQueue,
+		"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": parcelCreatedRoutingKey,
+		"NOTIFICATION_PARCEL_STATUS_QUEUE":        parcelStatusQueue,
+		"NOTIFICATION_PARCEL_STATUS_ROUTING_KEY":  parcelStatusRoutingKey,
+	} {
+		if value == "" {
+			return Config{}, fmt.Errorf("%s must not be empty", name)
+		}
+	}
+	if parcelCreatedQueue == queue || parcelStatusQueue == queue || parcelCreatedQueue == parcelStatusQueue {
+		return Config{}, errors.New("notification queues must be distinct")
+	}
+	if parcelCreatedRoutingKey == parcelStatusRoutingKey {
+		return Config{}, errors.New("notification parcel routing keys must be distinct")
+	}
+
+	frontendBaseURL := strings.TrimRight(strings.TrimSpace(loader.String("FRONTEND_BASE_URL", "http://localhost:8080")), "/")
+	if err := validateBaseURL(frontendBaseURL); err != nil {
+		return Config{}, fmt.Errorf("FRONTEND_BASE_URL: %w", err)
+	}
+
+	supportEmail := strings.TrimSpace(loader.String("SUPPORT_EMAIL", ""))
+	if supportEmail != "" {
+		address, err := mail.ParseAddress(supportEmail)
+		if err != nil || address.Address != supportEmail {
+			return Config{}, errors.New("SUPPORT_EMAIL must be a plain email address")
+		}
+	}
+
 	return Config{
 		Port:                           port,
 		AppEnv:                         appEnv,
@@ -157,7 +219,25 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		CookieName:                     loader.String("COOKIE_NAME", "sd_access"),
 		ProcessedEventsRetention:       retention,
 		ProcessedEventsCleanupInterval: cleanupInterval,
+		IdentityBaseURL:                identityBaseURL,
+		IdentityTimeout:                identityTimeout,
+		InternalToken:                  internalToken,
+		InternalTokenProblem:           internalTokenProblem,
+		ParcelCreatedQueue:             parcelCreatedQueue,
+		ParcelCreatedRoutingKey:        parcelCreatedRoutingKey,
+		ParcelStatusQueue:              parcelStatusQueue,
+		ParcelStatusRoutingKey:         parcelStatusRoutingKey,
+		FrontendBaseURL:                frontendBaseURL,
+		SupportEmail:                   supportEmail,
 	}, nil
+}
+
+func validateBaseURL(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return errors.New("must be an absolute http or https URL")
+	}
+	return nil
 }
 
 // Addr returns the HTTP listen address.
