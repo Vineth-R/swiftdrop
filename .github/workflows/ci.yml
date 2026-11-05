@@ -88,6 +88,31 @@ jobs:
           fi
           test "$(grep -c 'pgrep -x /usr/local/bin/service' docker-compose.yml)" -ge 2
 
+  go-security:
+    name: Go vulnerability scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install pinned govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+
+      - name: Scan for reachable vulnerabilities
+        run: |
+          set -euo pipefail
+          status=0
+          "$(go env GOPATH)/bin/govulncheck" -scan=symbol ./... 2>&1 | tee govulncheck.log || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::govulncheck reported reachable vulnerabilities or failed (exit ${status}). See govulncheck.log."
+            exit "$status"
+          fi
+
   hygiene:
     name: Repository hygiene
     runs-on: ubuntu-latest
@@ -112,6 +137,89 @@ jobs:
             exit 1
           fi
           echo "All tracked shell scripts are LF and covered by the eol rule."
+
+  secret-security:
+    name: Secret scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Gitleaks
+        env:
+          GITLEAKS_VERSION: '8.30.1'
+          GITLEAKS_LINUX_X64_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+        run: |
+          set -euo pipefail
+          archive="/tmp/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 \
+            --output "${archive}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_LINUX_X64_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "${HOME}/.local/bin"
+          tar --extract --gzip --file "${archive}" --directory "${HOME}/.local/bin" gitleaks
+          chmod 0755 "${HOME}/.local/bin/gitleaks"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          "${HOME}/.local/bin/gitleaks" version
+
+      - name: Scan Git history for secrets
+        run: |
+          set -euo pipefail
+          gitleaks git \
+            --config .gitleaks.toml \
+            --redact \
+            --no-banner \
+            --no-color \
+            --verbose \
+            --exit-code 1 \
+            .
+
+  sast:
+    name: SAST (CodeQL, ${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build_mode: autobuild
+          - language: javascript-typescript
+            build_mode: none
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build_mode }}
+
+      - name: Autobuild
+        if: matrix.build_mode == 'autobuild'
+        uses: github/codeql-action/autobuild@v4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:${{ matrix.language }}'
 
   integration:
     name: RabbitMQ integration tests
@@ -235,6 +343,28 @@ jobs:
 
       - name: Typecheck e2e
         run: pnpm exec nx typecheck @org/web-e2e
+
+  frontend-security:
+    name: Frontend production audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
 
   e2e:
     name: Playwright E2E (Chromium)
@@ -380,7 +510,8 @@ jobs:
           build-args: |
             SERVICE=${{ matrix.service }}
           push: false
-          load: false
+          load: true
+          tags: swiftdrop/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=go
           cache-to: type=gha,mode=max,scope=go
 
@@ -391,9 +522,73 @@ jobs:
           context: .
           file: infra/docker/web.Dockerfile
           push: false
-          load: false
+          load: true
+          tags: swiftdrop/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+
+      - name: Verify expected image exists
+        run: |
+          set -euo pipefail
+          image="swiftdrop/${{ matrix.service }}:${{ github.sha }}"
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            echo "::error::Expected image ${image} was not built or loaded by the build step."
+            exit 1
+          fi
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: swiftdrop/${{ matrix.service }}:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom-${{ matrix.service }}-${{ github.sha }}.cdx.json
+          artifact-name: sbom-${{ matrix.service }}-${{ github.sha }}
+          syft-version: v1.56.0
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-${{ matrix.service }}-${{ github.sha }}
+          path: sbom-${{ matrix.service }}-${{ github.sha }}.cdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Scan image for HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.1
+          scan-type: image
+          image-ref: swiftdrop/${{ matrix.service }}:${{ github.sha }}
+          format: table
+          output: trivy-${{ matrix.service }}-${{ github.sha }}.txt
+          exit-code: 1
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          vuln-type: os,library
+          trivy-config: .github/trivy.yaml
+          timeout: 15m
+
+      - name: Show vulnerability report
+        if: always()
+        run: |
+          report="trivy-${{ matrix.service }}-${{ github.sha }}.txt"
+          if [ -f "$report" ]; then
+            cat "$report"
+          else
+            echo "Trivy report ${report} was not produced."
+          fi
+
+      - name: Upload vulnerability report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trivy-${{ matrix.service }}-${{ github.sha }}
+          path: trivy-${{ matrix.service }}-${{ github.sha }}.txt
+          if-no-files-found: error
+          retention-days: 7
 
   access:
     name: Access tests (Compose stack)
@@ -444,6 +639,58 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  security-gate:
+    name: Security gate
+    if: always()
+    needs:
+      - go-security
+      - frontend-security
+      - secret-security
+      - sast
+      - docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify security job results
+        env:
+          GO_SECURITY_RESULT: ${{ needs['go-security'].result }}
+          FRONTEND_SECURITY_RESULT: ${{ needs['frontend-security'].result }}
+          SECRET_SECURITY_RESULT: ${{ needs['secret-security'].result }}
+          SAST_RESULT: ${{ needs.sast.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+
+          check_required() {
+            local name="$1"
+            local result="$2"
+            if [ "$result" != "success" ]; then
+              echo "::error::${name} must succeed, but its result was '${result}'."
+              failed=1
+            fi
+          }
+
+          check_optional() {
+            local name="$1"
+            local result="$2"
+            case "$result" in
+              success|skipped) ;;
+              *)
+                echo "::error::${name} may only succeed or be skipped, but its result was '${result}'."
+                failed=1
+                ;;
+            esac
+          }
+
+          check_required "go-security" "$GO_SECURITY_RESULT"
+          check_required "frontend-security" "$FRONTEND_SECURITY_RESULT"
+          check_required "secret-security" "$SECRET_SECURITY_RESULT"
+          check_required "sast" "$SAST_RESULT"
+          check_optional "docker" "$DOCKER_RESULT"
+
+          exit "$failed"
+
   gate:
     name: Required CI gate
     if: always()
@@ -457,6 +704,7 @@ jobs:
       - changes
       - docker
       - access
+      - security-gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -471,6 +719,7 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
           ACCESS_RESULT: ${{ needs.access.result }}
+          SECURITY_GATE_RESULT: ${{ needs['security-gate'].result }}
         run: |
           set -euo pipefail
           failed=0
@@ -505,6 +754,7 @@ jobs:
           check_required "changes" "$CHANGES_RESULT"
           check_optional "docker" "$DOCKER_RESULT"
           check_optional "access" "$ACCESS_RESULT"
+          check_required "security-gate" "$SECURITY_GATE_RESULT"
 
           exit "$failed"
 

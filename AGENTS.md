@@ -406,7 +406,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 - Keep project-wide agent rules in this file. Do not create competing root instruction files that duplicate this guidance.
 - Document environment variables in `.env.example`.
 - Mark planned features as planned. Do not describe future business behavior as implemented.
-- The CI workflow file is the source of truth for CI. It runs Go formatting, vet, race tests with a coverage artifact, build, Compose config validation, and a worker-healthcheck guard; a separate RabbitMQ integration job that fails on skipped tests; frontend lint/build and E2E typecheck; Chromium-only Playwright E2E; changed-service Docker image builds; Compose-backed access tests with their own path filter and access output (triggered by Compose, Nginx, PostgreSQL initialization, migrations, access tests, the Makefile, migration scripts, `.env.example`, or any Docker-service change); a stable `Required CI gate` aggregate; and a `v*`/`milestone-*` tag release job that prepares `.env` from `.env.example`, builds every image, starts the Compose stack with `--wait`, applies migrations with `make migrate`, runs route checks, and stops the stack. Do not repeat stale CI summaries, and do not claim a CI run passed unless its result was observed.
+- The CI workflow file is the source of truth for CI. It runs Go formatting, vet, race tests with a coverage artifact, build, Compose config validation, and a worker-healthcheck guard; a separate RabbitMQ integration job that fails on skipped tests; frontend lint/build and E2E typecheck; Chromium-only Playwright E2E; changed-service Docker image builds and scans; Compose-backed access tests with their own path filter and access output (triggered by Compose, Nginx, PostgreSQL initialization, migrations, access tests, the Makefile, migration scripts, `.env.example`, or any Docker-service change); a stable `Required CI gate` aggregate; and a `v*`/`milestone-*` tag release job that prepares `.env` from `.env.example`, builds every image, starts the Compose stack with `--wait`, applies migrations with `make migrate`, runs route checks, and stops the stack. Security jobs use pinned `govulncheck`, `pnpm audit --prod`, Gitleaks, CodeQL, and Trivy/Syft; a `security-gate` is required by `Required CI gate`. Dependabot configuration lives in `.github/dependabot.yml`. Do not repeat stale CI summaries, and do not claim a CI run passed unless its result was observed.
 
 ## Agent workflow
 
@@ -475,6 +475,7 @@ Before reporting a task complete:
 - `go test ./...` passes for the affected scope.
 - `go test -race ./...` passes for concurrency-sensitive changes when feasible.
 - `go build ./...` passes.
+- Security-sensitive changes pass `govulncheck ./...`, `pnpm audit --prod --audit-level=high`, Gitleaks, and the container scan/SBOM gate when images change.
 - Relevant Nx targets pass, such as `pnpm exec nx test identity` or an `nx run-many` command for the affected Go projects.
 - Frontend changes pass `pnpm exec nx lint @org/web` and `pnpm exec nx build @org/web`; E2E changes pass `pnpm exec nx typecheck @org/web-e2e` and the relevant `pnpm exec nx e2e @org/web-e2e` target.
 - Messaging changes run the broker-backed integration tests when RabbitMQ is available and report any coverage that could not run.
