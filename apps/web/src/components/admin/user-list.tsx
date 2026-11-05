@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 
 import type { AdminUser } from '../../lib/admin-users-api';
 import { formatDate } from '../../lib/format';
-import { Button } from '../ui/button';
+import { Button, ButtonLink } from '../ui/button';
 import { DataTable, type DataTableColumn } from '../ui/data-table';
 import { RoleBadge } from '../ui/role-badge';
 import { StatusChip } from '../ui/status-chip';
@@ -76,20 +76,17 @@ export function UserList({
       isHeaderHidden: true,
       cell: (user) => {
         const isSelf = user.id === currentUserId;
-        if (!user.isActive) {
-          return (
-            <Button
-              variant="secondary"
-              size="sm"
-              isLoading={pendingId === user.id}
-              onClick={() => onActivate(user)}
-              aria-label={`Activate ${user.fullName}`}
-            >
-              Activate
-            </Button>
-          );
-        }
-        return (
+        const toggle = !user.isActive ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            isLoading={pendingId === user.id}
+            onClick={() => onActivate(user)}
+            aria-label={`Activate ${user.fullName}`}
+          >
+            Activate
+          </Button>
+        ) : (
           <div className="flex flex-col items-start gap-1">
             <Button
               variant="secondary"
@@ -106,6 +103,19 @@ export function UserList({
                 You cannot deactivate your own account.
               </span>
             )}
+          </div>
+        );
+        return (
+          <div className="flex flex-wrap items-start gap-2">
+            <ButtonLink
+              href={`/admin/users/${encodeURIComponent(user.id)}/edit`}
+              variant="secondary"
+              size="sm"
+              aria-label={`Edit ${user.fullName}`}
+            >
+              Edit
+            </ButtonLink>
+            {toggle}
           </div>
         );
       },

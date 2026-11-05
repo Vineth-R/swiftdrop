@@ -104,3 +104,72 @@ export type NewStaffUser = {
 export function createAdminUser(input: NewStaffUser): Promise<AdminUser> {
   return api<AdminUser>('/admin/users/', { method: 'POST', body: input });
 }
+
+/** A courier's profile as the admin detail returns it (API v1.1 section 2.12). */
+export type AdminCourierProfile = {
+  vehicleType: string | null;
+  vehicleNumber: string | null;
+  homeZoneId: string | null;
+  isAvailable: boolean;
+};
+
+/** One user in full (API v1.1 section 2.12), with `courierProfile` when they have one. */
+export type AdminUserDetail = AdminUser & {
+  courierProfile?: AdminCourierProfile;
+  lastLoginAt: string | null;
+  updatedAt: string;
+};
+
+/**
+ * The roles an administrator can set on an existing user (API v1.1 section
+ * 2.13). A merchant account keeps its role: it belongs to a merchant record.
+ */
+export const editableRoles = [
+  'CUSTOMER',
+  'COURIER',
+  'DISPATCHER',
+  'ADMIN',
+] as const;
+export type EditableRole = (typeof editableRoles)[number];
+
+/**
+ * What PATCH /admin/users/{userId} accepts: any subset, and at least one field.
+ * A courier's vehicle and home zone can be changed but not cleared.
+ */
+export type UserChange = {
+  fullName?: string;
+  /** E.164, for example +94771234567. */
+  phone?: string;
+  role?: EditableRole;
+  /** Required when the role becomes COURIER, and refused for any other role. */
+  courierProfile?: {
+    vehicleType?: string;
+    vehicleNumber?: string;
+    homeZoneId?: string;
+    isAvailable?: boolean;
+  };
+};
+
+/** One user in full. Admin only. A missing or malformed id is a 404. */
+export function getAdminUser(
+  userId: string,
+  signal?: AbortSignal,
+): Promise<AdminUserDetail> {
+  return api<AdminUserDetail>(`/admin/users/${encodeURIComponent(userId)}`, {
+    signal,
+  });
+}
+
+/**
+ * Changes a user's name, phone, role or courier details (API v1.1 section
+ * 2.13). Admin only. An administrator cannot change their own role.
+ */
+export function updateAdminUser(
+  userId: string,
+  change: UserChange,
+): Promise<AdminUserDetail> {
+  return api<AdminUserDetail>(`/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: change,
+  });
+}
