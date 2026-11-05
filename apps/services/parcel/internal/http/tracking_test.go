@@ -2,9 +2,11 @@ package servicehttp
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -59,5 +61,54 @@ func TestTrackingRateLimitIgnoresUntrustedHeaders(t *testing.T) {
 		if index == 30 && (recorder.Code != 429 || recorder.Header().Get("Retry-After") == "") {
 			t.Fatal("rate limit bypassed")
 		}
+	}
+}
+
+// An allowlist, so a new field fails here whatever it is called: a name, phone
+// or address can only reach the public response by changing this test.
+func TestPublicTrackingResponseExposesOnlyPublicFields(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Tracking: trackingEventFixture{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest("GET", "/tracking/SDK7M2Q9XP4", nil))
+	if recorder.Code != 200 {
+		t.Fatal(recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	assertKeys(t, response.Data, "dropoffCity", "lastUpdatedAt", "pickupCity", "status", "timeline", "trackingNumber")
+	var timeline []map[string]json.RawMessage
+	if err := json.Unmarshal(response.Data["timeline"], &timeline); err != nil {
+		t.Fatal(err)
+	}
+	if len(timeline) != 1 {
+		t.Fatalf("timeline has %d events, want 1", len(timeline))
+	}
+	assertKeys(t, timeline[0], "at", "status")
+}
+
+type trackingEventFixture struct{}
+
+func (trackingEventFixture) Lookup(context.Context, string) (tracking.Result, error) {
+	at := time.Now().UTC()
+	return tracking.Result{TrackingNumber: "SDK7M2Q9XP4", Status: "CREATED", PickupCity: "Colombo", DropoffCity: "Kandy", LastUpdatedAt: at,
+		Timeline: []tracking.Event{{Status: "CREATED", At: at}}}, nil
+}
+
+func assertKeys(t *testing.T, object map[string]json.RawMessage, want ...string) {
+	t.Helper()
+	got := make([]string, 0, len(object))
+	for key := range object {
+		got = append(got, key)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Fatalf("public fields %v, want exactly %v", got, want)
 	}
 }
