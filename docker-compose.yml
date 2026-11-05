@@ -1,7 +1,12 @@
-name: swiftdrop
+# Default Compose project. Set COMPOSE_PROJECT_NAME to run a second checkout
+# side by side with its own containers and volumes, for example:
+#   COMPOSE_PROJECT_NAME=swiftdrop-verify make up-build
+name: ${COMPOSE_PROJECT_NAME:-swiftdrop}
 
 x-app-env: &app-env
-  APP_ENV: ${APP_ENV:-development}
+  # Do not inject a development fallback. Identity and pricing require an
+  # explicit APP_ENV and refuse to start when it is missing, empty, or whitespace.
+  APP_ENV: ${APP_ENV:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
 x-go-build: &go-build
@@ -134,6 +139,8 @@ services:
       PORT: '8082'
       HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
     depends_on:
       postgres:
         condition: service_healthy

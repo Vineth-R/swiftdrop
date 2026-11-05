@@ -20,5 +20,8 @@ func New(logger *slog.Logger, configurations ...Options) (*gin.Engine, error) {
 	}
 	router.RemoteIPHeaders = []string{"X-Real-IP"}
 	registerTracking(router, logger, options)
+	if err := registerReports(router, logger, options); err != nil {
+		return nil, err
+	}
 	return router, nil
 }

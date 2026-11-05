@@ -5,13 +5,13 @@
   "scripts": {},
   "private": true,
   "dependencies": {
-    "next": "~16.1.6",
+    "next": "~16.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.8.0",
-    "@next/eslint-plugin-next": "^16.1.6",
+    "@next/eslint-plugin-next": "~16.4.5",
     "@nx/devkit": "24.0.0",
     "@nx/eslint": "24.0.0",
     "@nx/eslint-plugin": "24.0.0",
@@ -27,7 +27,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.8.0",
-    "eslint-config-next": "^16.1.6",
+    "eslint-config-next": "~16.4.5",
     "eslint-config-prettier": "^10.0.0",
     "eslint-plugin-import": "2.31.0",
     "eslint-plugin-jsx-a11y": "6.10.1",

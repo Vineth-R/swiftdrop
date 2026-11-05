@@ -8,7 +8,7 @@ Use the root `AGENTS.md` and installed `.agents/skills/*/SKILL.md` guidance. Jav
 
 Only Nginx is the public API entry. Its default URL is `http://localhost:8080`; use the local `NGINX_PORT` value if another application occupies that port. No internal service ports need to be published.
 
-Pricing reads `DATABASE_URL`, `INTERNAL_TOKEN`, `JWT_ACCESS_SECRET`, `COOKIE_NAME` and `HTTP_TRUSTED_PROXIES` in addition to the existing service configuration. Parcel reads `DATABASE_URL` and `HTTP_TRUSTED_PROXIES`. Services read process environment; Compose loads `.env`. Never commit `.env`, real tokens or database credentials. An unset or shorter-than-16-character `INTERNAL_TOKEN` is treated as not configured, so the internal pricing endpoints stay fail-closed (401).
+Pricing reads `DATABASE_URL`, `INTERNAL_TOKEN`, `JWT_ACCESS_SECRET`, `COOKIE_NAME` and `HTTP_TRUSTED_PROXIES` in addition to the existing service configuration. Parcel reads `DATABASE_URL` and `HTTP_TRUSTED_PROXIES`. Services read process environment; Compose loads `.env`. Never commit `.env`, real tokens or database credentials. In development, an unset or shorter-than-16-character `INTERNAL_TOKEN` is treated as not configured, so the internal pricing endpoints stay fail-closed (401). Outside development, pricing refuses to start unless the token is at least 32 random bytes and is not a placeholder.
 
 `HTTP_TRUSTED_PROXIES` is an optional comma-separated CIDR allowlist. With no setting, forwarded headers are ignored. The local Compose configuration explicitly trusts its private bridge ranges; narrow this to the gateway network in other deployments. Nginx overwrites `X-Real-IP` and `X-Forwarded-For` with the observed client address. Pricing and Parcel trust `X-Real-IP` only from configured proxies. Do not expose app ports or put an untrusted proxy inside that allowlist.
 
@@ -45,7 +45,7 @@ Inside the Compose network:
 - `POST http://pricing:8083/internal/pricing/quote`: same request and quote calculation as the public estimate.
 - `GET http://pricing:8083/internal/zones/{zoneId}`: returns `id`, `code`, `name`, `isActive`, including inactive zones for authoritative validation.
 
-Both require `X-Internal-Token` matching configured `INTERNAL_TOKEN`. An absent or too-short configuration never disables authentication. The public gateway returns 404 for `/internal`; it does not forward these calls. M5's parcel-creation consumer is not implemented in this branch: M5 must call the internal quote, handle timeouts/503, compare `expectedFee`, and map the quote response's camelCase `baseFee`, `weightCharge` and `sizeSurcharge` into the parcel contract's snake_case `price_breakdown` keys `base_fee`, `weight_charge` and `size_surcharge`. No Parcel creation endpoint is invented here.
+Both require `X-Internal-Token` matching configured `INTERNAL_TOKEN`. An absent or too-short configuration never disables authentication. In development it keeps the endpoints fail-closed; outside development pricing refuses to start unless the token is at least 32 random bytes and is not a placeholder. The public gateway returns 404 for `/internal`; it does not forward these calls. M5's parcel-creation consumer is not implemented in this branch: M5 must call the internal quote, handle timeouts/503, compare `expectedFee`, and map the quote response's camelCase `baseFee`, `weightCharge` and `sizeSurcharge` into the parcel contract's snake_case `price_breakdown` keys `base_fee`, `weight_charge` and `size_surcharge`. No Parcel creation endpoint is invented here.
 
 ## Pricing management
 

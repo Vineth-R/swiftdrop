@@ -1,14 +1,15 @@
 package config
 
 import (
+	"fmt"
 	"strconv"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
-// MinInternalTokenLength matches the identity service. An unset or shorter
-// token is treated as not configured so internal endpoints stay fail-closed.
-const MinInternalTokenLength = 16
+// MinInternalTokenLength is the development minimum. Validation itself lives
+// in the shared config package so identity and pricing apply identical rules.
+const MinInternalTokenLength = sharedconfig.MinInternalTokenLength
 
 type Config struct {
 	Port           int
@@ -26,7 +27,9 @@ func Load() (Config, error) {
 }
 
 func LoadFrom(loader sharedconfig.Loader) (Config, error) {
-	appEnv, err := loader.EnumFold("APP_ENV", "development", "development", "staging", "production")
+	// No fallback: a missing, empty, or whitespace-only APP_ENV must fail
+	// startup instead of silently enabling development-only token rules.
+	appEnv, err := loader.EnumFold("APP_ENV", "", "development", "staging", "production")
 	if err != nil {
 		return Config{}, err
 	}
@@ -45,9 +48,9 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
-	internalToken := loader.String("INTERNAL_TOKEN", "")
-	if len(internalToken) < MinInternalTokenLength {
-		internalToken = ""
+	internalToken, problem := sharedconfig.LoadInternalToken(loader, appEnv)
+	if problem != "" && appEnv != "development" {
+		return Config{}, fmt.Errorf("load internal token: %s", problem)
 	}
 
 	return Config{
