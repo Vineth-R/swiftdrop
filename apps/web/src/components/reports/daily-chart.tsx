@@ -21,16 +21,21 @@ type DailyChartProps = { rows: DailyRow[] };
 export function DailyChart({ rows }: DailyChartProps) {
   if (rows.length === 0) return null;
 
-  const tallest = Math.max(1, ...rows.map((row) => row.delivered + row.failed));
+  const tallest = Math.max(0, ...rows.map((row) => row.delivered + row.failed));
+  const scaleMaximum = Math.max(1, tallest);
   const width = rows.length * SLOT;
   const first = formatReportDate(rows[0].date);
   const last = formatReportDate(rows[rows.length - 1].date);
+  const hasFinished = tallest > 0;
 
   return (
     <figure className="flex flex-col gap-3 rounded-card border border-line bg-surface p-4">
       <figcaption className="flex flex-wrap items-center justify-between gap-3 text-body-sm text-text-muted">
         <span>
-          Delivered and failed parcels per day. Tallest day: {tallest}.
+          Delivered and failed parcels per day.{' '}
+          {hasFinished
+            ? `Tallest day: ${tallest}.`
+            : 'No parcels finished in this range.'}
         </span>
         <ul className="flex gap-4">
           <li className="flex items-center gap-2">
@@ -52,7 +57,11 @@ export function DailyChart({ rows }: DailyChartProps) {
 
       <svg
         role="img"
-        aria-label={`Bar chart of delivered and failed parcels per day from ${first} to ${last}. The tallest day has ${tallest} finished parcels. The table below lists every number.`}
+        aria-label={`Bar chart of delivered and failed parcels per day from ${first} to ${last}. ${
+          hasFinished
+            ? `The tallest day has ${tallest} finished parcels.`
+            : 'No parcels finished in this range.'
+        } The table below lists every number.`}
         viewBox={`0 0 ${width} ${HEIGHT}`}
         preserveAspectRatio="none"
         className="h-40 w-full"
@@ -66,26 +75,30 @@ export function DailyChart({ rows }: DailyChartProps) {
           className="stroke-line-strong"
         />
         {rows.map((row, index) => {
-          const delivered = (row.delivered / tallest) * HEIGHT;
-          const failed = (row.failed / tallest) * HEIGHT;
+          const delivered = (row.delivered / scaleMaximum) * HEIGHT;
+          const failed = (row.failed / scaleMaximum) * HEIGHT;
           const x = index * SLOT + (SLOT - BAR) / 2;
           return (
             <g key={row.date}>
               <title>{`${formatReportDate(row.date)}: ${row.delivered} delivered, ${row.failed} failed`}</title>
-              <rect
-                x={x}
-                y={HEIGHT - delivered}
-                width={BAR}
-                height={delivered}
-                className="fill-success"
-              />
-              <rect
-                x={x}
-                y={HEIGHT - delivered - failed}
-                width={BAR}
-                height={failed}
-                className="fill-danger"
-              />
+              {delivered > 0 && (
+                <rect
+                  x={x}
+                  y={HEIGHT - delivered}
+                  width={BAR}
+                  height={delivered}
+                  className="fill-success"
+                />
+              )}
+              {failed > 0 && (
+                <rect
+                  x={x}
+                  y={HEIGHT - delivered - failed}
+                  width={BAR}
+                  height={failed}
+                  className="fill-danger"
+                />
+              )}
             </g>
           );
         })}

@@ -1,25 +1,38 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 
 import { ApiError } from '../../lib/api';
+import { RETRY_AFTER_FALLBACK_SECONDS } from '../../lib/constants';
 import {
   MAX_RANGE_DAYS,
   defaultRange,
   formatReportDate,
   getDailyReport,
   getOutcomesReport,
+  rangeErrorsFromIssues,
   validateRange,
   type DailyRow,
   type DateRange,
   type OutcomesReport,
   type RangeErrors,
 } from '../../lib/reports-api';
+import { describeRole } from '../../lib/roles';
+import { useSession } from '../../lib/session';
+import { useCountdown } from '../../lib/use-countdown';
+import { useForm, type FormRules } from '../../lib/use-form';
+import { RateLimitedAlert, ServerFaultAlert } from '../auth/form-alerts';
 import { PageHeader } from '../layout/page-header';
 import { RequireRole } from '../layout/require-role';
 import { Section } from '../layout/section';
-import { Alert } from '../ui/alert';
-import { Button } from '../ui/button';
+import { SystemPage } from '../layout/system-page';
+import { Button, ButtonLink } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { DataTable, type DataTableColumn } from '../ui/data-table';
 import { EmptyState } from '../ui/empty-state';
@@ -31,13 +44,23 @@ import { DailyChart } from './daily-chart';
 type Loaded = { daily: DailyRow[]; outcomes: OutcomesReport };
 
 type State =
+  | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; error: ApiError }
   | ({ status: 'ready' } & Loaded);
 
 const INTRO = 'Parcel volumes and delivery outcomes for the dates you choose.';
 
-/** /reports: parcel volumes and delivery outcomes. Dispatchers and administrators. */
+const rangeRules: FormRules<DateRange> = {
+  from: (values) => validateRange(values).from,
+  to: (values) => validateRange(values).to,
+};
+
+/**
+ * /reports: parcel volumes and delivery outcomes. Dispatchers and
+ * administrators, matching API v1.1 and the existing Dispatch navigation. The
+ * task sheet's ADMIN-only wording is not enforced by the published API.
+ */
 export function ReportsView() {
   return (
     <RequireRole
@@ -52,10 +75,34 @@ export function ReportsView() {
 function ReportsContent() {
   // Created here, below RequireRole, so "today" is read in the browser only.
   const [range, setRange] = useState<DateRange>(() => defaultRange());
-  const [draft, setDraft] = useState<DateRange>(range);
-  const [errors, setErrors] = useState<RangeErrors>({});
+  const {
+    values,
+    errors,
+    setValue,
+    blur,
+    validate,
+    setServerErrors,
+    resetValidation,
+  } = useForm<DateRange>(range, rangeRules);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<State>({ status: 'loading' });
+  const focusTarget = useRef<'from' | 'to' | null>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
+
+  // Focus after the error message has rendered, so the field is still mounted.
+  const requestFocus = useCallback((problems: RangeErrors) => {
+    focusTarget.current = problems.from ? 'from' : problems.to ? 'to' : null;
+    if (focusTarget.current) setFocusRequest((count) => count + 1);
+  }, []);
+
+  useEffect(() => {
+    const target = focusTarget.current;
+    if (!target) return;
+    const element = document.getElementById(
+      target === 'from' ? 'reports-from' : 'reports-to',
+    );
+    element?.focus();
+  }, [focusRequest]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,16 +117,29 @@ function ReportsContent() {
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        setState({
-          status: 'error',
-          error:
-            error instanceof ApiError
-              ? error
-              : new ApiError({ code: 'INTERNAL', status: 0 }),
-        });
+        if (!(error instanceof ApiError)) {
+          setState({
+            status: 'error',
+            error: new ApiError({ code: 'INTERNAL', status: 0 }),
+          });
+          return;
+        }
+        if (error.code === 'UNAUTHENTICATED') {
+          // The session gate is already sending the person to the login page.
+          setState({ status: 'idle' });
+          return;
+        }
+        if (error.code === 'VALIDATION_FAILED') {
+          const problems = rangeErrorsFromIssues(error.issues);
+          setServerErrors(problems);
+          setState({ status: 'idle' });
+          requestFocus(problems);
+          return;
+        }
+        setState({ status: 'error', error });
       });
     return () => controller.abort();
-  }, [range, attempt]);
+  }, [range, attempt, setServerErrors, requestFocus]);
 
   function load(next: DateRange) {
     setState({ status: 'loading' });
@@ -89,10 +149,13 @@ function ReportsContent() {
 
   function apply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const problems = validateRange(draft);
-    setErrors(problems);
-    if (Object.keys(problems).length > 0) return;
-    load(draft);
+    if (state.status === 'loading') return;
+    const problems = validate();
+    if (Object.keys(problems).length > 0) {
+      requestFocus(problems);
+      return;
+    }
+    load(values);
   }
 
   function retry() {
@@ -102,9 +165,17 @@ function ReportsContent() {
 
   function reset() {
     const initial = defaultRange();
-    setDraft(initial);
-    setErrors({});
+    setValue('from', initial.from);
+    setValue('to', initial.to);
+    resetValidation();
     load(initial);
+  }
+
+  // A server-side 403 means this person may not read reports, even if the
+  // session role says otherwise. Show the same no-permission state as
+  // RequireRole and do not offer another request.
+  if (state.status === 'error' && state.error.code === 'FORBIDDEN') {
+    return <ReportsForbidden />;
   }
 
   return (
@@ -125,26 +196,27 @@ function ReportsContent() {
             id="reports-from"
             label="From"
             type="date"
-            value={draft.from}
-            max={draft.to || undefined}
+            controlSize="lg"
+            value={values.from}
+            max={values.to || undefined}
             error={errors.from}
-            onChange={(event) =>
-              setDraft((current) => ({ ...current, from: event.target.value }))
-            }
+            onChange={(event) => setValue('from', event.target.value)}
+            onBlur={() => blur('from')}
           />
           <TextField
             id="reports-to"
             label="To"
             type="date"
-            value={draft.to}
-            min={draft.from || undefined}
+            controlSize="lg"
+            value={values.to}
+            min={values.from || undefined}
             error={errors.to}
-            onChange={(event) =>
-              setDraft((current) => ({ ...current, to: event.target.value }))
-            }
+            onChange={(event) => setValue('to', event.target.value)}
+            onBlur={() => blur('to')}
           />
           <Button
             type="submit"
+            size="lg"
             className="sm:mt-6"
             isLoading={state.status === 'loading'}
           >
@@ -161,7 +233,7 @@ function ReportsContent() {
         <EmptyState
           title="No parcels in this range"
           action={
-            <Button variant="secondary" onClick={reset}>
+            <Button size="lg" onClick={reset}>
               Reset range
             </Button>
           }
@@ -219,6 +291,29 @@ function ReportsSkeleton() {
   );
 }
 
+function ReportsForbidden() {
+  const { session } = useSession();
+  const role =
+    session.status === 'authenticated' ? session.user.role : undefined;
+
+  return (
+    <SystemPage
+      label="403 · Forbidden"
+      title="You do not have access"
+      actions={
+        <ButtonLink href="/dashboard" variant="secondary" size="lg">
+          Back to my dashboard
+        </ButtonLink>
+      }
+    >
+      This page is for dispatchers and administrators.
+      {role
+        ? ` You are signed in as ${describeRole(role)}, which is probably correct: nothing is wrong with your account.`
+        : ''}
+    </SystemPage>
+  );
+}
+
 function ReportsError({
   error,
   onRetry,
@@ -226,34 +321,32 @@ function ReportsError({
   error: ApiError;
   onRetry: () => void;
 }) {
-  const message =
-    error.code === 'NETWORK'
-      ? 'Check your connection, then try again.'
-      : error.code === 'VALIDATION_FAILED'
-        ? 'The server did not accept that date range. Change the dates and apply them again.'
-        : error.code === 'FORBIDDEN'
-          ? 'Your account is not allowed to see reports.'
-          : 'Something went wrong on our side. Try again in a moment.';
+  const seconds =
+    error.code === 'RATE_LIMITED'
+      ? (error.retryAfter ?? RETRY_AFTER_FALLBACK_SECONDS)
+      : null;
+  const remaining = useCountdown(seconds);
 
-  return (
-    <Alert
-      tone="danger"
-      title="Reports could not be loaded"
-      actions={
-        <Button variant="secondary" size="sm" onClick={onRetry}>
+  if (error.code === 'RATE_LIMITED') {
+    return <RateLimitedAlert remaining={remaining} />;
+  }
+
+  if (error.isServerFault) {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <ServerFaultAlert
+          isNetwork={error.code === 'NETWORK'}
+          requestId={error.code === 'INTERNAL' ? error.requestId : undefined}
+        />
+        <Button variant="secondary" size="lg" onClick={onRetry}>
           Try again
         </Button>
-      }
-    >
-      {message}
-      {error.isServerFault && error.requestId && (
-        <>
-          {' '}
-          Reference: <span className="font-mono">{error.requestId}</span>
-        </>
-      )}
-    </Alert>
-  );
+      </div>
+    );
+  }
+
+  // An unexpected failure still gets our own wording, never the server's.
+  return <ServerFaultAlert isNetwork={false} />;
 }
 
 const dailyColumns: DataTableColumn<DailyRow>[] = [
@@ -261,7 +354,6 @@ const dailyColumns: DataTableColumn<DailyRow>[] = [
     key: 'date',
     header: 'Date',
     cell: (row) => formatReportDate(row.date),
-    isMono: true,
   },
   {
     key: 'created',
@@ -296,7 +388,7 @@ const reasonColumns: DataTableColumn<Reason>[] = [
 ];
 
 function percent(value: number) {
-  return `${value.toFixed(2)}%`;
+  return `${Number(value.toFixed(2))}%`;
 }
 
 function ReportsReady({ daily, outcomes }: Loaded) {

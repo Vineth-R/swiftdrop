@@ -64,6 +64,43 @@ test('an administrator sees outcomes, the chart and the daily table', async ({
       name: /Bar chart of delivered and failed parcels/,
     }),
   ).toBeVisible();
+  await expect(page.getByText('Tallest day: 46.')).toBeVisible();
+});
+
+test('an all-in-progress range says that nothing finished', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(
+      daily.map((row) => ({
+        ...row,
+        created: 10,
+        delivered: 0,
+        failed: 0,
+      })),
+    ),
+    'GET /reports/outcomes': ok({
+      ...outcomes,
+      totals: { created: 20, delivered: 0, failed: 0, inProgress: 20 },
+      successRate: 0,
+      failureRate: 0,
+      topFailureReasons: [],
+    }),
+  });
+  await page.goto('/reports');
+
+  await expect(
+    page.getByText('No parcels finished in this range.'),
+  ).toBeVisible();
+  const chart = page.getByRole('img', {
+    name: /No parcels finished in this range/,
+  });
+  await expect(chart).toBeVisible();
+  await expect(chart.locator('rect')).toHaveCount(0);
+  await expect(page.getByText(/tallest day has 1 finished/i)).toHaveCount(0);
+  await expect(
+    page.getByRole('table', { name: 'Daily parcels' }).getByRole('row'),
+  ).toHaveCount(3);
 });
 
 test('the range is sent to both report endpoints', async ({ page }) => {
@@ -122,11 +159,22 @@ test('a range that is wrong is explained and nothing is requested', async ({
 
 test('shows a loading state while the reports load', async ({ page }) => {
   await signInAs(page, 'ADMIN', {
-    'GET /reports/daily': { ...ok(daily), delayMs: 800 },
-    'GET /reports/outcomes': { ...ok(outcomes), delayMs: 800 },
+    'GET /reports/daily': ok(daily),
+    'GET /reports/outcomes': ok(outcomes),
   });
+
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/v1/reports/**', async (route) => {
+    await gate;
+    await route.fallback();
+  });
+
   await page.goto('/reports');
   await expect(page.getByText('Loading outcomes')).toBeAttached();
+  release();
   await expect(page.getByText('94.37%')).toBeVisible();
   await expect(page.getByText('Loading outcomes')).toHaveCount(0);
 });
@@ -176,15 +224,15 @@ test('says so when nothing failed', async ({ page }) => {
   ).toBeVisible();
 });
 
-test('a server fault shows a reference, hides the server words and can be retried', async ({
+test('a 503 shows a reference, hides the server words and can be retried', async ({
   page,
 }) => {
   let failing = true;
   await signInAs(page, 'ADMIN', {
     'GET /reports/daily': () =>
-      failing ? fail(500, 'INTERNAL_ERROR') : ok(daily),
+      failing ? fail(503, 'SERVICE_UNAVAILABLE') : ok(daily),
     'GET /reports/outcomes': () =>
-      failing ? fail(500, 'INTERNAL_ERROR') : ok(outcomes),
+      failing ? fail(503, 'SERVICE_UNAVAILABLE') : ok(outcomes),
   });
   await page.goto('/reports');
 
@@ -192,15 +240,130 @@ test('a server fault shows a reference, hides the server words and can be retrie
   // so pick ours by its text.
   const alert = page
     .getByRole('alert')
-    .filter({ hasText: 'Reports could not be loaded' });
-  await expect(alert).toContainText('Reports could not be loaded');
+    .filter({ hasText: 'Something broke on our side' });
+  await expect(alert).toContainText('Something broke on our side');
   await expect(alert).toContainText(REQUEST_ID);
   await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
 
   failing = false;
-  await alert.getByRole('button', { name: 'Try again' }).click();
+  await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('94.37%')).toBeVisible();
   await expect(alert).toHaveCount(0);
+});
+
+test('a rate limit shows the wait and no server fault or retry', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': fail(429, 'RATE_LIMITED', {
+      headers: { 'Retry-After': '30' },
+    }),
+    'GET /reports/outcomes': fail(429, 'RATE_LIMITED', {
+      headers: { 'Retry-After': '30' },
+    }),
+  });
+  await page.goto('/reports');
+
+  await expect(
+    page.getByText('Too many attempts from this device'),
+  ).toBeVisible();
+  await expect(page.getByText(/Wait\s+\d+\s+seconds/)).toBeVisible();
+  await expect(page.getByText('Something broke on our side')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+});
+
+test('a server 422 puts our message on the date field and does not retry', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': fail(422, 'VALIDATION_ERROR', {
+      details: [{ field: 'to', issue: 'must not be before from' }],
+    }),
+    'GET /reports/outcomes': fail(422, 'VALIDATION_ERROR', {
+      details: [{ field: 'to', issue: 'must not be before from' }],
+    }),
+  });
+  await page.goto('/reports');
+
+  await expect(
+    page.getByText('Choose a valid end date within the 90-day range.'),
+  ).toBeVisible();
+  await expect(page.getByLabel('To', { exact: true })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
+
+  await page.getByLabel('To', { exact: true }).fill('2026-11-06');
+  await expect(
+    page.getByText('Choose a valid end date within the 90-day range.'),
+  ).toHaveCount(0);
+});
+
+test('a server 403 shows the no-permission state and does not retry', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': fail(403, 'FORBIDDEN'),
+    'GET /reports/outcomes': fail(403, 'FORBIDDEN'),
+  });
+  await page.goto('/reports');
+
+  await expect(
+    page.getByRole('heading', { name: 'You do not have access' }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('This page is for dispatchers and administrators'),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await expect(page.getByText('Something broke on our side')).toHaveCount(0);
+});
+
+test('a network failure can be retried', async ({ page }) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(daily),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.route('**/api/v1/reports/**', (route) => route.abort('failed'));
+  await page.goto('/reports');
+
+  const alert = page
+    .getByRole('alert')
+    .filter({ hasText: 'We could not reach SwiftDrop' });
+  await expect(alert).toBeVisible();
+  await expect(alert).not.toContainText(SERVER_WORDS);
+
+  await page.unroute('**/api/v1/reports/**');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText('94.37%')).toBeVisible();
+});
+
+test('invalid submission focuses the first bad date and clears after a fix', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(daily),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+  await expect(page.getByText('94.37%')).toBeVisible();
+
+  await page.getByLabel('From', { exact: true }).fill('2026-11-04');
+  await page.getByLabel('To', { exact: true }).fill('2026-11-01');
+  await page.getByLabel('From', { exact: true }).focus();
+  await page.getByLabel('From', { exact: true }).press('Enter');
+  await expect(
+    page.getByText('The end date must be on or after the start date.'),
+  ).toBeVisible();
+  await expect(page.getByLabel('To', { exact: true })).toBeFocused();
+
+  await page.getByLabel('To', { exact: true }).fill('2026-11-05');
+  await expect(
+    page.getByText('The end date must be on or after the start date.'),
+  ).toHaveCount(0);
+
+  await page.getByLabel('From', { exact: true }).fill('');
+  await page.getByLabel('To', { exact: true }).focus();
+  await page.getByLabel('To', { exact: true }).press('Enter');
+  await expect(page.getByLabel('From', { exact: true })).toBeFocused();
 });
 
 test('a dispatcher sees the reports too', async ({ page }) => {
@@ -250,4 +413,52 @@ test('on a phone nothing scrolls sideways', async ({ page }) => {
     'document.documentElement.scrollWidth - document.documentElement.clientWidth',
   );
   expect(overflow, 'the reports page scrolls sideways').toBe(0);
+});
+
+test('the date controls and reset action meet the touch target on a phone', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(
+      daily.map((row) => ({ ...row, created: 0, delivered: 0, failed: 0 })),
+    ),
+    'GET /reports/outcomes': ok(emptyOutcomes),
+  });
+  await page.goto('/reports');
+  await expect(
+    page.getByRole('heading', { name: 'No parcels in this range' }),
+  ).toBeVisible();
+
+  for (const control of [
+    page.getByLabel('From', { exact: true }),
+    page.getByLabel('To', { exact: true }),
+    page.getByRole('button', { name: 'Apply range' }),
+    page.getByRole('button', { name: 'Reset range' }),
+  ]) {
+    const box = await control.boundingBox();
+    expect(box, 'the control is visible').not.toBeNull();
+    expect(
+      box?.height ?? 0,
+      'the control is at least 44px tall',
+    ).toBeGreaterThanOrEqual(44);
+  }
+});
+
+test.describe('dark theme', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('the reports screen follows the dark tokens', async ({ page }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /reports/daily': ok(daily),
+      'GET /reports/outcomes': ok(outcomes),
+    });
+    await page.goto('/reports');
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.getByText('94.37%')).toBeVisible();
+    await expect(
+      page.getByRole('table', { name: 'Daily parcels' }),
+    ).toBeVisible();
+  });
 });

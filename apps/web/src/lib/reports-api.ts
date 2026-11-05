@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, type ApiIssue } from './api';
 
 /**
  * The two report calls (API v1.1 sections 7.1 and 7.2) and the date helpers
@@ -44,7 +44,10 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 function parse(date: string): number | null {
   if (!DATE_PATTERN.test(date)) return null;
   const time = Date.parse(`${date}T00:00:00Z`);
-  return Number.isNaN(time) ? null : time;
+  if (Number.isNaN(time)) return null;
+  // Date.parse normalises impossible dates such as 2026-02-30 to March.
+  // The API rejects those, so this screen must not send them either.
+  return format(time) === date ? time : null;
 }
 
 function format(time: number): string {
@@ -82,6 +85,27 @@ export function validateRange({ from, to }: DateRange): RangeErrors {
     errors.to = 'The end date must be on or after the start date.';
   } else if ((end - start) / DAY_MS + 1 > MAX_RANGE_DAYS) {
     errors.to = `Choose a range of ${MAX_RANGE_DAYS} days or fewer.`;
+  }
+  return errors;
+}
+
+/**
+ * Turns the API's field-level 422 details into our own date messages. The
+ * server's wording is never shown. An issue we cannot place stays on the end
+ * date, because the range itself is the only thing this form validates.
+ */
+export function rangeErrorsFromIssues(issues: ApiIssue[]): RangeErrors {
+  const errors: RangeErrors = {};
+  for (const issue of issues) {
+    if (issue.field === 'from' && !errors.from) {
+      errors.from = 'Choose a valid start date.';
+    } else if (issue.field === 'to' && !errors.to) {
+      errors.to = 'Choose a valid end date within the 90-day range.';
+    }
+  }
+  if (!errors.from && !errors.to) {
+    errors.to =
+      'The server did not accept that date range. Change the dates and apply them again.';
   }
   return errors;
 }
