@@ -18,6 +18,11 @@ const apiProxyTarget =
 const nextConfig = {
   output: 'standalone',
   outputFileTracingRoot: join(__dirname, '../..'),
+  // `nx dev` and Playwright reach the dev server over 127.0.0.1. Next 16.4
+  // blocks cross-origin dev resources by default, so allow that loopback host.
+  allowedDevOrigins: ['127.0.0.1'],
+  // Do not generate an AI-agent instruction file during local development.
+  agentRules: false,
   async rewrites() {
     if (!apiProxyTarget) return [];
     return [

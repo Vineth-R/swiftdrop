@@ -1,13 +1,17 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
-func TestLoadFromDefaults(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(string) (string, bool) {
+func TestLoadFromExplicitDevelopmentDefaults(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		if key == "APP_ENV" {
+			return "development", true
+		}
 		return "", false
 	})
 
@@ -30,13 +34,37 @@ func TestLoadFromDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadFromRequiresExplicitAppEnv(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{name: "unset"},
+		{name: "empty", values: map[string]string{"APP_ENV": ""}},
+		{name: "whitespace", values: map[string]string{"APP_ENV": "   "}},
+		{name: "unknown", values: map[string]string{"APP_ENV": "local"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := test.values[key]
+				return value, ok
+			})
+			if _, err := LoadFrom(loader); err == nil {
+				t.Fatal("LoadFrom() should fail without an explicit valid APP_ENV")
+			}
+		})
+	}
+}
+
 func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		values := map[string]string{
-			"APP_ENV":      " PRODUCTION ",
-			"LOG_LEVEL":    "WARNING",
-			"PORT":         " 9092 ",
-			"DATABASE_URL": " postgres://example ",
+			"APP_ENV":        " PRODUCTION ",
+			"LOG_LEVEL":      "WARNING",
+			"PORT":           " 9092 ",
+			"DATABASE_URL":   " postgres://example ",
+			"INTERNAL_TOKEN": strings.Repeat("t", sharedconfig.MinInternalTokenLengthNonDevelopment),
 		}
 		value, ok := values[key]
 		return value, ok
@@ -74,28 +102,61 @@ func TestLoadFromRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestLoadFromInternalTokenMinimumLength(t *testing.T) {
+func TestLoadFromInternalTokenValidation(t *testing.T) {
+	validDevelopment := strings.Repeat("d", sharedconfig.MinInternalTokenLength)
+	validNonDevelopment := strings.Repeat("n", sharedconfig.MinInternalTokenLengthNonDevelopment)
+	placeholder := "change-me-internal-token"
+
 	for _, test := range []struct {
-		name, value, want string
+		name       string
+		appEnv     string
+		envPresent bool
+		value      string
+		wantToken  string
+		wantError  bool
 	}{
-		{name: "unset", want: ""},
-		{name: "fifteen characters", value: "123456789012345", want: ""},
-		{name: "sixteen characters", value: "1234567890123456", want: "1234567890123456"},
-		{name: "longer", value: "change-me-internal-token", want: "change-me-internal-token"},
+		{name: "unset APP_ENV placeholder", envPresent: false, value: placeholder, wantError: true},
+		{name: "empty APP_ENV placeholder", appEnv: "", envPresent: true, value: placeholder, wantError: true},
+		{name: "whitespace APP_ENV placeholder", appEnv: "   ", envPresent: true, value: placeholder, wantError: true},
+		{name: "unknown APP_ENV", appEnv: "local", envPresent: true, value: validNonDevelopment, wantError: true},
+		{name: "explicit development unset", appEnv: "development", envPresent: true},
+		{name: "explicit development too short", appEnv: "development", envPresent: true, value: strings.Repeat("d", sharedconfig.MinInternalTokenLength-1)},
+		{name: "explicit development minimum", appEnv: "development", envPresent: true, value: validDevelopment, wantToken: validDevelopment},
+		{name: "explicit development placeholder", appEnv: "development", envPresent: true, value: placeholder, wantToken: placeholder},
+		{name: "explicit staging placeholder", appEnv: "staging", envPresent: true, value: placeholder, wantError: true},
+		{name: "explicit staging valid", appEnv: "staging", envPresent: true, value: validNonDevelopment, wantToken: validNonDevelopment},
+		{name: "explicit staging too short", appEnv: "staging", envPresent: true, value: validDevelopment, wantError: true},
+		{name: "explicit production placeholder", appEnv: "production", envPresent: true, value: placeholder, wantError: true},
+		{name: "explicit production valid", appEnv: "production", envPresent: true, value: validNonDevelopment, wantToken: validNonDevelopment},
+		{name: "explicit production too short", appEnv: "production", envPresent: true, value: validDevelopment, wantError: true},
+		{name: "explicit production unset", appEnv: "production", envPresent: true, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-				if key == "INTERNAL_TOKEN" && test.value != "" {
-					return test.value, true
+				switch key {
+				case "APP_ENV":
+					return test.appEnv, test.envPresent
+				case "INTERNAL_TOKEN":
+					return test.value, test.value != ""
+				default:
+					return "", false
 				}
-				return "", false
 			})
 			config, err := LoadFrom(loader)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("LoadFrom() should fail")
+				}
+				if test.value != "" && strings.Contains(err.Error(), test.value) {
+					t.Fatal("the error text contains the token")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("LoadFrom() returned error: %v", err)
 			}
-			if config.InternalToken != test.want {
-				t.Fatalf("InternalToken = %q, want %q", config.InternalToken, test.want)
+			if config.InternalToken != test.wantToken {
+				t.Fatalf("InternalToken = %q, want %q", config.InternalToken, test.wantToken)
 			}
 		})
 	}

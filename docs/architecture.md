@@ -111,7 +111,7 @@ The Next.js application serves `/` and its own routes, including `/api/hello`. N
 
 ## Configuration
 
-Configuration is environment-based. Values are matched case-insensitively and trimmed by the shared loader. Invalid required values fail startup clearly. `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host; validation errors never include the URL. The root `.env.example` documents local development values. Docker Compose passes container-network addresses such as `postgres` and `rabbitmq`; `localhost` is used only for host-to-container access. PostgreSQL is internal to the Compose network and publishes no host port. Host-run services and host-run PostgreSQL integration tests need a separately running PostgreSQL instance; they must not depend on a Compose port mapping.
+Configuration is environment-based. Values are matched case-insensitively and trimmed by the shared loader. Invalid required values fail startup clearly. `APP_ENV` must be explicitly set to `development`, `staging`, or `production`; identity and pricing do not fall back to development when it is missing, empty, or whitespace. `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host; validation errors never include the URL. The root `.env.example` documents local development values. Docker Compose passes container-network addresses such as `postgres` and `rabbitmq`; `localhost` is used only for host-to-container access. PostgreSQL is internal to the Compose network and publishes no host port. Host-run services and host-run PostgreSQL integration tests need a separately running PostgreSQL instance; they must not depend on a Compose port mapping.
 
 HTTP services read:
 

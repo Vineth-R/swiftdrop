@@ -40,6 +40,7 @@ func TestLoadFrom(t *testing.T) {
 func TestLoadFromGoogleOAuthConfig(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		values := map[string]string{
+			"APP_ENV":              "development",
 			"GOOGLE_CLIENT_ID":     "client-id-example",
 			"GOOGLE_CLIENT_SECRET": "test-only-secret",
 			"GOOGLE_REDIRECT_URI":  "http://localhost:8080/api/v1/auth/google/callback",
@@ -85,6 +86,9 @@ func TestLoadFromGoogleOAuthConfigIsOptional(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				if key == "APP_ENV" {
+					return "development", true
+				}
 				value, ok := test.values[key]
 				return value, ok
 			})
@@ -96,6 +100,45 @@ func TestLoadFromGoogleOAuthConfigIsOptional(t *testing.T) {
 
 			if config.GoogleClientID != "" || config.GoogleClientSecret != "" || config.GoogleRedirectURI != "" {
 				t.Fatal("Google OAuth settings should be empty when missing or blank")
+			}
+		})
+	}
+}
+
+func TestLoadFromRequiresExplicitAppEnv(t *testing.T) {
+	tests := []struct {
+		name       string
+		values     map[string]string
+		wantAppEnv string
+		wantError  bool
+	}{
+		{name: "unset", wantError: true},
+		{name: "empty", values: map[string]string{"APP_ENV": ""}, wantError: true},
+		{name: "whitespace", values: map[string]string{"APP_ENV": "   "}, wantError: true},
+		{name: "unknown", values: map[string]string{"APP_ENV": "local"}, wantError: true},
+		{name: "explicit development", values: map[string]string{"APP_ENV": "development"}, wantAppEnv: "development"},
+		{name: "explicit staging", values: map[string]string{"APP_ENV": "staging"}, wantAppEnv: "staging"},
+		{name: "explicit production", values: map[string]string{"APP_ENV": "production"}, wantAppEnv: "production"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := test.values[key]
+				return value, ok
+			})
+
+			config, err := LoadFrom(loader)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("LoadFrom() should fail without an explicit valid APP_ENV")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AppEnv != test.wantAppEnv {
+				t.Fatalf("AppEnv = %q, want %q", config.AppEnv, test.wantAppEnv)
 			}
 		})
 	}
