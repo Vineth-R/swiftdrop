@@ -1674,7 +1674,11 @@ Purpose: Lists all zones for the admin screen, including inactive ones, which GE
 
 leaves out.
 
-Query: isActive , page , pageSize , sort .
+Query: isActive , page , pageSize , sort . originZoneId and destinationZoneId are not
+
+accepted and return 422. createdAt and updatedAt are sort keys only and are not
+
+returned in the response.
 
 Response 200: { "data": [ { "id": "7a1e...", "code": "CMB", "name": "Colombo",
 

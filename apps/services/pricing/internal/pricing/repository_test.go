@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -56,6 +57,7 @@ func (r *testRows) Err() error { return r.err }
 type testDB struct {
 	row      func(context.Context, string, ...any) pgx.Row
 	rows     *testRows
+	query    string
 	queryErr error
 	tx       pgx.Tx
 	beginErr error
@@ -64,8 +66,11 @@ type testDB struct {
 func (d *testDB) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	return d.row(ctx, query, args...)
 }
-func (d *testDB) Query(context.Context, string, ...any) (pgx.Rows, error) { return d.rows, d.queryErr }
-func (d *testDB) Begin(context.Context) (pgx.Tx, error)                   { return d.tx, d.beginErr }
+func (d *testDB) Query(_ context.Context, query string, _ ...any) (pgx.Rows, error) {
+	d.query = query
+	return d.rows, d.queryErr
+}
+func (d *testDB) Begin(context.Context) (pgx.Tx, error) { return d.tx, d.beginErr }
 
 type testTx struct {
 	pgx.Tx
@@ -311,6 +316,59 @@ func TestRepositoryList(t *testing.T) {
 		})
 	}
 }
+func TestRepositoryListResourceFilters(t *testing.T) {
+	active := true
+	for _, test := range []struct {
+		name     string
+		kind     string
+		filter   Filter
+		contains []string
+		excludes []string
+	}{
+		{
+			name:     "zones filter by active state only",
+			kind:     "zones",
+			filter:   Filter{Page: 1, PageSize: 20, Active: &active},
+			contains: []string{"FROM pricing.zones", "is_active=$1"},
+			excludes: []string{"origin_zone_id", "destination_zone_id"},
+		},
+		{
+			name:     "rules keep zone and active filters",
+			kind:     "rules",
+			filter:   Filter{Page: 1, PageSize: 20, Origin: originID, Destination: destinationID, Active: &active},
+			contains: []string{"FROM pricing.pricing_rules", "origin_zone_id=$1", "destination_zone_id=$2", "is_active=$3"},
+		},
+		{
+			name:     "bands ignore active state",
+			kind:     "bands",
+			filter:   Filter{Page: 1, PageSize: 20, Active: &active},
+			contains: []string{"FROM pricing.weight_bands"},
+			excludes: []string{"is_active=$", "origin_zone_id", "destination_zone_id"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := &testDB{
+				row:  func(context.Context, string, ...any) pgx.Row { return testRow{values: []any{1}} },
+				rows: &testRows{data: [][]any{{`{"id":"` + originID + `"}`}}},
+			}
+			result, total, err := NewRepository(db).List(t.Context(), test.kind, test.filter)
+			if err != nil || total != 1 || len(result) != 1 {
+				t.Fatalf("list result %v %d %v", result, total, err)
+			}
+			for _, want := range test.contains {
+				if !strings.Contains(db.query, want) {
+					t.Fatalf("query %q does not contain %q", db.query, want)
+				}
+			}
+			for _, unwanted := range test.excludes {
+				if strings.Contains(db.query, unwanted) {
+					t.Fatalf("query %q contains %q", db.query, unwanted)
+				}
+			}
+		})
+	}
+}
+
 func TestUnavailableRepository(t *testing.T) {
 	repo := NewRepository(nil)
 	if _, err := repo.Zones(t.Context()); !errors.Is(err, ErrUnavailable) {

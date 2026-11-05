@@ -58,7 +58,7 @@ All `/api/v1/admin/...` pricing routes require an ADMIN access token through the
 | Bands      | GET/POST `/admin/pricing/bands`; PATCH `/admin/pricing/bands/{id}`              |
 | Surcharges | GET `/admin/pricing/surcharges`; PUT `/admin/pricing/surcharges/{sizeCategory}` |
 
-Lists accept `page` (1–10000), `pageSize` (1–100), and allowed `sort` values documented in OpenAPI. Rules also filter by origin/destination zone and active state. Updates reject empty bodies, unknown fields and null changes. Conflicts map to `ZONE_CODE_EXISTS`, `RULE_EXISTS` or `BAND_OVERLAP` (409), including database-enforced concurrent overlap/uniqueness failures.
+Lists accept `page` (1–10000), `pageSize` (1–100), and allowed `sort` values documented in OpenAPI. Rules also filter by origin/destination zone and active state; zones filter by active state only and reject `originZoneId`/`destinationZoneId` with 422. Zones can be ordered by `createdAt` or `updatedAt`, but the response does not include those timestamps. Updates reject empty bodies, unknown fields and null changes. Conflicts map to `ZONE_CODE_EXISTS`, `RULE_EXISTS` or `BAND_OVERLAP` (409), including database-enforced concurrent overlap/uniqueness failures.
 
 Configuration changes and their audit entry commit in one transaction. Rules record the updating actor. Failed audit writes roll back the configuration change. Existing Parcel fee snapshots are never read or modified by Pricing.
 
