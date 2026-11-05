@@ -239,8 +239,8 @@ test('on a phone nothing scrolls sideways', async ({ page }) => {
   await page.goto('/reports');
   await expect(page.getByText('94.37%')).toBeVisible();
 
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - window.innerWidth,
+    const overflow = await page.evaluate(
+    'document.documentElement.scrollWidth - document.documentElement.clientWidth',
   );
-  expect(overflow).toBeLessThanOrEqual(0);
+  expect(overflow, 'the reports page scrolls sideways').toBe(0);
 });
