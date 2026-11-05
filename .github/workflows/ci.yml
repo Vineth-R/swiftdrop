@@ -338,6 +338,9 @@ jobs:
       - name: Test the design lint rules
         run: node --test "apps/web/eslint-rules/*.test.mjs"
 
+      - name: Test the API clients
+        run: node --test "apps/web/src/lib/*.test.mjs"
+
       - name: Lint and build web
         run: pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e
 
