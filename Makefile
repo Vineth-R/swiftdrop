@@ -46,6 +46,14 @@ preflight:
 		exit 1; \
 	fi
 	@$(COMPOSE) config --quiet
+	@app_env="$$($(COMPOSE) config 2>/dev/null | awk '/^[[:space:]]+APP_ENV:/{sub(/^[[:space:]]*APP_ENV:[[:space:]]*/, ""); print; exit}')"; \
+	app_env="$$(printf '%s' "$$app_env" | sed "s/^[[:space:]]*//;s/[[:space:]]*$$//;s/^[\"']//;s/[\"']$$//;s/^[[:space:]]*//;s/[[:space:]]*$$//")"; \
+	app_env="$$(printf '%s' "$$app_env" | tr '[:upper:]' '[:lower:]')"; \
+	case "$$app_env" in \
+		development|staging|production) ;; \
+		"") echo "error: APP_ENV is required. Set APP_ENV=development, staging, or production in .env or export it." >&2; exit 1 ;; \
+		*) echo "error: APP_ENV must be one of: development, staging, production." >&2; exit 1 ;; \
+	esac
 	@jwt="$$($(COMPOSE) config 2>/dev/null | awk '/^[[:space:]]+JWT_ACCESS_SECRET:/{sub(/^[[:space:]]*JWT_ACCESS_SECRET:[[:space:]]*/, ""); print; exit}')"; \
 	jwt="$$(printf '%s' "$$jwt" | sed "s/^[[:space:]]*//;s/[[:space:]]*$$//;s/^[\"']//;s/[\"']$$//;s/^[[:space:]]*//;s/[[:space:]]*$$//")"; \
 	if [ -z "$$jwt" ]; then \

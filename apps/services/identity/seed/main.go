@@ -31,6 +31,9 @@ func run() error {
 		return err
 	}
 
+	// This local operator CLI is outside the fail-closed service/worker set.
+	// The development default only controls logging; it does not make the target
+	// database safe. Verify DATABASE_URL before running this command.
 	appEnv, err := loader.EnumFold("APP_ENV", "development", "development", "staging", "production")
 	if err != nil {
 		return err

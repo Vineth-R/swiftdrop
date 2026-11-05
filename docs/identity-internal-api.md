@@ -134,32 +134,34 @@ a known placeholder. The startup error names the setting but never includes the 
 **3.3 M6, `parcel` service.** At the time of writing the block has no `INTERNAL_TOKEN`. Add two
 lines to its `environment:` block in `docker-compose.yml`:
 
+<!-- prettier-ignore -->
 ```yaml
-parcel:
-  environment:
-    <<: *app-env
-    PORT: '8082'
-    DATABASE_URL: ... # unchanged
-    INTERNAL_TOKEN: ${INTERNAL_TOKEN:-} # added
-    IDENTITY_BASE_URL: http://identity:8081 # added (name is yours to choose)
-  depends_on:
-    postgres:
-      condition: service_healthy
-    identity: # added, so Identity is up first
-      condition: service_healthy
+  parcel:
+    environment:
+      <<: *app-env
+      PORT: '8082'
+      DATABASE_URL: ...                                  # unchanged
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}                # added
+      IDENTITY_BASE_URL: http://identity:8081            # added (name is yours to choose)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:                                          # added, so Identity is up first
+        condition: service_healthy
 ```
 
 **3.4 M1, `notification-worker` service.** Same two variables; it already has the SMTP variables
 through `*mail-env`:
 
+<!-- prettier-ignore -->
 ```yaml
-notification-worker:
-  environment:
-    <<: [*app-env, *rabbitmq-env, *mail-env]
-    NOTIFICATION_QUEUE: ... # unchanged
-    NOTIFICATION_ROUTING_KEY: ... # unchanged
-    INTERNAL_TOKEN: ${INTERNAL_TOKEN:-} # added
-    IDENTITY_BASE_URL: http://identity:8081 # added
+  notification-worker:
+    environment:
+      <<: [*app-env, *rabbitmq-env, *mail-env]
+      NOTIFICATION_QUEUE: ...                            # unchanged
+      NOTIFICATION_ROUTING_KEY: ...                      # unchanged
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}                # added
+      IDENTITY_BASE_URL: http://identity:8081            # added
 ```
 
 **3.5 Verify** (after `docker compose up -d --build identity`). Replace the user ID with a real

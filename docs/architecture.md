@@ -131,7 +131,7 @@ The notification worker also requires `SMTP_HOST` and reads `SMTP_PORT`, `SMTP_U
 
 The maximum RabbitMQ message body size is 1 MiB and is fixed in `messaging.MaxMessageBytes`; it is not configurable in this phase. Secrets and connection strings are never logged.
 
-Demo users are created by a local operator tool, `make seed`, not by service startup or migrations. It reads `DATABASE_URL` and the ten `SEED_*` account variables, seeds only the five identity demo users and two courier profiles, and leaves merchant, API-key and parcel data untouched. It is not a runtime dependency between the identity and pricing services; its only cross-schema read is the lookup of active `pricing.zones` rows by code to resolve the two courier home zones.
+Demo users are created by a local operator tool, `make seed`, not by service startup or migrations. It reads `DATABASE_URL` and the ten `SEED_*` account variables, seeds only the five identity demo users and two courier profiles, and leaves merchant, API-key and parcel data untouched. It is not a runtime dependency between the identity and pricing services; its only cross-schema read is the lookup of active `pricing.zones` rows by code to resolve the two courier home zones. The seed command is outside the seven fail-closed backend services and workers; its `APP_ENV` development default only controls logging, so verify `DATABASE_URL` before running it.
 
 ## Health and readiness
 
