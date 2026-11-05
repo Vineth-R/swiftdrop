@@ -1797,7 +1797,7 @@ Errors: 409 PRICE_CHANGED (response includes currentFee ), 422 VALIDATION_ERROR 
 
 Side effects: inserts the parcel, the first status history row and an outbox event, then
 
-publishes parcel.created .
+publishes parcel.created.v1 .
 
 
 
@@ -2224,7 +2224,7 @@ parcel.
 
 Errors: 404 PARCEL_NOT_FOUND , 409 PARCEL_CLOSED , 422 COURIER_NOT_ELIGIBLE , 503.
 
-Side effect: publishes parcel.assigned .
+Side effect: publishes parcel.assigned.v1 .
 
 
 <!-- PDF page 25 -->
@@ -2532,7 +2532,7 @@ Errors: 403 FORBIDDEN , 404, 409 INVALID_TRANSITION , 422 FAILURE_REASON_REQUIRE
 
 Side effects, in one database transaction: update the parcel status, insert the status
 
-history row, insert the outbox event. After commit the event parcel.status_changed is
+history row, insert the outbox event. After commit the event parcel.status_changed.v1 is
 
 published to RabbitMQ, which triggers email notification, the merchant webhook and live
 
@@ -3243,7 +3243,7 @@ Response 200:
 
        "data": [
 
-       { "eventId": "ev12...", "trackingNumber": "SDK7M2Q9XP4", "attemptNumber":
+       { "eventId": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d", "trackingNumber": "SDK7M2Q9XP4", "attemptNumber":
 
    2, "httpStatus": 503, "success": false, "nextRetryAt": "2026-11-
 
@@ -3649,7 +3649,7 @@ Headers:
 
 
 
-   X-SwiftDrop-Signature                           sha256= followed by the hex HMAC SHA-256 of
+   X-SwiftDrop-Signature                           sha256= followed by the lowercase hex HMAC SHA-256 of
 
                                                    the string <timestamp>.<raw body> using the
 
@@ -3666,9 +3666,11 @@ Body:
 
 {
 
-       "eventId": "ev12a3b4-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+       "eventId": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
 
        "eventType": "parcel.status_changed",
+
+       "schemaVersion": 1,
 
        "occurredAt": "2026-11-04T13:00:00Z",
 
@@ -3690,17 +3692,13 @@ Body:
 
    }
 
-
-
-
-
-
+The internal RabbitMQ trigger is `parcel.status_changed.v1`. The public body remains camelCase with unversioned `eventType: parcel.status_changed` and additive `schemaVersion: 1` for API v1.1 compatibility. `eventId` is the stable outbox UUID.
 
 10.2 Merchant responsibilities
 
-       Verify the signature using the raw request body and reject requests with a timestamp
+       Verify the signature using the raw request body, compare signatures in constant
 
-       older than 5 minutes.
+       time, and reject requests with a timestamp older than 5 minutes.
 
        Respond with any 2xx status within 10 seconds. Any other result counts as a failure.
 
@@ -3750,167 +3748,85 @@ After attempt 6 fails, the event moves to the dead letter queue and the attempt 
 
  deadLettered in the delivery log (endpoint 8.15). Every attempt is recorded.
 
+These webhook business retries are separate from shared RabbitMQ consumer retries. The webhook worker must not re-enter the shared consumer retry loop for the same delivery attempt; doing so would multiply attempts. The current worker does not implement this delivery/retry behavior.
+
 
 <!-- PDF page 41 -->
 
 ## 11. RabbitMQ Event Contracts
 
+### 11.1 Topology
 
+- Exchange: `swiftdrop.events` (durable topic exchange).
+- Published routing keys: `parcel.created.v1`, `parcel.assigned.v1`, `parcel.status_changed.v1`.
+- Target consumer bindings:
 
-11.1 Topology
+| Queue | Bindings | Consumer |
+| --- | --- | --- |
+| `notification.queue` | `parcel.created.v1`, `parcel.status_changed.v1` | Notification Worker |
+| `webhook.queue` | `parcel.status_changed.v1` | Webhook Worker |
+| `realtime.queue` | `parcel.assigned.v1`, `parcel.status_changed.v1` | Realtime Service |
+| `merchant.sync.queue` | `parcel.status_changed.v1` | Merchant Integration |
 
+Queue names are deployment details. The currently implemented worker queues use legacy work-item names and are not yet migrated; do not treat this table as evidence that the target bindings are running. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
 
+Failure topology is derived by the shared consumer: retry exchange `<exchange>.retry`, retry queue `<queue>.retry`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The legacy name `swiftdrop.dlx` is not the implemented exchange. Messages are persistent, and consumers deduplicate by `event_id`.
 
-  Item                               Name                                       Notes
+### 11.2 Envelope
 
+Every internal event uses the canonical envelope from `packages/go-common/messaging.Envelope`:
 
+```json
+{
+  "event_id": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
+  "event_type": "parcel.status_changed.v1",
+  "event_version": 1,
+  "occurred_at": "2026-11-05T12:00:00Z",
+  "producer": "parcel",
+  "correlation_id": "req_01HF-example",
+  "data": {
+    "parcel_id": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
+    "tracking_number": "SDN4T8W2LC6",
+    "previous_status": "PICKED_UP",
+    "status": "IN_TRANSIT"
+  }
+}
+```
 
-  Exchange                            swiftdrop.events                          Topic, durable
+- `event_id` is the outbox UUID.
+- `event_type` is versioned and must match `event_version`.
+- `occurred_at` is RFC 3339.
+- `producer` identifies the owning service.
+- `correlation_id` is optional.
+- `data` must be a JSON object and is defined by the event schema.
 
+Do not use the flat camelCase API response/example envelope as the internal RabbitMQ envelope.
 
+### 11.3 Event types
 
-  Dead letter                         swiftdrop.dlx                             Direct, durable
+| Event type | Routing key | Published when | Data fields |
+| --- | --- | --- | --- |
+| `parcel.created.v1` | `parcel.created.v1` | A parcel is created. | `parcel_id`, `tracking_number`, `status` (`CREATED`), optional `customer_user_id`, optional `merchant_id` |
+| `parcel.assigned.v1` | `parcel.assigned.v1` | Dispatch assigns or reassigns a parcel. | `parcel_id`, `tracking_number`, `courier_id`, `assigned_by`, optional `previous_courier_id` |
+| `parcel.status_changed.v1` | `parcel.status_changed.v1` | A parcel status changes. | `parcel_id`, `tracking_number`, `previous_status`, `status`, optional `merchant_id`, optional `customer_user_id`, optional `actor_user_id`, optional `note`, optional `failure_reason` |
 
-  exchange
+Domain events never carry phone numbers, email addresses, physical addresses, passwords, tokens, or signing secrets. Consumers that need contact details call the identity internal contact endpoint.
 
+### 11.4 Outbox storage mapping
 
+Database outbox storage labels remain unversioned to avoid a schema migration:
 
-  Routing keys                        parcel.created , parcel.assigned ,        Published by Parcel
+| Storage label | Stored routing key | Published event type | Published routing key |
+| --- | --- | --- | --- |
+| `parcel.created` | `parcel.created` | `parcel.created.v1` | `parcel.created.v1` |
+| `parcel.assigned` | `parcel.assigned` | `parcel.assigned.v1` | `parcel.assigned.v1` |
+| `parcel.status_changed` | `parcel.status.changed` | `parcel.status_changed.v1` | `parcel.status_changed.v1` |
 
-                                      parcel.status.changed                     Operations
+The stored `routing_key` is legacy/internal. The relay maps the storage label and builds the canonical envelope; it must not copy the stored routing key blindly. The outbox writer and relay are not implemented yet.
 
+Public merchant webhooks remain a separate projection with unversioned public `eventType: parcel.status_changed`; see section 10.
 
-
-
-
-
-
-  Queue                                       Bindings                     Consumer
-
-
-
-   notification.queue                          parcel.created ,            Notification Worker
-
-                                               parcel.status.changed
-
-
-
-   webhook.queue                               parcel.status.changed       Webhook Worker
-
-
-
-   realtime.queue                              parcel.status.changed ,     Realtime Service
-
-                                               parcel.assigned
-
-
-
-   merchant.sync.queue                         parcel.status.changed       Merchant Integration (updates
-
-                                                                           last_known_status )
-
-
-
-
-
-Each queue is durable and has a matching .dlq queue bound to swiftdrop.dlx .
-
-Messages are persistent. Consumers acknowledge only after successful processing and
-
-deduplicate by eventId .
-
-
-
-
-
-11.2 Envelope
-
-
-
-   {
-
-       "eventId": "uuid",
-
-       "eventType": "parcel.status_changed",
-
-       "occurredAt": "2026-11-04T13:00:00Z",
-
-       "schemaVersion": 1,
-
-       "parcelId": "uuid",
-
-       "trackingNumber": "SDN4T8W2LC6",
-
-       "previousStatus": "PICKED_UP",
-
-       "status": "IN_TRANSIT",
-
-       "actorUserId": "uuid"
-
-   }
-
-
-<!-- PDF page 42 -->
-
-11.3 Event types
-
-The eventType value uses an underscore ( parcel.status_changed ) while the matching
-
-routing key uses dots ( parcel.status.changed ). Both are intentional.
-
-
-
-
-
-  Event type                                Routing key             Published when         Extra fields beyond the
-
-                                                                                           envelope
-
-
-
-   parcel.created                           parcel.created          A parcel is created.   status (CREATED),
-
-                                                                    Drives notifications   customerUserId or
-
-                                                                    and downstream         merchantId
-
-                                                                    sync
-
-
-
-   parcel.assigned                          parcel.assigned         Dispatch assigns or    courierId ,
-
-                                                                    reassigns a parcel.    previousCourierId ,
-
-                                                                    The Realtime           assignedBy
-
-                                                                    Service uses it for
-
-                                                                    live updates
-
-
-
-   parcel.status_changed                    parcel.status.changed   A parcel status        previousStatus , status ,
-
-                                                                    changes. Drives        merchantId (if any),
-
-                                                                    email, webhooks,       customerUserId (if any)
-
-                                                                    realtime and
-
-                                                                    merchant sync
-
-
-
-
-
-Events never carry addresses, phone numbers, passwords, tokens or photos. Consumers
-
-that need contact details call the internal APIs in section 13.
-
-
-
-
+`notification.requested.v1` and `webhook.delivery.requested.v1` are legacy work-item contracts with no producers and are not part of the target parcel event flow. `notification.requested.v1` must not be exposed to merchants or used for new producers because its `recipient` field contains contact data. See [`contracts/events/README.md`](../contracts/events/README.md) for the current implementation status.
 
 ## 12. AI Delivery Assistant (Bonus)
 

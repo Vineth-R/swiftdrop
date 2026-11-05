@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swiftdrop.local/events/parcel.assigned.v1",
+  "title": "parcel.assigned.v1",
+  "description": "Published after a dispatcher assigns or reassigns a parcel. The payload contains parcel, courier, and assignment identifiers only; contact details are resolved through internal service APIs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "data"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable event identifier. The outbox UUID is used as the event ID."
+    },
+    "event_type": {
+      "const": "parcel.assigned.v1"
+    },
+    "event_version": {
+      "const": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Producing service, expected to be parcel."
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parcel_id", "tracking_number", "courier_id", "assigned_by"],
+      "properties": {
+        "parcel_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "tracking_number": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 20
+        },
+        "courier_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "assigned_by": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "previous_courier_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "event_id": "8c6a2f8e-3b9d-4a7e-9f1c-2d4e6f8a0b1c",
+      "event_type": "parcel.assigned.v1",
+      "event_version": 1,
+      "occurred_at": "2026-11-05T12:05:00Z",
+      "producer": "parcel",
+      "correlation_id": "req_01HF-example",
+      "data": {
+        "parcel_id": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
+        "tracking_number": "SDK7M2Q9XP4",
+        "courier_id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+        "assigned_by": "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+        "previous_courier_id": "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a"
+      }
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swiftdrop.local/events/parcel.created.v1",
+  "title": "parcel.created.v1",
+  "description": "Published after a parcel and its initial history row commit. The payload contains parcel identifiers and routing attributes only; contact details are resolved through internal service APIs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "data"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable event identifier. The outbox UUID is used as the event ID."
+    },
+    "event_type": {
+      "const": "parcel.created.v1"
+    },
+    "event_version": {
+      "const": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Producing service, expected to be parcel."
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parcel_id", "tracking_number", "status"],
+      "properties": {
+        "parcel_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "tracking_number": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 20
+        },
+        "status": {
+          "const": "CREATED"
+        },
+        "customer_user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "merchant_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "event_id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+      "event_type": "parcel.created.v1",
+      "event_version": 1,
+      "occurred_at": "2026-11-05T12:00:00Z",
+      "producer": "parcel",
+      "correlation_id": "req_01HF-example",
+      "data": {
+        "parcel_id": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
+        "tracking_number": "SDK7M2Q9XP4",
+        "status": "CREATED",
+        "customer_user_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b"
+      }
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swiftdrop.local/events/parcel.status_changed.v1",
+  "title": "parcel.status_changed.v1",
+  "description": "Published after a parcel status transition commits. The payload contains parcel, status, and routing attributes only; contact details are resolved through internal service APIs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "data"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable event identifier. The outbox UUID is used as the event ID."
+    },
+    "event_type": {
+      "const": "parcel.status_changed.v1"
+    },
+    "event_version": {
+      "const": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Producing service, expected to be parcel."
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parcel_id", "tracking_number", "previous_status", "status"],
+      "properties": {
+        "parcel_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "tracking_number": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 20
+        },
+        "previous_status": {
+          "type": "string",
+          "enum": [
+            "CREATED",
+            "PICKED_UP",
+            "IN_TRANSIT",
+            "OUT_FOR_DELIVERY",
+            "DELIVERED",
+            "FAILED"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "CREATED",
+            "PICKED_UP",
+            "IN_TRANSIT",
+            "OUT_FOR_DELIVERY",
+            "DELIVERED",
+            "FAILED"
+          ]
+        },
+        "merchant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "customer_user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "failure_reason": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Required by the parcel business rules when status is FAILED."
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "event_id": "7e5c3a1f-2b4d-4c6e-8f0a-1b3c5d7e9f2a",
+      "event_type": "parcel.status_changed.v1",
+      "event_version": 1,
+      "occurred_at": "2026-11-05T12:10:00Z",
+      "producer": "parcel",
+      "correlation_id": "req_01HF-example",
+      "data": {
+        "parcel_id": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
+        "tracking_number": "SDK7M2Q9XP4",
+        "previous_status": "PICKED_UP",
+        "status": "IN_TRANSIT",
+        "customer_user_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+        "actor_user_id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+        "note": "Departed the Colombo hub"
+      }
+    }
+  ]
+}
