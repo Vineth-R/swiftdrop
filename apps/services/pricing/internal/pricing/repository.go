@@ -366,10 +366,10 @@ func (r *Repository) List(ctx context.Context, kind string, filter Filter) ([]js
 				where = append(where, fmt.Sprintf("%s=$%d", field.column, len(args)))
 			}
 		}
-		if filter.Active != nil {
-			args = append(args, *filter.Active)
-			where = append(where, fmt.Sprintf("is_active=$%d", len(args)))
-		}
+	}
+	if (kind == "rules" || kind == "zones") && filter.Active != nil {
+		args = append(args, *filter.Active)
+		where = append(where, fmt.Sprintf("is_active=$%d", len(args)))
 	}
 	clause := " FROM " + spec.table + " WHERE " + strings.Join(where, " AND ")
 	var total int

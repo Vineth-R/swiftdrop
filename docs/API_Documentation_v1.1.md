@@ -1666,6 +1666,32 @@ Errors: 422. Audited.
 
 
 
+3.13 GET /admin/zones
+
+Access: ADMIN.
+
+Purpose: Lists all zones for the admin screen, including inactive ones, which GET /zones
+
+leaves out.
+
+Query: isActive , page , pageSize , sort . originZoneId and destinationZoneId are not
+
+accepted and return 422. createdAt and updatedAt are sort keys only and are not
+
+returned in the response.
+
+Response 200: { "data": [ { "id": "7a1e...", "code": "CMB", "name": "Colombo",
+
+"districts": ["Colombo"], "isActive": true } ], "meta": { "requestId": "req_15",
+
+"timestamp": "2026-11-02T09:38:00Z", "pagination": { "page": 1, "pageSize": 20,
+
+"totalItems": 1, "totalPages": 1 } } } . Errors: 401, 403, 422.
+
+
+
+
+
 ## 4. Parcel Operations Service: Customer and Public Endpoints
 
 Routed by Nginx from /api/v1/parcels and /api/v1/tracking .
@@ -4276,6 +4302,10 @@ Section           Method              Path                                      
 
 
   3.12              PUT                  /admin/pricing/surcharges/{sizeCategory}   ADMIN
+
+
+
+  3.13              GET                  /admin/zones                    ADMIN
 
 
 

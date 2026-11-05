@@ -378,6 +378,102 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+    get:
+      operationId: listAdminZones
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - id:asc
+              - id:desc
+              - createdAt:asc
+              - createdAt:desc
+              - updatedAt:asc
+              - updatedAt:desc
+            default: id:asc
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Configuration list.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminZone'
+                  meta:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - requestId
+                      - timestamp
+                      - pagination
+                    properties:
+                      requestId: *a20
+                      timestamp:
+                        type: string
+                        format: date-time
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   '/admin/zones/{id}':
     patch:
       operationId: updateZone
