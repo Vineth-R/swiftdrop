@@ -161,3 +161,60 @@ func TestLoadFromInternalTokenValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadFromAccessSecretValidation(t *testing.T) {
+	weak := strings.Repeat("w", sharedconfig.MinAccessSecretBytes-1)
+	valid := strings.Repeat("v", sharedconfig.MinAccessSecretBytes)
+	placeholder := "change-me-access-secret-use-32-or-more-random-characters"
+
+	tests := []struct {
+		name    string
+		appEnv  string
+		secret  string
+		present bool
+		want    string
+		wantErr bool
+	}{
+		{name: "development weak", appEnv: "development", secret: weak, present: true, want: weak},
+		{name: "development placeholder", appEnv: "development", secret: placeholder, present: true, want: placeholder},
+		{name: "production weak", appEnv: "production", secret: weak, present: true, wantErr: true},
+		{name: "production placeholder", appEnv: "production", secret: placeholder, present: true, wantErr: true},
+		{name: "production valid", appEnv: "production", secret: valid, present: true, want: valid},
+		{name: "production empty", appEnv: "production", secret: "", present: true, want: ""},
+		{name: "production unset", appEnv: "production", want: ""},
+		{name: "staging weak", appEnv: "staging", secret: weak, present: true, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				switch key {
+				case "APP_ENV":
+					return test.appEnv, true
+				case "JWT_ACCESS_SECRET":
+					return test.secret, test.present
+				case "INTERNAL_TOKEN":
+					return strings.Repeat("t", sharedconfig.MinInternalTokenLengthNonDevelopment), true
+				default:
+					return "", false
+				}
+			})
+
+			config, err := LoadFrom(loader)
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("LoadFrom() should have failed")
+				}
+				if test.secret != "" && strings.Contains(err.Error(), test.secret) {
+					t.Fatal("the error text contains the secret")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AccessSecret != test.want {
+				t.Fatalf("AccessSecret = %q, want %q", config.AccessSecret, test.want)
+			}
+		})
+	}
+}

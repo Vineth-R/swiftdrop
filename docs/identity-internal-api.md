@@ -3,12 +3,12 @@
 From M3. Source: API Documentation v1.1 section 13 and the Team Task Sheet (M3.3, M3.4).
 Machine-readable contract: [`contracts/openapi/identity-internal.yaml`](../contracts/openapi/identity-internal.yaml).
 
-| Who            | What they use                                                                 | Section                  |
-| -------------- | ----------------------------------------------------------------------------- | ------------------------ |
-| M6 (Parcel)    | `GET /internal/couriers/{courierId}/eligibility` before assigning a parcel     | [1](#1-the-two-endpoints) |
-| M1 (Notif.)    | `GET /internal/users/{userId}/contact` to find the recipient                  | [1](#1-the-two-endpoints) |
-| M1 (Notif.)    | `packages/go-common/mailer` to send the email                                 | [5](#5-m1-sending-email-with-the-shared-mailer) |
-| M1 (Gateway)   | Nothing to change for `/internal`; one gap for `/api/v1/admin/users`          | [6](#6-m1-gateway-notes) |
+| Who          | What they use                                                              | Section                                         |
+| ------------ | -------------------------------------------------------------------------- | ----------------------------------------------- |
+| M6 (Parcel)  | `GET /internal/couriers/{courierId}/eligibility` before assigning a parcel | [1](#1-the-two-endpoints)                       |
+| M1 (Notif.)  | `GET /internal/users/{userId}/contact` to find the recipient               | [1](#1-the-two-endpoints)                       |
+| M1 (Notif.)  | `packages/go-common/mailer` to send the email                              | [5](#5-m1-sending-email-with-the-shared-mailer) |
+| M1 (Gateway) | Nothing to change for `/internal`; one gap for `/api/v1/admin/users`       | [6](#6-m1-gateway-notes)                        |
 
 These endpoints are for service-to-service calls only. Nginx never routes `/internal`
 (`infra/nginx/default.conf` returns a JSON `404 NOT_FOUND`), so only containers on the Compose
@@ -19,10 +19,10 @@ network can reach them.
 Base URL inside Compose: `http://identity:8081`. Both are `GET`, need both headers below, and
 return the standard success envelope (`data` and `meta`, API section 1.5).
 
-| Header             | Value                                                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------------- |
-| `X-Internal-Token` | The shared secret from the `INTERNAL_TOKEN` environment variable.                               |
-| `X-Request-Id`     | The current request ID, or a new one. Letters, digits and `- . _ :` only, 1 to 128 characters.   |
+| Header             | Value                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------- |
+| `X-Internal-Token` | The shared secret from the `INTERNAL_TOKEN` environment variable.                              |
+| `X-Request-Id`     | The current request ID, or a new one. Letters, digits and `- . _ :` only, 1 to 128 characters. |
 
 ### `GET /internal/couriers/{courierId}/eligibility` (M6)
 
@@ -34,7 +34,10 @@ curl -s "http://identity:8081/internal/couriers/3f1c7a52-0000-4000-8000-00000000
 ```json
 {
   "data": { "isActive": true, "isAvailable": true, "role": "COURIER" },
-  "meta": { "requestId": "req_01HF-example", "timestamp": "2026-11-04T09:30:00Z" }
+  "meta": {
+    "requestId": "req_01HF-example",
+    "timestamp": "2026-11-04T09:30:00Z"
+  }
 }
 ```
 
@@ -54,8 +57,15 @@ curl -s "http://identity:8081/internal/users/3f1c7a52-0000-4000-8000-00000000000
 
 ```json
 {
-  "data": { "fullName": "Nimal Perera", "email": "nimal@example.com", "phone": "+94771234567" },
-  "meta": { "requestId": "req_01HF-example", "timestamp": "2026-11-04T09:30:00Z" }
+  "data": {
+    "fullName": "Nimal Perera",
+    "email": "nimal@example.com",
+    "phone": "+94771234567"
+  },
+  "meta": {
+    "requestId": "req_01HF-example",
+    "timestamp": "2026-11-04T09:30:00Z"
+  }
 }
 ```
 
@@ -68,13 +78,13 @@ curl -s "http://identity:8081/internal/users/3f1c7a52-0000-4000-8000-00000000000
 
 Standard envelope: `{"error": {"code": "...", "message": "..."}, "meta": {"requestId": "..."}}`.
 
-| Status | Code                 | Meaning for the caller                                                                           |
-| ------ | -------------------- | ------------------------------------------------------------------------------------------------ |
-| 401    | `UNAUTHENTICATED`    | `X-Internal-Token` missing or wrong, **or Identity itself has no valid `INTERNAL_TOKEN`**.        |
-| 400    | `BAD_REQUEST`        | `X-Request-Id` missing or malformed. The token is checked first.                                 |
-| 404    | `NOT_FOUND`          | No such user, or the ID is not a UUID. Treat as "not found".                                     |
-| 405    | `METHOD_NOT_ALLOWED` | Anything but `GET`.                                                                              |
-| 500    | `INTERNAL_ERROR`     | Unexpected failure, such as the database being down. Safe to retry.                              |
+| Status | Code                 | Meaning for the caller                                                                     |
+| ------ | -------------------- | ------------------------------------------------------------------------------------------ |
+| 401    | `UNAUTHENTICATED`    | `X-Internal-Token` missing or wrong, **or Identity itself has no valid `INTERNAL_TOKEN`**. |
+| 400    | `BAD_REQUEST`        | `X-Request-Id` missing or malformed. The token is checked first.                           |
+| 404    | `NOT_FOUND`          | No such user, or the ID is not a UUID. Treat as "not found".                               |
+| 405    | `METHOD_NOT_ALLOWED` | Anything but `GET`.                                                                        |
+| 500    | `INTERNAL_ERROR`     | Unexpected failure, such as the database being down. Safe to retry.                        |
 
 **Treat `401` as a configuration fault, never as "courier not found".** If your 401s persist, the
 token in your container differs from Identity's (see section 3).
@@ -107,7 +117,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 If `.env` already has an `INTERNAL_TOKEN=` line, edit that line instead of appending a second one.
 Share the value with the team privately (never in git, chat history for the repo, an issue or a PR).
 Rules: development requires at least 16 characters; staging and production require at least 32 random bytes and must not use the example placeholder. One value applies to the whole Compose stack.
-`APP_ENV` must be set explicitly to `development`, `staging`, or `production`; identity and pricing refuse to start when it is missing, empty, or whitespace.
+`APP_ENV` must be set explicitly to `development`, `staging`, or `production`; all backend services and workers refuse to start when it is missing, empty, or whitespace.
 
 **3.2 Identity** already receives it (`docker-compose.yml`, `identity` service, line
 `INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}`). Nothing to do. In development, a missing or shorter-than-16
@@ -124,6 +134,7 @@ a known placeholder. The startup error names the setting but never includes the 
 **3.3 M6, `parcel` service.** At the time of writing the block has no `INTERNAL_TOKEN`. Add two
 lines to its `environment:` block in `docker-compose.yml`:
 
+<!-- prettier-ignore -->
 ```yaml
   parcel:
     environment:
@@ -142,6 +153,7 @@ lines to its `environment:` block in `docker-compose.yml`:
 **3.4 M1, `notification-worker` service.** Same two variables; it already has the SMTP variables
 through `*mail-env`:
 
+<!-- prettier-ignore -->
 ```yaml
   notification-worker:
     environment:

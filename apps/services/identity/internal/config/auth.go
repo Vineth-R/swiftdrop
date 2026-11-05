@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
@@ -54,17 +52,9 @@ func LoadAuth(appEnv string) (Auth, error) {
 // a missing signing secret; outside development it also rejects a short or
 // placeholder secret.
 func LoadAuthFrom(loader sharedconfig.Loader, appEnv string) (Auth, error) {
-	secret, err := loader.Required("JWT_ACCESS_SECRET")
+	secret, err := sharedconfig.LoadAccessSecret(loader, appEnv, true)
 	if err != nil {
 		return Auth{}, err
-	}
-	if appEnv != "development" {
-		if err := auth.CheckSecretStrength(secret); err != nil {
-			return Auth{}, fmt.Errorf("JWT_ACCESS_SECRET: %w", err)
-		}
-		if strings.HasPrefix(secret, "change-me") {
-			return Auth{}, errors.New("JWT_ACCESS_SECRET must not be the example placeholder")
-		}
 	}
 
 	accessTTL, err := loader.Duration("ACCESS_TOKEN_TTL", defaultAccessTokenTTL)
