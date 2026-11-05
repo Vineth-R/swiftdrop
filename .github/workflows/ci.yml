@@ -344,6 +344,7 @@ jobs:
               - 'tests/access/**'
               - 'Makefile'
               - 'scripts/migrate.sh'
+              - 'scripts/verify-db.sh'
               - '.env.example'
 
       - name: Separate Docker services from access-only changes

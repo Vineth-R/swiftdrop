@@ -77,6 +77,12 @@ func TestCIPathFiltersRouteChangesToTheRightJobs(t *testing.T) {
 			wantAccessJob:  true,
 		},
 		{
+			name:           "database verification script change runs access tests",
+			changed:        []string{"scripts/verify-db.sh"},
+			wantAccessFlag: true,
+			wantAccessJob:  true,
+		},
+		{
 			name:           "env example change runs access tests",
 			changed:        []string{".env.example"},
 			wantAccessFlag: true,

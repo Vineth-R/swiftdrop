@@ -165,7 +165,7 @@ docker compose up -d rabbitmq        # workers and broker-backed integration tes
 docker compose up -d mailpit         # local email UI
 ```
 
-PostgreSQL is internal to the Compose network and does not publish a host port. Containers connect to it at `postgres:5432`; Compose builds that URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`, so services and `make migrate` never use the `localhost` URL. The `DATABASE_URL` in `.env.example` is a **host-side** default for tools such as `psql`, `go run`, `make seed`, and PostgreSQL integration tests, and only works when a PostgreSQL instance is reachable at `localhost:5432` (for example a separate local installation). It cannot reach the Compose database. Do not use `localhost` from inside a container, and do not add a host port to `docker-compose.yml` just for local tests.
+PostgreSQL is internal to the Compose network and does not publish a host port. Containers connect to it at `postgres:5432`; Compose builds that URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`, so services and `make migrate` never use the `localhost` URL. The `DATABASE_URL` in `.env.example` is a **host-side** default for tools such as `psql`, `go run`, and `make seed`. It points at `localhost:5432` and works only when a PostgreSQL instance is reachable there (for example a separate local installation). It cannot reach the Compose database. PostgreSQL integration tests use a separate `TEST_DATABASE_URL` instead; see [PostgreSQL integration tests](#postgresql-integration-tests) below. Do not use `localhost` from inside a container, and do not add a host port to `docker-compose.yml` just for local tests.
 
 ## Sending email
 
@@ -227,7 +227,7 @@ docker compose up -d postgres
 make migrate
 ```
 
-`make migrate` runs `scripts/migrate.sh` inside the pinned `migrate/migrate:v4.18.3` container. It uses the Compose-resolved `DATABASE_URL` (from `.env` or exported variables), so custom credentials are honored, and it never prints the URL. It bootstraps `public.set_updated_at()` and applies identity → pricing → parcel → merchant → notification, each with its own `<service>_schema_migrations` version table.
+`make migrate` runs `scripts/migrate.sh` inside the pinned `migrate/migrate:v4.18.3` container. The migrate service receives a `DATABASE_URL` that Compose builds from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` (from `.env` or exported variables), so custom credentials are honored, and it never prints the URL. It bootstraps `public.set_updated_at()` and applies identity → pricing → parcel → merchant → notification, each with its own `<service>_schema_migrations` version table.
 
 Expected result: 26 tables and seeds `5/5/25/4/4`.
 

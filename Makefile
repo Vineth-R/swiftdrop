@@ -28,7 +28,16 @@ help:
 	@echo "  make email-send-preview  send every email to Mailpit (http://localhost:8025)"
 
 project-name:
-	@$(COMPOSE) config 2>/dev/null | awk '/^name:/{print $$2; exit}'
+	@config="$$($(COMPOSE) config 2>/dev/null)" || { \
+		echo "error: '$(COMPOSE) config' failed; fix the Compose configuration or COMPOSE_PROJECT_NAME, then run '$(COMPOSE) config' to see the details." >&2; \
+		exit 1; \
+	}; \
+	name="$$(printf '%s\n' "$$config" | awk '/^name:/{print $$2; exit}')"; \
+	if [ -z "$$name" ]; then \
+		echo "error: could not resolve the Compose project name from '$(COMPOSE) config'." >&2; \
+		exit 1; \
+	fi; \
+	printf '%s\n' "$$name"
 
 preflight:
 	@if [ ! -f .env ] && { [ -z "$${POSTGRES_USER:-}" ] || [ -z "$${POSTGRES_DB:-}" ]; }; then \
