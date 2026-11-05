@@ -1,0 +1,61 @@
+# Gateway calls against the running stack (NGINX_PORT in the local .env is 8088). 2026-11-05T10:54:14+05:30, commit ebcdff4 + working tree.
+# Fixtures: parcel SDK7M2Q9XP4 inserted by SQL with fake data, because POST /parcels is not built yet. Rule GLE->JFN deactivated only for the unpriced-route call, then restored.
+
+### Estimate, CMB to KDY, 5 kg SMALL, expect 200 total 550.00
+$ curl -X POST http://localhost:8088/api/v1/pricing/estimate -H Content-Type: application/json -d {"originZoneId":"3fe5a664-3030-4b16-b2b4-89cd86d9c0c5","destinationZoneId":"662c9d87-b759-45f5-8997-914a59a1cb41","weightKg":5,"sizeCategory":"SMALL"}
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Content-Length: 355
+X-Ratelimit-Remaining: 299
+X-Request-Id: 2c639a5a526fed88882907634f6bc9f7
+
+{"data":{"originZoneId":"3fe5a664-3030-4b16-b2b4-89cd86d9c0c5","destinationZoneId":"662c9d87-b759-45f5-8997-914a59a1cb41","weightKg":5.00,"sizeCategory":"SMALL","currency":"LKR","baseFee":450.00,"weightCharge":100.00,"sizeSurcharge":0.00,"total":550.00},"meta":{"requestId":"2c639a5a526fed88882907634f6bc9f7","timestamp":"2026-11-05T05:24:15.527507076Z"}}
+
+### Zones, expect 200
+$ curl http://localhost:8088/api/v1/zones
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Content-Length: 611
+X-Request-Id: 188f963f7df1df30967cf9ed6eebc58e
+
+{"data":[{"code":"CMB","districts":["Colombo"],"id":"3fe5a664-3030-4b16-b2b4-89cd86d9c0c5","name":"Colombo"},{"code":"GLE","districts":["Galle"],"id":"4905838f-3f37-49ee-93d1-140d61d8ffae","name":"Galle"},{"code":"GMP","districts":["Gampaha","Negombo"],"id":"2469699e-5995-4541-a025-5c0871513937","name":"Gampaha"},{"code":"JFN","districts":["Jaffna"],"id":"7fc773e4-1032-4411-a04a-7c0191151d0f","name":"Jaffna"},{"code":"KDY","districts":["Kandy"],"id":"662c9d87-b759-45f5-8997-914a59a1cb41","name":"Kandy"}],"meta":{"requestId":"188f963f7df1df30967cf9ed6eebc58e","timestamp":"2026-11-05T05:24:15.753448819Z"}}
+
+### Unpriced route, GLE to JFN with rule inactive, expect 422 ROUTE_NOT_SERVICEABLE
+$ curl -X POST http://localhost:8088/api/v1/pricing/estimate -H Content-Type: application/json -d {"originZoneId":"4905838f-3f37-49ee-93d1-140d61d8ffae","destinationZoneId":"7fc773e4-1032-4411-a04a-7c0191151d0f","weightKg":2,"sizeCategory":"SMALL"}
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/json; charset=utf-8
+Content-Length: 135
+X-Ratelimit-Remaining: 298
+X-Request-Id: f5d27be46d51bccc4bcf201dc0681ed6
+
+{"error":{"code":"ROUTE_NOT_SERVICEABLE","message":"route is not serviceable"},"meta":{"requestId":"f5d27be46d51bccc4bcf201dc0681ed6"}}
+
+### Weight outside every band, 30 kg, expect 422 WEIGHT_NOT_PRICED
+$ curl -X POST http://localhost:8088/api/v1/pricing/estimate -H Content-Type: application/json -d {"originZoneId":"3fe5a664-3030-4b16-b2b4-89cd86d9c0c5","destinationZoneId":"662c9d87-b759-45f5-8997-914a59a1cb41","weightKg":30,"sizeCategory":"SMALL"}
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/json; charset=utf-8
+Content-Length: 138
+X-Ratelimit-Remaining: 297
+X-Request-Id: 341b6a4c3b8ff8597651ce9c94e6834b
+
+{"error":{"code":"WEIGHT_NOT_PRICED","message":"weight has no active price band"},"meta":{"requestId":"341b6a4c3b8ff8597651ce9c94e6834b"}}
+
+### Known tracking number, expect 200 with no name, phone or address
+$ curl http://localhost:8088/api/v1/tracking/SDK7M2Q9XP4
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Content-Length: 321
+X-Ratelimit-Remaining: 29
+X-Request-Id: 7ef616642bf2a3d0001019350602cb2f
+
+{"data":{"trackingNumber":"SDK7M2Q9XP4","status":"CREATED","pickupCity":"Colombo","dropoffCity":"Kandy","lastUpdatedAt":"2026-11-05T05:24:14.427384Z","timeline":[{"status":"CREATED","at":"2026-11-05T05:24:14.427384Z"}]},"meta":{"requestId":"7ef616642bf2a3d0001019350602cb2f","timestamp":"2026-11-05T05:24:16.712974745Z"}}
+
+### Unknown tracking number, expect 404 TRACKING_NOT_FOUND
+$ curl http://localhost:8088/api/v1/tracking/SDK00000000
+HTTP/1.1 404 Not Found
+Content-Type: application/json; charset=utf-8
+Content-Length: 133
+X-Ratelimit-Remaining: 28
+X-Request-Id: 84c0087b2738439192f38ad355399492
+
+{"error":{"code":"TRACKING_NOT_FOUND","message":"tracking number not found"},"meta":{"requestId":"84c0087b2738439192f38ad355399492"}}
