@@ -65,7 +65,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
 
   rabbitmq:
-    image: rabbitmq:4.1-management-alpine
+    image: rabbitmq:4.4-management-alpine
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-swiftdrop}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-swiftdrop}
