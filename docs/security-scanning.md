@@ -15,7 +15,6 @@ and the corresponding job runs in CI.
 | Container images        | Trivy                          | `v0.76.1`                 | Every image built by the changed-service Docker matrix | High or critical image findings          |
 | SBOM                    | Syft via `anchore/sbom-action` | `v1.56.0`                 | Every image built by the changed-service Docker matrix | SBOM generation failure                  |
 | SAST                    | CodeQL                         | `github/codeql-action@v4` | PRs and pushes to `development`/`main`                 | CodeQL analysis/upload failure           |
-| Dependency updates      | Dependabot                     | GitHub-managed            | Weekly schedule                                        | Not a gate; opens update PRs             |
 
 The existing `Required CI gate` remains the single required check. It now
 depends on a `Security gate` job that aggregates the Go, frontend, secret,
@@ -137,21 +136,17 @@ CodeQL's default setup must remain disabled; enabling both default and advanced
 setup creates duplicate/conflicting analysis. No GitHub settings were changed by
 this repository change.
 
-## Dependabot
+## Dependency updates
 
-`.github/dependabot.yml` configures weekly updates for:
+Dependabot is not enabled in this repository. Go modules, npm workspace
+dependencies, GitHub Actions, and container images are updated manually by the
+development team. Automated update pull requests are not opened. When a
+dependency is upgraded, make the change deliberately, update the corresponding
+lockfile or image tag, and run the full `Required CI gate`.
 
-- Go modules at `/`
-- npm workspace dependencies (pnpm lockfile) at `/`
-- GitHub Actions at `/`
-- Dockerfiles under `/infra/docker`
-- Docker Compose at `/`
-
-Minor and patch updates are grouped to reduce PR noise; major updates remain
-individual. Review update PRs like any other change: run the full CI gate,
-review the lockfile and Dockerfile diff, and check for breaking changes. The
-configuration file does not itself enable repository security settings or
-branch protection.
+The scanners above still detect vulnerable dependencies. Removing automated
+update PRs changes who opens the upgrade, not whether vulnerabilities are
+detected.
 
 ## Failed security gate
 
