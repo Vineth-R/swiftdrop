@@ -84,7 +84,7 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 		options = append(options, resetOption)
 	}
 
-	internalOption, err := internalRouterOption(logger, repo)
+	internalOption, err := internalRouterOption(logger, repo, appEnv)
 	if err != nil {
 		return nil, nil, err
 	}

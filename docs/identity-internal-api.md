@@ -106,16 +106,19 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 
 If `.env` already has an `INTERNAL_TOKEN=` line, edit that line instead of appending a second one.
 Share the value with the team privately (never in git, chat history for the repo, an issue or a PR).
-Rules: at least 16 characters; one value for the whole Compose stack.
+Rules: development requires at least 16 characters; staging and production require at least 32 random bytes and must not use the example placeholder. One value applies to the whole Compose stack.
 
 **3.2 Identity** already receives it (`docker-compose.yml`, `identity` service, line
-`INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}`). Nothing to do. If the value is missing or shorter than 16
-characters, Identity still starts but refuses every internal call with 401 and logs this warning
+`INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}`). Nothing to do. In development, a missing or shorter-than-16
+character value lets Identity start but refuses every internal call with 401 and logs this warning
 (the log never contains the value):
 
 ```
 Internal APIs are closed and refuse every request: INTERNAL_TOKEN is not set
 ```
+
+Outside development, Identity refuses to start when the token is missing, shorter than 32 bytes, or
+a known placeholder. The startup error names the setting but never includes the token value.
 
 **3.3 M6, `parcel` service.** At the time of writing the block has no `INTERNAL_TOKEN`. Add two
 lines to its `environment:` block in `docker-compose.yml`:
