@@ -260,6 +260,7 @@ func (a *AdminUsers) CreateStaffUser(ctx context.Context, actorID string, input 
 		return AdminUser{}, fmt.Errorf("create staff user: %w", err)
 	}
 	a.base.logger.InfoContext(ctx, "staff user created", "actor_id", actorID, "user_id", created.ID, "role", string(created.Role))
+	a.base.notifier.StaffAccountCreated(ctx, Recipient{UserID: created.ID, Email: created.Email, FullName: created.FullName}, created.Role)
 	return created, nil
 }
 
@@ -368,6 +369,11 @@ func (a *AdminUsers) SetUserActive(ctx context.Context, actorID, userID string, 
 		return fmt.Errorf("set user status: %w", err)
 	}
 	a.base.logger.InfoContext(ctx, "user status changed", "actor_id", actorID, "user_id", userID, "is_active", active)
+	// The change is made. Telling the person is best effort, so a failed lookup
+	// only means no email.
+	if user, err := a.base.store.UserByID(ctx, userID); err == nil {
+		a.base.notifier.AccountStatusChanged(ctx, recipientOf(user), active)
+	}
 	return nil
 }
 

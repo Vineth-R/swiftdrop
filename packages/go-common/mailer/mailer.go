@@ -34,7 +34,30 @@ type Message struct {
 	Subject string
 	Text    string
 	HTML    string
+
+	// ReplyTo overrides Config.ReplyTo for this message. Empty uses the config's.
+	ReplyTo string
+
+	// Inline are images the HTML refers to as src="cid:<ContentID>", such as the
+	// logo. They travel inside the message, so they show even where remote
+	// images are blocked. They need an HTML part.
+	Inline []InlineImage
 }
+
+// InlineImage is an image embedded in the message.
+type InlineImage struct {
+	// ContentID is the id the HTML uses: src="cid:logo-mark".
+	ContentID string
+	// ContentType is image/png, image/jpeg or image/gif.
+	ContentType string
+	Data        []byte
+}
+
+const (
+	maxInlineImages = 4
+	// maxInlineBytes bounds all inline images of one message together.
+	maxInlineBytes = 512 << 10
+)
 
 // Mailer sends email. Implementations must be safe for concurrent use.
 type Mailer interface {
@@ -42,7 +65,8 @@ type Mailer interface {
 }
 
 // Config is the SMTP connection, loaded from SMTP_HOST, SMTP_PORT, SMTP_USER,
-// SMTP_PASSWORD, SMTP_FROM and SMTP_FROM_NAME (docs/architecture.md).
+// SMTP_PASSWORD, SMTP_FROM, SMTP_FROM_NAME, SMTP_REPLY_TO and SMTP_SECURE
+// (docs/architecture.md, docs/email.md).
 type Config struct {
 	Host     string
 	Port     int
@@ -50,6 +74,15 @@ type Config struct {
 	Password string
 	From     string
 	FromName string
+
+	// ReplyTo is where a person's reply goes, when it should not go to From
+	// (for example a no-reply sender and a support mailbox). Empty adds no header.
+	ReplyTo string
+
+	// ImplicitTLS connects with TLS from the first byte (SMTPS, usually port
+	// 465). Otherwise the connection starts in clear text and is upgraded with
+	// STARTTLS when the server offers it (port 587, and Mailpit locally).
+	ImplicitTLS bool
 }
 
 // LoadConfig reads the SMTP settings. A blank SMTP_HOST is allowed and means
@@ -60,6 +93,11 @@ func LoadConfig(loader config.Loader) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	// auto means implicit TLS on port 465 and STARTTLS everywhere else.
+	secure, err := loader.EnumFold("SMTP_SECURE", "auto", "auto", "true", "false")
+	if err != nil {
+		return Config{}, err
+	}
 	return Config{
 		Host:     loader.String("SMTP_HOST", ""),
 		Port:     port,
@@ -67,6 +105,9 @@ func LoadConfig(loader config.Loader) (Config, error) {
 		Password: loader.String("SMTP_PASSWORD", ""),
 		From:     loader.String("SMTP_FROM", defaultFrom),
 		FromName: loader.String("SMTP_FROM_NAME", defaultFromName),
+		ReplyTo:  loader.String("SMTP_REPLY_TO", ""),
+
+		ImplicitTLS: secure == "true" || (secure == "auto" && port == 465),
 	}, nil
 }
 
@@ -91,6 +132,11 @@ func (c Config) Validate() error {
 	if (c.User == "") != (c.Password == "") {
 		return errors.New("SMTP_USER and SMTP_PASSWORD must be set together")
 	}
+	if c.ReplyTo != "" {
+		if address, err := mail.ParseAddress(c.ReplyTo); err != nil || address.Address != c.ReplyTo {
+			return errors.New("SMTP_REPLY_TO must be a plain email address")
+		}
+	}
 	return nil
 }
 
@@ -107,5 +153,58 @@ func (m Message) validate() (string, error) {
 	if strings.TrimSpace(m.Text) == "" {
 		return "", fmt.Errorf("%w: text body is required", ErrInvalidMessage)
 	}
+	if m.ReplyTo != "" {
+		reply, err := mail.ParseAddress(m.ReplyTo)
+		if err != nil || reply.Address != m.ReplyTo || strings.ContainsAny(m.ReplyTo, "\r\n") {
+			return "", fmt.Errorf("%w: reply-to is not a plain email address", ErrInvalidMessage)
+		}
+	}
+	if err := m.validateInline(); err != nil {
+		return "", err
+	}
 	return address.Address, nil
+}
+
+func (m Message) validateInline() error {
+	if len(m.Inline) == 0 {
+		return nil
+	}
+	if m.HTML == "" {
+		return fmt.Errorf("%w: inline images need an HTML part", ErrInvalidMessage)
+	}
+	if len(m.Inline) > maxInlineImages {
+		return fmt.Errorf("%w: at most %d inline images", ErrInvalidMessage, maxInlineImages)
+	}
+	total := 0
+	for _, image := range m.Inline {
+		total += len(image.Data)
+		switch image.ContentType {
+		case "image/png", "image/jpeg", "image/gif":
+		default:
+			return fmt.Errorf("%w: inline image type must be image/png, image/jpeg or image/gif", ErrInvalidMessage)
+		}
+		if len(image.Data) == 0 || !validContentID(image.ContentID) {
+			return fmt.Errorf("%w: inline image needs data and a simple content id", ErrInvalidMessage)
+		}
+	}
+	if total > maxInlineBytes {
+		return fmt.Errorf("%w: inline images are larger than %d bytes", ErrInvalidMessage, maxInlineBytes)
+	}
+	return nil
+}
+
+// validContentID allows letters, digits and . _ - only, so an id can never
+// break out of a header.
+func validContentID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
@@ -25,8 +26,6 @@ const (
 
 	// emailSendTimeout bounds one background email delivery.
 	emailSendTimeout = 30 * time.Second
-
-	resetEmailSubject = "Reset your SwiftDrop password"
 )
 
 // ErrResetTokenInvalid means the reset token is unknown, expired or already
@@ -49,6 +48,7 @@ type PasswordReset struct {
 	store         ResetStore
 	mailer        mailer.Mailer
 	frontend      string // trusted frontend base URL, no trailing slash
+	site          emails.Site
 	resetTokenTTL time.Duration
 
 	// dispatch runs email delivery. The default runs it in the background so the
@@ -59,6 +59,12 @@ type PasswordReset struct {
 
 // PasswordResetOption customises a PasswordReset.
 type PasswordResetOption func(*PasswordReset)
+
+// WithSupportEmail sets the support address shown in the footer of the reset
+// email. Without it the footer has no support line.
+func WithSupportEmail(address string) PasswordResetOption {
+	return func(p *PasswordReset) { p.site.SupportEmail = address }
+}
 
 // WithSynchronousEmail delivers email before returning. It exists so tests can
 // inspect the result without waiting.
@@ -95,6 +101,7 @@ func NewPasswordReset(
 		frontend:      strings.TrimRight(frontendBaseURL, "/"),
 		resetTokenTTL: resetTokenTTL,
 	}
+	p.site = emails.Site{BaseURL: p.frontend}
 	p.dispatch = func(job func()) {
 		p.pending.Add(1)
 		go func() {
@@ -159,8 +166,14 @@ func (p *PasswordReset) ForgotPassword(ctx context.Context, input ForgotPassword
 		return fmt.Errorf("forgot password: %w", err)
 	}
 
-	message := resetEmail(user.Email, user.FullName, p.resetLink(token))
 	userID := user.ID
+	message, err := p.resetEmail(user.Email, user.FullName, p.resetLink(token))
+	if err != nil {
+		// Never a reason to answer differently: the caller must not learn that
+		// this address has an account. The log carries the user ID only.
+		p.base.logger.ErrorContext(ctx, "password reset email could not be built", "user_id", userID, "error", err.Error())
+		return nil
+	}
 	p.dispatch(func() {
 		// The request is already answered, so it must not cancel the delivery.
 		sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), emailSendTimeout)
@@ -226,6 +239,10 @@ func (p *PasswordReset) ResetPassword(ctx context.Context, input ResetPasswordIn
 		return fmt.Errorf("reset password: %w", err)
 	}
 	p.base.logger.InfoContext(ctx, "password reset completed", "user_id", userID)
+	// Tell the person, in case it was not them. Best effort: the reset is done.
+	if user, err := p.base.store.UserByID(ctx, userID); err == nil {
+		p.base.notifier.PasswordChanged(ctx, recipientOf(user), true, p.base.nowUTC())
+	}
 	return nil
 }
 
@@ -233,20 +250,13 @@ func (p *PasswordReset) resetLink(token string) string {
 	return p.frontend + "/reset-password?token=" + url.QueryEscape(token)
 }
 
-func resetEmail(to, fullName, link string) mailer.Message {
-	text := "Hello " + fullName + ",\r\n\r\n" +
-		"We received a request to reset your SwiftDrop password. Open this link to choose a new one:\r\n\r\n" +
-		link + "\r\n\r\n" +
-		"The link works once and expires in 30 minutes. If you did not ask for this, you can ignore this email; your password has not changed.\r\n"
-	html := "<p>Hello " + htmlEscape(fullName) + ",</p>" +
-		"<p>We received a request to reset your SwiftDrop password. " +
-		`<a href="` + htmlEscape(link) + `">Choose a new password</a>.</p>` +
-		"<p>The link works once and expires in 30 minutes. If you did not ask for this, you can ignore this email; your password has not changed.</p>"
-	return mailer.Message{To: to, Subject: resetEmailSubject, Text: text, HTML: html}
-}
-
-func htmlEscape(value string) string {
-	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&#34;", "'", "&#39;").Replace(value)
+// resetEmail builds the branded reset email (see packages/go-common/emails).
+func (p *PasswordReset) resetEmail(to, fullName, link string) (mailer.Message, error) {
+	return emails.PasswordReset(emails.PasswordResetData{
+		Name:     fullName,
+		Link:     link,
+		ValidFor: emails.FormatDuration(p.resetTokenTTL),
+	}).Message(to, p.site)
 }
 
 // newResetToken returns a random reset token: 32 bytes from the system random

@@ -15,6 +15,9 @@ x-mail-env: &mail-env
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   SMTP_FROM: ${SMTP_FROM:-no-reply@swiftdrop.local}
   SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Swift Drop Support}
+  SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+  SMTP_SECURE: ${SMTP_SECURE:-auto}
+  SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
 
 x-rabbitmq-env: &rabbitmq-env
   RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-swiftdrop}:${RABBITMQ_DEFAULT_PASS:-swiftdrop}@rabbitmq:5672/

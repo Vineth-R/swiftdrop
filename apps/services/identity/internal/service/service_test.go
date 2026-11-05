@@ -252,6 +252,8 @@ type fixture struct {
 	hasher  *spyHasher
 	tokens  *auth.TokenManager
 	now     time.Time
+	// notes records the account emails the service asked for.
+	notes *recordingNotifier
 }
 
 func (f *fixture) advance(d time.Duration) { f.now = f.now.Add(d) }
@@ -262,6 +264,7 @@ func newFixture(t *testing.T) *fixture {
 	f := &fixture{
 		store: newMemoryStore(),
 		now:   time.Date(2026, time.November, 2, 9, 30, 0, 0, time.UTC),
+		notes: &recordingNotifier{},
 	}
 	clock := func() time.Time { return f.now }
 
@@ -279,7 +282,7 @@ func newFixture(t *testing.T) *fixture {
 	f.service, err = New(f.store, f.hasher, f.tokens, Config{
 		RefreshTTL: 7 * 24 * time.Hour,
 		Lockout:    lockout.Policy{MaxFailures: 5, Duration: 15 * time.Minute},
-	}, WithClock(clock))
+	}, WithClock(clock), WithNotifier(f.notes))
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}

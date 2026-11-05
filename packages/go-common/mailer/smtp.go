@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -64,7 +65,12 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 	defer cancel()
 
 	address := net.JoinHostPort(s.config.Host, strconv.Itoa(s.config.Port))
-	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	var connection net.Conn
+	if s.config.ImplicitTLS {
+		connection, err = (&tls.Dialer{NetDialer: &net.Dialer{}, Config: s.tlsConfig}).DialContext(ctx, "tcp", address)
+	} else {
+		connection, err = (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	}
 	if err != nil {
 		return fmt.Errorf("smtp send: connect to %s: %w", address, err)
 	}
@@ -82,7 +88,9 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 	if err := client.Hello(ehloName); err != nil {
 		return fmt.Errorf("smtp send: hello: %w", err)
 	}
-	if offered, _ := client.Extension("STARTTLS"); offered {
+	if s.config.ImplicitTLS {
+		// The connection is encrypted already; there is nothing to upgrade.
+	} else if offered, _ := client.Extension("STARTTLS"); offered {
 		if err := client.StartTLS(s.tlsConfig); err != nil {
 			return fmt.Errorf("smtp send: starttls: %w", err)
 		}
@@ -135,6 +143,9 @@ func (s *SMTP) build(message Message) ([]byte, error) {
 	header("Date", s.now().UTC().Format(time.RFC1123Z))
 	header("Message-ID", "<"+messageID+"@"+domain+">")
 	header("MIME-Version", "1.0")
+	if replyTo := firstNonEmpty(message.ReplyTo, s.config.ReplyTo); replyTo != "" {
+		header("Reply-To", replyTo)
+	}
 
 	if message.HTML == "" {
 		header("Content-Type", `text/plain; charset="utf-8"`)
@@ -146,12 +157,47 @@ func (s *SMTP) build(message Message) ([]byte, error) {
 		return out.Bytes(), nil
 	}
 
-	boundary, err := randomHex(12)
+	alternative, err := randomHex(12)
 	if err != nil {
 		return nil, err
 	}
-	header("Content-Type", `multipart/alternative; boundary="`+boundary+`"`)
-	out.WriteString("\r\n")
+	if len(message.Inline) == 0 {
+		header("Content-Type", `multipart/alternative; boundary="`+alternative+`"`)
+		out.WriteString("\r\n")
+		if err := writeAlternative(&out, alternative, message); err != nil {
+			return nil, err
+		}
+		return out.Bytes(), nil
+	}
+
+	// Inline images ride in multipart/related around the alternative part, which
+	// is what makes src="cid:..." resolve in the HTML.
+	related, err := randomHex(12)
+	if err != nil {
+		return nil, err
+	}
+	header("Content-Type", `multipart/related; type="multipart/alternative"; boundary="`+related+`"`)
+	out.WriteString("\r\n--" + related + "\r\n")
+	out.WriteString(`Content-Type: multipart/alternative; boundary="` + alternative + `"` + "\r\n\r\n")
+	if err := writeAlternative(&out, alternative, message); err != nil {
+		return nil, err
+	}
+	for _, image := range message.Inline {
+		out.WriteString("--" + related + "\r\n")
+		out.WriteString("Content-Type: " + image.ContentType + `; name="` + image.ContentID + `"` + "\r\n")
+		out.WriteString("Content-Transfer-Encoding: base64\r\n")
+		out.WriteString("Content-ID: <" + image.ContentID + ">\r\n")
+		out.WriteString(`Content-Disposition: inline; filename="` + image.ContentID + `"` + "\r\n\r\n")
+		writeBase64(&out, image.Data)
+	}
+	out.WriteString("--" + related + "--\r\n")
+	return out.Bytes(), nil
+}
+
+// writeAlternative writes the plain text part and then the HTML part, the order
+// a mail client reads them in (the last one it can show wins), and the closing
+// boundary.
+func writeAlternative(out *bytes.Buffer, boundary string, message Message) error {
 	for _, part := range []struct{ contentType, body string }{
 		{`text/plain; charset="utf-8"`, message.Text},
 		{`text/html; charset="utf-8"`, message.HTML},
@@ -159,13 +205,32 @@ func (s *SMTP) build(message Message) ([]byte, error) {
 		out.WriteString("--" + boundary + "\r\n")
 		out.WriteString("Content-Type: " + part.contentType + "\r\n")
 		out.WriteString("Content-Transfer-Encoding: quoted-printable\r\n\r\n")
-		if err := writeQuoted(&out, part.body); err != nil {
-			return nil, err
+		if err := writeQuoted(out, part.body); err != nil {
+			return err
 		}
 		out.WriteString("\r\n")
 	}
 	out.WriteString("--" + boundary + "--\r\n")
-	return out.Bytes(), nil
+	return nil
+}
+
+// writeBase64 writes data as base64 in lines of 76 characters.
+func writeBase64(out *bytes.Buffer, data []byte) {
+	encoded := base64.StdEncoding.EncodeToString(data)
+	for len(encoded) > 76 {
+		out.WriteString(encoded[:76] + "\r\n")
+		encoded = encoded[76:]
+	}
+	out.WriteString(encoded + "\r\n")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func writeQuoted(out *bytes.Buffer, text string) error {

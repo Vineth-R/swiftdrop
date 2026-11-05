@@ -4,7 +4,7 @@ COMPOSE ?= docker compose
 BUILD_SERVICES ?= identity parcel pricing merchant realtime notification-worker webhook-worker web
 BUILD_FLAGS ?=
 
-.PHONY: help build up up-build down logs preflight require-images ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test test-db test-access coverage
+.PHONY: help build up up-build down logs preflight require-images ensure-postgres bootstrap-db migrate migrate-down db-reset seed check-routes test test-db test-access coverage email-preview email-send-preview
 
 help:
 	@echo "Targets:"
@@ -22,6 +22,8 @@ help:
 	@echo "  make test-db        run PostgreSQL integration tests against TEST_DATABASE_URL"
 	@echo "  make test-access    run the cross-service access tests against the running stack"
 	@echo "  make coverage       run the Go tests and print coverage per service and in total"
+	@echo "  make email-preview  render every email to tmp/email-preview/index.html"
+	@echo "  make email-send-preview  send every email to Mailpit (http://localhost:8025)"
 
 preflight:
 	@if [ ! -f .env ] && { [ -z "$${POSTGRES_USER:-}" ] || [ -z "$${POSTGRES_DB:-}" ]; }; then \
@@ -112,6 +114,12 @@ test-access:
 
 coverage:
 	./scripts/coverage.sh
+
+email-preview:
+	go run ./packages/go-common/emails/cmd/preview -out tmp/email-preview
+
+email-send-preview:
+	go run ./packages/go-common/emails/cmd/preview -out tmp/email-preview -send
 
 test-db:
 	@if [ -z "$${TEST_DATABASE_URL:-}" ]; then \

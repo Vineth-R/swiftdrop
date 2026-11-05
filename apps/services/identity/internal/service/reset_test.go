@@ -12,6 +12,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 )
 
@@ -199,8 +200,15 @@ func TestPasswordReset_ForgotPassword_sendsLinkAndStoresOnlyAHash(t *testing.T) 
 	token := f.forgot(t, "  Nimal@Example.com ")
 
 	message := f.mailer.Sent()[0]
-	if message.To != "nimal@example.com" || message.Subject != resetEmailSubject {
+	if message.To != "nimal@example.com" || message.Subject != "Reset your SwiftDrop password" {
 		t.Fatalf("message = %+v", message)
+	}
+	// The branded layout: logo inside the message, one link, how long it works.
+	if len(message.Inline) != 1 || !strings.Contains(message.HTML, "cid:"+message.Inline[0].ContentID) {
+		t.Fatalf("the email does not carry its logo: %+v", message.Inline)
+	}
+	if !strings.Contains(message.Text, emails.FormatDuration(testResetTokenTTL)) {
+		t.Fatalf("the email must say how long the link works (%s): %q", emails.FormatDuration(testResetTokenTTL), message.Text)
 	}
 	if !strings.Contains(message.Text, "https://swiftdrop.example/reset-password?token="+token) {
 		t.Fatalf("link was not built from the configured frontend URL: %q", message.Text)

@@ -487,3 +487,261 @@ func TestConfig_Validate(t *testing.T) {
 		t.Fatal("NewSMTP accepted an empty config")
 	}
 }
+
+// newImplicitTLSServer is a fake server that speaks TLS from the first byte,
+// like an SMTPS service on port 465.
+func newImplicitTLSServer(t *testing.T) *fakeServer {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	cert := selfSignedCert(t)
+	s := &fakeServer{
+		listener: tls.NewListener(listener, &tls.Config{Certificates: []tls.Certificate{cert}}),
+		cert:     cert,
+	}
+	t.Cleanup(func() { _ = s.listener.Close() })
+	go func() {
+		for {
+			connection, err := s.listener.Accept()
+			if err != nil {
+				return
+			}
+			go s.serve(connection)
+		}
+	}()
+	return s
+}
+
+func trust(sender *SMTP, cert tls.Certificate) {
+	pool := x509.NewCertPool()
+	parsed, _ := x509.ParseCertificate(cert.Certificate[0])
+	pool.AddCert(parsed)
+	sender.tlsConfig.RootCAs = pool
+}
+
+func TestSMTP_Send_implicitTLS(t *testing.T) {
+	server := newImplicitTLSServer(t)
+	sender, err := NewSMTP(Config{
+		Host: "127.0.0.1", Port: server.port(), User: "me", Password: "pw",
+		From: "no-reply@swiftdrop.local", FromName: "SwiftDrop", ImplicitTLS: true,
+	})
+	if err != nil {
+		t.Fatalf("NewSMTP returned error: %v", err)
+	}
+	trust(sender, server.cert)
+
+	if err := sender.Send(context.Background(), resetMessage()); err != nil {
+		t.Fatalf("Send over implicit TLS returned error: %v", err)
+	}
+	commands, data, authLine, _ := server.snapshot()
+	for _, command := range commands {
+		if strings.EqualFold(command, "STARTTLS") {
+			t.Fatal("STARTTLS was used on a connection that was already encrypted")
+		}
+	}
+	if authLine == "" || data == "" {
+		t.Fatalf("auth %q, data %d bytes: the message was not delivered with credentials", authLine, len(data))
+	}
+}
+
+func TestSMTP_Send_implicitTLSVerifiesTheCertificate(t *testing.T) {
+	server := newImplicitTLSServer(t)
+	sender, err := NewSMTP(Config{
+		Host: "127.0.0.1", Port: server.port(), From: "no-reply@swiftdrop.local", ImplicitTLS: true,
+	})
+	if err != nil {
+		t.Fatalf("NewSMTP returned error: %v", err)
+	}
+	// The self-signed certificate is not trusted, so the connection must fail.
+	if err := sender.Send(context.Background(), resetMessage()); err == nil {
+		t.Fatal("Send trusted an unknown certificate")
+	}
+}
+
+func TestSMTP_Send_aPlainClientCannotTalkToAnSMTPSServer(t *testing.T) {
+	server := newImplicitTLSServer(t)
+	if err := server.mailer(t, "", "", false).Send(context.Background(), resetMessage()); err == nil {
+		t.Fatal("a STARTTLS client reached an implicit TLS server without error")
+	}
+}
+
+func TestSMTP_Send_replyTo(t *testing.T) {
+	parse := func(t *testing.T, data string) *mail.Message {
+		t.Helper()
+		parsed, err := mail.ReadMessage(strings.NewReader(data))
+		if err != nil {
+			t.Fatalf("not an email: %v", err)
+		}
+		return parsed
+	}
+
+	t.Run("from the config", func(t *testing.T) {
+		server := newFakeServer(t, false)
+		sender := server.mailer(t, "", "", false)
+		sender.config.ReplyTo = "support@swiftdrop.example"
+		if err := sender.Send(context.Background(), resetMessage()); err != nil {
+			t.Fatalf("Send returned error: %v", err)
+		}
+		_, data, _, _ := server.snapshot()
+		if got := parse(t, data).Header.Get("Reply-To"); got != "support@swiftdrop.example" {
+			t.Fatalf("Reply-To = %q", got)
+		}
+	})
+
+	t.Run("a message overrides the config", func(t *testing.T) {
+		server := newFakeServer(t, false)
+		sender := server.mailer(t, "", "", false)
+		sender.config.ReplyTo = "support@swiftdrop.example"
+		message := resetMessage()
+		message.ReplyTo = "merchants@swiftdrop.example"
+		if err := sender.Send(context.Background(), message); err != nil {
+			t.Fatalf("Send returned error: %v", err)
+		}
+		_, data, _, _ := server.snapshot()
+		if got := parse(t, data).Header.Get("Reply-To"); got != "merchants@swiftdrop.example" {
+			t.Fatalf("Reply-To = %q", got)
+		}
+	})
+
+	t.Run("none by default", func(t *testing.T) {
+		server := newFakeServer(t, false)
+		if err := server.mailer(t, "", "", false).Send(context.Background(), resetMessage()); err != nil {
+			t.Fatalf("Send returned error: %v", err)
+		}
+		_, data, _, _ := server.snapshot()
+		if got := parse(t, data).Header.Get("Reply-To"); got != "" {
+			t.Fatalf("Reply-To = %q, want none", got)
+		}
+	})
+}
+
+func TestSMTP_Send_inlineImages(t *testing.T) {
+	server := newFakeServer(t, false)
+	picture := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("pixels", 40))
+	message := resetMessage()
+	message.HTML = `<p><img src="cid:logo-mark" alt="SwiftDrop"></p>`
+	message.Inline = []InlineImage{{ContentID: "logo-mark", ContentType: "image/png", Data: picture}}
+
+	if err := server.mailer(t, "", "", false).Send(context.Background(), message); err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+
+	_, data, _, _ := server.snapshot()
+	parsed, err := mail.ReadMessage(strings.NewReader(data))
+	if err != nil {
+		t.Fatalf("not an email: %v", err)
+	}
+	mediaType, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/related" {
+		t.Fatalf("Content-Type = %q (%v), want multipart/related", mediaType, err)
+	}
+
+	reader := multipart.NewReader(parsed.Body, params["boundary"])
+	first, err := reader.NextPart()
+	if err != nil {
+		t.Fatalf("first part: %v", err)
+	}
+	if kind, _, _ := mime.ParseMediaType(first.Header.Get("Content-Type")); kind != "multipart/alternative" {
+		t.Fatalf("first part is %q, want the text and HTML alternative", kind)
+	}
+
+	image, err := reader.NextPart()
+	if err != nil {
+		t.Fatalf("image part: %v", err)
+	}
+	if image.Header.Get("Content-ID") != "<logo-mark>" || image.Header.Get("Content-Type") != `image/png; name="logo-mark"` {
+		t.Fatalf("image headers = %v", image.Header)
+	}
+	if !strings.HasPrefix(image.Header.Get("Content-Disposition"), "inline") {
+		t.Fatalf("Content-Disposition = %q, want inline", image.Header.Get("Content-Disposition"))
+	}
+	encoded, _ := io.ReadAll(image)
+	for _, line := range strings.Split(strings.TrimSpace(string(encoded)), "\r\n") {
+		if len(line) > 76 {
+			t.Fatalf("a base64 line is %d characters, want at most 76", len(line))
+		}
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(strings.TrimSpace(string(encoded)), "\r\n", ""))
+	if err != nil || string(decoded) != string(picture) {
+		t.Fatalf("the image did not survive the trip: %v", err)
+	}
+	if _, err := reader.NextPart(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected the end of the message, got %v", err)
+	}
+}
+
+func TestMessage_rejectsUnsafeInlineAndReplyTo(t *testing.T) {
+	png := []byte("png")
+	base := Message{To: "nimal@example.com", Subject: "Hello", Text: "Hi", HTML: "<p>Hi</p>"}
+	tests := map[string]func(*Message){
+		"inline without HTML": func(m *Message) {
+			m.HTML = ""
+			m.Inline = []InlineImage{{ContentID: "a", ContentType: "image/png", Data: png}}
+		},
+		"inline content id header": func(m *Message) {
+			m.Inline = []InlineImage{{ContentID: "a\r\nBcc: x@example.com", ContentType: "image/png", Data: png}}
+		},
+		"inline content id empty": func(m *Message) { m.Inline = []InlineImage{{ContentID: "", ContentType: "image/png", Data: png}} },
+		"inline not an image":     func(m *Message) { m.Inline = []InlineImage{{ContentID: "a", ContentType: "text/html", Data: png}} },
+		"inline svg":              func(m *Message) { m.Inline = []InlineImage{{ContentID: "a", ContentType: "image/svg+xml", Data: png}} },
+		"inline no data":          func(m *Message) { m.Inline = []InlineImage{{ContentID: "a", ContentType: "image/png"}} },
+		"inline too many":         func(m *Message) { m.Inline = make([]InlineImage, maxInlineImages+1) },
+		"inline too large": func(m *Message) {
+			m.Inline = []InlineImage{{ContentID: "a", ContentType: "image/png", Data: make([]byte, maxInlineBytes+1)}}
+		},
+		"reply-to with a name":   func(m *Message) { m.ReplyTo = "Support <support@swiftdrop.example>" },
+		"reply-to with a header": func(m *Message) { m.ReplyTo = "a@example.com\r\nBcc: x@example.com" },
+	}
+	for name, change := range tests {
+		t.Run(name, func(t *testing.T) {
+			message := base
+			change(&message)
+			if _, err := message.validate(); !errors.Is(err, ErrInvalidMessage) {
+				t.Fatalf("validate error = %v, want ErrInvalidMessage", err)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_replyToAndSecure(t *testing.T) {
+	lookup := func(values map[string]string) config.Loader {
+		return config.NewLoader(func(key string) (string, bool) {
+			value, ok := values[key]
+			return value, ok
+		})
+	}
+	load := func(t *testing.T, values map[string]string) Config {
+		t.Helper()
+		cfg, err := LoadConfig(lookup(values))
+		if err != nil {
+			t.Fatalf("LoadConfig returned error: %v", err)
+		}
+		return cfg
+	}
+
+	if cfg := load(t, map[string]string{"SMTP_HOST": "smtp.gmail.com", "SMTP_PORT": "587"}); cfg.ImplicitTLS || cfg.ReplyTo != "" {
+		t.Fatalf("587 must use STARTTLS and have no reply-to: %+v", cfg)
+	}
+	if cfg := load(t, map[string]string{"SMTP_HOST": "smtp.gmail.com", "SMTP_PORT": "465"}); !cfg.ImplicitTLS {
+		t.Fatalf("port 465 must use implicit TLS: %+v", cfg)
+	}
+	if cfg := load(t, map[string]string{"SMTP_HOST": "mail", "SMTP_PORT": "2525", "SMTP_SECURE": "true"}); !cfg.ImplicitTLS {
+		t.Fatalf("SMTP_SECURE=true must use implicit TLS: %+v", cfg)
+	}
+	if cfg := load(t, map[string]string{"SMTP_HOST": "mail", "SMTP_PORT": "465", "SMTP_SECURE": "false"}); cfg.ImplicitTLS {
+		t.Fatalf("SMTP_SECURE=false must win over the port: %+v", cfg)
+	}
+	if cfg := load(t, map[string]string{"SMTP_HOST": "mail", "SMTP_REPLY_TO": "support@swiftdrop.example"}); cfg.ReplyTo != "support@swiftdrop.example" {
+		t.Fatalf("reply-to = %q", cfg.ReplyTo)
+	}
+	if _, err := LoadConfig(lookup(map[string]string{"SMTP_SECURE": "maybe"})); err == nil {
+		t.Fatal("LoadConfig accepted SMTP_SECURE=maybe")
+	}
+
+	valid := Config{Host: "smtp.gmail.com", Port: 587, From: "me@gmail.com", ReplyTo: "Support <support@swiftdrop.example>"}
+	if err := valid.Validate(); err == nil {
+		t.Fatal("Validate accepted a reply-to with a display name")
+	}
+}
