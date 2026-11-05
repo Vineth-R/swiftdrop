@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 
-import { SignedOutPanel } from '../../../components/auth/panels';
-import { AuthLayout } from '../../../components/layout/auth-layout';
-import { ButtonLink } from '../../../components/ui/button';
+import { SignedOutPanel } from '@/components/auth/panels';
+import { AuthLayout } from '@/components/layout/auth-layout';
+import { ButtonLink } from '@/components/ui/button';
 
 export const metadata: Metadata = { title: 'You are signed out — SwiftDrop' };
 

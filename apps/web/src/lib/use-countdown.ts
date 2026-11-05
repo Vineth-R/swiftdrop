@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { COUNTDOWN_TICK_MS } from './constants';
+
 /**
  * Counts whole seconds down from `seconds` and never goes below 0. Passing
  * null stops it and returns 0.
@@ -18,7 +20,10 @@ export function useCountdown(seconds: number | null): number {
     const start = Date.now();
     setDeadline(start + seconds * 1000);
     setNow(start);
-    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    const timer = window.setInterval(
+      () => setNow(Date.now()),
+      COUNTDOWN_TICK_MS,
+    );
     return () => window.clearInterval(timer);
   }, [seconds]);
 

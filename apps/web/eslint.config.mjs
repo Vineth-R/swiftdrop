@@ -204,7 +204,7 @@ export default [
   },
   // The two places that are allowed to do what the rules above forbid.
   {
-    files: ['src/lib/api.ts'],
+    files: ['src/lib/api.ts', 'src/lib/http.ts'],
     rules: { 'no-restricted-globals': 'off' },
   },
   {

@@ -4,21 +4,23 @@ import { Check, Clock } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { ApiError } from '../../lib/api';
-import { resetPassword } from '../../lib/auth-api';
-import { useCountdown } from '../../lib/use-countdown';
-import { useForm, type FormRules } from '../../lib/use-form';
+import { ApiError } from '@/lib/api';
+import { classifyApiError, type ApiProblem } from '@/lib/api-problem';
+import { resetPassword } from '@/lib/auth-api';
+import { RESET_REDIRECT_SECONDS } from '@/lib/constants';
+import { useCountdown } from '@/lib/use-countdown';
+import { useForm, type FormRules } from '@/lib/use-form';
 import {
   serverFieldMessage,
   validateConfirmation,
   validateNewPassword,
-} from '../../lib/validation';
-import { AuthHeading } from '../layout/auth-layout';
-import { Alert } from '../ui/alert';
-import { Button, ButtonLink } from '../ui/button';
-import { PasswordField } from '../ui/password-field';
-import { RouteLine } from '../ui/route-line';
-import { RateLimitedAlert, ServerFaultAlert } from './form-alerts';
+} from '@/lib/validation';
+import { AuthHeading } from '@/components/layout/auth-layout';
+import { Alert } from '@/components/ui/alert';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { PasswordField } from '@/components/ui/password-field';
+import { RouteLine } from '@/components/ui/route-line';
+import { ApiProblemAlerts } from './api-problem-alerts';
 import { RequestResetForm } from './request-reset';
 
 type Values = { password: string; confirm: string };
@@ -37,11 +39,7 @@ export function ResetPasswordForm() {
     token ? 'form' : 'expired',
   );
   const [isLoading, setIsLoading] = useState(false);
-  const [problem, setProblem] = useState<
-    | { kind: 'rate-limited'; seconds: number }
-    | { kind: 'server'; isNetwork: boolean; requestId?: string }
-    | null
-  >(null);
+  const [problem, setProblem] = useState<ApiProblem | null>(null);
   const alertRef = useRef<HTMLDivElement>(null);
 
   const waiting = useCountdown(
@@ -49,7 +47,9 @@ export function ResetPasswordForm() {
   );
   const isWaiting = problem?.kind === 'rate-limited' && waiting > 0;
 
-  const redirectIn = useCountdown(phase === 'saved' ? 5 : null);
+  const redirectIn = useCountdown(
+    phase === 'saved' ? RESET_REDIRECT_SECONDS : null,
+  );
   useEffect(() => {
     if (phase === 'saved' && redirectIn === 0) router.replace('/login');
   }, [phase, redirectIn, router]);
@@ -77,24 +77,19 @@ export function ResetPasswordForm() {
       setPhase('saved');
     } catch (error) {
       setIsLoading(false);
-      if (!(error instanceof ApiError)) {
-        setProblem({ kind: 'server', isNetwork: false });
-      } else if (error.code === 'RESET_TOKEN_INVALID') {
+      if (error instanceof ApiError && error.code === 'RESET_TOKEN_INVALID') {
         setPhase('expired');
-      } else if (error.code === 'VALIDATION_FAILED') {
-        const message = error.issues
+        return;
+      }
+      const classified = classifyApiError(error);
+      if (classified.kind === 'validation') {
+        const message = classified.issues
           .map((issue) => serverFieldMessage(issue.field))
           .find(Boolean);
         if (message) form.setServerErrors({ password: message });
-        else setProblem({ kind: 'server', isNetwork: false });
-      } else if (error.code === 'RATE_LIMITED') {
-        setProblem({ kind: 'rate-limited', seconds: error.retryAfter ?? 60 });
+        else setProblem(classified);
       } else {
-        setProblem({
-          kind: 'server',
-          isNetwork: error.code === 'NETWORK',
-          requestId: error.code === 'INTERNAL' ? error.requestId : undefined,
-        });
+        setProblem(classified);
       }
     }
   }
@@ -151,16 +146,11 @@ export function ResetPasswordForm() {
       <AuthHeading eyebrow="Account recovery" title="Set a new password">
         Choose a password you have not used before.
       </AuthHeading>
-      {problem?.kind === 'rate-limited' && (
-        <RateLimitedAlert alertRef={alertRef} remaining={waiting} />
-      )}
-      {problem?.kind === 'server' && (
-        <ServerFaultAlert
-          alertRef={alertRef}
-          isNetwork={problem.isNetwork}
-          requestId={problem.requestId}
-        />
-      )}
+      <ApiProblemAlerts
+        problem={problem}
+        alertRef={alertRef}
+        remaining={waiting}
+      />
       <form noValidate onSubmit={submit} className="flex flex-col gap-5">
         <PasswordField
           id="reset-password"

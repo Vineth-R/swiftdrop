@@ -30,12 +30,17 @@ export const strengthLabels = [
   'Meets the rule',
 ] as const;
 
+/** UTF-8 byte length, the measurement the API's 72-byte limit uses. */
+export function passwordByteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
 export function checkPassword(value: string): PasswordCheck {
-  const bytes = new TextEncoder().encode(value).length;
+  const bytes = passwordByteLength(value);
   const rules: PasswordRule[] = [
     {
       id: 'length',
-      label: '8 to 72 characters',
+      label: '8 to 72 characters, maximum 72 bytes',
       isMet: bytes >= PASSWORD_MIN_LENGTH && bytes <= PASSWORD_MAX_BYTES,
     },
     { id: 'upper', label: 'One upper case letter', isMet: /[A-Z]/.test(value) },

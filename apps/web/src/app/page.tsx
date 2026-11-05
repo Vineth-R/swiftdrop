@@ -1,6 +1,6 @@
-import { ButtonLink } from '../components/ui/button';
-import { Logo } from '../components/ui/logo';
-import { ThemeSwitch } from '../components/ui/theme-switch';
+import { ButtonLink } from '@/components/ui/button';
+import { Logo } from '@/components/ui/logo';
+import { ThemeSwitch } from '@/components/ui/theme-switch';
 
 export default function Index() {
   return (

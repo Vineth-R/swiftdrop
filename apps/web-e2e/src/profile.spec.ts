@@ -404,7 +404,7 @@ test.describe('security', () => {
     await submit(page).click();
     await expect(
       page.getByText(
-        'Use 8 to 72 characters with an upper case letter, a lower case letter and a digit.',
+        'Use 8 to 72 characters (maximum 72 bytes) with an upper case letter, a lower case letter and a digit.',
       ),
     ).toBeVisible();
     await expect(next(page)).toBeFocused();

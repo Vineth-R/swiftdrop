@@ -68,7 +68,7 @@ test.describe('PasswordField', () => {
     await input.fill('abc');
 
     const list = page.getByRole('list').filter({ hasText: 'One digit' });
-    await expect(list).toContainText('8 to 72 characters');
+    await expect(list).toContainText('8 to 72 characters, maximum 72 bytes');
     await expect(list.getByText('One lower case letter')).toBeVisible();
     await expect(page.getByText('3 / 72')).toBeVisible();
     await expect(page.getByText('Weak — two more to go')).toBeVisible();

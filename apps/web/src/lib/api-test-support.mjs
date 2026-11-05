@@ -19,6 +19,15 @@ registerHooks({
     return next(hasNoExtension ? `${specifier}.ts` : specifier, context);
   },
   load(url, context, next) {
+    // JSON config is imported without an import attribute in the app code;
+    // answer it here so Node's ESM loader does not require one in tests.
+    if (url.endsWith('.json')) {
+      return {
+        format: 'json',
+        source: readFileSync(fileURLToPath(url), 'utf8'),
+        shortCircuit: true,
+      };
+    }
     if (!url.endsWith('.ts')) return next(url, context);
     const { outputText } = ts.transpileModule(
       readFileSync(fileURLToPath(url), 'utf8'),

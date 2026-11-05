@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "composite": false,
+    "declarationMap": false,
+    "incremental": false,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.spec.ts", "vitest.config.mts"],
+  "exclude": ["out-tsc", "dist", "node_modules", ".next"]
+}

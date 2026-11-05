@@ -1,4 +1,5 @@
 import { api } from './api';
+import { API_BASE } from './constants';
 import type { Role } from './tokens';
 
 /** The signed-in user, as the API describes them (API v1.1 sections 2.2 and 2.7). */
@@ -95,5 +96,5 @@ export function changePassword(
  * `next` must already have passed safeNext().
  */
 export function googleLoginUrl(next: string): string {
-  return `/api/v1/auth/google/login?redirectTo=${encodeURIComponent(next)}`;
+  return `${API_BASE}/auth/google/login?redirectTo=${encodeURIComponent(next)}`;
 }

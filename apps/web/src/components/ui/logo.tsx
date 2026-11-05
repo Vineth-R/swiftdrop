@@ -1,4 +1,4 @@
-import { cn } from '../../lib/cn';
+import { cn } from '@/lib/cn';
 
 type LogoMarkProps = {
   /** Rendered size in px. Below 24 the dotted route is hard to read; use the favicon. */

@@ -1,7 +1,7 @@
 import { ArrowRight } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 
-import { RouteLine } from '../ui/route-line';
+import { RouteLine } from '@/components/ui/route-line';
 
 /**
  * The left side of every auth page. It sits inside an element that opts into

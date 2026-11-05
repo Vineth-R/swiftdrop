@@ -3,7 +3,15 @@
   "version": "0.0.1",
   "private": true,
   "nx": {
-    "sourceRoot": "apps/web/src"
+    "sourceRoot": "apps/web/src",
+    "targets": {
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "pnpm exec tsc --noEmit -p apps/web/tsconfig.spec.json"
+        }
+      }
+    }
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

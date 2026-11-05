@@ -1,7 +1,8 @@
 import { Clock } from 'lucide-react';
 import type { Ref } from 'react';
 
-import { Alert } from '../ui/alert';
+import { Alert } from '@/components/ui/alert';
+import { ReferenceLine } from '@/components/ui/reference-line';
 
 /** A 429. The typed values stay; only the button waits. */
 export function RateLimitedAlert({
@@ -59,11 +60,7 @@ export function ServerFaultAlert({
       {isNetwork
         ? 'Check your connection and try again. What you typed is still here.'
         : 'Please try again in a moment. What you typed is still here.'}
-      {requestId && (
-        <span className="mt-2 block select-all font-mono text-overline text-text-faint">
-          Reference {requestId}
-        </span>
-      )}
+      <ReferenceLine requestId={requestId} className="mt-2 block" />
     </Alert>
   );
 }

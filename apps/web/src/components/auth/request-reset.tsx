@@ -10,16 +10,16 @@ import {
   type ReactNode,
 } from 'react';
 
-import { ApiError } from '../../lib/api';
-import { forgotPassword } from '../../lib/auth-api';
-import { useCountdown } from '../../lib/use-countdown';
-import { useForm, type FormRules } from '../../lib/use-form';
-import { validateEmail } from '../../lib/validation';
-import { AuthHeading } from '../layout/auth-layout';
-import { Button, ButtonLink } from '../ui/button';
-import { TextField } from '../ui/field';
-import { RouteLine } from '../ui/route-line';
-import { RateLimitedAlert, ServerFaultAlert } from './form-alerts';
+import { classifyApiError, type ApiProblem } from '@/lib/api-problem';
+import { forgotPassword } from '@/lib/auth-api';
+import { useCountdown } from '@/lib/use-countdown';
+import { useForm, type FormRules } from '@/lib/use-form';
+import { validateEmail } from '@/lib/validation';
+import { AuthHeading } from '@/components/layout/auth-layout';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { TextField } from '@/components/ui/field';
+import { RouteLine } from '@/components/ui/route-line';
+import { ApiProblemAlerts } from './api-problem-alerts';
 
 const rules: FormRules<{ email: string }> = {
   email: (v) => validateEmail(v.email),
@@ -47,11 +47,7 @@ export function RequestResetForm({
   const form = useForm({ email: '' }, rules);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [problem, setProblem] = useState<
-    | { kind: 'rate-limited'; seconds: number }
-    | { kind: 'server'; isNetwork: boolean; requestId?: string }
-    | null
-  >(null);
+  const [problem, setProblem] = useState<ApiProblem | null>(null);
   const [resent, setResent] = useState(false);
   const alertRef = useRef<HTMLDivElement>(null);
 
@@ -71,22 +67,11 @@ export function RequestResetForm({
       await forgotPassword(email);
       return true;
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'RATE_LIMITED') {
-        setProblem({ kind: 'rate-limited', seconds: error.retryAfter ?? 60 });
-      } else if (
-        error instanceof ApiError &&
-        error.code === 'VALIDATION_FAILED'
-      ) {
+      const classified = classifyApiError(error);
+      if (classified.kind === 'validation') {
         form.setServerErrors({ email: 'Enter a complete email address.' });
       } else {
-        setProblem({
-          kind: 'server',
-          isNetwork: error instanceof ApiError && error.code === 'NETWORK',
-          requestId:
-            error instanceof ApiError && error.code === 'INTERNAL'
-              ? error.requestId
-              : undefined,
-        });
+        setProblem(classified);
       }
       return false;
     } finally {
@@ -128,16 +113,11 @@ export function RequestResetForm({
           </span>
           <span className="break-all font-mono text-body-sm">{sentTo}</span>
         </div>
-        {problem?.kind === 'rate-limited' && (
-          <RateLimitedAlert alertRef={alertRef} remaining={waiting} />
-        )}
-        {problem?.kind === 'server' && (
-          <ServerFaultAlert
-            alertRef={alertRef}
-            isNetwork={problem.isNetwork}
-            requestId={problem.requestId}
-          />
-        )}
+        <ApiProblemAlerts
+          problem={problem}
+          alertRef={alertRef}
+          remaining={waiting}
+        />
         <div className="flex flex-col gap-3">
           <ButtonLink href="/login" size="lg" isFullWidth>
             Back to log in
@@ -170,16 +150,11 @@ export function RequestResetForm({
         {intro}
       </AuthHeading>
       {lead}
-      {problem?.kind === 'rate-limited' && (
-        <RateLimitedAlert alertRef={alertRef} remaining={waiting} />
-      )}
-      {problem?.kind === 'server' && (
-        <ServerFaultAlert
-          alertRef={alertRef}
-          isNetwork={problem.isNetwork}
-          requestId={problem.requestId}
-        />
-      )}
+      <ApiProblemAlerts
+        problem={problem}
+        alertRef={alertRef}
+        remaining={waiting}
+      />
       <form noValidate onSubmit={submit} className="flex flex-col gap-5">
         <TextField
           id="forgot-email"
