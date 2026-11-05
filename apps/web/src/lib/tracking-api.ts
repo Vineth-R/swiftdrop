@@ -15,11 +15,30 @@ export type Tracking = {
   timeline: { status: ParcelStatus; at: string }[];
 };
 
-export function getTracking(
+/**
+ * The service only accepts SD[KN] plus 8 capitals or digits. This undoes what
+ * typing or pasting adds, and does not check the format: the screen does that.
+ */
+export function normalizeTrackingNumber(trackingNumber: string): string {
+  return trackingNumber.trim().toUpperCase();
+}
+
+/**
+ * Cleans up the number itself, and copies the public fields by name so that
+ * anything else in the response can never reach a public page.
+ */
+export async function getTracking(
   trackingNumber: string,
   signal?: AbortSignal,
 ): Promise<Tracking> {
-  return api<Tracking>(`/tracking/${encodeURIComponent(trackingNumber)}`, {
-    signal,
-  });
+  const number = encodeURIComponent(normalizeTrackingNumber(trackingNumber));
+  const data = await api<Tracking>(`/tracking/${number}`, { signal });
+  return {
+    trackingNumber: data.trackingNumber,
+    status: data.status,
+    pickupCity: data.pickupCity,
+    dropoffCity: data.dropoffCity,
+    lastUpdatedAt: data.lastUpdatedAt,
+    timeline: data.timeline.map(({ status, at }) => ({ status, at })),
+  };
 }
