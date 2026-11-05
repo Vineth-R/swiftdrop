@@ -30,16 +30,17 @@ export async function listCourierDeliveries({
 }: {
   /** Calendar date (YYYY-MM-DD) in Asia/Colombo, not a UTC timestamp. */
   date: string;
-  status: CompletedDeliveryStatus;
+  /** Omit to list every delivery for the day, including active parcels. */
+  status?: CompletedDeliveryStatus;
   page: number;
   signal?: AbortSignal;
 }): Promise<CourierDeliveryPage> {
   const query = new URLSearchParams({
     date,
-    status,
     page: String(page),
     pageSize: '20',
   });
+  if (status) query.set('status', status);
   const { data, meta } = await apiWithMeta<CourierDelivery[]>(
     `/courier/deliveries?${query}`,
     { signal },

@@ -30,7 +30,10 @@ import {
 import { Select } from '../ui/select';
 import { StatusChip } from '../ui/status-chip';
 
-const statuses = [
+type StatusFilter = '' | CompletedDeliveryStatus;
+
+const statuses: { value: StatusFilter; label: string }[] = [
+  { value: '', label: 'All statuses' },
   { value: 'DELIVERED', label: 'Delivered' },
   { value: 'FAILED', label: 'Failed' },
 ];
@@ -71,7 +74,7 @@ const columns: DataTableColumn<CourierDelivery>[] = [
   },
 ];
 
-type Filters = { date: string; status: CompletedDeliveryStatus; page: number };
+type Filters = { date: string; status: StatusFilter; page: number };
 type LoadState = { key: string } & (
   | { status: 'loading' }
   | { status: 'ready'; result: CourierDeliveryPage }
@@ -103,7 +106,7 @@ function HistoryContent() {
   const userId = session.status === 'authenticated' ? session.user.id : '';
   const [filters, setFilters] = useState<Filters>({
     date: '',
-    status: 'DELIVERED',
+    status: '',
     page: 1,
   });
   const [hasDateBlurred, setHasDateBlurred] = useState(false);
@@ -136,7 +139,12 @@ function HistoryContent() {
     const controller = new AbortController();
     setState({ key: requestKey, status: 'loading' });
 
-    listCourierDeliveries({ date, status, page, signal: controller.signal })
+    listCourierDeliveries({
+      date,
+      status: status || undefined,
+      page,
+      signal: controller.signal,
+    })
       .then((next) => {
         if (!controller.signal.aborted)
           setState({ key: requestKey, status: 'ready', result: next });
@@ -158,7 +166,7 @@ function HistoryContent() {
     <>
       <PageHeader
         title="History"
-        description="Delivered and failed parcels for a selected day."
+        description="Assigned and completed deliveries for a selected day."
         actions={
           !hasNoPermission && (
             <Button
@@ -210,7 +218,7 @@ function HistoryContent() {
             disabled={isBlocked}
             onChange={(event) => {
               const next = event.target.value;
-              if (next === 'DELIVERED' || next === 'FAILED')
+              if (next === '' || next === 'DELIVERED' || next === 'FAILED')
                 setFilters((previous) => ({
                   ...previous,
                   status: next,
@@ -221,32 +229,36 @@ function HistoryContent() {
         </div>
       </Section>
 
-      <Section title="Completed deliveries">
+      <Section title="Deliveries">
         <p
           role="status"
           aria-atomic="true"
           className="text-body text-text-muted"
         >
           {result
-            ? `${result.pagination.totalItems} ${status.toLowerCase()} ${result.pagination.totalItems === 1 ? 'delivery' : 'deliveries'} on ${date}.`
+            ? `${result.pagination.totalItems} ${result.pagination.totalItems === 1 ? 'delivery' : 'deliveries'} on ${date}.`
             : ''}
         </p>
 
         {!date ? (
           <EmptyState title="Choose a delivery date">
-            Select a date to see completed deliveries.
+            Select a date to see deliveries.
           </EmptyState>
         ) : error ? (
           <HistoryError error={error} remaining={remaining} />
         ) : (
           <DataTable
-            caption="Completed deliveries"
+            caption="Deliveries"
             columns={columns}
             rows={result?.items ?? []}
             getRowId={(delivery) => delivery.id}
             isLoading={isLoading}
             empty={
-              <EmptyState title={`No ${status.toLowerCase()} deliveries`}>
+              <EmptyState
+                title={
+                  status ? 'No deliveries match these filters' : 'No deliveries'
+                }
+              >
                 Choose another date or status to check other deliveries.
               </EmptyState>
             }

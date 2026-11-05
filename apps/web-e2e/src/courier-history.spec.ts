@@ -40,6 +40,12 @@ const second = {
   id: '00000000-0000-4000-8000-000000000003',
   trackingNumber: 'SDHISTORY003',
 };
+const active = {
+  ...delivered,
+  id: '00000000-0000-4000-8000-000000000004',
+  trackingNumber: 'SDHISTORY004',
+  status: 'PICKED_UP',
+};
 
 function pageOf(data: unknown[], page = 1, totalItems = data.length): Reply {
   return {
@@ -75,13 +81,12 @@ function deferred() {
 }
 
 const history = (page: Page) =>
-  page.getByRole('region', { name: 'Completed deliveries' });
-const table = (page: Page) =>
-  page.getByRole('table', { name: 'Completed deliveries' });
+  page.getByRole('region', { name: 'Deliveries' });
+const table = (page: Page) => page.getByRole('table', { name: 'Deliveries' });
 const summary = (page: Page) =>
   history(page)
     .getByRole('status')
-    .filter({ hasText: /^\d+ (delivered|failed) deliver/ });
+    .filter({ hasText: /^\d+ deliver(y|ies) on/ });
 const next = (page: Page) =>
   page.getByRole('button', { name: 'Go to next page' });
 const previous = (page: Page) =>
@@ -122,12 +127,11 @@ test('shows assigned history using the documented query and fields', async ({
   ).toBeVisible();
   await expect(table(page).getByText(delivered.recipientName)).toBeVisible();
   await expect(table(page).getByText('45 Lake Drive, Kandy')).toBeVisible();
-  await expect(summary(page)).toHaveText(`1 delivered delivery on ${today}.`);
+  await expect(summary(page)).toHaveText(`1 delivery on ${today}.`);
   await expect(page.getByLabel('Delivery date')).toHaveValue(today);
-  await expect(page.getByLabel('Delivery status')).toHaveValue('DELIVERED');
+  await expect(page.getByLabel('Delivery status')).toHaveValue('');
   expect(Object.fromEntries(lastDeliveryQuery(api.calls))).toEqual({
     date: today,
-    status: 'DELIVERED',
     page: '1',
     pageSize: '20',
   });
@@ -136,6 +140,22 @@ test('shows assigned history using the documented query and fields', async ({
       .getByRole('navigation', { name: 'Main', exact: true })
       .getByRole('link', { name: 'History' }),
   ).toHaveAttribute('aria-current', 'page');
+});
+
+test('defaults to all statuses so active deliveries are not hidden', async ({
+  page,
+}) => {
+  const api = await signInAs(page, 'COURIER', {
+    [endpoint]: pageOf([active, failed]),
+  });
+  await page.goto('/history');
+  await expect(page.getByLabel('Delivery status')).toHaveValue('');
+  await expect(table(page).getByText(active.trackingNumber)).toBeVisible();
+  await expect(
+    table(page).getByText('PICKED UP', { exact: true }),
+  ).toBeVisible();
+  await expect(summary(page)).toHaveText(`2 deliveries on ${today}.`);
+  expect(lastDeliveryQuery(api.calls).has('status')).toBe(false);
 });
 
 for (const [instant, expected] of [
@@ -171,7 +191,7 @@ test('shows loading skeletons and prevents duplicate refreshes', async ({
     await expect(
       history(page)
         .getByRole('status')
-        .filter({ hasText: 'Loading completed deliveries' }),
+        .filter({ hasText: 'Loading deliveries' }),
     ).toHaveAttribute('aria-busy', 'true');
     await expect(
       page.getByRole('button', { name: 'Loading history' }),
@@ -189,9 +209,9 @@ test('shows an empty state without made-up deliveries', async ({ page }) => {
   await signInAs(page, 'COURIER', { [endpoint]: pageOf([]) });
   await page.goto('/history');
   await expect(
-    page.getByRole('heading', { name: 'No delivered deliveries' }),
+    page.getByRole('heading', { name: 'No deliveries' }),
   ).toBeVisible();
-  await expect(summary(page)).toHaveText(`0 delivered deliveries on ${today}.`);
+  await expect(summary(page)).toHaveText(`0 deliveries on ${today}.`);
   await expect(table(page)).toHaveCount(0);
   await expect(
     page.getByRole('navigation', { name: 'Delivery history pages' }),
@@ -440,7 +460,7 @@ test('an unavailable endpoint shows no fabricated data or empty success', async 
   await expect(table(page)).toHaveCount(0);
   await expect(history(page).getByRole('listitem')).toHaveCount(0);
   await expect(
-    page.getByRole('heading', { name: 'No delivered deliveries' }),
+    page.getByRole('heading', { name: 'No deliveries' }),
   ).toHaveCount(0);
   await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
   await expect(page.getByText(REQUEST_ID)).toHaveCount(0);
@@ -555,9 +575,7 @@ for (const width of [360, 1280]) {
       });
       await page.goto('/history');
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      await expect(summary(page)).toHaveText(
-        `21 delivered deliveries on ${today}.`,
-      );
+      await expect(summary(page)).toHaveText(`21 deliveries on ${today}.`);
       await expect(table(page)).toBeVisible({ visible: layout.isTable });
       await expect(
         history(page)
