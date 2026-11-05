@@ -43,6 +43,50 @@ func TestContactReturnsContactAndSendsInternalHeaders(t *testing.T) {
 	}
 }
 
+func TestContactRejectsRedirectsAndDoesNotForwardInternalToken(t *testing.T) {
+	var targetCalls int
+	var targetToken string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetCalls++
+		targetToken = r.Header.Get("X-Internal-Token")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"fullName":"Redirect Target","email":"redirect@example.test"}}`))
+	}))
+	defer target.Close()
+
+	identity := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer identity.Close()
+
+	client, err := New(identity.URL, "shared-token", time.Second)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	contact, err := client.Contact(context.Background(), "3f1c7a52-0000-4000-8000-000000000001")
+	if err == nil {
+		t.Fatal("Contact() error = nil")
+	}
+	if !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("error = %v, want ErrInvalidResponse", err)
+	}
+	if errors.Is(err, ErrUnavailable) {
+		t.Fatalf("error = %v, want a permanent classification", err)
+	}
+	if targetCalls != 0 {
+		t.Fatalf("redirect target calls = %d, want 0", targetCalls)
+	}
+	if targetToken != "" {
+		t.Fatalf("redirect target received X-Internal-Token = %q", targetToken)
+	}
+	if contact != (Contact{}) {
+		t.Fatalf("Contact() = %+v, want zero value", contact)
+	}
+	if strings.Contains(err.Error(), "shared-token") || strings.Contains(err.Error(), "redirect@example.test") {
+		t.Fatalf("error leaked sensitive data: %v", err)
+	}
+}
+
 func validRequestID(value string) bool {
 	return len(value) > 0 && len(value) <= 128
 }
@@ -57,7 +101,9 @@ func TestContactClassifiesResponses(t *testing.T) {
 	}{
 		{name: "not found", status: http.StatusNotFound, body: `{"error":{"code":"NOT_FOUND"}}`, want: ErrNotFound},
 		{name: "unauthorized", status: http.StatusUnauthorized, body: `{"error":{"code":"UNAUTHENTICATED"}}`, want: ErrUnauthorized},
-		{name: "bad request", status: http.StatusBadRequest, body: `{"error":{"code":"BAD_REQUEST"}}`, want: ErrUnauthorized},
+		{name: "forbidden", status: http.StatusForbidden, body: `{"error":{"code":"FORBIDDEN"}}`, want: ErrUnauthorized},
+		{name: "bad request", status: http.StatusBadRequest, body: `{"error":{"code":"BAD_REQUEST"}}`, want: ErrInvalidResponse},
+		{name: "method not allowed", status: http.StatusMethodNotAllowed, body: `{}`, want: ErrInvalidResponse},
 		{name: "unavailable", status: http.StatusInternalServerError, body: `{}`, want: ErrUnavailable, wantRetry: true},
 		{name: "invalid json", status: http.StatusOK, body: `not-json`, want: ErrInvalidResponse},
 		{name: "empty email", status: http.StatusOK, body: `{"data":{"email":""}}`, want: ErrInvalidResponse},

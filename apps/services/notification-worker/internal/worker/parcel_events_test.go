@@ -24,6 +24,11 @@ const (
 
 func parcelEnvelope(t *testing.T, eventID, eventType string, data any) []byte {
 	t.Helper()
+	return parcelEnvelopeWithProducer(t, eventID, eventType, "parcel", data)
+}
+
+func parcelEnvelopeWithProducer(t *testing.T, eventID, eventType, producer string, data any) []byte {
+	t.Helper()
 	encoded, err := json.Marshal(data)
 	if err != nil {
 		t.Fatalf("marshal data: %v", err)
@@ -33,7 +38,7 @@ func parcelEnvelope(t *testing.T, eventID, eventType string, data any) []byte {
 		Type:          eventType,
 		Version:       1,
 		OccurredAt:    time.Now().UTC(),
-		Producer:      "parcel",
+		Producer:      producer,
 		CorrelationID: "corr-" + eventID,
 		Data:          encoded,
 	})
@@ -118,13 +123,13 @@ func TestHandleParcelCreatedSendsEmailAndPersists(t *testing.T) {
 
 func TestHandleParcelStatusChangedSendsStatusSpecificEmail(t *testing.T) {
 	tests := []struct {
-		previous, status, reason, wantSubject string
+		previous, status, reason, wantSubject, wantStatus string
 	}{
-		{previous: "CREATED", status: "PICKED_UP", wantSubject: "picked up"},
-		{previous: "PICKED_UP", status: "IN_TRANSIT", wantSubject: "in transit"},
-		{previous: "IN_TRANSIT", status: "OUT_FOR_DELIVERY", wantSubject: "out for delivery"},
-		{previous: "OUT_FOR_DELIVERY", status: "DELIVERED", wantSubject: "delivered"},
-		{previous: "IN_TRANSIT", status: "FAILED", reason: "Recipient refused delivery", wantSubject: "could not deliver"},
+		{previous: "CREATED", status: "PICKED_UP", wantSubject: "picked up", wantStatus: "Picked up"},
+		{previous: "PICKED_UP", status: "IN_TRANSIT", wantSubject: "in transit", wantStatus: "In transit"},
+		{previous: "IN_TRANSIT", status: "OUT_FOR_DELIVERY", wantSubject: "out for delivery", wantStatus: "Out for delivery"},
+		{previous: "OUT_FOR_DELIVERY", status: "DELIVERED", wantSubject: "delivered", wantStatus: "Delivered"},
+		{previous: "IN_TRANSIT", status: "FAILED", reason: "Recipient refused delivery", wantSubject: "could not deliver", wantStatus: "Failed"},
 	}
 
 	for _, test := range tests {
@@ -145,6 +150,9 @@ func TestHandleParcelStatusChangedSendsStatusSpecificEmail(t *testing.T) {
 			if !strings.Contains(sent[0].Text, "Tracking number: "+testTracking) {
 				t.Errorf("text does not contain the tracking number:\n%s", sent[0].Text)
 			}
+			if !strings.Contains(sent[0].Text, "Current status: "+test.wantStatus) {
+				t.Errorf("text does not contain the current status %q:\n%s", test.wantStatus, sent[0].Text)
+			}
 			if test.reason != "" && !strings.Contains(sent[0].Text, test.reason) {
 				t.Errorf("text does not contain the failure reason:\n%s", sent[0].Text)
 			}
@@ -153,6 +161,44 @@ func TestHandleParcelStatusChangedSendsStatusSpecificEmail(t *testing.T) {
 			}
 			if len(store.deliveredEntries()) != 1 {
 				t.Errorf("delivered entries = %d, want 1", len(store.deliveredEntries()))
+			}
+		})
+	}
+}
+
+func TestHandleParcelEventsRejectForeignProducer(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType string
+		producer  string
+		data      any
+	}{
+		{name: "created foreign producer", eventType: ParcelCreatedEventType, producer: "identity", data: createdData()},
+		{name: "created empty producer", eventType: ParcelCreatedEventType, producer: "", data: createdData()},
+		{name: "status foreign producer", eventType: ParcelStatusChangedEventType, producer: "merchant", data: statusData("CREATED", "PICKED_UP", "")},
+		{name: "status empty producer", eventType: ParcelStatusChangedEventType, producer: "", data: statusData("CREATED", "PICKED_UP", "")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, sender, store, contacts := newDomainHandler()
+			body := parcelEnvelopeWithProducer(t, testEventID, test.eventType, test.producer, test.data)
+
+			err := handler.Handle(context.Background(), messaging.Message{Body: body})
+			if err == nil || !messaging.IsPermanent(err) {
+				t.Fatalf("Handle() error = %v, want a permanent error", err)
+			}
+			if len(sender.Sent()) != 0 {
+				t.Error("foreign-producer event sent an email")
+			}
+			if contacts.callCount() != 0 {
+				t.Error("foreign-producer event looked up a contact")
+			}
+			if lookups, delivered, failures := store.calls(); lookups != 0 || delivered != 0 || failures != 0 {
+				t.Errorf("foreign-producer event touched the store: %d/%d/%d", lookups, delivered, failures)
+			}
+			if store.has(testEventID) {
+				t.Error("foreign-producer event marked the event processed")
 			}
 		})
 	}
@@ -222,6 +268,27 @@ func TestHandleParcelEventsRejectInvalidData(t *testing.T) {
 	statusBadMerchant := merchantData(statusData("CREATED", "PICKED_UP", ""))
 	statusBadMerchant["merchant_id"] = "not-a-uuid"
 
+	longTracking := createdData()
+	longTracking["tracking_number"] = strings.Repeat("A", 21)
+
+	failedLongReason := statusData("IN_TRANSIT", "FAILED", strings.Repeat("r", 256))
+
+	missingStatus := statusData("CREATED", "", "")
+	delete(missingStatus, "status")
+
+	emptyStatus := statusData("CREATED", "", "")
+
+	missingPrevious := statusData("", "PICKED_UP", "")
+	delete(missingPrevious, "previous_status")
+
+	emptyPrevious := statusData("", "PICKED_UP", "")
+
+	statusBadActor := statusData("CREATED", "PICKED_UP", "")
+	statusBadActor["actor_user_id"] = "not-a-uuid"
+
+	statusLongNote := statusData("CREATED", "PICKED_UP", "")
+	statusLongNote["note"] = strings.Repeat("n", 501)
+
 	tests := []struct {
 		name      string
 		eventType string
@@ -233,14 +300,22 @@ func TestHandleParcelEventsRejectInvalidData(t *testing.T) {
 		{name: "created both owners", eventType: ParcelCreatedEventType, data: bothOwners},
 		{name: "created invalid customer", eventType: ParcelCreatedEventType, data: badCustomer},
 		{name: "created short tracking", eventType: ParcelCreatedEventType, data: shortTracking},
+		{name: "created long tracking", eventType: ParcelCreatedEventType, data: longTracking},
 		{name: "status invalid previous", eventType: ParcelStatusChangedEventType, data: badPrevious},
 		{name: "status invalid status", eventType: ParcelStatusChangedEventType, data: badStatus},
+		{name: "status missing status", eventType: ParcelStatusChangedEventType, data: missingStatus},
+		{name: "status empty status", eventType: ParcelStatusChangedEventType, data: emptyStatus},
+		{name: "status missing previous", eventType: ParcelStatusChangedEventType, data: missingPrevious},
+		{name: "status empty previous", eventType: ParcelStatusChangedEventType, data: emptyPrevious},
 		{name: "failed without reason", eventType: ParcelStatusChangedEventType, data: failedWithoutReason},
 		{name: "failed short reason", eventType: ParcelStatusChangedEventType, data: failedShortReason},
+		{name: "failed long reason", eventType: ParcelStatusChangedEventType, data: failedLongReason},
 		{name: "status no owner", eventType: ParcelStatusChangedEventType, data: statusNoOwner},
 		{name: "status both owners", eventType: ParcelStatusChangedEventType, data: statusBothOwners},
 		{name: "status invalid customer", eventType: ParcelStatusChangedEventType, data: statusBadCustomer},
 		{name: "status invalid merchant", eventType: ParcelStatusChangedEventType, data: statusBadMerchant},
+		{name: "status invalid actor", eventType: ParcelStatusChangedEventType, data: statusBadActor},
+		{name: "status long note", eventType: ParcelStatusChangedEventType, data: statusLongNote},
 		{name: "unsupported event type", eventType: "parcel.assigned.v1", data: createdData()},
 	}
 

@@ -14,6 +14,11 @@ import (
 
 func domainEnvelope(t *testing.T, eventID, eventType string, data map[string]any) []byte {
 	t.Helper()
+	return domainEnvelopeWithProducer(t, eventID, eventType, "parcel", data)
+}
+
+func domainEnvelopeWithProducer(t *testing.T, eventID, eventType, producer string, data map[string]any) []byte {
+	t.Helper()
 	encoded, err := json.Marshal(data)
 	if err != nil {
 		t.Fatalf("encode %s data: %v", eventType, err)
@@ -23,7 +28,7 @@ func domainEnvelope(t *testing.T, eventID, eventType string, data map[string]any
 		Type:          eventType,
 		Version:       1,
 		OccurredAt:    time.Now().UTC(),
-		Producer:      "parcel",
+		Producer:      producer,
 		CorrelationID: "corr-" + eventID,
 		Data:          encoded,
 	})
@@ -253,6 +258,26 @@ func TestParcelDomainEventInvalidIsDeadLettered(t *testing.T) {
 	delete(data, "parcel_id")
 	h.trackEvent(eventID)
 	body := domainEnvelope(t, eventID, "parcel.created.v1", data)
+	publishDomain(t, h, eventID, body, h.parcelCreatedRoutingKey)
+
+	deadLetter := waitForDeadLetter(t, h, h.parcelCreatedQueue, eventID, 20*time.Second)
+	reason, _ := deadLetter.Properties.Headers["x-swiftdrop-failure-reason"].(string)
+	if reason != "permanent" {
+		t.Errorf("failure reason = %q, want permanent", reason)
+	}
+	assertNoNotificationState(t, h, eventID)
+}
+
+func TestParcelDomainEventForeignProducerIsDeadLettered(t *testing.T) {
+	h := newHarness(t)
+	requireStack(t, h)
+
+	eventID := h.newUUID(t)
+	parcelID := h.newUUID(t)
+	tracking := "SDK" + strings.ToUpper(h.runID(t)[:8])
+	h.trackEvent(eventID)
+
+	body := domainEnvelopeWithProducer(t, eventID, "parcel.created.v1", "identity", domainCreatedData(h.newUUID(t), parcelID, tracking))
 	publishDomain(t, h, eventID, body, h.parcelCreatedRoutingKey)
 
 	deadLetter := waitForDeadLetter(t, h, h.parcelCreatedQueue, eventID, 20*time.Second)

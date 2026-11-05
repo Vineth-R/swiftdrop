@@ -109,6 +109,12 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		return messaging.Permanent(errors.New("event_id must be a UUID"))
 	}
 
+	if envelope.Type == ParcelCreatedEventType || envelope.Type == ParcelStatusChangedEventType {
+		if envelope.Producer != "parcel" {
+			return messaging.Permanent(fmt.Errorf("%s producer must be %q", envelope.Type, "parcel"))
+		}
+	}
+
 	switch envelope.Type {
 	case EventType:
 		return h.handleLegacy(ctx, envelope)
@@ -472,6 +478,12 @@ func validateParcelStatusChanged(data parcelStatusChangedData) error {
 	if data.MerchantID != nil && strings.TrimSpace(*data.MerchantID) != "" &&
 		!validation.UUID(strings.TrimSpace(*data.MerchantID)) {
 		return errors.New("merchant_id must be a UUID")
+	}
+	if data.ActorUserID != nil && !validation.UUID(strings.TrimSpace(*data.ActorUserID)) {
+		return errors.New("actor_user_id must be a UUID")
+	}
+	if data.Note != nil && validation.RuneLength(*data.Note) > 500 {
+		return errors.New("note must be at most 500 characters")
 	}
 	return nil
 }

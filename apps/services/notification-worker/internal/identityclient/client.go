@@ -57,12 +57,17 @@ func New(baseURL, token string, timeout time.Duration) (*Client, error) {
 		baseURL: trimmed,
 		token:   strings.TrimSpace(token),
 		timeout: timeout,
-		http:    &http.Client{Timeout: timeout},
+		http: &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}, nil
 }
 
-// Contact resolves one user. A 404, 401, 400, 403 or 405 is permanent; a 5xx,
-// network error or timeout is retryable.
+// Contact resolves one user. A 404, 401, 403, 400 or 405 is permanent; a 5xx,
+// network error or timeout is retryable. A 400 or 405 is an invalid response.
 func (c *Client) Contact(ctx context.Context, userID string) (Contact, error) {
 	if c == nil || c.baseURL == "" {
 		return Contact{}, ErrUnavailable
@@ -113,10 +118,11 @@ func (c *Client) Contact(ctx context.Context, userID string) (Contact, error) {
 	case response.StatusCode == http.StatusNotFound:
 		return Contact{}, ErrNotFound
 	case response.StatusCode == http.StatusUnauthorized,
-		response.StatusCode == http.StatusBadRequest,
-		response.StatusCode == http.StatusForbidden,
-		response.StatusCode == http.StatusMethodNotAllowed:
+		response.StatusCode == http.StatusForbidden:
 		return Contact{}, ErrUnauthorized
+	case response.StatusCode == http.StatusBadRequest,
+		response.StatusCode == http.StatusMethodNotAllowed:
+		return Contact{}, fmt.Errorf("%w: status %d", ErrInvalidResponse, response.StatusCode)
 	case response.StatusCode >= http.StatusInternalServerError:
 		return Contact{}, fmt.Errorf("%w: status %d", ErrUnavailable, response.StatusCode)
 	default:
