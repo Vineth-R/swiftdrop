@@ -7,8 +7,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { backoffDelay, createLiveConnection } from './live-connection.ts';
+import './api-test-support.mjs';
 
+const { backoffDelay, createLiveConnection } =
+  await import('./live-connection.ts');
 class FakeSocket {
   constructor(url) {
     this.url = url;
