@@ -103,7 +103,10 @@ test.describe('M6 Dispatcher screens', () => {
       await page.goto('/unassigned');
 
       await expect(
-        page.getByRole('heading', { name: 'Access restricted' }),
+        page.getByRole('heading', { name: 'You do not have access' }),
+      ).toBeVisible();
+      await expect(
+        page.getByText('This page is for dispatchers and administrators'),
       ).toBeVisible();
     });
 
@@ -112,7 +115,10 @@ test.describe('M6 Dispatcher screens', () => {
       await page.goto('/workload');
 
       await expect(
-        page.getByRole('heading', { name: 'Access restricted' }),
+        page.getByRole('heading', { name: 'You do not have access' }),
+      ).toBeVisible();
+      await expect(
+        page.getByText('This page is for dispatchers and administrators'),
       ).toBeVisible();
     });
 
@@ -180,12 +186,12 @@ test.describe('M6 Dispatcher screens', () => {
       await page.goto('/unassigned');
 
       await expect(
-        page.getByText('Something went wrong on our side.'),
+        page.getByText('Something broke on our side'),
       ).toBeVisible();
       // Must never expose raw server error text
-      await expect(page.getByText(SERVER_WORDS)).toBeHidden();
+      await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
 
-      const retryBtn = page.getByRole('button', { name: /retry/i });
+      const retryBtn = page.getByRole('button', { name: 'Try again' });
       await expect(retryBtn).toBeVisible();
     });
 
@@ -255,9 +261,14 @@ test.describe('M6 Dispatcher screens', () => {
 
       // Error alert visible in modal
       await expect(
-        dialog.getByText('This parcel is in a closed state and can no longer be assigned.'),
+        dialog.getByText('Parcel already closed'),
       ).toBeVisible();
-      await expect(page.getByText(SERVER_WORDS)).toBeHidden();
+      await expect(
+        dialog.getByText(
+          'This parcel is already delivered or closed and cannot be assigned or reassigned.',
+        ),
+      ).toBeVisible();
+      await expect(dialog.getByText(SERVER_WORDS)).toHaveCount(0);
     });
   });
 
