@@ -175,7 +175,11 @@ function DispatcherParcelsContent() {
                 currentCourierId: parcel.courierId,
               })
             }
-            aria-label={`Reassign parcel ${parcel.trackingNumber}`}
+            aria-label={
+              parcel.courierId
+                ? `Reassign parcel ${parcel.trackingNumber}`
+                : `Assign courier to parcel ${parcel.trackingNumber}`
+            }
           >
             {parcel.courierId ? 'Reassign' : 'Assign'}
           </Button>

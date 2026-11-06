@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 import {
   fail,
@@ -8,6 +8,8 @@ import {
   type Reply,
 } from './support/mock-api';
 import { signInAs } from './support/sign-in';
+
+test.use({ colorScheme: 'light' });
 
 const sampleParcel = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -82,7 +84,19 @@ function pageOf(data: unknown[], page = 1, totalItems = data.length): Reply {
   };
 }
 
+// Below 768px the same rows are cards; at the 1440px these tests use it is the table.
+const unassignedTable = (page: Page) =>
+  page.getByRole('table', { name: 'Unassigned parcels' });
+const workloadTable = (page: Page) =>
+  page.getByRole('table', { name: 'Courier workload' });
+const parcelsTable = (page: Page) =>
+  page.getByRole('table', { name: 'All parcels' });
+
 test.describe('M6 Dispatcher screens', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+  });
+
   test.describe('Role protection', () => {
     test('non-dispatcher roles cannot access /unassigned', async ({ page }) => {
       await signInAs(page, 'CUSTOMER');
@@ -130,10 +144,15 @@ test.describe('M6 Dispatcher screens', () => {
 
       await page.goto('/unassigned');
 
-      await expect(page.getByText('SDK7M2Q9XP4')).toBeVisible();
-      await expect(page.getByText('Colombo')).toBeVisible();
-      await expect(page.getByText('Kandy')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Assign' })).toBeVisible();
+      const row = unassignedTable(page)
+        .getByRole('row')
+        .filter({ hasText: 'SDK7M2Q9XP4' });
+      await expect(row).toBeVisible();
+      await expect(row).toContainText('Colombo');
+      await expect(row).toContainText('Kandy');
+      await expect(
+        row.getByRole('button', { name: /assign/i }),
+      ).toBeVisible();
     });
 
     test('renders empty state when queue is clear', async ({ page }) => {
@@ -194,22 +213,23 @@ test.describe('M6 Dispatcher screens', () => {
 
       await page.goto('/unassigned');
 
-      // Click assign button to open modal
-      await page.getByRole('button', { name: 'Assign' }).click();
+      // Click assign button in table to open modal
+      await unassignedTable(page).getByRole('button', { name: /assign/i }).click();
 
+      const dialog = page.getByRole('dialog');
       await expect(
-        page.getByRole('heading', { name: 'Assign courier' }),
+        dialog.getByRole('heading', { name: 'Assign courier' }),
       ).toBeVisible();
       await expect(
-        page.getByText(`Assign courier to parcel ${sampleParcel.trackingNumber}.`),
+        dialog.getByText(`Assign courier to parcel ${sampleParcel.trackingNumber}.`),
       ).toBeVisible();
 
-      // Select courier
-      await page.getByLabel('Courier').selectOption(sampleCourier.id);
+      // Select courier inside modal
+      await dialog.locator('#courier-select').selectOption(sampleCourier.id);
 
       // Confirm assignment
       assigned = true;
-      await page.getByRole('button', { name: 'Assign', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Assign', exact: true }).click();
 
       // Modal closes and toast appears
       await expect(
@@ -227,13 +247,15 @@ test.describe('M6 Dispatcher screens', () => {
       });
 
       await page.goto('/unassigned');
-      await page.getByRole('button', { name: 'Assign' }).click();
-      await page.getByLabel('Courier').selectOption(sampleCourier.id);
-      await page.getByRole('button', { name: 'Assign', exact: true }).click();
+      await unassignedTable(page).getByRole('button', { name: /assign/i }).click();
+
+      const dialog = page.getByRole('dialog');
+      await dialog.locator('#courier-select').selectOption(sampleCourier.id);
+      await dialog.getByRole('button', { name: 'Assign', exact: true }).click();
 
       // Error alert visible in modal
       await expect(
-        page.getByText('This parcel is in a closed state and can no longer be assigned.'),
+        dialog.getByText('This parcel is in a closed state and can no longer be assigned.'),
       ).toBeVisible();
       await expect(page.getByText(SERVER_WORDS)).toBeHidden();
     });
@@ -247,11 +269,18 @@ test.describe('M6 Dispatcher screens', () => {
 
       await page.goto('/workload');
 
-      await expect(page.getByText('Kasun Silva')).toBeVisible();
-      await expect(page.getByText('Amal Fernando')).toBeVisible();
-      await expect(page.getByText('Available')).toBeVisible();
-      await expect(page.getByText('Unavailable')).toBeVisible();
-      await expect(page.getByText('3 active')).toBeVisible();
+      const kasunRow = workloadTable(page)
+        .getByRole('row')
+        .filter({ hasText: 'Kasun Silva' });
+      await expect(kasunRow).toBeVisible();
+      await expect(kasunRow).toContainText('ACTIVE');
+      await expect(kasunRow).toContainText('3');
+
+      const amalRow = workloadTable(page)
+        .getByRole('row')
+        .filter({ hasText: 'Amal Fernando' });
+      await expect(amalRow).toBeVisible();
+      await expect(amalRow).toContainText('DEACTIVATED');
     });
 
     test('filters couriers by availability', async ({ page }) => {
@@ -261,9 +290,13 @@ test.describe('M6 Dispatcher screens', () => {
 
       await page.goto('/workload');
 
-      await page.getByLabel('Filter by availability').selectOption('available');
-      await expect(page.getByText('Kasun Silva')).toBeVisible();
-      await expect(page.getByText('Amal Fernando')).toBeHidden();
+      await page.getByLabel('Availability').selectOption('available');
+      await expect(
+        workloadTable(page).getByRole('row').filter({ hasText: 'Kasun Silva' }),
+      ).toBeVisible();
+      await expect(
+        workloadTable(page).getByRole('row').filter({ hasText: 'Amal Fernando' }),
+      ).toBeHidden();
     });
   });
 
@@ -278,8 +311,14 @@ test.describe('M6 Dispatcher screens', () => {
       await expect(
         page.getByRole('heading', { name: 'All parcels' }),
       ).toBeVisible();
-      await expect(page.getByText('SDK7M2Q9XP4')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Assign' })).toBeVisible();
+
+      const row = parcelsTable(page)
+        .getByRole('row')
+        .filter({ hasText: 'SDK7M2Q9XP4' });
+      await expect(row).toBeVisible();
+      await expect(
+        row.getByRole('button', { name: /assign/i }),
+      ).toBeVisible();
     });
   });
 });
