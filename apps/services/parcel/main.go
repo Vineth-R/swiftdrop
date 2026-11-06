@@ -11,7 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/dispatch"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/outbox"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/reports"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
@@ -70,9 +73,35 @@ func run() error {
 	if config.AccessSecret == "" {
 		logger.Warn("JWT_ACCESS_SECRET is not set; the reports API will return 503")
 	}
+	var courierClient identityclient.CourierClient
+	if config.IdentityBaseURL != "" {
+		client, err := identityclient.New(config.IdentityBaseURL, config.InternalToken, config.IdentityTimeout)
+		if err != nil {
+			logger.Warn("identity client configuration error", "error", err)
+		} else {
+			courierClient = client
+		}
+	}
+
 	if database != nil {
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)
+
+		dispatchRepo := dispatch.NewRepository(database)
+		dispatchService := dispatch.NewService(dispatchRepo, courierClient)
+		options.Dispatch = dispatchService
+
+		outboxStore := outbox.NewSQLStore(database)
+		var publisher outbox.Publisher
+		if config.RabbitMQURL != "" {
+			amqpPub := outbox.NewAMQPPublisher(config.RabbitMQURL, config.RabbitMQExchange)
+			defer amqpPub.Close()
+			publisher = amqpPub
+		} else {
+			logger.Warn("RABBITMQ_URL is not set; outbox events will remain pending")
+		}
+		relay := outbox.NewRelay(outboxStore, publisher, logger)
+		go relay.Run(ctx)
 	}
 	router, err := servicehttp.New(logger, options)
 	if err != nil {

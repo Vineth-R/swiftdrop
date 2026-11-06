@@ -2,18 +2,24 @@ package config
 
 import (
 	"strconv"
+	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
 type Config struct {
-	Port           int
-	AppEnv         string
-	LogLevel       string
-	DatabaseURL    string
-	TrustedProxies []string
-	AccessSecret   string
-	CookieName     string
+	Port             int
+	AppEnv           string
+	LogLevel         string
+	DatabaseURL      string
+	TrustedProxies   []string
+	AccessSecret     string
+	CookieName       string
+	IdentityBaseURL  string
+	IdentityTimeout  time.Duration
+	InternalToken    string
+	RabbitMQURL      string
+	RabbitMQExchange string
 }
 
 func Load() (Config, error) {
@@ -45,14 +51,22 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	identityTimeout, _ := loader.Duration("IDENTITY_TIMEOUT", 3*time.Second)
+	internalToken, _ := sharedconfig.LoadInternalToken(loader, appEnv)
+
 	return Config{
-		Port:           port,
-		AppEnv:         appEnv,
-		LogLevel:       logLevel,
-		DatabaseURL:    loader.String("DATABASE_URL", ""),
-		TrustedProxies: proxies,
-		AccessSecret:   accessSecret,
-		CookieName:     loader.String("COOKIE_NAME", "sd_access"),
+		Port:             port,
+		AppEnv:           appEnv,
+		LogLevel:         logLevel,
+		DatabaseURL:      loader.String("DATABASE_URL", ""),
+		TrustedProxies:   proxies,
+		AccessSecret:     accessSecret,
+		CookieName:       loader.String("COOKIE_NAME", "sd_access"),
+		IdentityBaseURL:  loader.String("IDENTITY_BASE_URL", "http://identity:8081"),
+		IdentityTimeout:  identityTimeout,
+		InternalToken:    internalToken,
+		RabbitMQURL:      loader.String("RABBITMQ_URL", ""),
+		RabbitMQExchange: loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
 	}, nil
 }
 

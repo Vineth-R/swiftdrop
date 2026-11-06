@@ -18,6 +18,7 @@ type TrackingStore interface {
 type Options struct {
 	Tracking       TrackingStore
 	Reports        ReportStore
+	Dispatch       DispatchService
 	TrustedProxies []string
 	AccessSecret   string
 	CookieName     string
