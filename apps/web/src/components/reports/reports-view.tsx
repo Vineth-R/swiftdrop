@@ -91,6 +91,9 @@ function ReportsContent() {
   } = useForm<DateRange>(range, rangeRules);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<State>({ status: 'loading' });
+  // The last results shown. While the next ones load, the line under the title
+  // keeps saying what they were, so the page does not jump up and back.
+  const [shown, setShown] = useState<Loaded | null>(null);
   const focusTarget = useRef<'from' | 'to' | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
 
@@ -118,6 +121,7 @@ function ReportsContent() {
       .then(([daily, outcomes]) => {
         if (!controller.signal.aborted) {
           setState({ status: 'ready', daily, outcomes });
+          setShown({ daily, outcomes });
         }
       })
       .catch((error: unknown) => {
@@ -193,7 +197,7 @@ function ReportsContent() {
 
   return (
     <>
-      <PageHeader title="Reports" description={describe(state)} />
+      <PageHeader title="Reports" description={describe(state, shown)} />
 
       <Section
         title="Date range"
@@ -241,17 +245,25 @@ function ReportsContent() {
           aria-label="Quick ranges"
           className="flex flex-wrap gap-2"
         >
-          {PRESET_DAYS.map((days) => (
-            <Button
-              key={days}
-              variant="secondary"
-              size="lg"
-              isDisabled={state.status === 'loading'}
-              onClick={() => choosePreset(days)}
-            >
-              Last {days} days
-            </Button>
-          ))}
+          {PRESET_DAYS.map((days) => {
+            const preset = defaultRange(days);
+            // Not disabled while loading: that would drop the keyboard focus,
+            // and a second click simply replaces the request in flight.
+            return (
+              <Button
+                key={days}
+                variant="secondary"
+                size="lg"
+                aria-pressed={
+                  range.from === preset.from && range.to === preset.to
+                }
+                className="aria-pressed:border-text aria-pressed:bg-surface-3"
+                onClick={() => choosePreset(days)}
+              >
+                Last {days} days
+              </Button>
+            );
+          })}
         </div>
       </Section>
 
@@ -281,9 +293,15 @@ function ReportsContent() {
 }
 
 /** The one sentence under the title: what the numbers below add up to. */
-function describe(state: State): string {
-  if (state.status !== 'ready') return INTRO;
-  const { totals, from, to } = state.outcomes;
+function describe(state: State, previous: Loaded | null): string {
+  const source =
+    state.status === 'ready'
+      ? state
+      : state.status === 'loading'
+        ? previous
+        : null;
+  if (!source) return INTRO;
+  const { totals, from, to } = source.outcomes;
   const period = `from ${formatReportDate(from)} to ${formatReportDate(to)}`;
   if (totals.created === 0) return `No parcels were created ${period}.`;
   return `${totals.delivered} of ${totals.created} parcels created ${period} were delivered. ${totals.failed} failed and ${totals.inProgress} are still in progress.`;
