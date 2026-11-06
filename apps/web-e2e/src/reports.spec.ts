@@ -30,6 +30,19 @@ const emptyOutcomes = {
   topFailureReasons: [],
 };
 
+/**
+ * `days` consecutive days from 1 Oct 2026. Nothing finishes before day number
+ * `firstFinishedDay` (counting from 0); every day from then on delivers two.
+ */
+function sparseDays(days: number, firstFinishedDay: number) {
+  return Array.from({ length: days }, (_, index) => ({
+    date: new Date(Date.UTC(2026, 9, 1 + index)).toISOString().slice(0, 10),
+    created: 1,
+    delivered: index >= firstFinishedDay ? 2 : 0,
+    failed: 0,
+  }));
+}
+
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 });
@@ -162,6 +175,82 @@ test('an all-in-progress range says that nothing finished', async ({
   await expect(
     page.getByRole('table', { name: 'Daily parcels' }).getByRole('row'),
   ).toHaveCount(3);
+});
+
+test('a range of 31 days or fewer marks the days with nothing finished', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(sparseDays(31, 21)),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+
+  const chart = page.getByRole('img', {
+    name: /Bar chart of delivered and failed parcels/,
+  });
+  await expect(chart.locator('rect.fill-success')).toHaveCount(10);
+  await expect(chart.locator('rect.fill-line-strong')).toHaveCount(21);
+});
+
+for (const days of [32, 90]) {
+  test(`a range of ${days} days does not mark empty days, so it is not a dashed line`, async ({
+    page,
+  }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /reports/daily': ok(sparseDays(days, days - 10)),
+      'GET /reports/outcomes': ok(outcomes),
+    });
+    await page.goto('/reports');
+
+    const chart = page.getByRole('img', {
+      name: /Bar chart of delivered and failed parcels/,
+    });
+    await expect(chart.locator('rect.fill-success')).toHaveCount(10);
+    await expect(chart.locator('rect.fill-line-strong')).toHaveCount(0);
+  });
+}
+
+test('the caption says when nothing finished before the first busy day', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(sparseDays(7, 3)),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+
+  await expect(
+    page.getByText('Nothing finished before 4 Oct 2026.'),
+  ).toBeVisible();
+});
+
+test('the caption has no early-empty note when the first day has parcels finished', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(daily),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+
+  await expect(page.getByText(/Tallest day: 46\./)).toBeVisible();
+  await expect(page.getByText(/Nothing finished before/)).toHaveCount(0);
+});
+
+test('the caption has no early-empty note when nothing finished in the range', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(sparseDays(7, 7)),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+
+  await expect(
+    page.getByText('No parcels finished in this range.'),
+  ).toBeVisible();
+  await expect(page.getByText(/Nothing finished before/)).toHaveCount(0);
 });
 
 test('the range is sent to both report endpoints', async ({ page }) => {
