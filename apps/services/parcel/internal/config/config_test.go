@@ -7,6 +7,53 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
+func TestParcelDependencyConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, key, value string
+		fail             bool
+	}{{"pricing credentials", "PRICING_BASE_URL", "http://user:secret@pricing:8083", true}, {"pricing scheme", "PRICING_BASE_URL", "file:///pricing", true}, {"pricing path", "PRICING_BASE_URL", "http://pricing:8083/path", true}, {"pricing timeout", "PRICING_TIMEOUT", "0s", true}, {"identity credentials", "IDENTITY_BASE_URL", "http://user:secret@identity:8081", true}, {"identity timeout", "IDENTITY_TIMEOUT", "-1s", true}, {"pricing valid", "PRICING_BASE_URL", "http://127.0.0.1:8083/", false}, {"identity valid", "IDENTITY_BASE_URL", "https://identity.example", false}, {"development short token", "INTERNAL_TOKEN", "tiny", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				if key == "APP_ENV" {
+					return "development", true
+				}
+				if key == tc.key {
+					return tc.value, true
+				}
+				return "", false
+			})
+			cfg, err := LoadFrom(loader)
+			if tc.fail {
+				if err == nil {
+					t.Fatal("invalid configuration accepted")
+				}
+				if strings.Contains(err.Error(), "secret@") {
+					t.Fatal("configuration leaked credentials")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.key == "INTERNAL_TOKEN" && (cfg.InternalToken != "" || cfg.InternalTokenProblem == "") {
+				t.Fatal("weak development token did not fail closed")
+			}
+		})
+	}
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		if key == "APP_ENV" {
+			return "production", true
+		}
+		if key == "INTERNAL_TOKEN" {
+			return "short", true
+		}
+		return "", false
+	})
+	if _, err := LoadFrom(loader); err == nil {
+		t.Fatal("weak production internal token accepted")
+	}
+}
+
 func TestLoadFromDefaults(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		if key == "APP_ENV" {

@@ -141,6 +141,11 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      PRICING_BASE_URL: http://pricing:8083
+      PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
+      IDENTITY_BASE_URL: http://identity:8081
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
     depends_on:
       postgres:
         condition: service_healthy

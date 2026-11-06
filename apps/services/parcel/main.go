@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/parcels"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/reports"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
@@ -66,13 +68,20 @@ func run() error {
 		TrustedProxies: config.TrustedProxies,
 		AccessSecret:   config.AccessSecret,
 		CookieName:     config.CookieName,
+		InternalToken:  config.InternalToken,
 	}
 	if config.AccessSecret == "" {
-		logger.Warn("JWT_ACCESS_SECRET is not set; the reports API will return 503")
+		logger.Warn("JWT_ACCESS_SECRET is not set; authenticated APIs will return 503")
+	}
+	if config.InternalTokenProblem != "" {
+		logger.Warn(config.InternalTokenProblem)
 	}
 	if database != nil {
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)
+		pricingClient := parcels.NewPricingClient(config.PricingBaseURL, config.InternalToken, &http.Client{Timeout: config.PricingTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }})
+		options.Parcels = parcels.NewService(parcels.NewStore(database), pricingClient)
+		options.Parcels.WithCourierReader(parcels.NewCourierClient(config.IdentityBaseURL, config.InternalToken, &http.Client{Timeout: config.IdentityTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}))
 	}
 	router, err := servicehttp.New(logger, options)
 	if err != nil {
