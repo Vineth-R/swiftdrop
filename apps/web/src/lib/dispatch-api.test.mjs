@@ -100,12 +100,16 @@ test('searchAllParcels sends GET /admin/parcels with filters', async () => {
   );
 });
 
-test('listCouriers sends GET /couriers with availability filter', async () => {
+test('listCouriers sends GET /couriers/ with availability filter', async () => {
   const calls = ok([]);
   await listCouriers({ isAvailable: true, page: 1, pageSize: 50 });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, 'GET');
-  assert.equal(calls[0].url, '/api/v1/couriers?isAvailable=true&page=1&pageSize=50');
+  // The trailing slash matters: nginx redirects /couriers without it.
+  assert.equal(
+    calls[0].url,
+    '/api/v1/couriers/?isAvailable=true&page=1&pageSize=50',
+  );
 });
 
 test('listZones sends GET /zones', async () => {

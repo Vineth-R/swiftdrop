@@ -283,7 +283,7 @@ test.describe('M6 Dispatcher screens', () => {
         'GET /dispatch/unassigned': () =>
           assigned ? pageOf([]) : pageOf([sampleParcel]),
         'GET /zones': ok([]),
-        'GET /couriers': ok([sampleCourier, sampleCourier2]),
+        'GET /couriers/': ok([sampleCourier, sampleCourier2]),
         'PUT /dispatch/parcels/00000000-0000-4000-8000-000000000001/assignment': {
           status: 200,
           body: {
@@ -342,7 +342,7 @@ test.describe('M6 Dispatcher screens', () => {
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': pageOf([sampleParcel]),
         'GET /zones': ok([]),
-        'GET /couriers': ok([sampleCourier]),
+        'GET /couriers/': ok([sampleCourier]),
         'PUT /dispatch/parcels/00000000-0000-4000-8000-000000000001/assignment':
           fail(409, 'PARCEL_CLOSED'),
       });
@@ -375,7 +375,7 @@ test.describe('M6 Dispatcher screens', () => {
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': pageOf([sampleParcel]),
         'GET /zones': ok([]),
-        'GET /couriers': ok([sampleCourier]),
+        'GET /couriers/': ok([sampleCourier]),
         'PUT /dispatch/parcels/00000000-0000-4000-8000-000000000001/assignment':
           fail(422, 'COURIER_NOT_ELIGIBLE'),
       });
@@ -511,7 +511,7 @@ test.describe('M6 Dispatcher screens', () => {
 
       const { calls } = await signInAs(page, 'DISPATCHER', {
         'GET /admin/parcels': pageOf([assignedParcel]),
-        'GET /couriers': ok([sampleCourier, sampleCourier2]),
+        'GET /couriers/': ok([sampleCourier, sampleCourier2]),
         'PUT /dispatch/parcels/00000000-0000-4000-8000-000000000002/assignment': {
           status: 200,
           body: {

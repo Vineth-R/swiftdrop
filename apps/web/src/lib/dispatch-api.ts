@@ -158,12 +158,17 @@ export function searchAllParcels(
   );
 }
 
-/** Lists couriers, optionally filtered by availability or zone (Section 2.15). */
+/**
+ * Lists couriers, optionally filtered by availability or zone (Section 2.15).
+ * The collection path ends in a slash on purpose: the gateway forwards
+ * /api/v1/couriers/ and answers the same path without it with a redirect that
+ * drops the port, which a browser cannot follow.
+ */
 export function listCouriers(
   query: CourierQuery = {},
   signal?: AbortSignal,
 ): Promise<{ data: AvailableCourier[]; meta: ApiMeta }> {
-  return apiWithMeta<AvailableCourier[]>(`/couriers${toQueryString(query)}`, {
+  return apiWithMeta<AvailableCourier[]>(`/couriers/${toQueryString(query)}`, {
     signal,
   });
 }
