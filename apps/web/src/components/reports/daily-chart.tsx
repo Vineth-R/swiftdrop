@@ -19,6 +19,11 @@ const HEIGHT = 100;
 const GRID_STEPS = 4;
 /** About this many dates are shown under the bars. */
 const LABELS_WANTED = 6;
+/**
+ * A day with nothing finished gets a thin mark on a range of this many days or
+ * fewer. On a longer range the marks would run together into a dashed line.
+ */
+const EMPTY_DAY_MARK_MAX_DAYS = 31;
 
 const shortDate = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
@@ -46,6 +51,11 @@ export function DailyChart({ rows }: DailyChartProps) {
 
   const tallest = Math.max(0, ...rows.map((row) => row.delivered + row.failed));
   const hasFinished = tallest > 0;
+  // The first day with anything finished. Days before it are empty, which the
+  // caption says, because a run of blank bars at the start can look like a gap.
+  const firstFinished = rows.find((row) => row.delivered + row.failed > 0);
+  const startsEmpty = firstFinished !== undefined && firstFinished !== rows[0];
+  const showEmptyDayMarks = rows.length <= EMPTY_DAY_MARK_MAX_DAYS;
   // Whole-number steps, so every count on the left is an integer.
   const step = Math.max(1, Math.ceil(tallest / GRID_STEPS));
   const scaleMaximum = step * GRID_STEPS;
@@ -66,6 +76,8 @@ export function DailyChart({ rows }: DailyChartProps) {
           {hasFinished
             ? `Tallest day: ${tallest}.`
             : 'No parcels finished in this range.'}
+          {startsEmpty &&
+            ` Nothing finished before ${formatReportDate(firstFinished.date)}.`}
         </span>
         <ul className="flex gap-4">
           <li className="flex items-center gap-2">
@@ -137,7 +149,7 @@ export function DailyChart({ rows }: DailyChartProps) {
                     height={HEIGHT}
                     className="fill-transparent"
                   />
-                  {delivered + failed === 0 && (
+                  {showEmptyDayMarks && delivered + failed === 0 && (
                     <rect
                       x={x}
                       y={HEIGHT - 1}
