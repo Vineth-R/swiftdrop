@@ -150,53 +150,81 @@ func (c *Client) ListCouriers(ctx context.Context, authHeader string, cookie *ht
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	endpoint := c.baseURL + "/couriers"
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("%w: build request: %v", ErrServiceUnavailable, err)
+	var allCouriers []Courier
+	page := 1
+	pageSize := 100
+
+	for {
+		endpoint := fmt.Sprintf("%s/couriers?page=%d&pageSize=%d", c.baseURL, page, pageSize)
+		request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%w: build request: %v", ErrServiceUnavailable, err)
+		}
+
+		if authHeader != "" {
+			request.Header.Set("Authorization", authHeader)
+		}
+		if cookie != nil {
+			request.AddCookie(cookie)
+		}
+
+		requestID := requestid.FromContext(ctx)
+		if !requestid.Valid(requestID) {
+			requestID = requestid.New()
+		}
+		request.Header.Set(requestid.Header, requestID)
+
+		response, err := c.http.Do(request)
+		if err != nil {
+			return nil, fmt.Errorf("%w: request failed: %v", ErrServiceUnavailable, err)
+		}
+
+		if response.StatusCode != http.StatusOK {
+			_ = response.Body.Close()
+			return nil, fmt.Errorf("%w: unexpected status %d", ErrServiceUnavailable, response.StatusCode)
+		}
+
+		var envelope struct {
+			Data []struct {
+				ID          string `json:"id"`
+				FullName    string `json:"fullName"`
+				IsAvailable bool   `json:"isAvailable"`
+			} `json:"data"`
+			Meta struct {
+				Pagination *struct {
+					Page       int `json:"page"`
+					PageSize   int `json:"pageSize"`
+					TotalItems int `json:"totalItems"`
+					TotalPages int `json:"totalPages"`
+				} `json:"pagination"`
+			} `json:"meta"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+			_ = response.Body.Close()
+			return nil, fmt.Errorf("%w: parse response: %v", ErrServiceUnavailable, err)
+		}
+		_ = response.Body.Close()
+
+		for _, item := range envelope.Data {
+			allCouriers = append(allCouriers, Courier{
+				ID:          item.ID,
+				FullName:    item.FullName,
+				IsAvailable: item.IsAvailable,
+			})
+		}
+
+		if len(envelope.Data) == 0 {
+			break
+		}
+		if envelope.Meta.Pagination != nil {
+			if page >= envelope.Meta.Pagination.TotalPages {
+				break
+			}
+		} else if len(envelope.Data) < pageSize {
+			break
+		}
+		page++
 	}
 
-	if authHeader != "" {
-		request.Header.Set("Authorization", authHeader)
-	}
-	if cookie != nil {
-		request.AddCookie(cookie)
-	}
-
-	requestID := requestid.FromContext(ctx)
-	if !requestid.Valid(requestID) {
-		requestID = requestid.New()
-	}
-	request.Header.Set(requestid.Header, requestID)
-
-	response, err := c.http.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("%w: request failed: %v", ErrServiceUnavailable, err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: unexpected status %d", ErrServiceUnavailable, response.StatusCode)
-	}
-
-	var envelope struct {
-		Data []struct {
-			ID          string `json:"id"`
-			FullName    string `json:"fullName"`
-			IsAvailable bool   `json:"isAvailable"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
-		return nil, fmt.Errorf("%w: parse response: %v", ErrServiceUnavailable, err)
-	}
-
-	couriers := make([]Courier, 0, len(envelope.Data))
-	for _, item := range envelope.Data {
-		couriers = append(couriers, Courier{
-			ID:          item.ID,
-			FullName:    item.FullName,
-			IsAvailable: item.IsAvailable,
-		})
-	}
-	return couriers, nil
+	return allCouriers, nil
 }

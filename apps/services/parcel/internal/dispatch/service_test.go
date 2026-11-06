@@ -155,6 +155,17 @@ func TestAssignCourier(t *testing.T) {
 		}
 	})
 
+	t.Run("courier client nil fails closed with ErrServiceUnavailable", func(t *testing.T) {
+		svc := NewService(&mockDispatchRepo{}, nil)
+		_, err := svc.AssignCourier(context.Background(), AssignInput{
+			ParcelID:  validParcelID,
+			CourierID: validCourierID,
+		})
+		if !errors.Is(err, ErrServiceUnavailable) {
+			t.Fatalf("expected ErrServiceUnavailable when client is nil, got: %v", err)
+		}
+	})
+
 	t.Run("courier not eligible from identity", func(t *testing.T) {
 		client := &mockCourierClient{
 			eligibilityFn: func(ctx context.Context, courierID string) error {
@@ -268,6 +279,14 @@ func TestGetWorkload(t *testing.T) {
 		// Courier 2 has 0 active deliveries
 		if workload[1].CourierID != "c2" || workload[1].ActiveDeliveries != 0 {
 			t.Errorf("courier 2 activeDeliveries = %d, want 0", workload[1].ActiveDeliveries)
+		}
+	})
+
+	t.Run("courier client nil fails closed with ErrServiceUnavailable", func(t *testing.T) {
+		svc := NewService(&mockDispatchRepo{}, nil)
+		_, err := svc.GetWorkload(context.Background(), "Bearer token", nil)
+		if !errors.Is(err, ErrServiceUnavailable) {
+			t.Fatalf("expected ErrServiceUnavailable when client is nil, got: %v", err)
 		}
 	})
 

@@ -22,6 +22,10 @@ type AMQPPublisher struct {
 	mu      sync.Mutex
 	conn    *amqp.Connection
 	channel *amqp.Channel
+	returns chan amqp.Return
+
+	// confirmFn allows overriding publish & confirm behavior for testing.
+	confirmFn func(ctx context.Context, exchange, routingKey string, body []byte) error
 }
 
 // NewAMQPPublisher creates an AMQPPublisher.
@@ -53,6 +57,7 @@ func (p *AMQPPublisher) Close() error {
 		}
 		p.conn = nil
 	}
+	p.returns = nil
 	if len(errs) > 0 {
 		return fmt.Errorf("closing amqp publisher: %v", errs)
 	}
@@ -78,6 +83,7 @@ func (p *AMQPPublisher) ensureChannel() (*amqp.Channel, error) {
 		_ = p.conn.Close()
 		p.conn = nil
 	}
+	p.returns = nil
 
 	conn, err := amqp.Dial(p.url)
 	if err != nil {
@@ -105,10 +111,14 @@ func (p *AMQPPublisher) ensureChannel() (*amqp.Channel, error) {
 		return nil, fmt.Errorf("declare exchange %s: %w", p.exchange, err)
 	}
 
+	// Register return listener before enabling publisher confirms
+	p.returns = channel.NotifyReturn(make(chan amqp.Return, 10))
+
 	// Enable publisher confirms
 	if err := channel.Confirm(false); err != nil {
 		_ = channel.Close()
 		_ = conn.Close()
+		p.returns = nil
 		return nil, fmt.Errorf("enable publisher confirms: %w", err)
 	}
 
@@ -117,11 +127,16 @@ func (p *AMQPPublisher) ensureChannel() (*amqp.Channel, error) {
 	return p.channel, nil
 }
 
-// Publish publishes a message with publisher confirms.
+// Publish publishes a message with publisher confirms and mandatory routing check.
 func (p *AMQPPublisher) Publish(ctx context.Context, exchange, routingKey string, body []byte) error {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.confirmFn != nil {
+		return p.confirmFn(ctx, exchange, routingKey, body)
+	}
+
 	channel, err := p.ensureChannel()
-	p.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("ensure amqp channel: %w", err)
 	}
@@ -132,6 +147,8 @@ func (p *AMQPPublisher) Publish(ctx context.Context, exchange, routingKey string
 	if exchange == "" {
 		exchange = p.exchange
 	}
+
+	drainReturns(p.returns)
 
 	msg := amqp.Publishing{
 		DeliveryMode: amqp.Persistent,
@@ -153,5 +170,41 @@ func (p *AMQPPublisher) Publish(ctx context.Context, exchange, routingKey string
 		return fmt.Errorf("broker nacked publication to %s/%s", exchange, routingKey)
 	}
 
+	if err := checkReturn(p.returns, exchange, routingKey); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// checkReturn inspects the returns channel for unroutable message returns.
+func checkReturn(returns <-chan amqp.Return, exchange, routingKey string) error {
+	if returns == nil {
+		return nil
+	}
+	select {
+	case returned, ok := <-returns:
+		if ok {
+			return fmt.Errorf("rabbitmq returned unroutable message from %s with routing key %s: %d %s", exchange, routingKey, returned.ReplyCode, returned.ReplyText)
+		}
+	default:
+	}
+	return nil
+}
+
+// drainReturns empties any buffered returns prior to publishing.
+func drainReturns(returns <-chan amqp.Return) {
+	if returns == nil {
+		return
+	}
+	for {
+		select {
+		case _, ok := <-returns:
+			if !ok {
+				return
+			}
+		default:
+			return
+		}
+	}
 }

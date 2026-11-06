@@ -329,3 +329,48 @@ func TestDispatchFailClosedWithoutAccessSecret(t *testing.T) {
 		}
 	}
 }
+
+func TestDispatchValidationErrors(t *testing.T) {
+	router := setupTestRouter(t, &mockDispatchService{}, testAccessSecret)
+
+	t.Run("unassigned invalid query params return 422", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodGet, "/dispatch/unassigned?page=bad&pageSize=200&from=not-a-date&zoneId=bad-uuid", nil)
+		req.Header.Set("Authorization", "Bearer "+testToken(t, auth.RoleDispatcher))
+		rec := executeRequest(router, req)
+
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "VALIDATION_ERROR") {
+			t.Errorf("body missing VALIDATION_ERROR: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("admin parcels invalid query params return 422", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodGet, "/admin/parcels?page=-1&courierId=not-a-uuid&from=invalid", nil)
+		req.Header.Set("Authorization", "Bearer "+testToken(t, auth.RoleAdmin))
+		rec := executeRequest(router, req)
+
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "VALIDATION_ERROR") {
+			t.Errorf("body missing VALIDATION_ERROR: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("assign courier payload too large returns 413", func(t *testing.T) {
+		bigBody := `{"courierId":"c1","reason":"` + strings.Repeat("A", 17000) + `"}`
+		req, _ := http.NewRequest(http.MethodPut, "/dispatch/parcels/3f1c7a52-0000-4000-8000-000000000001/assignment", strings.NewReader(bigBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+testToken(t, auth.RoleDispatcher))
+		rec := executeRequest(router, req)
+
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "PAYLOAD_TOO_LARGE") {
+			t.Errorf("body missing PAYLOAD_TOO_LARGE: %s", rec.Body.String())
+		}
+	})
+}

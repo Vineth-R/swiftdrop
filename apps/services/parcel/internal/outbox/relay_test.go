@@ -32,7 +32,17 @@ func (m *mockStore) ProcessPending(ctx context.Context, limit int, handler func(
 			break
 		}
 
+		if m.events[i].Attempts >= MaxAttempts {
+			m.events[i].Status = "FAILED"
+			processed++
+			continue
+		}
+
 		err := handler(m.events[i])
+		if errors.Is(err, ErrSkip) {
+			continue
+		}
+
 		if err == nil {
 			m.events[i].Status = "PUBLISHED"
 			now := time.Now().UTC()
@@ -41,6 +51,9 @@ func (m *mockStore) ProcessPending(ctx context.Context, limit int, handler func(
 			m.events[i].LastError = nil
 		} else {
 			m.events[i].Attempts++
+			if m.events[i].Attempts >= MaxAttempts {
+				m.events[i].Status = "FAILED"
+			}
 			msg := err.Error()
 			m.events[i].LastError = &msg
 		}
@@ -218,5 +231,110 @@ func TestRelayCleanup(t *testing.T) {
 
 	if !cleanupCalled {
 		t.Error("expected cleanup to be called on startup")
+	}
+}
+
+func TestBackoffDuration(t *testing.T) {
+	if got := BackoffDuration(0); got != 0 {
+		t.Errorf("BackoffDuration(0) = %v, want 0", got)
+	}
+
+	// Attempt 1: base = 1s, half = 500ms, range [500ms, 1s]
+	d1 := BackoffDuration(1)
+	if d1 < 500*time.Millisecond || d1 > time.Second {
+		t.Errorf("BackoffDuration(1) = %v, want between 500ms and 1s", d1)
+	}
+
+	// Attempt 5: base = 16s, half = 8s, range [8s, 16s]
+	d5 := BackoffDuration(5)
+	if d5 < 8*time.Second || d5 > 16*time.Second {
+		t.Errorf("BackoffDuration(5) = %v, want between 8s and 16s", d5)
+	}
+
+	// Attempt 6+: capped at 30s maxDelay, half = 15s, range [15s, 30s]
+	d6 := BackoffDuration(10)
+	if d6 < 15*time.Second || d6 > 30*time.Second {
+		t.Errorf("BackoffDuration(10) = %v, want between 15s and 30s", d6)
+	}
+}
+
+func TestRelayPollOnceBackoffSkipsUntilReady(t *testing.T) {
+	store := &mockStore{
+		events: []Event{
+			{
+				ID:         "00000000-0000-4000-8000-000000000003",
+				EventType:  "parcel.created",
+				RoutingKey: "parcel.created",
+				Payload:    json.RawMessage(`{"parcel_id":"p1"}`),
+				Status:     "PENDING",
+				Attempts:   0,
+				CreatedAt:  time.Now().UTC(),
+			},
+		},
+	}
+	pub := &mockPublisher{err: errors.New("amqp down")}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	relay := NewRelay(store, pub, logger)
+
+	// First poll fails and sets backoff
+	processed, err := relay.PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("PollOnce() error: %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("expected 1 processed event, got %d", processed)
+	}
+	if store.events[0].Attempts != 1 {
+		t.Fatalf("expected 1 attempt, got %d", store.events[0].Attempts)
+	}
+
+	// Second poll immediately should skip the event because it is in backoff
+	processed2, err := relay.PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("PollOnce() error: %v", err)
+	}
+	if processed2 != 0 {
+		t.Fatalf("expected 0 processed events (skipped in backoff), got %d", processed2)
+	}
+	if store.events[0].Attempts != 1 {
+		t.Fatalf("expected attempts to remain 1 while in backoff, got %d", store.events[0].Attempts)
+	}
+}
+
+func TestRelayMaxAttemptsTransitionsToFailed(t *testing.T) {
+	store := &mockStore{
+		events: []Event{
+			{
+				ID:         "00000000-0000-4000-8000-000000000004",
+				EventType:  "parcel.created",
+				RoutingKey: "parcel.created",
+				Payload:    json.RawMessage(`{"parcel_id":"p1"}`),
+				Status:     "PENDING",
+				Attempts:   4, // Already failed 4 times
+				CreatedAt:  time.Now().UTC(),
+			},
+		},
+	}
+	pub := &mockPublisher{err: errors.New("permanent failure")}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	relay := NewRelay(store, pub, logger)
+
+	processed, err := relay.PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("PollOnce() error: %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("expected 1 processed event, got %d", processed)
+	}
+	if store.events[0].Attempts != 5 {
+		t.Fatalf("expected 5 attempts, got %d", store.events[0].Attempts)
+	}
+	if store.events[0].Status != "FAILED" {
+		t.Fatalf("expected status FAILED after 5 attempts, got %s", store.events[0].Status)
+	}
+	if store.events[0].LastError == nil || *store.events[0].LastError != "permanent failure" {
+		t.Fatalf("expected lastError = permanent failure, got %v", store.events[0].LastError)
 	}
 }

@@ -63,13 +63,14 @@ func (s *Service) AssignCourier(ctx context.Context, input AssignInput) (AssignR
 	}
 
 	// Verify target courier eligibility via Identity service
-	if s.courierClient != nil {
-		if err := s.courierClient.CheckEligibility(ctx, input.CourierID); err != nil {
-			if errors.Is(err, identityclient.ErrCourierNotEligible) {
-				return AssignResult{}, ErrCourierNotEligible
-			}
-			return AssignResult{}, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
+	if s.courierClient == nil {
+		return AssignResult{}, fmt.Errorf("%w: courier eligibility client is not configured", ErrServiceUnavailable)
+	}
+	if err := s.courierClient.CheckEligibility(ctx, input.CourierID); err != nil {
+		if errors.Is(err, identityclient.ErrCourierNotEligible) {
+			return AssignResult{}, ErrCourierNotEligible
 		}
+		return AssignResult{}, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
 
 	return s.repo.AssignCourier(ctx, input)
@@ -87,36 +88,13 @@ func (s *Service) GetWorkload(ctx context.Context, authHeader string, cookie *ht
 		return nil, fmt.Errorf("load workload counts: %w", err)
 	}
 
-	// 2. Retrieve couriers from Identity if client is available
-	var couriers []identityclient.Courier
-	if s.courierClient != nil {
-		var err error
-		couriers, err = s.courierClient.ListCouriers(ctx, authHeader, cookie)
-		if err != nil {
-			// If identity is down, return 503 per API v1.1
-			return nil, fmt.Errorf("%w: failed to fetch couriers: %v", ErrServiceUnavailable, err)
-		}
+	// 2. Retrieve couriers from Identity (fail-closed if client is not configured)
+	if s.courierClient == nil {
+		return nil, fmt.Errorf("%w: courier client is not configured", ErrServiceUnavailable)
 	}
-
-	// If no identity client or empty list, fall back to couriers present in DB
-	if len(couriers) == 0 {
-		var result []CourierWorkload
-		for courierID, counts := range dbCounts {
-			byStatus := map[string]int{
-				"CREATED":          counts.ByStatus["CREATED"],
-				"PICKED_UP":        counts.ByStatus["PICKED_UP"],
-				"IN_TRANSIT":       counts.ByStatus["IN_TRANSIT"],
-				"OUT_FOR_DELIVERY": counts.ByStatus["OUT_FOR_DELIVERY"],
-			}
-			result = append(result, CourierWorkload{
-				CourierID:        courierID,
-				FullName:         "Courier " + courierID[:8],
-				IsAvailable:      true,
-				ActiveDeliveries: counts.Total,
-				ByStatus:         byStatus,
-			})
-		}
-		return result, nil
+	couriers, err := s.courierClient.ListCouriers(ctx, authHeader, cookie)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to fetch couriers: %v", ErrServiceUnavailable, err)
 	}
 
 	result := make([]CourierWorkload, 0, len(couriers))

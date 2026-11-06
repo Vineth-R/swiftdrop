@@ -6,12 +6,44 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
+
+// MaxAttempts is the maximum number of publish attempts before an event transitions to FAILED.
+const MaxAttempts = 5
+
+// ErrSkip indicates an event should not be published in this batch (e.g. currently in exponential backoff).
+var ErrSkip = errors.New("outbox event skipped (in backoff)")
+
+// BackoffDuration calculates exponential backoff with jitter for a given attempt count.
+// Base delay is 1s, maximum delay is 30s.
+func BackoffDuration(attempt int) time.Duration {
+	if attempt <= 0 {
+		return 0
+	}
+	shift := attempt - 1
+	if shift > 5 {
+		shift = 5
+	}
+	base := time.Second * (1 << shift)
+	maxDelay := 30 * time.Second
+	if base > maxDelay {
+		base = maxDelay
+	}
+
+	half := base / 2
+	if half <= 0 {
+		return base
+	}
+	jitter := time.Duration(rand.Int64N(int64(half) + 1))
+	return half + jitter
+}
 
 // Event is one row from parcel.outbox_events.
 type Event struct {
@@ -49,8 +81,9 @@ func NewSQLStore(pool *postgres.Pool) *SQLStore {
 	return &SQLStore{pool: pool}
 }
 
-// ProcessPending locks a batch of PENDING events with FOR UPDATE SKIP LOCKED,
-// invokes handler for each event, and updates the row status atomically.
+// ProcessPending queries a batch of PENDING events, invokes handler for each event
+// without holding database transaction row locks during broker publish,
+// and updates the row status atomically.
 func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(event Event) error) (int, error) {
 	if s.pool == nil {
 		return 0, errors.New("database pool is not configured")
@@ -59,23 +92,14 @@ func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(e
 		limit = 50
 	}
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("begin transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-
 	query := `
 		SELECT id, event_type, routing_key, payload, attempts, created_at, aggregate_type, aggregate_id
 		FROM parcel.outbox_events
 		WHERE status = 'PENDING'
 		ORDER BY created_at ASC
-		LIMIT $1
-		FOR UPDATE SKIP LOCKED`
+		LIMIT $1`
 
-	rows, err := tx.Query(ctx, query, limit)
+	rows, err := s.pool.Query(ctx, query, limit)
 	if err != nil {
 		return 0, fmt.Errorf("fetch pending outbox events: %w", err)
 	}
@@ -105,7 +129,23 @@ func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(e
 
 	processed := 0
 	for _, event := range events {
+		if event.Attempts >= MaxAttempts {
+			updateSQL := `
+				UPDATE parcel.outbox_events
+				SET status = 'FAILED'
+				WHERE id = $1 AND status = 'PENDING'`
+			if _, err := s.pool.Exec(ctx, updateSQL, event.ID); err != nil {
+				return processed, fmt.Errorf("mark max-attempts event failed: %w", err)
+			}
+			processed++
+			continue
+		}
+
 		pubErr := handler(event)
+		if errors.Is(pubErr, ErrSkip) {
+			continue
+		}
+
 		if pubErr == nil {
 			// Mark PUBLISHED
 			updateSQL := `
@@ -114,31 +154,30 @@ func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(e
 				    published_at = now(),
 				    attempts = attempts + 1,
 				    last_error = NULL
-				WHERE id = $1`
-			if _, err := tx.Exec(ctx, updateSQL, event.ID); err != nil {
+				WHERE id = $1 AND status = 'PENDING'`
+			if _, err := s.pool.Exec(ctx, updateSQL, event.ID); err != nil {
 				return processed, fmt.Errorf("mark event published: %w", err)
 			}
 		} else {
-			// Increment attempts and record last_error, leaving status PENDING for future retry
 			errMsg := pubErr.Error()
-			if len(errMsg) > 255 {
-				errMsg = errMsg[:255]
+			newAttempts := event.Attempts + 1
+			newStatus := "PENDING"
+			if newAttempts >= MaxAttempts {
+				newStatus = "FAILED"
 			}
 			updateSQL := `
 				UPDATE parcel.outbox_events
-				SET attempts = attempts + 1,
-				    last_error = $2
-				WHERE id = $1`
-			if _, err := tx.Exec(ctx, updateSQL, event.ID, errMsg); err != nil {
+				SET status = $2,
+				    attempts = $3,
+				    last_error = $4
+				WHERE id = $1 AND status = 'PENDING'`
+			if _, err := s.pool.Exec(ctx, updateSQL, event.ID, newStatus, newAttempts, errMsg); err != nil {
 				return processed, fmt.Errorf("record event failure: %w", err)
 			}
 		}
 		processed++
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit outbox batch: %w", err)
-	}
 	return processed, nil
 }
 
@@ -182,10 +221,12 @@ func DefaultRelayOptions() RelayOptions {
 
 // Relay polls pending outbox events and publishes them to the message broker.
 type Relay struct {
-	store     Store
-	publisher Publisher
-	logger    *slog.Logger
-	options   RelayOptions
+	store        Store
+	publisher    Publisher
+	logger       *slog.Logger
+	options      RelayOptions
+	retryAfterMu sync.RWMutex
+	retryAfter   map[string]time.Time
 }
 
 // NewRelay returns an initialized Relay worker.
@@ -207,10 +248,11 @@ func NewRelay(store Store, publisher Publisher, logger *slog.Logger, options ...
 		logger = slog.Default()
 	}
 	return &Relay{
-		store:     store,
-		publisher: publisher,
-		logger:    logger,
-		options:   opts,
+		store:      store,
+		publisher:  publisher,
+		logger:     logger,
+		options:    opts,
+		retryAfter: make(map[string]time.Time),
 	}
 }
 
@@ -275,6 +317,14 @@ func (r *Relay) pollOnce(ctx context.Context) (int, error) {
 	}
 
 	count, err := r.store.ProcessPending(ctx, r.options.BatchSize, func(event Event) error {
+		r.retryAfterMu.RLock()
+		until, inBackoff := r.retryAfter[event.ID]
+		r.retryAfterMu.RUnlock()
+
+		if inBackoff && time.Now().Before(until) {
+			return ErrSkip
+		}
+
 		publishedType, publishedKey := mapEventRouting(event.EventType, event.RoutingKey)
 
 		// Verify data is a valid JSON object
@@ -308,8 +358,17 @@ func (r *Relay) pollOnce(ctx context.Context) (int, error) {
 				"routingKey", publishedKey,
 				"error", err,
 			)
+
+			backoff := BackoffDuration(event.Attempts + 1)
+			r.retryAfterMu.Lock()
+			r.retryAfter[event.ID] = time.Now().Add(backoff)
+			r.retryAfterMu.Unlock()
 			return err
 		}
+
+		r.retryAfterMu.Lock()
+		delete(r.retryAfter, event.ID)
+		r.retryAfterMu.Unlock()
 
 		r.logger.Info("published outbox event",
 			"eventId", event.ID,

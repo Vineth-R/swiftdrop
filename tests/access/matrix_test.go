@@ -47,13 +47,13 @@ var matrix = []accesskit.Case{
 	{Name: "GET /admin/merchants/{id}", Method: http.MethodGet, Path: "/api/v1/admin/merchants/" + anyID, Allowed: []auth.Role{auth.RoleAdmin}, Pending: merchantWiring},
 	{Name: "POST /admin/merchants/{id}/approve", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/approve", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}, Pending: merchantWiring},
 
-	// Parcel: none of these routes exists yet.
+	// Parcel
 	{Name: "POST /parcels", Method: http.MethodPost, Path: "/api/v1/parcels/", Body: `{}`, Allowed: []auth.Role{auth.RoleCustomer}, Missing: "the parcel service has no POST /parcels yet (API 4.1)"},
 	{Name: "GET /parcels", Method: http.MethodGet, Path: "/api/v1/parcels/", Allowed: []auth.Role{auth.RoleCustomer}, Missing: "the parcel service has no GET /parcels yet (API 4.2)"},
-	{Name: "GET /dispatch/unassigned", Method: http.MethodGet, Path: "/api/v1/dispatch/unassigned", Allowed: []auth.Role{auth.RoleDispatcher}, Missing: "the parcel service has no dispatch routes yet (API 5.1)"},
-	{Name: "GET /dispatch/workload", Method: http.MethodGet, Path: "/api/v1/dispatch/workload", Allowed: []auth.Role{auth.RoleDispatcher}, Missing: "the parcel service has no dispatch routes yet (API 5.3)"},
-	{Name: "PUT /dispatch/parcels/{id}/assignment", Method: http.MethodPut, Path: "/api/v1/dispatch/parcels/" + anyID + "/assignment", Body: `{}`, Allowed: []auth.Role{auth.RoleDispatcher}, Missing: "the parcel service has no dispatch routes yet (API 5.2)"},
-	{Name: "GET /admin/parcels", Method: http.MethodGet, Path: "/api/v1/admin/parcels/", Allowed: []auth.Role{auth.RoleDispatcher}, Missing: "the parcel service has no GET /admin/parcels yet (API 5.4)"},
+	{Name: "GET /dispatch/unassigned", Method: http.MethodGet, Path: "/api/v1/dispatch/unassigned", Allowed: []auth.Role{auth.RoleDispatcher}},
+	{Name: "GET /dispatch/workload", Method: http.MethodGet, Path: "/api/v1/dispatch/workload", Allowed: []auth.Role{auth.RoleDispatcher}},
+	{Name: "PUT /dispatch/parcels/{id}/assignment", Method: http.MethodPut, Path: "/api/v1/dispatch/parcels/" + anyID + "/assignment", Body: `{}`, Allowed: []auth.Role{auth.RoleDispatcher}},
+	{Name: "GET /admin/parcels", Method: http.MethodGet, Path: "/api/v1/admin/parcels/", Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "GET /courier/deliveries", Method: http.MethodGet, Path: "/api/v1/courier/deliveries", Allowed: []auth.Role{auth.RoleCourier}, Missing: "the parcel service has no courier routes yet (API 6.1)"},
 }
 

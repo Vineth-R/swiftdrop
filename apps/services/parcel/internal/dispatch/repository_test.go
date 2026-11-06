@@ -103,6 +103,25 @@ func (tx *fakeTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 func (tx *fakeTx) Conn() *pgx.Conn { return nil }
 
+func TestEscapeLike(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"SDK12345678", "SDK12345678"},
+		{"SDK_123", `SDK\_123`},
+		{"SDK%123", `SDK\%123`},
+		{`SDK\123`, `SDK\\123`},
+		{`%_\`, `\%\_\\`},
+	}
+
+	for _, c := range cases {
+		if got := escapeLike(c.input); got != c.want {
+			t.Errorf("escapeLike(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
+}
+
 type mockDB struct {
 	execFn     func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	queryRowFn func(ctx context.Context, sql string, args ...any) pgx.Row

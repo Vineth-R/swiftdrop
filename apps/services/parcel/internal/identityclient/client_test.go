@@ -153,6 +153,75 @@ func TestListCouriers(t *testing.T) {
 	}
 }
 
+func TestListCouriersPagination(t *testing.T) {
+	pageRequests := 0
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/couriers" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		pageRequests++
+		if page == "1" {
+			_, _ = w.Write([]byte(`{
+				"data": [
+					{"id": "c1", "fullName": "Kasun Silva", "isAvailable": true}
+				],
+				"meta": {
+					"pagination": {
+						"page": 1,
+						"pageSize": 100,
+						"totalItems": 2,
+						"totalPages": 2
+					}
+				}
+			}`))
+			return
+		}
+		if page == "2" {
+			_, _ = w.Write([]byte(`{
+				"data": [
+					{"id": "c2", "fullName": "Amal Fernando", "isAvailable": false}
+				],
+				"meta": {
+					"pagination": {
+						"page": 2,
+						"pageSize": 100,
+						"totalItems": 2,
+						"totalPages": 2
+					}
+				}
+			}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	})
+
+	client, err := New("http://identity.internal", "test-token", time.Second)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	client.WithTransport(roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, r)
+		return rec.Result(), nil
+	}))
+
+	couriers, err := client.ListCouriers(context.Background(), "Bearer fake-token", nil)
+	if err != nil {
+		t.Fatalf("ListCouriers() error: %v", err)
+	}
+	if len(couriers) != 2 {
+		t.Fatalf("expected 2 couriers across pages, got %d", len(couriers))
+	}
+	if pageRequests != 2 {
+		t.Fatalf("expected 2 page requests, got %d", pageRequests)
+	}
+}
+
 func TestNewValidatesURL(t *testing.T) {
 	badURLs := []string{
 		"",

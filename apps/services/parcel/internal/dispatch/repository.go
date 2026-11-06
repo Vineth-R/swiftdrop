@@ -401,8 +401,8 @@ func (r *Repository) ListAdminParcels(ctx context.Context, filter AdminParcelFil
 	}
 
 	if filter.TrackingNumber != nil && strings.TrimSpace(*filter.TrackingNumber) != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("tracking_number ILIKE $%d || '%%'", argIdx))
-		args = append(args, strings.TrimSpace(*filter.TrackingNumber))
+		whereClauses = append(whereClauses, fmt.Sprintf("tracking_number ILIKE $%d || '%%' ESCAPE '\\'", argIdx))
+		args = append(args, escapeLike(strings.TrimSpace(*filter.TrackingNumber)))
 		argIdx++
 	}
 
@@ -489,4 +489,9 @@ func (r *Repository) ListAdminParcels(ctx context.Context, filter AdminParcelFil
 		PageSize:   pageSize,
 		TotalItems: totalItems,
 	}, nil
+}
+
+// escapeLike makes %, _ and \ match themselves in a LIKE pattern.
+func escapeLike(value string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
 }

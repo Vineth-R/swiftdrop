@@ -97,28 +97,29 @@ func (h *dispatchHandlers) probe(c *gin.Context) {
 }
 
 func (h *dispatchHandlers) unassigned(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
-	sort := c.DefaultQuery("sort", "createdAt:asc")
+	issues := validation.New()
+	page, pageSize := parsePagination(c, issues, 1, 20)
+	from, to := parseTimeRange(c, issues)
 
 	filter := dispatch.UnassignedFilter{
 		Page:     page,
 		PageSize: pageSize,
-		Sort:     sort,
+		Sort:     c.DefaultQuery("sort", "createdAt:asc"),
+		From:     from,
+		To:       to,
 	}
 
 	if zoneID := c.Query("zoneId"); zoneID != "" {
-		filter.ZoneID = &zoneID
-	}
-	if fromStr := c.Query("from"); fromStr != "" {
-		if t, err := time.Parse(time.RFC3339, fromStr); err == nil {
-			filter.From = &t
+		if !validation.UUID(zoneID) {
+			issues.Add("zoneId", "must be a valid UUID")
+		} else {
+			filter.ZoneID = &zoneID
 		}
 	}
-	if toStr := c.Query("to"); toStr != "" {
-		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
-			filter.To = &t
-		}
+
+	if !issues.Empty() {
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more parameters are invalid", httpx.ErrorItems(issues.Issues()))
+		return
 	}
 
 	result, err := h.service.ListUnassigned(c.Request.Context(), filter)
@@ -133,11 +134,17 @@ func (h *dispatchHandlers) unassigned(c *gin.Context) {
 func (h *dispatchHandlers) assignCourier(c *gin.Context) {
 	parcelID := c.Param("parcelId")
 
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
 	var req struct {
 		CourierID string `json:"courierId"`
 		Reason    string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			httpx.Error(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body is too large")
+			return
+		}
 		httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
@@ -176,40 +183,49 @@ func (h *dispatchHandlers) workload(c *gin.Context) {
 }
 
 func (h *dispatchHandlers) adminParcels(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
-	sort := c.DefaultQuery("sort", "createdAt:desc")
+	issues := validation.New()
+	page, pageSize := parsePagination(c, issues, 1, 20)
+	from, to := parseTimeRange(c, issues)
 
 	filter := dispatch.AdminParcelFilter{
 		Page:     page,
 		PageSize: pageSize,
-		Sort:     sort,
+		Sort:     c.DefaultQuery("sort", "createdAt:desc"),
+		From:     from,
+		To:       to,
 	}
 
 	if status := c.Query("status"); status != "" {
 		filter.Status = &status
 	}
 	if courierID := c.Query("courierId"); courierID != "" {
-		filter.CourierID = &courierID
+		if !validation.UUID(courierID) {
+			issues.Add("courierId", "must be a valid UUID")
+		} else {
+			filter.CourierID = &courierID
+		}
 	}
 	if merchantID := c.Query("merchantId"); merchantID != "" {
-		filter.MerchantID = &merchantID
+		if !validation.UUID(merchantID) {
+			issues.Add("merchantId", "must be a valid UUID")
+		} else {
+			filter.MerchantID = &merchantID
+		}
 	}
 	if customerID := c.Query("customerId"); customerID != "" {
-		filter.CustomerID = &customerID
+		if !validation.UUID(customerID) {
+			issues.Add("customerId", "must be a valid UUID")
+		} else {
+			filter.CustomerID = &customerID
+		}
 	}
 	if trackingNumber := c.Query("trackingNumber"); trackingNumber != "" {
 		filter.TrackingNumber = &trackingNumber
 	}
-	if fromStr := c.Query("from"); fromStr != "" {
-		if t, err := time.Parse(time.RFC3339, fromStr); err == nil {
-			filter.From = &t
-		}
-	}
-	if toStr := c.Query("to"); toStr != "" {
-		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
-			filter.To = &t
-		}
+
+	if !issues.Empty() {
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more parameters are invalid", httpx.ErrorItems(issues.Issues()))
+		return
 	}
 
 	result, err := h.service.ListAdminParcels(c.Request.Context(), filter)
@@ -219,6 +235,54 @@ func (h *dispatchHandlers) adminParcels(c *gin.Context) {
 	}
 
 	httpx.SuccessList(c, http.StatusOK, result.Items, httpx.NewPagination(result.Page, result.PageSize, result.TotalItems))
+}
+
+func parsePagination(c *gin.Context, issues *validation.Collector, defaultPage, defaultPageSize int) (int, int) {
+	page := defaultPage
+	if pageStr := c.Query("page"); pageStr != "" {
+		p, err := strconv.Atoi(pageStr)
+		if err != nil || p < 1 {
+			issues.Add("page", "must be a positive integer")
+		} else {
+			page = p
+		}
+	}
+
+	pageSize := defaultPageSize
+	if pageSizeStr := c.Query("pageSize"); pageSizeStr != "" {
+		ps, err := strconv.Atoi(pageSizeStr)
+		if err != nil || ps < 1 || ps > 100 {
+			issues.Add("pageSize", "must be between 1 and 100")
+		} else {
+			pageSize = ps
+		}
+	}
+
+	return page, pageSize
+}
+
+func parseTimeRange(c *gin.Context, issues *validation.Collector) (*time.Time, *time.Time) {
+	var from, to *time.Time
+	if fromStr := c.Query("from"); fromStr != "" {
+		t, err := time.Parse(time.RFC3339, fromStr)
+		if err != nil {
+			issues.Add("from", "must be an RFC3339 date-time")
+		} else {
+			from = &t
+		}
+	}
+	if toStr := c.Query("to"); toStr != "" {
+		t, err := time.Parse(time.RFC3339, toStr)
+		if err != nil {
+			issues.Add("to", "must be an RFC3339 date-time")
+		} else {
+			to = &t
+		}
+	}
+	if from != nil && to != nil && from.After(*to) {
+		issues.Add("to", "must be after from")
+	}
+	return from, to
 }
 
 func (h *dispatchHandlers) handleError(c *gin.Context, err error) {
@@ -246,6 +310,3 @@ func (h *dispatchHandlers) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 	}
 }
-
-// Ensure validation helper is satisfied if needed
-var _ = validation.UUID
