@@ -6,10 +6,15 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
-func TestLoadFromDefaults(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(string) (string, bool) {
-		return "", false
+func loaderFor(values map[string]string) sharedconfig.Loader {
+	return sharedconfig.NewLoader(func(key string) (string, bool) {
+		value, ok := values[key]
+		return value, ok
 	})
+}
+
+func TestLoadFromDefaults(t *testing.T) {
+	loader := loaderFor(map[string]string{"APP_ENV": "development"})
 
 	config, err := LoadFrom(loader)
 	if err != nil {
@@ -30,16 +35,46 @@ func TestLoadFromDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadFromRequiresAppEnv(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{name: "unset", values: map[string]string{}},
+		{name: "empty", values: map[string]string{"APP_ENV": ""}},
+		{name: "whitespace", values: map[string]string{"APP_ENV": "   "}},
+		{name: "unknown", values: map[string]string{"APP_ENV": "local"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := LoadFrom(loaderFor(test.values)); err == nil {
+				t.Fatal("LoadFrom() should fail without a valid APP_ENV")
+			}
+		})
+	}
+}
+
+func TestLoadFromAcceptsSupportedAppEnv(t *testing.T) {
+	tests := []string{"development", "staging", "production"}
+	for _, appEnv := range tests {
+		t.Run(appEnv, func(t *testing.T) {
+			config, err := LoadFrom(loaderFor(map[string]string{"APP_ENV": appEnv}))
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AppEnv != appEnv {
+				t.Fatalf("AppEnv = %q, want %q", config.AppEnv, appEnv)
+			}
+		})
+	}
+}
+
 func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		values := map[string]string{
-			"APP_ENV":      " PRODUCTION ",
-			"LOG_LEVEL":    "WARNING",
-			"PORT":         " 9092 ",
-			"DATABASE_URL": " postgres://example ",
-		}
-		value, ok := values[key]
-		return value, ok
+	loader := loaderFor(map[string]string{
+		"APP_ENV":      " PRODUCTION ",
+		"LOG_LEVEL":    "WARNING",
+		"PORT":         " 9092 ",
+		"DATABASE_URL": " postgres://example ",
 	})
 
 	config, err := LoadFrom(loader)
@@ -61,15 +96,21 @@ func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 	}
 }
 
-func TestLoadFromRejectsInvalidConfig(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		if key == "APP_ENV" {
-			return "local", true
-		}
-		return "", false
-	})
+func TestLoadFromRejectsInvalidPort(t *testing.T) {
+	tests := []string{"not-a-number", "0", "65536"}
+	for _, port := range tests {
+		t.Run(port, func(t *testing.T) {
+			loader := loaderFor(map[string]string{"APP_ENV": "development", "PORT": port})
+			if _, err := LoadFrom(loader); err == nil {
+				t.Fatalf("LoadFrom() should fail for PORT=%q", port)
+			}
+		})
+	}
+}
 
+func TestLoadFromRejectsInvalidLogLevel(t *testing.T) {
+	loader := loaderFor(map[string]string{"APP_ENV": "development", "LOG_LEVEL": "verbose"})
 	if _, err := LoadFrom(loader); err == nil {
-		t.Fatal("LoadFrom() should fail for an unsupported APP_ENV")
+		t.Fatal("LoadFrom() should fail for an unsupported LOG_LEVEL")
 	}
 }

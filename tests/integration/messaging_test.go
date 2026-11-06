@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -124,7 +125,7 @@ func (f *fixture) cleanup() {
 	_ = f.conn.Close()
 }
 
-func (f *fixture) runConsumer(t *testing.T, handler messaging.Handler, maxRetries int, retryDelay time.Duration) {
+func (f *fixture) runConsumer(t *testing.T, handler messaging.Handler, maxRetries int, retryDelay time.Duration) func() {
 	t.Helper()
 
 	logs := &lockedBuffer{}
@@ -149,14 +150,18 @@ func (f *fixture) runConsumer(t *testing.T, handler messaging.Handler, maxRetrie
 		}, handler, logger)
 	}()
 
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-stopped:
-		case <-time.After(5 * time.Second):
-			t.Errorf("consumer did not stop; logs:\n%s", logs.String())
-		}
-	})
+	var stopOnce sync.Once
+	stop := func() {
+		stopOnce.Do(func() {
+			cancel()
+			select {
+			case <-stopped:
+			case <-time.After(5 * time.Second):
+				t.Errorf("consumer did not stop; logs:\n%s", logs.String())
+			}
+		})
+	}
+	t.Cleanup(stop)
 
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -168,12 +173,13 @@ func (f *fixture) runConsumer(t *testing.T, handler messaging.Handler, maxRetrie
 
 		queue, err := f.channel.QueueInspect(f.queue)
 		if err == nil && queue.Consumers > 0 {
-			return
+			return stop
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 
 	t.Fatalf("consumer did not become ready; logs:\n%s", logs.String())
+	return stop
 }
 
 func (f *fixture) publish(t *testing.T, messageID, body string) {
@@ -420,4 +426,117 @@ func TestConsumerRecoversPanicAndRetries(t *testing.T) {
 	if info.Messages != 0 {
 		t.Fatalf("dead-letter queue messages = %d, want 0", info.Messages)
 	}
+}
+
+func (f *fixture) publishWithContentType(t *testing.T, messageID, contentType, body string) {
+	t.Helper()
+
+	err := f.channel.PublishWithContext(context.Background(), f.exchange, f.routingKey, false, false, amqp.Publishing{
+		ContentType:   contentType,
+		DeliveryMode:  amqp.Persistent,
+		MessageId:     messageID,
+		CorrelationId: "correlation-" + messageID,
+		Body:          []byte(body),
+	})
+	if err != nil {
+		t.Fatalf("publish message: %v", err)
+	}
+}
+
+func TestConsumerRequeuesInFlightMessageOnShutdown(t *testing.T) {
+	f := newFixture(t)
+
+	started := make(chan struct{})
+	stopFirst := f.runConsumer(t, handlerFunc(func(ctx context.Context, _ messaging.Message) error {
+		close(started)
+		<-ctx.Done()
+		return errors.New("handler interrupted by shutdown")
+	}), 2, 100*time.Millisecond)
+
+	f.publish(t, "shutdown-requeue-1", `{"event_id":"shutdown-requeue-1"}`)
+	waitForAttempt(t, started, 5*time.Second)
+	stopFirst()
+
+	var calls atomic.Int32
+	processed := make(chan struct{}, 1)
+	f.runConsumer(t, handlerFunc(func(context.Context, messaging.Message) error {
+		calls.Add(1)
+		processed <- struct{}{}
+		return nil
+	}), 2, 100*time.Millisecond)
+
+	select {
+	case <-processed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the requeued message was not processed by the second consumer")
+	}
+
+	f.waitForEmpty(t, f.queue, 5*time.Second)
+	if calls.Load() != 1 {
+		t.Fatalf("second handler calls = %d, want 1", calls.Load())
+	}
+
+	info, err := f.channel.QueueInspect(f.dlq)
+	if err != nil {
+		t.Fatalf("inspect dead-letter queue: %v", err)
+	}
+	if info.Messages != 0 {
+		t.Fatalf("dead-letter queue messages = %d, want 0", info.Messages)
+	}
+}
+
+func TestConsumerDeadLettersOversizedMessage(t *testing.T) {
+	f := newFixture(t)
+	handlerCalled := make(chan struct{}, 1)
+
+	f.runConsumer(t, handlerFunc(func(context.Context, messaging.Message) error {
+		handlerCalled <- struct{}{}
+		return nil
+	}), 2, 100*time.Millisecond)
+
+	body := strings.Repeat("a", messaging.MaxMessageBytes+1)
+	f.publishWithContentType(t, "oversized-1", "application/json", body)
+
+	delivery := f.waitForMessage(t, f.dlq, 10*time.Second)
+	if got := headerString(t, delivery.Headers, failureReasonHeader); got != "permanent" {
+		t.Fatalf("%s = %q, want permanent", failureReasonHeader, got)
+	}
+	if len(delivery.Body) != len(body) {
+		t.Fatalf("dead-letter body length = %d, want %d", len(delivery.Body), len(body))
+	}
+
+	select {
+	case <-handlerCalled:
+		t.Fatal("handler was called for an oversized message")
+	default:
+	}
+
+	f.waitForEmpty(t, f.queue, 5*time.Second)
+	f.waitForEmpty(t, f.retryQueue, 5*time.Second)
+}
+
+func TestConsumerDeadLettersUnsupportedContentType(t *testing.T) {
+	f := newFixture(t)
+	handlerCalled := make(chan struct{}, 1)
+
+	f.runConsumer(t, handlerFunc(func(context.Context, messaging.Message) error {
+		handlerCalled <- struct{}{}
+		return nil
+	}), 2, 100*time.Millisecond)
+
+	f.publishWithContentType(t, "content-type-1", "text/plain", `{"event_id":"content-type-1"}`)
+
+	delivery := f.waitForMessage(t, f.dlq, 5*time.Second)
+	if got := headerString(t, delivery.Headers, failureReasonHeader); got != "permanent" {
+		t.Fatalf("%s = %q, want permanent", failureReasonHeader, got)
+	}
+
+	select {
+	case <-handlerCalled:
+		t.Fatal("handler was called for an unsupported content type")
+	default:
+	}
+
+	f.waitForEmpty(t, f.queue, 5*time.Second)
+	f.waitForEmpty(t, f.retryQueue, 5*time.Second)
 }

@@ -2,6 +2,11 @@
 # Verifies that every public API v1.1 path group reaches its service through Nginx.
 set -u
 
+if ! command -v curl >/dev/null 2>&1; then
+  printf 'error: curl is required to verify gateway routes.\n' >&2
+  exit 1
+fi
+
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 failures=0
 
@@ -25,11 +30,30 @@ check_upstream() {
   body="$(curl -s --max-time 5 -w '\n%{http_code}' "$BASE_URL$path" || true)"
   code="$(printf '%s' "$body" | tail -n1)"
   # A route proves gateway forwarding when the upstream answers with its own
-  # JSON error: 404 for unimplemented paths, 401/403 for auth-protected paths.
-  if { [ "$code" = "404" ] && printf '%s' "$body" | grep -q '"code"'; } || [ "$code" = "401" ] || [ "$code" = "403" ]; then
+  # JSON error: 404 for unimplemented paths, 401/403 for auth-protected paths,
+  # and 405 with the upstream method-not-allowed code. Nginx-generated errors
+  # are HTML and do not carry a JSON error code.
+  if { [ "$code" = "404" ] && printf '%s' "$body" | grep -q '"code"'; } || \
+     { [ "$code" = "405" ] && printf '%s' "$body" | grep -q '"code":"METHOD_NOT_ALLOWED"'; } || \
+     [ "$code" = "401" ] || [ "$code" = "403" ]; then
     pass "$description ($path -> upstream $code)"
   else
     fail "$description ($path -> $code, expected an upstream JSON error)"
+  fi
+}
+
+check_notification_admin_route() {
+  local path="$1" description="$2"
+  local body code
+  body="$(curl -s --max-time 5 -w '\n%{http_code}' "$BASE_URL$path" || true)"
+  code="$(printf '%s' "$body" | tail -n1)"
+  # The route is deliberately fail-closed with 503 when JWT_ACCESS_SECRET is
+  # unset. Both 401 and 503 are valid upstream JSON responses; connection
+  # failures, gateway errors and unexpected statuses still fail the check.
+  if { [ "$code" = "401" ] || [ "$code" = "503" ]; } && printf '%s' "$body" | grep -q '"code"'; then
+    pass "$description ($path -> upstream $code)"
+  else
+    fail "$description ($path -> $code, expected upstream 401 or 503 JSON error)"
   fi
 }
 
@@ -41,13 +65,15 @@ check_status "/" "200" "web frontend"
 check_upstream "/api/v1/auth/probe" "identity:auth"
 check_upstream "/api/v1/users/probe" "identity:users"
 check_upstream "/api/v1/admin/users/probe" "identity:admin-users"
+check_notification_admin_route "/api/v1/admin/notification-logs" "notification-worker:admin-notification-logs"
+check_notification_admin_route "/api/v1/admin/notification-logs/" "notification-worker:admin-notification-logs"
 check_upstream "/api/v1/couriers/probe" "identity:couriers"
 check_upstream "/api/v1/pricing/probe" "pricing:pricing"
 check_upstream "/api/v1/zones/probe" "pricing:zones"
 check_upstream "/api/v1/admin/pricing/probe" "pricing:admin-pricing"
 check_upstream "/api/v1/admin/zones/probe" "pricing:admin-zones"
 check_upstream "/api/v1/parcels/probe" "parcel:parcels"
-check_upstream "/api/v1/tracking/probe" "parcel:tracking"
+check_upstream "/api/v1/tracking/probe/probe" "parcel:tracking"
 check_upstream "/api/v1/dispatch/probe" "parcel:dispatch"
 check_upstream "/api/v1/admin/parcels/probe" "parcel:admin-parcels"
 check_upstream "/api/v1/courier/probe" "parcel:courier"

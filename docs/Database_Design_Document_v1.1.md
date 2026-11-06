@@ -673,6 +673,10 @@ Indexes: user_id , expires_at .
 
 
 
+  browser_binding_hash        CHAR(64)                       NULL          SHA-256 of the browser-binding cookie value (internal security column; NULL on pre-000003 rows)
+
+
+
   expires_at                  TIMESTAMPTZ                    NOT NULL      Short expiry (about 10 minutes)
 
 
@@ -1497,6 +1501,8 @@ Supports the outbox pattern so an event is never lost if RabbitMQ is down at com
 
 time.
 
+The `event_type` and `routing_key` values in this table are storage-level labels retained for the existing outbox baseline. They are not the published RabbitMQ event names or routing keys. The relay maps `parcel.created`, `parcel.assigned`, and `parcel.status_changed` to the versioned events `parcel.created.v1`, `parcel.assigned.v1`, and `parcel.status_changed.v1`, using the versioned event name as the published routing key. The stored `routing_key` is legacy/internal and must not be copied directly to the broker. The `payload` column stores the versioned event's `data` object; the relay builds the canonical envelope from the row. No database schema change is introduced by this mapping. See [`contracts/events/README.md`](../contracts/events/README.md).
+
 
 
 
@@ -1511,9 +1517,9 @@ time.
 
 
 
-  event_type                 VARCHAR(50)                     NOT NULL             parcel.created ,
+  event_type                 VARCHAR(50)                     NOT NULL             Storage label: parcel.created,
 
-                                                                                  parcel.assigned ,
+                                                                                  parcel.assigned, or
 
                                                                                   parcel.status_changed
 
@@ -1524,17 +1530,19 @@ Column                     Type                            Constraints          
 
 
 
-  routing_key                VARCHAR(60)                     NOT NULL              parcel.created ,
+  routing_key                VARCHAR(60)                     NOT NULL              Legacy storage key: parcel.created,
 
-                                                                                   parcel.assigned ,
+                                                                                   parcel.assigned, or
 
                                                                                    parcel.status.changed
 
 
 
-  payload                    JSONB                           NOT NULL             Event body (no addresses, phones,
+  payload                    JSONB                           NOT NULL             Event data object; relay builds the
 
-                                                                                  tokens or photos)
+                                                                                  canonical envelope. No addresses, phones,
+
+                                                                                  tokens or photos.
 
 
 

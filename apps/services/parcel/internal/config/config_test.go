@@ -1,13 +1,17 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
 func TestLoadFromDefaults(t *testing.T) {
-	loader := sharedconfig.NewLoader(func(string) (string, bool) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		if key == "APP_ENV" {
+			return "development", true
+		}
 		return "", false
 	})
 
@@ -28,15 +32,117 @@ func TestLoadFromDefaults(t *testing.T) {
 	if config.Addr() != ":8082" {
 		t.Fatalf("Addr() = %q, want :8082", config.Addr())
 	}
+	if config.AccessSecret != "" {
+		t.Fatalf("AccessSecret = %q, want empty", config.AccessSecret)
+	}
+	if config.CookieName != "sd_access" {
+		t.Fatalf("CookieName = %q, want sd_access", config.CookieName)
+	}
+}
+
+func TestLoadFromRequiresExplicitAppEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		appEnv  string
+		present bool
+		want    string
+		wantErr bool
+	}{
+		{name: "unset", wantErr: true},
+		{name: "empty", appEnv: "", present: true, wantErr: true},
+		{name: "whitespace", appEnv: "   ", present: true, wantErr: true},
+		{name: "unknown", appEnv: "local", present: true, wantErr: true},
+		{name: "development", appEnv: "development", present: true, want: "development"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				if key == "APP_ENV" {
+					return test.appEnv, test.present
+				}
+				return "", false
+			})
+
+			config, err := LoadFrom(loader)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("LoadFrom() accepted APP_ENV=%q", test.appEnv)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AppEnv != test.want {
+				t.Fatalf("AppEnv = %q, want %q", config.AppEnv, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadFromValidatesAccessSecretOutsideDevelopment(t *testing.T) {
+	weak := strings.Repeat("w", sharedconfig.MinAccessSecretBytes-1)
+	valid := strings.Repeat("v", sharedconfig.MinAccessSecretBytes)
+	placeholder := "change-me-access-secret-use-32-or-more-random-characters"
+
+	tests := []struct {
+		name    string
+		appEnv  string
+		secret  string
+		present bool
+		want    string
+		wantErr bool
+	}{
+		{name: "development weak", appEnv: "development", secret: weak, present: true, want: weak},
+		{name: "production weak", appEnv: "production", secret: weak, present: true, wantErr: true},
+		{name: "production placeholder", appEnv: "production", secret: placeholder, present: true, wantErr: true},
+		{name: "production valid", appEnv: "production", secret: valid, present: true, want: valid},
+		{name: "production empty", appEnv: "production", secret: "", present: true, want: ""},
+		{name: "production unset", appEnv: "production", want: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				if key == "APP_ENV" {
+					return test.appEnv, true
+				}
+				if key == "JWT_ACCESS_SECRET" {
+					return test.secret, test.present
+				}
+				return "", false
+			})
+
+			config, err := LoadFrom(loader)
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("LoadFrom() should have failed")
+				}
+				if test.secret != "" && strings.Contains(err.Error(), test.secret) {
+					t.Fatal("the error text contains the secret")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AccessSecret != test.want {
+				t.Fatalf("AccessSecret = %q, want %q", config.AccessSecret, test.want)
+			}
+		})
+	}
 }
 
 func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
+	secret := strings.Repeat("s", sharedconfig.MinAccessSecretBytes)
+
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		values := map[string]string{
-			"APP_ENV":      " PRODUCTION ",
-			"LOG_LEVEL":    "WARNING",
-			"PORT":         " 9092 ",
-			"DATABASE_URL": " postgres://example ",
+			"APP_ENV":           " PRODUCTION ",
+			"LOG_LEVEL":         "WARNING",
+			"PORT":              " 9092 ",
+			"DATABASE_URL":      " postgres://example ",
+			"JWT_ACCESS_SECRET": " " + secret + " ",
+			"COOKIE_NAME":       " sd_ops ",
 		}
 		value, ok := values[key]
 		return value, ok
@@ -58,6 +164,12 @@ func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 	}
 	if config.DatabaseURL != "postgres://example" {
 		t.Fatalf("DatabaseURL = %q", config.DatabaseURL)
+	}
+	if config.AccessSecret != secret {
+		t.Fatalf("AccessSecret = %q, want %q", config.AccessSecret, secret)
+	}
+	if config.CookieName != "sd_ops" {
+		t.Fatalf("CookieName = %q, want sd_ops", config.CookieName)
 	}
 }
 

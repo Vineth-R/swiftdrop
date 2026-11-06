@@ -1,0 +1,340 @@
+openapi: 3.0.3
+info:
+  title: SwiftDrop Notification Worker API
+  version: 1.1.0
+  description: >-
+    ADMIN-only read access to notification delivery logs plus operational
+    health and readiness endpoints. The worker publishes no host port; the
+    gateway forwards only `/api/v1/admin/notification-logs` to it. Recipients
+    are always masked and the response never includes email bodies,
+    credentials or raw database errors.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      operationId: notificationWorkerHealth
+      summary: Process health
+      responses:
+        '200':
+          description: The worker process is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      servers:
+        - url: http://notification-worker:8086
+      tags:
+        - Internal operations
+      x-internal: true
+  /ready:
+    get:
+      operationId: notificationWorkerReady
+      summary: Service readiness
+      description: >-
+        Reports whether the shared PostgreSQL pool answers a bounded ping. The
+        worker already requires DATABASE_URL at startup.
+      responses:
+        '200':
+          description: The database is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                status: ready
+                checks:
+                  database: ok
+        '503':
+          description: The database check is down.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                status: unavailable
+                checks:
+                  database: down
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      servers:
+        - url: http://notification-worker:8086
+      tags:
+        - Internal operations
+      x-internal: true
+  /admin/notification-logs:
+    get:
+      operationId: listNotificationLogs
+      tags:
+        - Admin notification logs
+      summary: List notification delivery logs (ADMIN)
+      description: >-
+        Returns notification delivery records newest first. ADMIN is required.
+        `recipient` is masked; full email addresses and phone numbers are never
+        returned. `status` filters by one delivery status. Both the collection
+        path and its trailing-slash form are routed through the gateway. Every
+        response sets `Cache-Control: no-store`.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          required: false
+          description: One delivery status. Omit the parameter to return every status.
+          schema:
+            type: string
+            enum:
+              - PENDING
+              - SENT
+              - FAILED
+      responses:
+        '200':
+          description: One page of notification delivery logs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationLogListEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+components:
+  securitySchemes:
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: sd_access
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HS256 JWT
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    ReadinessResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, unavailable]
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, down]
+    NotificationLogItem:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - eventId
+        - parcelId
+        - channel
+        - recipient
+        - subject
+        - status
+        - errorMessage
+        - createdAt
+        - sentAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        parcelId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [EMAIL, SMS]
+        recipient:
+          type: string
+          maxLength: 255
+          description: Deterministic masked recipient. The full value is never returned.
+          example: j***@example.com
+        subject:
+          type: string
+          maxLength: 200
+          nullable: true
+        status:
+          type: string
+          enum: [PENDING, SENT, FAILED]
+        errorMessage:
+          type: string
+          maxLength: 255
+          nullable: true
+          description: Sanitized delivery failure text, never a raw database error.
+        createdAt:
+          type: string
+          format: date-time
+        sentAt:
+          type: string
+          format: date-time
+          nullable: true
+    Pagination:
+      type: object
+      additionalProperties: false
+      required: [page, pageSize, totalItems, totalPages]
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+    NotificationLogListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationLogItem'
+        meta:
+          type: object
+          additionalProperties: false
+          required: [requestId, timestamp, pagination]
+          properties:
+            requestId:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+    ErrorItem:
+      type: object
+      additionalProperties: false
+      required: [field, issue]
+      properties:
+        field:
+          type: string
+        issue:
+          type: string
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorItem'
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error, meta]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+        meta:
+          type: object
+          additionalProperties: false
+          required: [requestId]
+          properties:
+            requestId:
+              type: string
+  responses:
+    NotFound:
+      description: Route not found (`NOT_FOUND`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    MethodNotAllowed:
+      description: Method not allowed (`METHOD_NOT_ALLOWED`) with an `Allow` header.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: >-
+        Unexpected failure (`INTERNAL_ERROR`), including a notification-log
+        count or page query failure. No internal details are exposed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: Missing or invalid access token (`UNAUTHENTICATED` or `TOKEN_EXPIRED`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The caller is authenticated but does not hold ADMIN (`FORBIDDEN`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationError:
+      description: Invalid query parameters (`VALIDATION_ERROR` with field details).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: >-
+        `SERVICE_UNAVAILABLE` when JWT authentication is not configured or the
+        notification-log repository is unavailable. A database query failure
+        after startup is reported as `500 INTERNAL_ERROR` instead.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +12,8 @@ import (
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/reports"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
@@ -22,7 +23,7 @@ const serviceName = "parcel"
 
 func main() {
 	if err := run(); err != nil {
-		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("service stopped", "service", serviceName, "error", err)
+		logging.NewBootstrap(serviceName).Error("service stopped", "error", err)
 		os.Exit(1)
 	}
 }
@@ -45,8 +46,6 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	router := servicehttp.New(logger)
-
 	var database *postgres.Pool
 	var pinger postgres.Pinger
 	if config.DatabaseURL != "" {
@@ -62,6 +61,22 @@ func run() error {
 		logger.Info("database connection established")
 	} else {
 		logger.Warn("DATABASE_URL is not set; readiness will report database down")
+	}
+	options := servicehttp.Options{
+		TrustedProxies: config.TrustedProxies,
+		AccessSecret:   config.AccessSecret,
+		CookieName:     config.CookieName,
+	}
+	if config.AccessSecret == "" {
+		logger.Warn("JWT_ACCESS_SECRET is not set; the reports API will return 503")
+	}
+	if database != nil {
+		options.Tracking = tracking.NewRepository(database)
+		options.Reports = reports.NewRepository(database)
+	}
+	router, err := servicehttp.New(logger, options)
+	if err != nil {
+		return fmt.Errorf("configure parcel router: %w", err)
 	}
 
 	router.GET("/health", postgres.HealthHandler())

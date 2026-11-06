@@ -13,7 +13,7 @@ func New(logger *slog.Logger, repositories ...*repository.Repository) *gin.Engin
 	router := httpx.NewRouter(logger)
 	httpx.RegisterHealth(router)
 	if len(repositories) > 0 && repositories[0] != nil {
-		registerMerchantRoutes(router, repositories[0])
+		registerMerchantRoutes(router, repositories[0], logger)
 	}
 	return router
 }

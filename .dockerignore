@@ -20,6 +20,7 @@ dist
 **/dist
 coverage
 test-output
+tmp
 **/test-output
 out-tsc
 **/out-tsc

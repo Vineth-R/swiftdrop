@@ -78,3 +78,24 @@ func TestOpenRejectsUnconfigured(t *testing.T) {
 		t.Fatalf("expected ErrNotConfigured, got %v", err)
 	}
 }
+
+func TestQueryRejectsUnconfigured(t *testing.T) {
+	tests := []struct {
+		name string
+		pool *Pool
+	}{
+		{name: "nil receiver"},
+		{name: "unconfigured pool", pool: &Pool{}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rows, err := test.pool.Query(t.Context(), "SELECT 1")
+			if !errors.Is(err, ErrNotConfigured) {
+				t.Fatalf("Query() error = %v, want ErrNotConfigured", err)
+			}
+			if rows != nil {
+				t.Fatal("Query() returned rows without a configured pool")
+			}
+		})
+	}
+}

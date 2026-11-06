@@ -1,0 +1,118 @@
+# Gitleaks configuration for SwiftDrop.
+#
+# The upstream default ruleset is used unchanged; this file only suppresses
+# verified false positives. Every allowlist below requires BOTH a specific
+# path and a specific match context (condition = "AND"), so a real credential
+# added elsewhere in the same file is still detected.
+
+title = "SwiftDrop gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+# Identity service unit tests use short placeholder passwords in
+# ResetPasswordInput/NewPassword literals.
+[[rules.allowlists]]
+description = "Identity service tests use placeholder reset passwords"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^apps/services/identity/internal/service/reset_test\.go$''',
+  '''^apps/services/identity/internal/service/notifier_test\.go$''',
+]
+regexes = [
+  '''(?i)NewPassword: "''',
+]
+
+# Identity HTTP handler tests post JSON bodies with the same placeholder
+# password.
+[[rules.allowlists]]
+description = "Identity HTTP tests use placeholder reset passwords"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^apps/services/identity/internal/http/reset_test\.go$''',
+]
+regexes = [
+  '''(?i)newPassword":"''',
+]
+
+# Identity internal-lookup handler tests use placeholder internal tokens to
+# exercise the fail-closed header path.
+[[rules.allowlists]]
+description = "Identity internal tests use placeholder internal tokens"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^apps/services/identity/internal/http/internal_test\.go$''',
+]
+regexes = [
+  '''internalTokenHeader, "''',
+  '''testInternalToken, "''',
+]
+
+# The Google flow integration test uses a placeholder signing secret.
+[[rules.allowlists]]
+description = "Google integration test uses a placeholder signing secret"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^apps/services/identity/internal/service/google_integration_test\.go$''',
+]
+regexes = [
+  '''integrationSigningSecret\s*=\s*"''',
+]
+
+# The Playwright auth spec uses a placeholder password in a mocked request.
+[[rules.allowlists]]
+description = "Playwright auth test uses a placeholder password"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^apps/web-e2e/src/auth\.spec\.ts$''',
+]
+regexes = [
+  """newPassword: '""",
+]
+
+# The email template catalog renders a fixed, non-functional sample reset link
+# token for local email previews.
+[[rules.allowlists]]
+description = "Email template catalog uses a sample reset link token"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^packages/go-common/emails/catalog\.go$''',
+]
+regexes = [
+  '''Link: site\.URL\("/reset-password\?token=''',
+]
+
+# The Go security skill documentation ships intentionally fake AWS/API
+# credentials to teach readers what not to do.
+[[rules.allowlists]]
+description = "Go security skill docs contain example credentials"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^\.agents/skills/golang-security/references/secrets\.md$''',
+]
+regexes = [
+  '''AWS_SECRET_KEY\s*=\s*"''',
+  '''APIKey:\s*"''',
+]
+
+# The Playwright skill documentation ships an intentionally fake mock token.
+[[rules.allowlists]]
+description = "Playwright skill docs contain an example mock token"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^\.agents/skills/playwright-best-practices/advanced/authentication-flows\.md$''',
+]
+regexes = [
+  """mockToken = '""",
+]

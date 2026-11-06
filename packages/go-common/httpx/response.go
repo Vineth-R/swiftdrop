@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
 type ErrorItem struct {
@@ -45,6 +46,19 @@ func ErrorWithDetails(c *gin.Context, status int, code, message string, details 
 		Error: ErrorDetail{Code: code, Message: message, Details: details},
 		Meta:  ResponseMeta{RequestID: requestid.FromGin(c)},
 	})
+}
+
+// ErrorItems converts shared validation issues into the API v1.1 details
+// shape. It preserves the caller's order and returns nil for no issues.
+func ErrorItems(issues []validation.Issue) []ErrorItem {
+	if len(issues) == 0 {
+		return nil
+	}
+	items := make([]ErrorItem, 0, len(issues))
+	for _, issue := range issues {
+		items = append(items, ErrorItem{Field: issue.Field, Issue: issue.Issue})
+	}
+	return items
 }
 
 func Healthz(c *gin.Context) {

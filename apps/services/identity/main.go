@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,7 +21,7 @@ const serviceName = "identity"
 
 func main() {
 	if err := run(); err != nil {
-		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("service stopped", "service", serviceName, "error", err)
+		logging.NewBootstrap(serviceName).Error("service stopped", "error", err)
 		os.Exit(1)
 	}
 }
@@ -45,8 +44,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	router := servicehttp.New(logger)
-
+	var routerOptions []servicehttp.Option
 	var database *postgres.Pool
 	var pinger postgres.Pinger
 	if config.DatabaseURL != "" {
@@ -60,9 +58,18 @@ func run() error {
 		defer database.Close()
 		pinger = database
 		logger.Info("database connection established")
+
+		authOptions, drainEmail, err := authRouterOptions(logger, config, database)
+		if err != nil {
+			return err
+		}
+		defer drainEmail()
+		routerOptions = append(routerOptions, authOptions...)
 	} else {
-		logger.Warn("DATABASE_URL is not set; readiness will report database down")
+		logger.Warn("DATABASE_URL is not set; readiness will report database down and authentication is disabled")
 	}
+
+	router := servicehttp.New(logger, routerOptions...)
 
 	router.GET("/health", postgres.HealthHandler())
 	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))

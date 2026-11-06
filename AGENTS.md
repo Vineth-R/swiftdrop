@@ -28,31 +28,31 @@ SwiftDrop is a parcel delivery and courier management platform. The repository i
 
 This file is the project-specific source of guidance for AI agents. The Nx block above is maintained by Nx and must stay intact. The code and configuration in this repository take precedence over README summaries, generic skill advice, and assumptions from other projects.
 
-## Current phase: foundation, not business functionality
+## Current phase: foundation with identity auth, M4 pricing/tracking, parcel reports, notification reads and the shadcn UI foundation
 
-The repository is intentionally a production-oriented foundation. Do not describe or implement planned features as if they already exist.
+The repository is a production-oriented foundation. Identity authentication, pricing quotes/administration, public parcel tracking, DISPATCHER/ADMIN parcel reports and the reports screen, the ADMIN notification-log read API and its ADMIN UI, and the COURIER delivery-history screen UI are implemented; the courier parcel endpoint it reads from is planned, and other business features remain planned. Do not describe planned features as if they already exist.
 
-| Area           | Current state                                                                                                                                                                                                                                                                                              |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frontend       | Next.js App Router starter page and `/api/hello` example route. No SwiftDrop business UI.                                                                                                                                                                                                                  |
-| Frontend E2E   | Playwright configuration with one example title test.                                                                                                                                                                                                                                                      |
-| HTTP services  | Gin servers with configuration, structured logging, request IDs, health and readiness endpoints, timeouts, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB header limit, and debug-level probe logs. No business endpoints.                                                  |
-| Workers        | RabbitMQ consumers that validate message framing and the shared event envelope, log non-sensitive identifiers, reconnect with jittered backoff, force exit on a second termination signal, and route failures through bounded retry or dead-letter handling. No external notification or webhook delivery. |
-| Shared Go      | `packages/go-common` provides config and credential-safe AMQP URL validation, logging, HTTP helpers, request IDs, HTTP lifecycle, event envelopes, message framing validation, failure classification, publisher-confirmed retry/dead-letter routing, and a RabbitMQ consumer.                             |
-| PostgreSQL     | Compose runs PostgreSQL 16 with Mailpit for local email. Migrations create the five service schemas and their baseline tables from `docs/db.sql`. HTTP services open a shared pgx pool and expose `/health` and `/ready`; `/ready` reports database connectivity.                                          |
-| RabbitMQ       | Compose runs RabbitMQ 4.1 management. Workers declare the durable main exchange, queue, and binding plus retry and dead-letter exchanges and queues. No event producers or outbox implementation yet.                                                                                                      |
-| Contracts      | OpenAPI specs cover health and readiness plus shared 404/405/500 error responses. One example event schema exists for `notification.requested.v1`; the webhook payload schema is an open decision.                                                                                                         |
-| Realtime       | Health endpoints and Nginx WebSocket/SSE settings exist. No WebSocket or SSE handler or subscription engine exists.                                                                                                                                                                                        |
-| Tests          | Go unit tests exist, including the parcel dispatch state machine; five broker-backed messaging scenarios and isolated PostgreSQL dispatch migration tests live under `tests/integration`. Playwright covers the starter page and dispatch preview.                                                         |
-| Infrastructure | Docker Compose, Go and web Dockerfiles, Nginx, migrations, event contracts, and CI exist. No Kubernetes, Terraform, cloud deployment, or production TLS.                                                                                                                                                   |
+| Area           | Current state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend       | Next.js App Router with the shadcn/ui foundation, SwiftDrop design tokens, `/design` showcase, auth UI kit, app shell, profile/security pages, the COURIER delivery-history screen (`/history`, UI against the planned parcel courier list endpoint), the DISPATCHER/ADMIN reports screen (`/reports`) with its daily chart/table and outcomes, the ADMIN users list, create-user and edit-user screens, the ADMIN notification-log screen and the public parcel tracking page (`/track`). Other SwiftDrop business screens remain planned. |
+| Frontend E2E   | Playwright covers the starter page, the `/design` token page, the auth UI kit, the app shell, profile/security, shadcn primitives, the COURIER delivery-history screen, the DISPATCHER/ADMIN reports screen, ADMIN users, ADMIN create user, ADMIN edit user, ADMIN notification logs and public tracking.                                                                                                                                                                                                                                  |
+| HTTP services  | Gin servers with configuration, structured logging, request IDs, health and readiness endpoints, timeouts, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB header limit, and debug-level probe logs. Identity auth, pricing quotes/admin configuration, public parcel tracking, and DISPATCHER/ADMIN parcel reports are implemented.                                                                                                                                                                          |
+| Workers        | RabbitMQ consumers that validate message framing and the shared event envelope, log non-sensitive identifiers, reconnect with jittered backoff, force exit on a second termination signal, and route failures through bounded retry or dead-letter handling. The notification worker delivers email over SMTP and exposes an internal ADMIN-only notification-log read API on port 8086; webhook delivery is not implemented.                                                                                                               |
+| Shared Go      | `packages/go-common` provides config and credential-safe AMQP URL validation, logging, HTTP helpers, request IDs, HTTP lifecycle, JWT access-token verification and role middleware, bounded HTTP rate limiting, internal-token middleware, event envelopes, message framing validation, failure classification, publisher-confirmed retry/dead-letter routing, and a RabbitMQ consumer.                                                                                                                                                    |
+| PostgreSQL     | Compose runs PostgreSQL 16 with Mailpit for local email. Migrations create the five service schemas and their baseline tables from `docs/db.sql`. HTTP services open a shared pgx pool and expose `/health` and `/ready`; `/ready` reports database connectivity.                                                                                                                                                                                                                                                                           |
+| RabbitMQ       | Compose runs RabbitMQ 4.1 management. Workers declare the durable main exchange, queue, and binding plus retry and dead-letter exchanges and queues. No event producers or outbox implementation yet.                                                                                                                                                                                                                                                                                                                                       |
+| Contracts      | OpenAPI specs cover health/readiness, shared errors, identity, pricing (estimate, zones, internal quote, admin configuration), parcel public tracking and reports, and the ADMIN notification-log read API. Event schemas cover `parcel.created.v1`, `parcel.assigned.v1`, and `parcel.status_changed.v1`; `notification.requested.v1` is legacy, and the public webhook projection is documented but not implemented.                                                                                                                      |
+| Realtime       | Health endpoints and Nginx WebSocket/SSE settings exist. No WebSocket or SSE handler or subscription engine exists.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Tests          | Go unit tests exist, including the parcel dispatch state machine; broker-backed messaging scenarios, isolated PostgreSQL dispatch/pricing/notification-log and parcel-report tests, and pricing HTTP integration tests live under `tests/integration` and the owning services. Playwright covers the starter page, the `/design` token page, the auth UI kit, the app shell, profile/security, shadcn primitives, the COURIER delivery-history screen, the reports screen, ADMIN notification logs and public tracking.                     |
+| Infrastructure | Docker Compose, Go and web Dockerfiles, Nginx, migrations, event contracts, and CI exist. No Kubernetes, Terraform, cloud deployment, or production TLS.                                                                                                                                                                                                                                                                                                                                                                                    |
 
 Planned responsibilities:
 
-- `identity`: future authentication, authorization, and profiles.
-- `parcel`: future parcel lifecycle, status, and tracking.
-- `pricing`: future delivery fee calculation and pricing configuration.
+- `identity`: email and password authentication (register, login, refresh, logout), Google login, password reset, admin users, the courier list, the internal courier-eligibility and user-contact lookups, and the signed-in user's own profile (`GET` and `PATCH /users/me`) and password change (`PUT /users/me/password`) are implemented.
+- `parcel`: anonymous public tracking reads are implemented from real parcel/status-history rows, and DISPATCHER/ADMIN daily and outcome reports are served from the same parcel data. Parcel lifecycle and status writes remain future work.
+- `pricing`: public estimate and zones, internal quote/zone lookups, and ADMIN pricing configuration with audit logging are implemented.
 - `merchant`: future merchant accounts, integration settings, and API credentials.
-- `notification-worker`: future notification delivery.
+- `notification-worker`: consumes the legacy `notification.requested.v1` work item and the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` domain events; resolves customer contact through identity; sends branded parcel email; merchant-owned events are dead-lettered as unsupported; SMS is a permanent failure; it records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`). The success log and processed-event writes share one transaction. It also exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API on internal HTTP port `8086`; recipients are masked and status filtering is supported. A background scheduler deletes processed-event rows older than 30 days at startup and every 24 hours by default.
 - `webhook-worker`: future outgoing webhook delivery and retries.
 - `realtime`: future live parcel tracking over WebSocket or Server-Sent Events.
 
@@ -61,7 +61,8 @@ Planned responsibilities:
 - Go `1.27.3`, one root module: `github.com/Vineth-R/swiftdrop`.
 - Gin `v1.12.0` for HTTP services.
 - RabbitMQ client `github.com/rabbitmq/amqp091-go v1.16.0`.
-- Next.js 16 App Router, React 19, TypeScript 6, and CSS modules/global CSS.
+- Next.js 16 App Router, React 19, TypeScript 6, and Tailwind CSS v4 with the SwiftDrop design tokens.
+- shadcn/ui with Radix primitives, `class-variance-authority`, `clsx`, `tailwind-merge` and `tw-animate-css`; Lucide React is the only icon library.
 - Nx `24.0.0` with pnpm `12.15.0`; CI uses Node.js 24.
 - PostgreSQL 16, RabbitMQ 4.1 management, Nginx 1.27, Alpine 3.22 runtime.
 - GitHub Actions CI in `.github/workflows/ci.yml`.
@@ -70,28 +71,28 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 
 ## Repository map
 
-| Path                                | Purpose                                                                                                                                                                                                          |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web`                          | Next.js App Router frontend. Currently the Nx starter plus `/api/hello`.                                                                                                                                         |
-| `apps/web-e2e`                      | Playwright end-to-end tests. Currently one example test.                                                                                                                                                         |
-| `apps/services/identity`            | Identity HTTP service skeleton. Future auth and profiles.                                                                                                                                                        |
-| `apps/services/parcel`              | Parcel HTTP service skeleton. Future parcels and tracking.                                                                                                                                                       |
-| `apps/services/pricing`             | Pricing HTTP service skeleton. Future fee calculation.                                                                                                                                                           |
-| `apps/services/merchant`            | Merchant HTTP service skeleton. Future accounts and credentials.                                                                                                                                                 |
-| `apps/services/realtime`            | Realtime HTTP service skeleton. Future WebSocket/SSE tracking.                                                                                                                                                   |
-| `apps/services/notification-worker` | RabbitMQ notification worker skeleton.                                                                                                                                                                           |
-| `apps/services/webhook-worker`      | RabbitMQ webhook worker skeleton.                                                                                                                                                                                |
-| `packages/go-common`                | Shared infrastructure only: config and AMQP URL validation, logging, HTTP helpers, request IDs, server lifecycle, messaging envelope and framing validation, retry/dead-letter routing, and a RabbitMQ consumer. |
-| `contracts/openapi`                 | Hand-maintained OpenAPI 3.0.3 specs. Currently health, readiness, and shared error responses.                                                                                                                    |
-| `contracts/events`                  | Event naming, envelope, framing, versioning conventions, and one JSON Schema example.                                                                                                                            |
-| `migrations/<service>`              | golang-migrate SQL migrations. `000001` creates the schema; `000002_tables` is reserved for the platform baseline tables. Owners add new migrations from `000003`.                                               |
-| `infra/docker`                      | Parameterized Go Dockerfile and Next.js standalone Dockerfile.                                                                                                                                                   |
-| `infra/nginx`                       | Local reverse proxy configuration and routing notes.                                                                                                                                                             |
-| `tests/integration`                 | Broker-backed RabbitMQ tests covering acknowledgement, retries, dead-lettering, and panic recovery, plus isolated PostgreSQL dispatch migration tests in `tests/integration/database`.                           |
-| `docs`                              | Architecture documentation.                                                                                                                                                                                      |
-| `.github/workflows`                 | CI workflows.                                                                                                                                                                                                    |
-| `.agents/skills`                    | Third-party project skills pinned by `skills-lock.json`, plus local Nx skills.                                                                                                                                   |
-| `.opencode/skills`                  | Pre-existing local Nx skills used by OpenCode.                                                                                                                                                                   |
+| Path                                | Purpose                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web`                          | Next.js App Router frontend with the shadcn/ui foundation, design tokens, `/design` showcase, auth UI kit, app shell, profile/security pages, the COURIER delivery-history screen, the DISPATCHER/ADMIN reports screen, the ADMIN users list, create-user and edit-user screens and the ADMIN notification-log screen. Other business screens are planned. |
+| `apps/web-e2e`                      | Playwright end-to-end tests covering the starter page, `/design` token page, auth UI kit, app shell, profile/security, shadcn primitives, the COURIER delivery-history screen, the reports screen, ADMIN users, ADMIN create and edit user and ADMIN notification logs.                                                                                    |
+| `apps/services/identity`            | Identity HTTP service with authentication, admin users, couriers, internal lookups, the own-account endpoints `GET` and `PATCH /users/me` and `PUT /users/me/password`, and the local deterministic demo-user seed command.                                                                                                                                |
+| `apps/services/parcel`              | Parcel HTTP service with anonymous public tracking and DISPATCHER/ADMIN daily/outcome reports. Parcel lifecycle/dispatch writes remain future work.                                                                                                                                                                                                        |
+| `apps/services/pricing`             | Pricing HTTP service with estimate, zones, internal quote/zone lookups, and ADMIN configuration.                                                                                                                                                                                                                                                           |
+| `apps/services/merchant`            | Merchant HTTP service skeleton. Future accounts and credentials.                                                                                                                                                                                                                                                                                           |
+| `apps/services/realtime`            | Realtime HTTP service skeleton. Future WebSocket/SSE tracking.                                                                                                                                                                                                                                                                                             |
+| `apps/services/notification-worker` | RabbitMQ notification worker for the legacy work item and customer-owned parcel domain events, with identity contact resolution, SMTP email delivery, processed-event idempotency, delivery-outcome persistence in `notification.notification_logs`, and an internal ADMIN-only notification-log read API on port 8086.                                    |
+| `apps/services/webhook-worker`      | RabbitMQ webhook worker skeleton.                                                                                                                                                                                                                                                                                                                          |
+| `packages/go-common`                | Shared infrastructure only: config and AMQP URL validation, logging, HTTP helpers, request IDs, server lifecycle, JWT verification/role middleware, rate limiting, internal-token middleware, messaging envelope and framing validation, retry/dead-letter routing, and a RabbitMQ consumer.                                                               |
+| `contracts/openapi`                 | Hand-maintained OpenAPI 3.0.3 specs for health/readiness, shared errors, identity, pricing, parcel tracking and reports, merchant, notification, and realtime.                                                                                                                                                                                             |
+| `contracts/events`                  | Event naming, envelope, framing, versioning conventions, parcel event JSON Schemas, and the legacy notification schema.                                                                                                                                                                                                                                    |
+| `migrations/<service>`              | golang-migrate SQL migrations. `000001` creates the schema; `000002_tables` is reserved for the platform baseline tables. Owners add new migrations from `000003`.                                                                                                                                                                                         |
+| `infra/docker`                      | Parameterized Go Dockerfile and Next.js standalone Dockerfile.                                                                                                                                                                                                                                                                                             |
+| `infra/nginx`                       | Local reverse proxy configuration and routing notes.                                                                                                                                                                                                                                                                                                       |
+| `tests/integration`                 | Broker-backed RabbitMQ tests, isolated PostgreSQL dispatch/pricing migration tests, parcel report query tests, and tagged pricing/tracking HTTP fixture tests. The notification-log integration test lives beside its repository package.                                                                                                                  |
+| `docs`                              | Architecture documentation.                                                                                                                                                                                                                                                                                                                                |
+| `.github/workflows`                 | CI workflows.                                                                                                                                                                                                                                                                                                                                              |
+| `.agents/skills`                    | Third-party project skills pinned by `skills-lock.json`, plus local Nx skills.                                                                                                                                                                                                                                                                             |
+| `.opencode/skills`                  | Pre-existing local Nx skills used by OpenCode.                                                                                                                                                                                                                                                                                                             |
 
 `packages/.gitkeep` is only a placeholder. Do not add a shared JavaScript package unless the task requires one.
 
@@ -159,8 +160,8 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 
 ### Configuration
 
-- HTTP services read `APP_ENV`, `LOG_LEVEL`, `PORT`, and optional `DATABASE_URL`. They open a shared pgx pool when it is set and report connectivity through `/ready`.
-- Workers require `RABBITMQ_URL` and read `RABBITMQ_EXCHANGE`, queue/routing-key variables, `RABBITMQ_PREFETCH`, `RABBITMQ_HANDLER_TIMEOUT`, `RABBITMQ_MAX_RETRIES`, `RABBITMQ_RETRY_DELAY`, `RABBITMQ_RECONNECT_MIN`, and `RABBITMQ_RECONNECT_MAX`.
+- HTTP services read `APP_ENV`, `LOG_LEVEL`, `PORT`, and optional `DATABASE_URL`. They open a shared pgx pool when it is set and report connectivity through `/ready`. Pricing also reads `INTERNAL_TOKEN`, `JWT_ACCESS_SECRET`, `COOKIE_NAME` and `HTTP_TRUSTED_PROXIES`. Parcel reads `JWT_ACCESS_SECRET`, `COOKIE_NAME` (default `sd_access`) and `HTTP_TRUSTED_PROXIES`; an unset secret leaves public tracking running but makes the report routes fail closed with `503`. The notification worker reads `PORT` (default `8086`), `JWT_ACCESS_SECRET`, and `COOKIE_NAME` for its ADMIN-only read API; an unset secret leaves delivery running but makes that API fail closed. It also reads `IDENTITY_BASE_URL` (default `http://identity:8081`), `IDENTITY_TIMEOUT` (default `3s`), and `INTERNAL_TOKEN` for identity contact lookups, `FRONTEND_BASE_URL` and `SUPPORT_EMAIL` for email links/footer, and the four `NOTIFICATION_PARCEL_*` queue/routing-key variables for the domain-event consumers. `APP_ENV` must be explicitly set to `development`, `staging`, or `production`; all backend services and workers refuse to start when it is missing, empty, or whitespace. In development, an unset or shorter-than-16-character `INTERNAL_TOKEN` is treated as not configured so internal endpoints stay fail-closed. Outside development, identity and pricing refuse to start unless the token is at least 32 random bytes and is not a placeholder. Outside development, a configured `JWT_ACCESS_SECRET` must be at least 32 random bytes and not a placeholder; an unset value leaves pricing, parcel and notification-worker authenticated routes fail-closed with `503`.
+- Workers require `RABBITMQ_URL` and read `RABBITMQ_EXCHANGE`, queue/routing-key variables, `RABBITMQ_PREFETCH`, `RABBITMQ_HANDLER_TIMEOUT`, `RABBITMQ_MAX_RETRIES`, `RABBITMQ_RETRY_DELAY`, `RABBITMQ_RECONNECT_MIN`, and `RABBITMQ_RECONNECT_MAX`. The notification worker also reads `NOTIFICATION_PROCESSED_EVENTS_RETENTION` (default `720h`) and `NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL` (default `24h`); both must be positive durations.
 - `RABBITMQ_URL` must use the `amqp` or `amqps` scheme and include a host. Validation errors must not include the URL. Use the shared config loader for this check.
 - Environment values are matched case-insensitively and trimmed by the shared loader. Keep new parsing consistent with it.
 - The maximum accepted RabbitMQ message body is `messaging.MaxMessageBytes` (1 MiB) and is fixed in code. Do not add an environment variable for it without an explicit operational decision.
@@ -169,6 +170,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 - Do not log connection strings, passwords, tokens, or other secrets.
 - Go services read process environment variables directly; they do not load `.env`. Docker Compose reads `.env` automatically.
 - `.env` is untracked. `.env.example` is the documented local template and must stay free of real credentials.
+- Demo users are seeded only by the local `apps/services/identity/seed` command through `make seed`. It reads `DATABASE_URL` and the ten `SEED_*` account variables, is idempotent, never overwrites existing users or profiles, and seeds only the five identity demo users plus two courier profiles. Its only cross-schema read is the lookup of active `pricing.zones` rows by code to resolve the two courier home zones; it does not write pricing data or create a runtime dependency. Do not run it at service startup, Compose startup, or during migrations. The seed command is intentionally outside the seven fail-closed backend services and workers; its `APP_ENV` development default only controls logging and does not enforce production safety. Verify that `DATABASE_URL` points at a disposable local database before running it.
 
 ## HTTP API standards
 
@@ -179,13 +181,14 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
   - `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones` -> pricing on `8083`
   - `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports` -> parcel on `8082`
   - `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants` -> merchant on `8084`
+  - `/api/v1/admin/notification-logs` -> notification-worker on `8086`
   - `/ws` -> realtime on `8085`
   - `/healthz` -> gateway only; `/internal` is never routed
   - `/` -> Next.js web on `3000`
 - Do not add a second prefix inside a Gin router unless the routing architecture is deliberately changed.
 - When adding or changing a public route, update the Gin route, `contracts/openapi/<service>.yaml`, and `infra/nginx/default.conf` together.
 - Validate request bodies, query parameters, and path parameters. Reject malformed input with an appropriate 4xx response.
-- Use appropriate status codes: 200/201/204 for success, 400 for malformed input, 401/403 for auth failures, 404 for missing resources, 409 for conflicts, 422 for semantic validation failures, and 500 for unexpected server errors.
+- Use appropriate status codes: 200/201/204 for success, 400 for malformed input, 401/403 for auth failures, 404 for missing resources, 409 for conflicts, 422 for semantic validation failures, and 500 for unexpected server errors. Pricing returns `422 WEIGHT_NOT_PRICED` for any weight outside every active band (including above the maximum) and `422 ROUTE_NOT_SERVICEABLE` for an unpriced route; the route error takes precedence.
 - Use the shared response helpers. The error shape follows API v1.1:
   ```json
   {
@@ -205,7 +208,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
 
 ## Security and authentication
 
-Authentication and authorization are not implemented yet. When they are implemented:
+Email and password authentication is implemented in the identity service, and `packages/go-common/auth` provides access-token verification and role middleware for every service. Pricing admin routes and the notification-worker notification-log route use `auth.Authenticate` and `auth.RequireRoles(auth.RoleAdmin)`; internal pricing routes use `X-Internal-Token` and fail closed when unset. The notification route also fails closed with `503` when `JWT_ACCESS_SECRET` is unset. Add authorization checks to each endpoint as it lands. For all authentication and authorization work:
 
 - Never store plaintext passwords. Use a current, vetted password-hashing algorithm with an appropriate work factor.
 - Validate JWT signatures, allowed algorithms, expiry, issuer, and audience where applicable. Do not hand-roll JWT validation.
@@ -225,15 +228,19 @@ Authentication and authorization are not implemented yet. When they are implemen
 - The durable topic exchange is `swiftdrop.events`.
 - The current workers declare durable queues:
   - `notification.requested.v1`
+  - `notification.parcel.created.v1`
+  - `notification.parcel.status_changed.v1`
   - `webhook.delivery.requested.v1`
 - Event names and routing keys are versioned. Use `<domain>.<past_tense_action>.v<major>`, for example `parcel.created.v1`.
-- Reuse the shared event envelope in `packages/go-common/messaging/envelope.go`. The envelope includes `event_id`, `event_type`, `event_version`, `occurred_at`, `producer`, optional `correlation_id`, and `data`.
+- The parcel outbox keeps unversioned storage labels (`parcel.created`, `parcel.assigned`, `parcel.status_changed`) and a legacy/internal `routing_key`. The relay must map those labels to `parcel.created.v1`, `parcel.assigned.v1`, and `parcel.status_changed.v1` and use the versioned event name as the published routing key. Do not copy the stored routing key directly.
+- Reuse the shared event envelope in `packages/go-common/messaging/envelope.go`. The envelope includes `event_id`, `event_type`, `event_version`, `occurred_at`, `producer`, optional `correlation_id`, and `data`. The outbox UUID is the event ID and `data` is a JSON object.
 - Envelope validation is permanent-failure validation: `event_version` must match the version suffix of `event_type`, and `data` must be a JSON object. Do not accept a version mismatch, a non-canonical suffix, or non-object `data`.
 - Document event schemas under `contracts/events` using JSON Schema draft 2020-12.
-- The webhook payload schema is an open decision. Do not invent webhook destination, signing, or retry fields until a schema is added under `contracts/events/`.
+- The public merchant webhook is a separate projection of `parcel.status_changed.v1`; it keeps API v1.1's unversioned public `eventType: parcel.status_changed`, adds `schemaVersion: 1`, and uses the API v1.1 HMAC signing and six-attempt retry contract. The current worker only consumes a legacy work item and logs; do not claim webhook delivery/signing is implemented. `externalOrderId` is not in the domain event; the API v1.1 internal parcel summary is a required future dependency, not an implemented endpoint. See `contracts/events/README.md`.
 - The shared consumer validates message framing before the handler runs: the body must be at most 1 MiB and the content type must be absent or `application/json`. Invalid framing is permanent and goes directly to the dead-letter queue.
-- The current workers validate the envelope and event type/version, then log. The shared consumer retries retryable failures and dead-letters permanent or exhausted failures. Workers do not send notifications, deliver webhooks, or write to a database.
-- Producers are not implemented yet. When adding one, publish to the versioned routing key and validate the payload against its contract.
+- The notification worker validates the envelope, event type/version, and the payload fields it uses, then delivers email through the shared SMTP mailer. It supports the legacy `notification.requested.v1` work item and the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` domain events; the domain path resolves customer contact through the identity internal endpoint. Merchant-owned parcel notifications have no approved recipient-contact lookup and are dead-lettered as unsupported. The webhook worker validates and logs only. The shared consumer retries retryable failures and dead-letters permanent or exhausted failures. Workers own their persistence through service-scoped repositories: the notification worker writes `notification.processed_events` and `notification.notification_logs` and reads the latter for its admin API.
+- The notification worker runs processed-event cleanup in its own context-aware goroutine at startup and every cleanup interval. Runs are serial within one worker; cleanup failures are logged and retried without stopping notification consumption. Shutdown cancels the scheduler and waits for it to exit before closing the database. A single cutoff-based `DELETE` is safe across replicas; no advisory lock is required. Cleanup never modifies `notification_logs`. Idempotency is guaranteed only while the processed-event row is retained, so a late redelivery after retention can be processed again.
+- Producers are not implemented yet. The target parcel producers publish `parcel.created.v1`, `parcel.assigned.v1`, and `parcel.status_changed.v1` through the outbox relay; no producer or relay exists today. Validate payloads against `contracts/events` before publishing.
 - Acknowledge a message only after processing succeeds or after a publisher-confirmed retry or dead-letter publication. Never acknowledge a failed message.
 - Classify failures as permanent or retryable. Malformed JSON, invalid envelopes, unsupported event types or versions, invalid event data, unsupported content types, and oversize bodies are permanent. Unclassified handler errors are retryable.
 - Retry at most `RABBITMQ_MAX_RETRIES` times (default `3`) with `RABBITMQ_RETRY_DELAY` (default `30s`), then dead-letter. Do not requeue failures indefinitely.
@@ -246,7 +253,7 @@ Authentication and authorization are not implemented yet. When they are implemen
 - Make failures observable through structured logs and, when added, metrics.
 - Consider a transactional outbox when database changes and event publication must be consistent.
 - Do not require RabbitMQ for ordinary unit tests. Reserve broker-backed tests for `tests/integration` with an explicit build tag.
-- Workers do not expose public HTTP ports. Do not add an HTTP API solely for parity with other services.
+- Workers do not publish host ports. The notification worker has one deliberate exception: an internal ADMIN-only read API on `8086` for `GET /api/v1/admin/notification-logs`, reachable only through the gateway. Do not add worker HTTP APIs solely for parity with other services.
 
 ## PostgreSQL and migrations
 
@@ -268,6 +275,7 @@ Authentication and authorization are not implemented yet. When they are implemen
 
 ## Frontend standards
 
+- Before you implement or change any frontend screen or component, read [`DESIGN.md`](DESIGN.md) in full and follow it. It is the design contract: the design language rules, the allowed tokens, the component kit, the app shell and role navigation, forms, API error handling, tests, and the checklist to finish with. Do not change the design foundation (tokens, kit components, shell, API client) unless the task is explicitly about it. ESLint enforces the checkable parts (raw colours, off-token classes, off-scale spacing, inline styles, banned libraries, direct `fetch`, `error.message`, a raw `<h1>`): see `DESIGN.md` section 16, and do not add an `eslint-disable` just to pass.
 - Preserve the Next.js App Router structure in `apps/web/src/app`.
 - Use TypeScript and preserve strict type checking. Do not loosen compiler strictness to bypass errors.
 - Prefer React Server Components by default. Add `'use client'` only when browser APIs, event handlers, or client-side state require it.
@@ -275,11 +283,14 @@ Authentication and authorization are not implemented yet. When they are implemen
 - Do not duplicate backend business logic in the frontend. The backend remains authoritative for validation, authorization, pricing, and state transitions.
 - Validate user-facing forms and handle loading, error, empty, and success states.
 - Follow accessibility practices and responsive design. The existing ESLint setup includes `jsx-a11y`.
-- Reuse existing CSS modules and global CSS. Do not introduce a new styling system, component library, or state-management library without approval.
+- Style with Tailwind v4 utilities against the design tokens in `apps/web/src/app/globals.css`. Use tokens only: no raw hex values, off-scale spacing or second icon family (Lucide only). `/design` shows every token in light and dark. shadcn/ui is the approved component foundation; do not add another UI library or a state-management library without approval.
 - Avoid unnecessary client-side JavaScript and dependencies.
-- The existing `/api/hello` route is an example. Do not confuse it with the Go `/api/v1/` namespace.
-- `apps/web` currently contains the Nx starter UI, not SwiftDrop business screens.
-- `apps/web-e2e` currently contains one example Playwright test. Extend it for meaningful user journeys when those journeys exist.
+- Browser code calls the Go API only through `/api/v1/...`; the Next.js app exposes no example API route. Do not confuse Next.js routes with the Go `/api/v1/` namespace.
+- Signed-in screens go in `apps/web/src/app/(app)/<name>/page.tsx`. That group's layout already provides the session gate (splash, redirect to `/login`) and the shell for the person's role, so a page only renders its own content. Start every page with `PageHeader`, then `Section`s.
+- Add a screen to the sidebar (or the courier's bottom tabs) in `apps/web/src/lib/nav.ts`. Hiding a link never protects a page: wrap a role-limited page's content in `RequireRole`, and the API checks again. A page that is not built yet shows the shell's 404.
+- `apps/web` currently contains the shadcn/ui foundation (`components/ui`), the design system (`/design`), the auth screens, the app shell, the profile and security pages (`/profile`, `/profile/security`, a worked example of a form screen), a placeholder dashboard, the COURIER delivery-history screen (`/history`, UI against the planned parcel courier list endpoint), the DISPATCHER/ADMIN reports screen (`/reports`), the ADMIN users list, create-user and edit-user screens (`/admin/users`), the ADMIN notification-log screen and the public parcel tracking page (`/track`). Other role screens are still to be built.
+- `apps/web-e2e` currently covers the starter page, `/design` token page, auth UI kit, app shell, profile/security, shadcn primitives, the COURIER delivery-history screen, the reports screen, the ADMIN users list, create-user and edit-user screens, the ADMIN notification-log screen and public tracking. Test a screen without a backend with `mockApi` and `signInAs` from `apps/web-e2e/src/support`, and extend the suite for meaningful user journeys when those journeys exist.
+- The shadcn foundation lives in `apps/web/components.json`, `apps/web/src/components/ui`, and `apps/web/src/lib/utils.ts`. The generated primitives are bridged to SwiftDrop tokens in `globals.css`; `accent` remains the lime brand token, so hover and selected states use `surface-2`, not shadcn accent. `lib/utils.ts` registers the SwiftDrop type scale with tailwind-merge so `text-body-sm text-text` keeps both classes. Keep the SwiftDrop public component APIs (`Button`, `Alert`, `Field`, `PasswordField`, `EmptyState`, `Drawer`, `UserMenu`, `Select`, `Textarea`, `Modal`, `DataTable`, `StatusChip`, `Toast`, `Timeline`) intact. Radix imports are allowed only inside `components/ui`; screens use those wrappers. `SelectMenu` is the shadcn Radix listbox; `Select` remains the native labelled form control. `Dialog` and `Sheet` are the shadcn overlays; `Modal` remains the native decision dialog. Do not add generic shadcn defaults to screens or a second theme system.
 
 ## Testing requirements
 
@@ -291,7 +302,7 @@ Add or update tests for every meaningful change.
 - HTTP handler and route tests.
 - Configuration and validation tests.
 - Repository tests when a database layer is added.
-- Integration tests for PostgreSQL and broker-backed RabbitMQ tests under `tests/integration`. PostgreSQL tests create and drop uniquely named databases and require `TEST_DATABASE_URL`.
+- Integration tests for PostgreSQL and broker-backed RabbitMQ tests under `tests/integration`. PostgreSQL tests create and drop uniquely named databases and require `TEST_DATABASE_URL`. Pricing migration tests live in `tests/integration/database`; the pricing HTTP integration test lives beside the handler and is run with the integration tag. The notification-log repository integration test lives in `apps/services/notification-worker/internal/notificationlog` and also runs with the integration tag. The processed-event cleanup integration test lives in `apps/services/notification-worker/internal/idempotency` and uses its own disposable database. The demo-user seed integration test lives in `apps/services/identity/internal/seed` and also runs with the integration tag.
 - Tests for validation, authorization, and failure paths.
 - Existing tests use the Go standard library testing package. Follow that style unless there is a clear reason to add another tool.
 - Unit tests must not require PostgreSQL or RabbitMQ. Use `//go:build integration` for infrastructure-backed tests under `tests/integration`.
@@ -302,7 +313,10 @@ Add or update tests for every meaningful change.
 ### Frontend
 
 - Test meaningful component and application behavior when the UI is implemented.
+- Pure frontend logic is unit-tested with Vitest under `apps/web/src/**/*.spec.ts`; run `pnpm exec nx test @org/web`. API client and date-helper tests live beside their module as `apps/web/src/lib/*.test.mjs` and run with `node --test "apps/web/src/lib/*.test.mjs"`. Component and flow behavior stays in Playwright.
 - Use the existing Nx Playwright target for important end-to-end workflows.
+- The design lint rules in `apps/web/eslint-rules` have their own tests: `node --test "apps/web/eslint-rules/*.test.mjs"`. CI runs them, and you run them when you change a rule.
+- Event schemas in `contracts/events` are validated with `node --test "tests/contracts/*.test.mjs"` using Ajv 2020-12. CI runs this in the frontend job; update the tests when a schema or example changes.
 - Do not add a new test framework without approval.
 
 ### Distributed behavior
@@ -321,7 +335,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 - Use pnpm only for JavaScript dependencies. Do not use npm or Yarn.
 - Do not modify dependency versions or lockfiles unless the task requires it.
 - Use Nx for configured tasks. Inspect available targets before invoking them.
-- `@org/web` targets: `build`, `dev`, `start`, `serve-static`, `build-deps`, `watch-deps`, `lint`. It has no `test` target and no `typecheck` target; the Next build performs type checking.
+- `@org/web` targets: `build`, `dev`, `start`, `serve-static`, `build-deps`, `watch-deps`, `lint`, `test`, `typecheck`. `test` runs the Vitest unit suite; `typecheck` checks the unit tests and Vitest config; the Next build performs application type checking.
 - `@org/web-e2e` targets: `lint`, `typecheck`, `e2e`, and Playwright CI targets. It has no `build` target.
 - Go projects have `build`, `test`, `lint`, and `serve` targets. `go-common` has `build`, `test`, and `lint`.
 - Run Go targets from the repository root. They depend on the root module and `packages/go-common`.
@@ -338,15 +352,18 @@ Never claim tests passed unless they were actually run and passed. Report any ch
   pnpm exec nx dev @org/web
   pnpm exec nx build @org/web
   pnpm exec nx lint @org/web
+  pnpm exec nx test @org/web
+  pnpm exec nx typecheck @org/web
   pnpm exec nx lint @org/web-e2e
   pnpm exec nx typecheck @org/web-e2e
   pnpm exec nx e2e @org/web-e2e
   pnpm exec nx run-many -t lint test build -p identity,parcel,pricing,merchant,notification-worker,webhook-worker,realtime,go-common
   RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' go test -tags=integration ./tests/integration
-  TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' go test -tags=integration ./tests/integration/database/...
+  TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' make test-db
+  TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' go test -tags=integration ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/...
   ```
 - `pnpm exec nx lint @org/web` and `pnpm exec nx build @org/web` are valid. `pnpm exec nx serve @org/web` is not; use `dev` or `start`.
-- The CI frontend command is `pnpm exec nx run-many -t lint typecheck build --projects=@org/web,@org/web-e2e`. Nx runs only targets that are configured for each project.
+- The CI frontend job runs the design-lint and API-client Node tests, `pnpm exec nx test @org/web`, `pnpm exec nx typecheck @org/web`, `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and `pnpm exec nx typecheck @org/web-e2e`. Nx runs only targets that are configured for each project.
 - CI runs Playwright E2E for Chromium only with `pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"`. The Playwright config still defines Firefox and WebKit projects for local use.
 - Run `pnpm exec prettier --write` and `pnpm exec prettier --check` on changed documentation and frontend files. Prettier ignores the third-party skill directories.
 
@@ -358,7 +375,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
   - `rabbitmq` on 5672 and management on 15672, persistent volume, diagnostics health check.
   - `mailpit` on 1025 (SMTP) and 8025 (UI), health check.
   - `identity` 8081, `parcel` 8082, `pricing` 8083, `merchant` 8084, `realtime` 8085.
-  - `notification-worker` and `webhook-worker`, no public ports.
+  - `notification-worker` on internal HTTP `8086` for its ADMIN read API and no published port; `webhook-worker`, no ports.
   - `web` on 3000.
   - `nginx` on 8080.
   - `migrate` tools-profile service for golang-migrate.
@@ -367,7 +384,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 - The web Dockerfile uses Node 24, pnpm, Nx build, Next standalone output, and a non-root user.
 - Do not bake secrets into images. `.dockerignore` excludes `.env` files and agent/tooling directories.
 - Use Compose service names for container-to-container addresses. Do not use `localhost` for another container.
-- Compose starts Nginx only after its web and HTTP service dependencies report healthy. Workers depend on a healthy RabbitMQ and use a 35-second stop grace period so in-flight messages can be requeued.
+- Compose starts Nginx only after its web and HTTP service dependencies report healthy, including the notification worker's `/ready` check. Workers depend on a healthy RabbitMQ and use a 35-second stop grace period so in-flight messages can be requeued.
 - Nginx resolves upstreams at startup. Work on a single service through its published port, or start the full Compose stack. Starting Nginx alone with missing upstreams is not supported.
 - Preserve Nginx prefix stripping, request ID forwarding, security headers, timeouts, and realtime upgrade settings.
 - Do not add production TLS certificates. Production TLS termination is a future deployment concern.
@@ -396,7 +413,7 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 - Keep project-wide agent rules in this file. Do not create competing root instruction files that duplicate this guidance.
 - Document environment variables in `.env.example`.
 - Mark planned features as planned. Do not describe future business behavior as implemented.
-- The CI workflow file is the source of truth for CI. It runs Go formatting, vet, race tests with a coverage artifact, build, and Compose config validation; a separate RabbitMQ integration job that fails on skipped tests; frontend lint/build and E2E typecheck; Chromium-only Playwright E2E; changed-service Docker image builds; and a `v*` tag release job that builds every image and runs a Compose smoke test. Do not repeat stale CI summaries, and do not claim a CI run passed unless its result was observed.
+- The CI workflow file is the source of truth for CI. It runs Go formatting, vet, race tests with a coverage artifact, build, Compose config validation, and a worker-healthcheck guard; a separate RabbitMQ integration job that fails on skipped tests; frontend lint/build and E2E typecheck; Chromium-only Playwright E2E; changed-service Docker image builds and scans; Compose-backed access tests with their own path filter and access output (triggered by Compose, Nginx, PostgreSQL initialization, migrations, access tests, the Makefile, migration scripts, `.env.example`, or any Docker-service change); a stable `Required CI gate` aggregate; and a `v*`/`milestone-*` tag release job that prepares `.env` from `.env.example`, builds every image, starts the Compose stack with `--wait`, applies migrations with `make migrate`, runs route checks, and stops the stack. Security jobs use pinned `govulncheck`, `pnpm audit --prod`, Gitleaks, CodeQL, and Trivy/Syft; a `security-gate` is required by `Required CI gate`. Dependency updates are managed manually; Dependabot is not enabled. Do not repeat stale CI summaries, and do not claim a CI run passed unless its result was observed.
 
 ## Agent workflow
 
@@ -465,6 +482,7 @@ Before reporting a task complete:
 - `go test ./...` passes for the affected scope.
 - `go test -race ./...` passes for concurrency-sensitive changes when feasible.
 - `go build ./...` passes.
+- Security-sensitive changes pass `govulncheck ./...`, `pnpm audit --prod --audit-level=high`, Gitleaks, and the container scan/SBOM gate when images change.
 - Relevant Nx targets pass, such as `pnpm exec nx test identity` or an `nx run-many` command for the affected Go projects.
 - Frontend changes pass `pnpm exec nx lint @org/web` and `pnpm exec nx build @org/web`; E2E changes pass `pnpm exec nx typecheck @org/web-e2e` and the relevant `pnpm exec nx e2e @org/web-e2e` target.
 - Messaging changes run the broker-backed integration tests when RabbitMQ is available and report any coverage that could not run.

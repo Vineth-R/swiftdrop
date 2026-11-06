@@ -2,19 +2,20 @@
 
 One specification per HTTP service:
 
-| Service  | Specification   | Public base paths                                                                                                        |
-| -------- | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Identity | `identity.yaml` | `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers`                                               |
-| Parcel   | `parcel.yaml`   | `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports` |
-| Pricing  | `pricing.yaml`  | `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones`                                       |
-| Merchant | `merchant.yaml` | `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`                                                       |
-| Realtime | `realtime.yaml` | `/ws`                                                                                                                    |
+| Service      | Specification       | Public base paths                                                                                                        |
+| ------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Identity     | `identity.yaml`     | `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers`                                               |
+| Parcel       | `parcel.yaml`       | `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports` |
+| Pricing      | `pricing.yaml`      | `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones`                                       |
+| Merchant     | `merchant.yaml`     | `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`                                                       |
+| Notification | `notification.yaml` | `/api/v1/admin/notification-logs`                                                                                        |
+| Realtime     | `realtime.yaml`     | `/ws`                                                                                                                    |
 
 The public base paths are the Nginx routes. Nginx strips the `/api/v1` prefix before forwarding, so service routers expose root paths such as `/auth/...`, `/parcels/...`, `/health`, and `/ready`. `/ws` is forwarded to the realtime service unchanged. See `docs/architecture.md`.
 
 All specifications use OpenAPI 3.0.3 and are maintained by hand. When an endpoint is added or changed, update the specification, the Gin route, and the Nginx mapping together. No code-generation pipeline is used during initialization.
 
-The current specifications intentionally describe only the operational health and readiness endpoints. Business endpoints will be added by their owning services as they are implemented; this repository does not invent them in advance.
+The specifications describe the operational health and readiness endpoints. The identity specification also describes register, login, refresh and logout (API v1.1 sections 2.1 to 2.4), Google sign-in (2.5, 2.6), the admin user endpoints and the courier list (2.10 to 2.15) and forgot and reset password (2.16, 2.17). Pricing describes estimates, zones, internal quotes and ADMIN configuration; parcel describes public tracking and the DISPATCHER/ADMIN daily and outcome reports. The notification specification describes the ADMIN-only delivery-log read endpoint served by the notification worker on its internal HTTP port. The service-to-service `/internal` endpoints are in the separate `identity-internal.yaml` because the gateway never routes them (API v1.1 section 13). Other business endpoints will be added by their owning services as they are implemented; this repository does not invent them in advance.
 
 ## Actual HTTP behavior
 

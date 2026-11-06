@@ -38,9 +38,60 @@ func TestLoadFrom(t *testing.T) {
 	}
 }
 
+func TestLoadFromRejectsMissingOrInvalidAppEnv(t *testing.T) {
+	tests := map[string]map[string]string{
+		"unset":      {},
+		"empty":      {"APP_ENV": ""},
+		"whitespace": {"APP_ENV": "   "},
+		"unknown":    {"APP_ENV": "local"},
+	}
+
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := values[key]
+				return value, ok
+			})
+
+			_, err := LoadFrom(loader)
+			if err == nil {
+				t.Fatal("LoadFrom() should have failed")
+			}
+			if !strings.Contains(err.Error(), "APP_ENV") {
+				t.Fatalf("error should reference APP_ENV, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestLoadFromAcceptsSupportedAppEnv(t *testing.T) {
+	for _, appEnv := range []string{"development", "staging", "production"} {
+		t.Run(appEnv, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				values := map[string]string{
+					"APP_ENV":      appEnv,
+					"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+				}
+				value, ok := values[key]
+				return value, ok
+			})
+
+			config, err := LoadFrom(loader)
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AppEnv != appEnv {
+				t.Fatalf("AppEnv = %q, want %q", config.AppEnv, appEnv)
+			}
+		})
+	}
+}
+
 func TestLoadFromParsesRetryConfig(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		values := map[string]string{
+			"APP_ENV":              "development",
 			"RABBITMQ_URL":         "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
 			"RABBITMQ_MAX_RETRIES": "5",
 			"RABBITMQ_RETRY_DELAY": "2s",
@@ -71,6 +122,7 @@ func TestLoadFromRejectsInvalidRetryConfig(t *testing.T) {
 
 	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
+			values["APP_ENV"] = "development"
 			values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
 			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 				value, ok := values[key]
@@ -86,7 +138,10 @@ func TestLoadFromRejectsInvalidRetryConfig(t *testing.T) {
 
 func TestLoadFromRejectsInvalidRabbitMQURL(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		if key == "RABBITMQ_URL" {
+		switch key {
+		case "APP_ENV":
+			return "development", true
+		case "RABBITMQ_URL":
 			return "http://rabbitmq:5672", true
 		}
 		return "", false
@@ -99,7 +154,10 @@ func TestLoadFromRejectsInvalidRabbitMQURL(t *testing.T) {
 
 func TestLoadFromDoesNotLeakRabbitMQCredentials(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		if key == "RABBITMQ_URL" {
+		switch key {
+		case "APP_ENV":
+			return "development", true
+		case "RABBITMQ_URL":
 			return "amqp://swiftdrop:s3cr3t-password@rabbitmq:5672/%zz", true
 		}
 		return "", false

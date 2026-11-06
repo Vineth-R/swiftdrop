@@ -120,11 +120,12 @@ CREATE INDEX IF NOT EXISTS refresh_tokens_expires_idx ON identity.refresh_tokens
 
 
 CREATE TABLE IF NOT EXISTS identity.oauth_states (
-  state         VARCHAR(64)  PRIMARY KEY,
-  code_verifier VARCHAR(128),
-  redirect_to   VARCHAR(255),
-  expires_at    TIMESTAMPTZ  NOT NULL,
-  created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  state                VARCHAR(64)  PRIMARY KEY,
+  code_verifier        VARCHAR(128),
+  redirect_to          VARCHAR(255),
+  browser_binding_hash CHAR(64),                         -- SHA-256 of the browser-binding cookie; NULL on pre-000003 rows
+  expires_at           TIMESTAMPTZ  NOT NULL,
+  created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
   -- ADDED: only relative paths, so the login cannot redirect to another site
   CONSTRAINT oauth_redirect_relative CHECK (redirect_to IS NULL OR (redirect_to LIKE '/%' AND redirect_to NOT LIKE '//%'))
 );
@@ -624,7 +625,7 @@ END $$;
 -- =====================================================================
 -- SEED DATA (document section 10)
 -- Demo users are NOT seeded here: passwords come from environment variables
--- and are hashed by the Go seed command (admin, dispatcher, 2 couriers, customer).
+-- and are hashed by the Go seed command (`make seed`: admin, dispatcher, 2 couriers, customer).
 -- =====================================================================
 
 

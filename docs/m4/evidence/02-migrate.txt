@@ -1,0 +1,27 @@
+# Equivalent of 'make migrate'. Run from Git Bash, so MSYS_NO_PATHCONV=1 is needed: without it the shell rewrites the entrypoint path and the container fails to start.
+$ docker compose exec -T postgres sh -c psql ... -f /docker-entrypoint-initdb.d/01-schemas.sql
+CREATE SCHEMA
+psql:/docker-entrypoint-initdb.d/01-schemas.sql:6: NOTICE:  schema "identity" already exists, skipping
+psql:/docker-entrypoint-initdb.d/01-schemas.sql:7: NOTICE:  schema "pricing" already exists, skipping
+CREATE SCHEMA
+psql:/docker-entrypoint-initdb.d/01-schemas.sql:8: NOTICE:  schema "parcel" already exists, skipping
+CREATE SCHEMA
+CREATE SCHEMA
+psql:/docker-entrypoint-initdb.d/01-schemas.sql:9: NOTICE:  schema "merchant" already exists, skipping
+psql:/docker-entrypoint-initdb.d/01-schemas.sql:10: NOTICE:  schema "notification" already exists, skipping
+CREATE SCHEMA
+CREATE FUNCTION
+rc=0
+$ MSYS_NO_PATHCONV=1 docker compose run --rm --entrypoint /usr/local/bin/migrate-all migrate up
+ Container swiftdrop-postgres-1  Running
+migrating identity (up)
+3/u oauth_states_browser_binding (143.432701ms)
+migrating pricing (up)
+no change
+migrating parcel (up)
+no change
+migrating merchant (up)
+no change
+migrating notification (up)
+no change
+rc=0

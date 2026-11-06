@@ -1,22 +1,13 @@
 openapi: 3.0.3
 info:
   title: SwiftDrop Parcel API
-  version: 0.1.0
-  description: >-
-    Parcel creation, lifecycle, status tracking, and tracking lookups. This
-    specification currently covers only the operational health and readiness endpoints.
-    Every response uses either the success shape shown below or the standard
-    error envelope `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`. Unmatched
-    routes return `404 NOT_FOUND`, disallowed methods return
-    `405 METHOD_NOT_ALLOWED` with an `Allow` header, and unexpected failures
-    return `500 INTERNAL_ERROR`.
+  version: 1.1.0
+  description: Implemented anonymous public tracking, DISPATCHER/ADMIN delivery
+    reports, and operational probes. Parcel creation, courier and dispatch
+    business endpoints remain planned. Public tracking exposes only status,
+    cities and timeline timestamps.
 servers:
-  - url: /api/v1/parcels
-  - url: /api/v1/tracking
-  - url: /api/v1/dispatch
-  - url: /api/v1/admin/parcels
-  - url: /api/v1/courier
-  - url: /api/v1/reports
+  - url: /api/v1
 paths:
   /health:
     get:
@@ -37,13 +28,19 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
+      servers:
+        - url: http://parcel:8082
+      tags:
+        - Internal operations
+      x-internal: true
   /ready:
     get:
       operationId: parcelReady
       summary: Service readiness
       responses:
         '200':
-          description: The service is ready. The database check is reported when DATABASE_URL is configured.
+          description: The service is ready. The database check is reported when
+            DATABASE_URL is configured.
           content:
             application/json:
               schema:
@@ -52,6 +49,12 @@ paths:
                 status: ready
                 checks:
                   database: ok
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
         '503':
           description: A dependency check is down.
           content:
@@ -62,13 +65,291 @@ paths:
                 status: unavailable
                 checks:
                   database: down
+      servers:
+        - url: http://parcel:8082
+      tags:
+        - Internal operations
+      x-internal: true
+  '/tracking/{trackingNumber}':
+    get:
+      operationId: publicTrackingLookup
+      tags:
+        - Public tracking
+      security: []
+      description: Anonymous lookup of actual persisted parcel state and ordered
+        history. Limited to 30 requests per rolling minute per client IP. No
+        names, addresses, phones, notes, failure details or proof data are
+        returned.
+      parameters:
+        - name: trackingNumber
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^SD[KN][A-Z0-9]{8}$
+      responses:
+        '200':
+          description: Public parcel snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PublicTracking'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
         '404':
-          $ref: '#/components/responses/NotFound'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
+          description: TRACKING_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 'VALIDATION_ERROR: malformed tracking number.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: RATE_LIMITED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+                enum:
+                  - 0
         '500':
-          $ref: '#/components/responses/InternalServerError'
-
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: SERVICE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reports/daily:
+    get:
+      operationId: dailyReport
+      summary: Daily created, delivered and failed counts
+      description: DISPATCHER and ADMIN. Counts by event date in UTC. `created`
+        uses the parcel creation date, `delivered` the delivery date and
+        `failed` the failure date, so one parcel can appear on more than one
+        day. `from` and `to` are inclusive UTC dates. The default is the last
+        7 calendar dates (7 dates ending today UTC); the range may not exceed
+        90 days. Every date in the range is returned, including dates with no
+        parcels.
+      tags:
+        - Reports
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: One row per day in the range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - date
+                        - created
+                        - delivered
+                        - failed
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        created:
+                          type: integer
+                        delivered:
+                          type: integer
+                        failed:
+                          type: integer
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: FORBIDDEN. Only DISPATCHER and ADMIN may read reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR. Bad date, from after to, or range over 90 days.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: SERVICE_UNAVAILABLE. Authentication is not configured or the database is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reports/outcomes:
+    get:
+      operationId: outcomesReport
+      summary: Success and failure rates with top failure reasons
+      description: DISPATCHER and ADMIN. Follows parcels whose creation date is
+        in the inclusive UTC range and reports their current status, so
+        `created = delivered + failed + inProgress`. Rates are percentages of
+        finished parcels (delivered plus failed), rounded to two decimals. The
+        default is the last 30 calendar dates (30 dates ending today UTC);
+        `topFailureReasons` is limited to five entries; the range may not
+        exceed 90 days.
+      tags:
+        - Reports
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Outcome summary for the range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: object
+                    required:
+                      - from
+                      - to
+                      - totals
+                      - successRate
+                      - failureRate
+                      - topFailureReasons
+                    properties:
+                      from:
+                        type: string
+                        format: date
+                      to:
+                        type: string
+                        format: date
+                      totals:
+                        type: object
+                        required:
+                          - created
+                          - delivered
+                          - failed
+                          - inProgress
+                        properties:
+                          created:
+                            type: integer
+                          delivered:
+                            type: integer
+                          failed:
+                            type: integer
+                          inProgress:
+                            type: integer
+                      successRate:
+                        type: number
+                      failureRate:
+                        type: number
+                      topFailureReasons:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - reason
+                            - count
+                          properties:
+                            reason:
+                              type: string
+                            count:
+                              type: integer
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: FORBIDDEN. Only DISPATCHER and ADMIN may read reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR. Bad date, from after to, or range over 90 days.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: SERVICE_UNAVAILABLE. Authentication is not configured or the database is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
     HealthResponse:
@@ -79,7 +360,8 @@ components:
       properties:
         status:
           type: string
-          enum: [ok]
+          enum:
+            - ok
     ReadinessResponse:
       type: object
       required:
@@ -87,12 +369,16 @@ components:
       properties:
         status:
           type: string
-          enum: [ready, unavailable]
+          enum:
+            - ready
+            - unavailable
         checks:
           type: object
           additionalProperties:
             type: string
-            enum: [ok, down]
+            enum:
+              - ok
+              - down
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -132,11 +418,59 @@ components:
         requestId:
           type: string
           description: Request correlation ID, also returned in the X-Request-Id header.
+    SuccessMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+        - timestamp
+      properties:
+        requestId: &a1
+          type: string
+        timestamp: &a2
+          type: string
+          format: date-time
+    PublicTracking:
+      type: object
+      additionalProperties: false
+      required:
+        - trackingNumber
+        - status
+        - pickupCity
+        - dropoffCity
+        - lastUpdatedAt
+        - timeline
+      properties:
+        trackingNumber:
+          type: string
+          pattern: ^SD[KN][A-Z0-9]{8}$
+        status: &a3
+          type: string
+          enum:
+            - CREATED
+            - PICKED_UP
+            - IN_TRANSIT
+            - OUT_FOR_DELIVERY
+            - DELIVERED
+            - FAILED
+        pickupCity: *a1
+        dropoffCity: *a1
+        lastUpdatedAt: *a2
+        timeline:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - status
+              - at
+            properties:
+              status: *a3
+              at: *a2
   responses:
     NotFound:
-      description: >-
-        No route matched the request path. Returns the standard error envelope
-        with code `NOT_FOUND`.
+      description: No route matched the request path. Returns the standard error
+        envelope with code `NOT_FOUND`.
       content:
         application/json:
           schema:
@@ -148,7 +482,7 @@ components:
             meta:
               requestId: req_01
     MethodNotAllowed:
-      description: >-
+      description:
         The HTTP method is not allowed for the requested path. Returns the
         standard error envelope with code `METHOD_NOT_ALLOWED`; the `Allow`
         header lists the permitted methods.
@@ -169,9 +503,9 @@ components:
             meta:
               requestId: req_01
     InternalServerError:
-      description: >-
-        An unexpected server error occurred. Returns the standard error envelope
-        with code `INTERNAL_ERROR`; internal details are not exposed.
+      description:
+        An unexpected server error occurred. Returns the standard error
+        envelope with code `INTERNAL_ERROR`; internal details are not exposed.
       content:
         application/json:
           schema:
@@ -182,3 +516,12 @@ components:
               message: internal server error
             meta:
               requestId: req_01
+  securitySchemes:
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: sd_access
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HS256 JWT

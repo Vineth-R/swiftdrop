@@ -28,7 +28,7 @@ func Load() (Config, error) {
 }
 
 func LoadFrom(loader sharedconfig.Loader) (Config, error) {
-	appEnv, err := loader.EnumFold("APP_ENV", "development", "development", "staging", "production")
+	appEnv, err := sharedconfig.LoadAppEnv(loader)
 	if err != nil {
 		return Config{}, err
 	}

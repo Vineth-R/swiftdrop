@@ -2,7 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://swiftdrop.local/events/notification.requested.v1",
   "title": "notification.requested.v1",
-  "description": "Requests delivery of a notification through a future external channel provider.",
+  "description": "Legacy internal notification command. It has no producer and must not be exposed to merchants or receive new producers without a separately approved internal-command contract. Its required recipient field is raw contact data and must not be copied into parcel domain events.",
+  "deprecated": true,
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -38,29 +39,29 @@
     "data": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "recipient",
-        "channel",
-        "template"
-      ],
+      "required": ["parcel_id", "recipient", "channel", "template"],
       "properties": {
+        "parcel_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Parcel the notification belongs to. Also stored in notification.notification_logs.parcel_id."
+        },
         "recipient": {
           "type": "string",
           "minLength": 1
         },
         "channel": {
           "type": "string",
-          "enum": [
-            "email",
-            "sms"
-          ]
+          "enum": ["email", "sms"]
         },
         "template": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Email subject line and first line of the plain-text body."
         },
         "variables": {
           "type": "object",
+          "description": "Optional values appended to the body as sorted key: value lines. Must be an object with string values when present.",
           "additionalProperties": {
             "type": "string"
           }

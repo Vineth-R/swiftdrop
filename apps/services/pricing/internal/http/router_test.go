@@ -14,7 +14,10 @@ import (
 
 func TestHealthEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, path := range []string{"/healthz", "/readyz"} {
 		recorder := httptest.NewRecorder()

@@ -1,19 +1,14 @@
 openapi: 3.0.3
 info:
   title: SwiftDrop Pricing API
-  version: 0.1.0
-  description: >-
-    Delivery fee calculation and pricing configuration. This specification
-    currently covers only the operational health and readiness endpoints. Every response uses
-    either the success shape shown below or the standard error envelope
-    `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`. Unmatched routes return
-    `404 NOT_FOUND`, disallowed methods return `405 METHOD_NOT_ALLOWED` with an
-    `Allow` header, and unexpected failures return `500 INTERNAL_ERROR`.
+  version: 1.1.0
+  description: Implemented pricing, active-zone discovery, protected internal
+    quotes and administrator pricing configuration. Admin requests require
+    verified HS256 access tokens issued under the shared Identity contract.
+    Public estimates are limited to 300 requests per minute per client IP. No
+    browser-facing internal service ports are exposed.
 servers:
-  - url: /api/v1/pricing
-  - url: /api/v1/zones
-  - url: /api/v1/admin/pricing
-  - url: /api/v1/admin/zones
+  - url: /api/v1
 paths:
   /health:
     get:
@@ -34,13 +29,19 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
+      servers:
+        - url: http://pricing:8083
+      tags:
+        - Internal operations
+      x-internal: true
   /ready:
     get:
       operationId: pricingReady
       summary: Service readiness
       responses:
         '200':
-          description: The service is ready. The database check is reported when DATABASE_URL is configured.
+          description: The service is ready. The database check is reported when
+            DATABASE_URL is configured.
           content:
             application/json:
               schema:
@@ -49,6 +50,12 @@ paths:
                 status: ready
                 checks:
                   database: ok
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
         '503':
           description: A dependency check is down.
           content:
@@ -59,13 +66,1228 @@ paths:
                 status: unavailable
                 checks:
                   database: down
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
+      servers:
+        - url: http://pricing:8083
+      tags:
+        - Internal operations
+      x-internal: true
+  /pricing/estimate:
+    post:
+      operationId: estimateDeliveryFee
+      tags:
+        - Pricing
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteInput'
+      responses:
+        '200': &a1
+          description: Exact LKR fee components and total.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Quote'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '400': &a2
+          description: 'BAD_REQUEST: malformed JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404': &a3
+          description: 'ZONE_NOT_FOUND: unknown or inactive zone.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413': &a4
+          description: 'PAYLOAD_TOO_LARGE: body exceeds 1 MiB.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422': &a5
+          description:
+            VALIDATION_ERROR, ROUTE_NOT_SERVICEABLE or WEIGHT_NOT_PRICED.
+            A weight above the maximum active band or in a gap between active
+            bands is WEIGHT_NOT_PRICED. An unpriced route is
+            ROUTE_NOT_SERVICEABLE and takes precedence over weight errors.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: RATE_LIMITED; wait Retry-After seconds.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              description: Seconds until a request can be admitted.
+              schema:
+                type: integer
+                minimum: 1
+        '500': &a6
+          description: 'INTERNAL_ERROR: safe internal failure.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503': &a7
+          description: 'SERVICE_UNAVAILABLE: database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /zones:
+    get:
+      operationId: listActiveZones
+      tags:
+        - Pricing
+      security: []
+      responses:
+        '200':
+          description: Active zones ordered by code.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Zone'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
         '500':
-          $ref: '#/components/responses/InternalServerError'
-
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: SERVICE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/pricing/quote:
+    post:
+      operationId: internalPricingQuote
+      tags:
+        - Internal pricing
+      x-internal: true
+      servers:
+        - url: http://pricing:8083
+      security:
+        - InternalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteInput'
+      responses:
+        '200': *a1
+        '400': *a2
+        '401':
+          description: 'UNAUTHENTICATED: missing or invalid internal token.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404': *a3
+        '413': *a4
+        '422': *a5
+        '500': *a6
+        '503': *a7
+  '/internal/zones/{zoneId}':
+    get:
+      operationId: internalZoneLookup
+      tags:
+        - Internal pricing
+      x-internal: true
+      servers:
+        - url: http://pricing:8083
+      security:
+        - InternalToken: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema: &a9
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Zone including its active state.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/InternalZone'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          description: UNAUTHENTICATED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: ZONE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: SERVICE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/zones:
+    post:
+      operationId: createZone
+      tags:
+        - Admin pricing
+      security: &a8
+        - AccessCookie: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+                - name
+              properties:
+                code: &a28
+                  type: string
+                  minLength: 1
+                  maxLength: 20
+                name: &a10
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                districts: &a11
+                  type: array
+                  items: &a20
+                    type: string
+                isActive:
+                  type: boolean
+                  default: true
+      responses:
+        '201':
+          description: Created and audited.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AdminZone'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '400': &a12
+          description: 'BAD_REQUEST: malformed JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401': &a13
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403': &a14
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409': &a15
+          description: ZONE_CODE_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413': &a16
+          description: 'PAYLOAD_TOO_LARGE: body exceeds 1 MiB.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422': &a17
+          description: 'VALIDATION_ERROR: invalid fields.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500': &a18
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503': &a19
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      operationId: listAdminZones
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - id:asc
+              - id:desc
+              - createdAt:asc
+              - createdAt:desc
+              - updatedAt:asc
+              - updatedAt:desc
+            default: id:asc
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Configuration list.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminZone'
+                  meta:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - requestId
+                      - timestamp
+                      - pagination
+                    properties:
+                      requestId: *a20
+                      timestamp:
+                        type: string
+                        format: date-time
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  '/admin/zones/{id}':
+    patch:
+      operationId: updateZone
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *a9
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: []
+              properties:
+                name: *a10
+                districts: *a11
+                isActive:
+                  type: boolean
+              minProperties: 1
+      responses:
+        '200':
+          description: Updated and audited.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AdminZone'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '400': *a12
+        '401': *a13
+        '403': *a14
+        '404':
+          description: NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409': *a15
+        '413': *a16
+        '422': *a17
+        '500': *a18
+        '503': *a19
+  /admin/pricing/rules:
+    get:
+      operationId: listPricingRules
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - id:asc
+              - id:desc
+              - createdAt:asc
+              - createdAt:desc
+              - updatedAt:asc
+              - updatedAt:desc
+            default: id:asc
+        - name: originZoneId
+          in: query
+          schema: *a9
+        - name: destinationZoneId
+          in: query
+          schema: *a9
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Configuration list.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Rule'
+                  meta:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - requestId
+                      - timestamp
+                      - pagination
+                    properties:
+                      requestId: *a20
+                      timestamp: &a23
+                        type: string
+                        format: date-time
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createPricingRule
+      tags:
+        - Admin pricing
+      security: *a8
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - originZoneId
+                - destinationZoneId
+                - baseFee
+              properties:
+                originZoneId: *a9
+                destinationZoneId: *a9
+                baseFee: &a21
+                  type: number
+                  minimum: 0
+                  maximum: 9999999999.99
+                  multipleOf: 0.01
+                isActive: &a22
+                  type: boolean
+      responses:
+        '201':
+          description: Created and audited.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Rule'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '400':
+          description: 'BAD_REQUEST: malformed JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: ZONE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: RULE_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: 'PAYLOAD_TOO_LARGE: body exceeds 1 MiB.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 'VALIDATION_ERROR: invalid fields.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  '/admin/pricing/rules/{id}':
+    patch:
+      operationId: updatePricingRule
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *a9
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: []
+              properties:
+                baseFee: *a21
+                isActive: *a22
+              minProperties: 1
+      responses:
+        '200':
+          description: Updated and audited; existing parcel fees are unchanged.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Rule'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '400':
+          description: 'BAD_REQUEST: malformed JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: RULE_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: 'PAYLOAD_TOO_LARGE: body exceeds 1 MiB.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 'VALIDATION_ERROR: invalid fields.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/pricing/bands:
+    get:
+      operationId: listPricingBands
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - id:asc
+              - id:desc
+              - createdAt:asc
+              - createdAt:desc
+              - updatedAt:asc
+              - updatedAt:desc
+            default: id:asc
+      responses:
+        '200':
+          description: Configuration list.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Band'
+                  meta:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - requestId
+                      - timestamp
+                      - pagination
+                    properties:
+                      requestId: *a20
+                      timestamp: *a23
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createPricingBand
+      tags:
+        - Admin pricing
+      security: *a8
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - minWeightKg
+                - maxWeightKg
+                - charge
+              properties:
+                minWeightKg: &a24
+                  type: number
+                  minimum: 0
+                  maximum: 9999.99
+                  multipleOf: 0.01
+                maxWeightKg: &a25
+                  type: number
+                  minimum: 0.01
+                  maximum: 9999.99
+                  multipleOf: 0.01
+                charge: *a21
+                isActive: &a26
+                  type: boolean
+      responses:
+        '201':
+          description: Created and audited.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Band'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '400':
+          description: 'BAD_REQUEST: malformed JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: ZONE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: BAND_OVERLAP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: 'PAYLOAD_TOO_LARGE: body exceeds 1 MiB.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 'VALIDATION_ERROR: invalid fields.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  '/admin/pricing/bands/{id}':
+    patch:
+      operationId: updatePricingBand
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *a9
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: []
+              properties:
+                minWeightKg: *a24
+                maxWeightKg: *a25
+                charge: *a21
+                isActive: *a26
+              minProperties: 1
+      responses:
+        '200':
+          description: Updated and audited; existing parcel fees are unchanged.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Band'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '400':
+          description: 'BAD_REQUEST: malformed JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: BAND_OVERLAP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: 'PAYLOAD_TOO_LARGE: body exceeds 1 MiB.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 'VALIDATION_ERROR: invalid fields.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/pricing/surcharges:
+    get:
+      operationId: listSizeSurcharges
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - id:asc
+              - id:desc
+              - updatedAt:asc
+              - updatedAt:desc
+            default: id:asc
+      responses:
+        '200':
+          description: Size surcharges.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Surcharge'
+                  meta:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - requestId
+                      - timestamp
+                      - pagination
+                    properties:
+                      requestId: *a20
+                      timestamp: *a23
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  '/admin/pricing/surcharges/{sizeCategory}':
+    put:
+      operationId: updateSizeSurcharge
+      tags:
+        - Admin pricing
+      security: *a8
+      parameters:
+        - name: sizeCategory
+          in: path
+          required: true
+          schema: &a27
+            type: string
+            enum:
+              - SMALL
+              - MEDIUM
+              - LARGE
+              - OVERSIZED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - surcharge
+              properties:
+                surcharge: *a21
+      responses:
+        '200':
+          description: Updated and audited.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Surcharge'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '400':
+          description: 'BAD_REQUEST: malformed JSON.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: UNAUTHENTICATED or TOKEN_EXPIRED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'FORBIDDEN: ADMIN is required.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: 'PAYLOAD_TOO_LARGE: body exceeds 1 MiB.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 'VALIDATION_ERROR: invalid fields.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: INTERNAL_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 'SERVICE_UNAVAILABLE: authentication or database is not configured.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
     HealthResponse:
@@ -76,7 +1298,8 @@ components:
       properties:
         status:
           type: string
-          enum: [ok]
+          enum:
+            - ok
     ReadinessResponse:
       type: object
       required:
@@ -84,12 +1307,16 @@ components:
       properties:
         status:
           type: string
-          enum: [ready, unavailable]
+          enum:
+            - ready
+            - unavailable
         checks:
           type: object
           additionalProperties:
             type: string
-            enum: [ok, down]
+            enum:
+              - ok
+              - down
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -129,11 +1356,175 @@ components:
         requestId:
           type: string
           description: Request correlation ID, also returned in the X-Request-Id header.
+    SuccessMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+        - timestamp
+      properties:
+        requestId: *a20
+        timestamp: *a23
+    QuoteInput:
+      type: object
+      additionalProperties: false
+      required:
+        - originZoneId
+        - destinationZoneId
+        - weightKg
+        - sizeCategory
+      properties:
+        originZoneId: *a9
+        destinationZoneId: *a9
+        weightKg: *a25
+        sizeCategory: *a27
+    Quote:
+      type: object
+      additionalProperties: false
+      required:
+        - originZoneId
+        - destinationZoneId
+        - weightKg
+        - sizeCategory
+        - currency
+        - baseFee
+        - weightCharge
+        - sizeSurcharge
+        - total
+      properties:
+        originZoneId: *a9
+        destinationZoneId: *a9
+        weightKg: *a25
+        sizeCategory: *a27
+        currency:
+          type: string
+          enum:
+            - LKR
+        baseFee: *a21
+        weightCharge: *a21
+        sizeSurcharge: *a21
+        total: *a21
+    Zone:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - code
+        - name
+        - districts
+      properties:
+        id: *a9
+        code: *a28
+        name: *a10
+        districts: *a11
+    AdminZone:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - code
+        - name
+        - districts
+        - isActive
+      properties:
+        id: *a9
+        code: *a28
+        name: *a10
+        districts: *a11
+        isActive:
+          type: boolean
+    InternalZone:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - code
+        - name
+        - isActive
+      properties:
+        id: *a9
+        code: *a20
+        name: *a20
+        isActive:
+          type: boolean
+    Rule:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - originZoneId
+        - destinationZoneId
+        - baseFee
+        - currency
+        - isActive
+        - updatedAt
+      properties:
+        id: *a9
+        originZoneId: *a9
+        destinationZoneId: *a9
+        baseFee: *a21
+        currency:
+          type: string
+          enum:
+            - LKR
+        isActive:
+          type: boolean
+        updatedAt: *a23
+    Band:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - minWeightKg
+        - maxWeightKg
+        - charge
+        - isActive
+      properties:
+        id: *a9
+        minWeightKg:
+          type: number
+          minimum: 0
+          maximum: 9999.99
+          multipleOf: 0.01
+        maxWeightKg: *a25
+        charge: *a21
+        isActive:
+          type: boolean
+    Surcharge:
+      type: object
+      additionalProperties: false
+      required:
+        - sizeCategory
+        - surcharge
+      properties:
+        sizeCategory: *a27
+        surcharge: *a21
+    Pagination:
+      type: object
+      additionalProperties: false
+      required:
+        - page
+        - pageSize
+        - totalItems
+        - totalPages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalItems:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
   responses:
     NotFound:
-      description: >-
-        No route matched the request path. Returns the standard error envelope
-        with code `NOT_FOUND`.
+      description: No route matched the request path. Returns the standard error
+        envelope with code `NOT_FOUND`.
       content:
         application/json:
           schema:
@@ -145,7 +1536,7 @@ components:
             meta:
               requestId: req_01
     MethodNotAllowed:
-      description: >-
+      description:
         The HTTP method is not allowed for the requested path. Returns the
         standard error envelope with code `METHOD_NOT_ALLOWED`; the `Allow`
         header lists the permitted methods.
@@ -166,9 +1557,9 @@ components:
             meta:
               requestId: req_01
     InternalServerError:
-      description: >-
-        An unexpected server error occurred. Returns the standard error envelope
-        with code `INTERNAL_ERROR`; internal details are not exposed.
+      description:
+        An unexpected server error occurred. Returns the standard error
+        envelope with code `INTERNAL_ERROR`; internal details are not exposed.
       content:
         application/json:
           schema:
@@ -179,3 +1570,16 @@ components:
               message: internal server error
             meta:
               requestId: req_01
+  securitySchemes:
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: sd_access
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HS256 JWT
+    InternalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token

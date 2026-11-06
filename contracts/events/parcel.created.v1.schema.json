@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swiftdrop.local/events/parcel.created.v1",
+  "title": "parcel.created.v1",
+  "description": "Published after a parcel and its initial history row commit. The payload contains parcel identifiers and routing attributes only; contact details are resolved through internal service APIs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "producer",
+    "data"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable event identifier. The outbox UUID is used as the event ID."
+    },
+    "event_type": {
+      "const": "parcel.created.v1"
+    },
+    "event_version": {
+      "const": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "parcel",
+      "description": "Producing service. Parcel events are produced by the parcel service."
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parcel_id", "tracking_number", "status"],
+      "properties": {
+        "parcel_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "tracking_number": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 20
+        },
+        "status": {
+          "const": "CREATED"
+        },
+        "customer_user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "merchant_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["customer_user_id"],
+          "properties": {
+            "customer_user_id": true,
+            "merchant_id": true
+          }
+        },
+        {
+          "required": ["merchant_id"],
+          "properties": {
+            "customer_user_id": true,
+            "merchant_id": true
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "event_id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+      "event_type": "parcel.created.v1",
+      "event_version": 1,
+      "occurred_at": "2026-11-05T12:00:00Z",
+      "producer": "parcel",
+      "correlation_id": "req_01HF-example",
+      "data": {
+        "parcel_id": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
+        "tracking_number": "SDK7M2Q9XP4",
+        "status": "CREATED",
+        "customer_user_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b"
+      }
+    },
+    {
+      "event_id": "1f2e3d4c-5b6a-4798-8a7b-6c5d4e3f2a1b",
+      "event_type": "parcel.created.v1",
+      "event_version": 1,
+      "occurred_at": "2026-11-05T12:02:00Z",
+      "producer": "parcel",
+      "correlation_id": "req_01HF-merchant-example",
+      "data": {
+        "parcel_id": "7d9e0f12-3456-4789-9abc-def012345678",
+        "tracking_number": "SDN4T8W2LC6",
+        "status": "CREATED",
+        "merchant_id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e"
+      }
+    }
+  ]
+}

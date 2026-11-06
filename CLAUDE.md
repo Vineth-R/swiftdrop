@@ -21,3 +21,8 @@
 - The `nx-generate` skill handles generator discovery internally - don't call nx_docs just to look up generator syntax
 
 <!-- nx configuration end-->
+
+# Frontend work
+
+- Before you implement or change any frontend screen or component in `apps/web`, read [`DESIGN.md`](DESIGN.md) in full and follow it. It is the design contract for tokens, the component kit, the app shell, forms, API errors, tests and the finishing checklist.
+- Do not add colours, fonts, icon sets, spacing values or UI libraries, and do not edit the design foundation unless the task is explicitly about it.

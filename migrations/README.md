@@ -23,10 +23,19 @@ Current chain:
 
 - `000001_initial_schema` creates the service schema.
 - `000002_tables` is the M1 baseline from [`docs/db.sql`](../docs/db.sql): 26 tables, triggers, indexes, and reference seeds.
+- `000003_oauth_states_browser_binding` (identity) adds the nullable `oauth_states.browser_binding_hash` column used to bind a Google login attempt to the browser that started it. Existing rows keep `NULL` and expire normally.
 - `000003_dispatch_foundations` (parcel) extends the baseline `parcel_assignments` and `parcel.outbox_events` tables with reassignment metadata, an assignment `updated_at` trigger, and outbox aggregate metadata. It uses additive `ALTER TABLE` statements and does not recreate the baseline tables.
+- `000004_price_breakdown_total` (parcel) re-validates `parcels.price_breakdown` so `price_amount` equals the three components and JSON nulls cannot bypass the total. It replaces the baseline constraint with `NOT VALID` + `VALIDATE CONSTRAINT` and does not change stored data.
+- `000005_outbox_event_types` (parcel) reasserts the approved unversioned outbox contract, widens `outbox_events.last_error` to `TEXT`, and adds the published-event cleanup and current-courier workload indexes. It does not store `.v1` labels; the relay maps storage labels to versioned bus names.
 - `000006_merchant_constraints` is the merchant service's forward migration. It adds the stricter merchant CHECK constraints through additive `ALTER TABLE` statements.
 
-**Parcel history:** a dispatch feature branch briefly proposed `000002_parcels` and `000003_parcel_assignments_and_outbox`. Both duplicated tables already created by the applied `000002_tables` baseline, and the second reused the `000003` version. They were never applied to the shared baseline database and were replaced by `000003_dispatch_foundations` before merge. Parcel migrations continue from `000004`.
+**Parcel outbox contract (000005):** the outbox stores only the unversioned labels and exact pairs `parcel.created` → `parcel.created`, `parcel.assigned` → `parcel.assigned`, and `parcel.status_changed` → `parcel.status.changed`. The underscore in the event type and the dots in the status routing key are intentional. `000005` reasserts these constraints, rejects `.v1` labels and mixed pairs at the database, and does not change the relay's responsibility to map storage labels to the versioned bus events (`parcel.created.v1`, `parcel.assigned.v1`, `parcel.status_changed.v1`). It widens `last_error` to `TEXT` and adds `idx_outbox_events_published_cleanup` for published-event retention and `idx_parcel_assignments_courier_workload` for the current-assignment workload query. The existing `outbox_status_created (status, created_at)` index already serves the pending FIFO relay poll; a representative 100k-row local `EXPLAIN (ANALYZE, BUFFERS)` returned the first 100 pending rows in about 1.4 ms, so `000005` intentionally does not add a duplicate partial pending index. The workload index reduced the grouped current-assignment scan from about 6.9 ms and 53 index buffers to about 5.2 ms and 18 index buffers on the same data, so it is retained.
+
+**Pricing and tracking (M4):** no new migrations were required. `pricing/000002_tables` already creates `zones`, `pricing_rules`, `weight_bands`, `size_surcharges` and `audit_logs`, including indexes, checks, the active-route unique index, the `(min, max]` exclusion constraint, and the reference seed (CMB/KDY and the 550.00 LKR example). Public tracking reads the existing `parcel.parcels` and `parcel.parcel_status_history` tables and the existing unique tracking-number index. The feature branch's proposed merchant reconciliation and legacy merchant migrations were not adopted: the canonical `000002_tables` already contains the webhook tables, UUID defaults and key-limit trigger, and the shared database is at canonical merchant version 6.
+
+**M7.1 baseline:** `parcel.delivery_proofs` is already provided by [`parcel/000002_tables.up.sql`](parcel/000002_tables.up.sql); `notification.notification_logs` and `notification.processed_events` are already provided by [`notification/000002_tables.up.sql`](notification/000002_tables.up.sql). These applied baseline files remain immutable. M7.1 adds verification rather than duplicate `000003` migrations for these tables.
+
+**Parcel history:** a dispatch feature branch briefly proposed `000002_parcels` and `000003_parcel_assignments_and_outbox`. Both duplicated tables already created by the applied `000002_tables` baseline, and the second reused the `000003` version. They were never applied to the shared baseline database and were replaced by `000003_dispatch_foundations` before merge. Parcel migrations continue from `000004`; the current parcel head is `000005_outbox_event_types`.
 
 **Merchant history:** `000002_merchants`, `000003_api_clients`, `000004_orders_and_events`, and `000005_audit_logs` were removed. They duplicated the applied `000002_tables` baseline (including its version number) and re-created existing tables without `IF NOT EXISTS`, which made the migration source invalid. They were never applied to the shared baseline database. The useful constraints were preserved in `000006_merchant_constraints`; redundant index variants were not re-added. Merchant migrations continue from `000007`.
 
@@ -59,7 +68,30 @@ Roll back one migration per service (reverse order):
 make migrate-down
 ```
 
-This is **destructive**: on services currently at version 2 it drops their schema and tables. Use it only on a disposable database.
+This is **destructive** and applies to the database resolved by Compose; it does not create an isolated test database. Inspect the target and each service's current version first. The effect depends on which migration is being rolled back:
+
+| Migration rolled back                                  | Effect                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `000002_tables` (version 2 → 1)                        | Drops that service's baseline tables and their data, plus explicitly declared migration-owned triggers/functions where applicable. The service schema remains.                                                                                                                        |
+| `000005_outbox_event_types` (parcel version 5 → 4)     | Restores `outbox_events.last_error` to `VARCHAR(255)`, reasserts the baseline outbox CHECK constraints, and drops the two indexes added by `000005`. Fails atomically with a clear error if any `last_error` value is longer than 255 characters; it never truncates diagnostic data. |
+| `000001_initial_schema`                                | Drops the service schema with `CASCADE`, including any remaining objects. This is a separate rollback from version 1.                                                                                                                                                                 |
+| `000006_merchant_constraints` (merchant version 6 → 2) | Removes the added CHECK constraints; retains the merchant schema and baseline tables. Version gaps do not imply extra rollback steps.                                                                                                                                                 |
+
+For parcel, `000002 DOWN` drops `parcels`, `parcel_status_history`, `parcel_assignments`, `delivery_proofs` and `outbox_events`, together with the explicitly dropped parcel triggers/functions. For notification it drops `notification_logs` and `processed_events`. Neither `000002` DOWN file drops its schema; the corresponding `000001` DOWN files do. Reapplying `000002` recreates the baseline objects but cannot recover deleted rows. Use destructive rollback only on a disposable database, never the active development database.
+
+### Isolated M7 rollback verification
+
+From the repository root on Windows with Docker Desktop in Linux-container mode:
+
+```powershell
+powershell -NoProfile -File .\scripts\test-m7-database.ps1
+```
+
+This runner uses the existing cached `postgres:16-alpine` and `migrate/migrate:v4.18.3` images, a unique internal network and PostgreSQL container, and `tmpfs` storage with no existing project database volumes or published ports. It bypasses the Makefile/Unix wrapper, whose execution failed in the verified Windows environment. It does not read `.env` or target the active database.
+
+The November 1, 2026 local run passed **95 SQL assertions before rollback**, rolled back only parcel/notification `000002` with both schemas retained at clean version 1, reapplied `000002` to clean version 2, and passed **the same 95 SQL assertions afterward**. It also passed **33 migration-state checks** across the initial, rolled-back and reapplied states. Version `000001` was never rolled back. Cleanup succeeded, including during a deliberate SQL-failure probe. See [M7.1 database verification](../tests/integration/README.md#m71-database-verification) for coverage, safety precautions and separate optional Go-validator results. These recorded checks cover parcel/notification baseline rollback, not every service or migration version.
+
+### Reset local data (destructive)
 
 Reset local data and rebuild:
 
