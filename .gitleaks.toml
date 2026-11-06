@@ -116,3 +116,16 @@ paths = [
 regexes = [
   """mockToken = '""",
 ]
+
+# The outbox relay maps an event type to its routing key by comparing the names
+# (parcel.created, parcel.assigned.v1, ...). They are names, not credentials.
+[[rules.allowlists]]
+description = "Outbox relay compares event and routing key names"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^apps/services/parcel/internal/outbox/relay\.go$''',
+]
+regexes = [
+  '''routingKey == "parcel\.''',
+]
