@@ -135,14 +135,18 @@ services:
       args:
         SERVICE: parcel
     environment:
-      <<: *app-env
+      <<: [*app-env, *rabbitmq-env]
       PORT: '8082'
       HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8082/ready']
