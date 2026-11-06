@@ -1,4 +1,4 @@
-# SwiftDrop Database Design Document (v1.1, aligned with API v1.1)
+# SwiftDrop Database Design Document — Version 1.1 (aligned with API v1.1)
 
 > Converted from the supplied PDF. Text and table alignment have been preserved where possible; review complex tables and diagrams against the original PDF.
 
