@@ -99,6 +99,74 @@ test('a quick range button loads that many days ending today', async ({
   await page.getByRole('button', { name: 'Last 7 days' }).click();
   await request;
 });
+
+test('the quick range that matches the current range is marked as pressed', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(daily),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+  // The theme switch in the header has pressed buttons too, so look only here.
+  const quickRanges = page.getByRole('group', { name: 'Quick ranges' });
+  const pressed = (name: string) =>
+    quickRanges.getByRole('button', { name, pressed: true });
+
+  // The page opens on the last 30 days, so clicking it again changes nothing
+  // and the button already says why.
+  await expect(pressed('Last 30 days')).toBeVisible();
+  await expect(pressed('Last 7 days')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Last 90 days' }).click();
+  await expect(pressed('Last 90 days')).toBeVisible();
+  await expect(pressed('Last 30 days')).toHaveCount(0);
+
+  // A range typed by hand matches none of them.
+  const threeDaysAgo = new Date(Date.now() - 3 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  await page.getByLabel('From', { exact: true }).fill(threeDaysAgo);
+  await page.getByRole('button', { name: 'Apply range' }).click();
+  await expect(page.getByText('Loading outcomes')).toHaveCount(0);
+  await expect(quickRanges.getByRole('button', { pressed: true })).toHaveCount(
+    0,
+  );
+});
+
+test('a quick range button keeps its focus and the page does not shift while it loads', async ({
+  page,
+}) => {
+  await signInAs(page, 'ADMIN', {
+    'GET /reports/daily': ok(daily),
+    'GET /reports/outcomes': ok(outcomes),
+  });
+  await page.goto('/reports');
+  await expect(page.getByText('94.37%')).toBeVisible();
+
+  const button = page.getByRole('button', { name: 'Last 7 days' });
+  const before = await button.boundingBox();
+
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/v1/reports/**', async (route) => {
+    await gate;
+    await route.fallback();
+  });
+  await button.click();
+
+  await expect(page.getByText('Loading outcomes')).toBeAttached();
+  await expect(button).toBeEnabled();
+  await expect(button).toBeFocused();
+  expect((await button.boundingBox())?.y).toBe(before?.y);
+
+  release();
+  await expect(page.getByText('Loading outcomes')).toHaveCount(0);
+  await expect(button).toBeFocused();
+});
+
 test('a long daily table is split into pages', async ({ page }) => {
   const longDaily = Array.from({ length: 40 }, (_, index) => ({
     date: new Date(Date.UTC(2026, 9, 1 + index)).toISOString().slice(0, 10),
