@@ -353,7 +353,13 @@ test('a server 422 puts our message on the date field and does not retry', async
   await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
   await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
 
-  await page.getByLabel('To', { exact: true }).fill('2026-11-06');
+  // The field already holds today (UTC), and typing the same value is not a
+  // change, so a fixed date fails on that one day. Yesterday is always a real
+  // change and always inside the default range.
+  const yesterday = new Date(Date.now() - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  await page.getByLabel('To', { exact: true }).fill(yesterday);
   await expect(
     page.getByText('Choose a valid end date within the 90-day range.'),
   ).toHaveCount(0);
