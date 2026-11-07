@@ -36,7 +36,7 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 ## Service boundaries
 
 - **Identity** owns authentication, authorization, and user accounts. It issues the access and refresh tokens for email and password login and for Google sign-in, handles password reset, user management for administrators and the courier list, and exposes two service-to-service `/internal` lookups. Profile endpoints are still planned.
-- **Parcel** owns parcel lifecycle, status, tracking, and delivery reports. Anonymous public tracking and DISPATCHER/ADMIN daily and outcome reports are implemented; lifecycle and dispatch writes remain planned.
+- **Parcel** owns parcel lifecycle, status, tracking, reports, and courier delivery reads. Anonymous public tracking, DISPATCHER/ADMIN daily and outcome reports, and the COURIER delivery list (API v1.1 section 6.1) and assignment-scoped detail (section 6.2) reads are implemented; courier status updates (6.3), proof uploads (6.4), and lifecycle/dispatch writes remain planned.
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
