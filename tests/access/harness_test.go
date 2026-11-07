@@ -166,7 +166,7 @@ func (s *stack) cleanup() {
 	}
 	ids := "'" + strings.Join(s.created, "','") + "'"
 	if err := s.sql(fmt.Sprintf(
-		`DELETE FROM identity.refresh_tokens WHERE user_id IN (%[1]s); DELETE FROM identity.users WHERE id IN (%[1]s);`, ids)); err != nil {
+		`DELETE FROM identity.courier_profiles WHERE user_id IN (%[1]s); DELETE FROM identity.refresh_tokens WHERE user_id IN (%[1]s); DELETE FROM identity.users WHERE id IN (%[1]s);`, ids)); err != nil {
 		fmt.Fprintln(os.Stderr, "access tests: could not remove the fixture accounts:", err)
 	}
 }
@@ -283,6 +283,81 @@ func (s *stack) newCustomer(t *testing.T) customer {
 	}
 	c.id = id
 	return c
+}
+
+// newCourier registers a fresh account, gives it the COURIER role and an
+// available courier profile, and returns it. The profile is required for the
+// dispatch eligibility lookup; the status endpoint only trusts the token.
+func (s *stack) newCourier(t *testing.T) customer {
+	t.Helper()
+	c := s.newCustomer(t)
+	if err := s.sql(fmt.Sprintf(
+		`UPDATE identity.users SET role_id = (SELECT id FROM identity.roles WHERE name = 'COURIER') WHERE id = '%[1]s';
+		 INSERT INTO identity.courier_profiles (user_id, is_available) VALUES ('%[1]s', true)
+		 ON CONFLICT (user_id) DO UPDATE SET is_available = true;`, c.id)); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// createParcel creates a real parcel through the public gateway for the given
+// customer session and returns its ID and tracking number.
+func (s *stack) createParcel(t *testing.T, accessToken, description string) (id, tracking string) {
+	t.Helper()
+	zonesReply := s.mustDo(t, http.MethodGet, "/api/v1/zones", "", nil)
+	var zones []struct{ ID, Code, Name string }
+	if err := zonesReply.data(&zones); err != nil || zonesReply.status != http.StatusOK {
+		t.Fatalf("read real pricing zones: HTTP %d; decode %v", zonesReply.status, err)
+	}
+	var origin, destination string
+	for _, zone := range zones {
+		switch zone.Code {
+		case "CMB":
+			origin = zone.ID
+		case "KDY":
+			destination = zone.ID
+		}
+	}
+	if origin == "" || destination == "" {
+		t.Fatal("the disposable access stack needs the migration-seeded CMB and KDY pricing zones")
+	}
+	estimateBody, err := json.Marshal(map[string]any{"originZoneId": origin, "destinationZoneId": destination, "weightKg": 2, "sizeCategory": "SMALL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	estimate := s.mustDo(t, http.MethodPost, "/api/v1/pricing/estimate", string(estimateBody), nil)
+	var fee struct{ Total json.Number }
+	if err := estimate.data(&fee); err != nil || estimate.status != http.StatusOK || fee.Total == "" {
+		t.Fatalf("obtain real pricing estimate: HTTP %d; decode %v", estimate.status, err)
+	}
+	createBody, err := json.Marshal(map[string]any{
+		"sender":    map[string]string{"name": "Ownership Sender", "phone": "+94771234567", "address": "12 Test Road", "city": "Colombo", "zoneId": origin},
+		"recipient": map[string]string{"name": "Ownership Recipient", "phone": "+94712345678", "address": "45 Test Street", "city": "Kandy", "zoneId": destination},
+		"weightKg":  2, "sizeCategory": "SMALL", "description": description, "expectedFee": fee.Total,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := s.mustDo(t, http.MethodPost, "/api/v1/parcels", string(createBody), bearer(accessToken))
+	var parcel struct{ ID, TrackingNumber string }
+	if err := created.data(&parcel); err != nil || created.status != http.StatusCreated || parcel.ID == "" || parcel.TrackingNumber == "" {
+		t.Fatalf("create parcel fixture: HTTP %d; decode %v", created.status, err)
+	}
+	return parcel.ID, parcel.TrackingNumber
+}
+
+// sqlQuery runs a single-column SQL query and returns its trimmed output.
+func (s *stack) sqlQuery(t *testing.T, query string) string {
+	t.Helper()
+	command := exec.Command("docker", "compose", "exec", "-T", "postgres", "sh", "-c",
+		`exec psql -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"`)
+	command.Dir = s.root
+	command.Stdin = strings.NewReader(query)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture SQL query failed: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output))
 }
 
 // session is what a login or refresh in token mode returns.

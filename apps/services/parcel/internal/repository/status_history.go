@@ -29,6 +29,9 @@ type AppendStatusHistoryParams struct {
 	ActorRole      *string
 	Note           *string
 	FailureReason  *string
+	// CreatedAt stamps the transition with the same database clock value as
+	// the parcel update and outbox row. A nil value keeps the column default.
+	CreatedAt *time.Time
 }
 
 const historyColumns = `id, parcel_id, previous_status, new_status, actor_user_id,
@@ -45,8 +48,8 @@ func (r *Repository) AppendStatusHistory(
 		ctx,
 		`INSERT INTO parcel.parcel_status_history (
 			id, parcel_id, previous_status, new_status, actor_user_id,
-			actor_role, note, failure_reason
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			actor_role, note, failure_reason, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, now()))
 		RETURNING `+historyColumns,
 		params.ID,
 		params.ParcelID,
@@ -56,6 +59,7 @@ func (r *Repository) AppendStatusHistory(
 		params.ActorRole,
 		params.Note,
 		params.FailureReason,
+		params.CreatedAt,
 	))
 	if err != nil {
 		return StatusHistory{}, fmt.Errorf("appending parcel status history: %w", databaseError(err))
