@@ -17,6 +17,27 @@ node --test tests/integration/parcelflow/safe-errors.test.mjs
 Install locked dependencies, start/migrate the documented local stack with
 `make up-build`, and start the web app if Compose does not provide it.
 
+When testing with Mailpit, do not inherit real SMTP credentials from `.env`.
+On Windows, assigning an empty process environment value removes the override,
+so Compose can fall back to `.env`. The verification stack used an ignored
+`tmp/m5/mailpit-override.yml` with literal empty credentials:
+
+```yaml
+services:
+  identity:
+    environment:
+      SMTP_USER: ''
+      SMTP_PASSWORD: ''
+  notification-worker:
+    environment:
+      SMTP_USER: ''
+      SMTP_PASSWORD: ''
+```
+
+Use both files for that isolated test stack, for example
+`docker compose -f docker-compose.yml -f tmp/m5/mailpit-override.yml up -d --wait`.
+Keep TLS protections enabled and leave the original `.env` unchanged.
+
 ```sh
 M5_LIVE_DISPOSABLE=1 M5_LIVE_BASE_URL=http://localhost:8080 \
   node --test tests/integration/parcelflow/api-journey.mjs

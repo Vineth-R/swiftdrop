@@ -12,7 +12,61 @@ dispatcher screens after the earlier verification. These have been merged into
 this branch, preserving both customer and dispatcher behavior at `/parcels`.
 The relay is now implemented, superseding the historical dependency status below.
 The original 511-test result and 83.75% M5 coverage describe the 6 November source;
-post-merge verification is recorded separately before publication.
+post-merge verification below is authoritative for the final application source.
+
+### Post-merge verification (7 November)
+
+| Check                                                | Result                     | Actual result                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Final merged Parcel build/vet                        | PASS                       | Both exit 0; includes M5 customer APIs and M6 dispatch/relay startup.                                                                                                                                                                                                                          |
+| Final merged race and real PostgreSQL tests          | PASS                       | All 12 package results (11 tested packages plus startup), no failing packages.                                                                                                                                                                                                                 |
+| Current M5 statement coverage                        | PASS                       | **808/984 = 82.11%**, above 60%; whole merged Parcel service **78.2%**. The new M6 startup/package code changes the denominator.                                                                                                                                                               |
+| Merged frontend types, unit, focused lint            | PASS                       | App/E2E types, 53/53 Vitest, full web lint with zero issues, full E2E lint with zero errors/39 existing warnings, formatting.                                                                                                                                                                  |
+| Full merged production Chrome regression             | FAIL                       | **529 passed, 2 failed, 0 skipped** in 367.043s. All 16 M5 and 20 M6 cases passed. Existing tooltip/separator checks failed; their exact isolated rerun passed 2/2 without source changes. The full failure remains recorded.                                                                  |
+| Merged production images                             | PASS                       | Parcel Linux build and web Nx production build, including all 24 static pages and M6 routes.                                                                                                                                                                                                   |
+| Combined Node API/contracts/security tests           | PASS                       | 103 passed; zero failed/skipped.                                                                                                                                                                                                                                                               |
+| Real merged API and customer browser journeys        | PASS                       | Zero mocks; pricing mutation/replay/fee stability/ownership/PDF and 360px/1280px.                                                                                                                                                                                                              |
+| New M6 relay                                         | PASS                       | Fresh customer creation became PUBLISHED in one attempt with the canonical event ID.                                                                                                                                                                                                           |
+| Initial downstream email check                       | FAIL (local configuration) | Test SMTP empty overrides were removed by Windows, allowing Compose to inherit existing .env credentials. Mailpit lacks STARTTLS, so M1 correctly refused credential transmission. No TLS rules were weakened; isolated literal-empty overrides and a fresh delivery check are recorded below. |
+| Downstream delivery after isolated configuration fix | PASS                       | Fresh real creation: one PUBLISHED event (one attempt), stored fee 550, one CREATED history row, one SENT log, one processed-event row and one matching Mailpit message. Fresh API and UI journeys passed with zero mocks; UI 10.14s. TLS protections and .env unchanged.                      |
+| Final merged Docker restart and readiness            | PASS                       | Both fresh customer records retained stored fee 550 and one history/outbox/notification/processed-event/Mailpit result after actual Parcel restart; detail/PDF byte-identical. All 12 containers healthy; nginx -t passed. Volumes preserved.                                                  |
+| Merged vulnerability scan                            | PASS                       | Zero reachable or imported-package vulnerabilities; three unused-module advisories.                                                                                                                                                                                                            |
+| Whole-module Linux check                             | NOT TESTED                 | Interrupted before a final result, then superseded by the M6 merge. Scoped merged tests/build and actual Linux containers are verified separately.                                                                                                                                             |
+| Whitespace against development                       | PASS                       | git diff origin/development --check. The full merge diff exposed two existing M6 EOF blank-line warnings, verified byte-identical to development and preserved.                                                                                                                                |
+
+Fresh coverage commands (Windows flags containing dots were quoted):
+
+```sh
+go test -p 1 -race -count=1 -tags=integration,postgres \
+  -covermode=atomic -coverpkg=./apps/services/parcel/... \
+  -coverprofile=test-output/m5-complete/parcel-merged-coverage.out \
+  ./apps/services/parcel/...
+node scripts/check-m5-coverage.mjs test-output/m5-complete/parcel-merged-coverage.out
+go tool cover -func=test-output/m5-complete/parcel-merged-coverage.out
+```
+
+The merged composition root retains M5's validated Pricing/Identity clients and
+M6's dispatch service and relay. Configured AMQP URLs now use the shared
+credential-safe validator, and the relay honors `RABBITMQ_EXCHANGE`. Empty AMQP
+configuration leaves publication disabled. M6 relay internals and historical
+migrations were not changed. `/parcels` routes CUSTOMER to the owned list and
+DISPATCHER/ADMIN to M6's actual dispatcher workspace; M6 navigation/screens/tests
+are preserved.
+
+The earlier local test-cookie diagnostic was resolved before this resume:
+credential-safe error guards passed four regressions, the isolated signing secret
+was rotated, the old cookie returned 401, a new login returned 200, and stored
+parcel fees were unchanged. No production or user secrets were rotated.
+
+Final artifacts: `test-output/m5-complete/merged-docker-summary.json`,
+`merged-live-resolved/event-flow-result.json`, `parcel-merged-*`,
+`frontend-merged-browser-summary.json` and the isolated rerun summary. The
+original SMTP failure remains under `merged-live`; the resolved run is separate.
+
+The remaining M8 order caller/approval integration and merchant-owned notification
+contact resolution are external dependencies. Remote CI, image security/SBOM jobs
+and Firefox/WebKit remain unexecuted locally. A draft PR is required while these
+integration limitations remain.
 
 ## Sources and baseline
 
@@ -162,7 +216,7 @@ Identity/Pricing/Parcel/PostgreSQL, check cross-customer denial and download rea
 receipts. Optional admin credentials enable actual rule mutation/restoration.
 Mocked Playwright screens are reported separately from these journeys.
 
-### 6 November executed results (before the M6 merge)
+### Historical 6 November results (before the M6 merge)
 
 PASS means executed successfully; FAIL preserves an observed failed attempt;
 BLOCKED names an unavailable dependency; NOT TESTED makes no verification claim.
@@ -275,9 +329,9 @@ must retain their separate limitations.
 
 ## Exact change manifest
 
-73 files relative to `bc7d02d`; A = created, M = modified.
-No applied migrations, persistent volumes, shared app layout or generated outputs
-are included. The LF checkout correction has no source diff.
+73 files relative to merged development `b6b49ca`; A = created, M = modified.
+All M6-only files remain unchanged from development. No applied migrations,
+shared app layout, credentials, runtime logs or build outputs are included.
 
 ```text
 M .env.example
@@ -321,7 +375,7 @@ M apps/web-e2e/src/app-shell.spec.ts
 A apps/web-e2e/src/parcels.spec.ts
 A apps/web/src/app/(app)/new/page.tsx
 A apps/web/src/app/(app)/parcels/[id]/page.tsx
-A apps/web/src/app/(app)/parcels/page.tsx
+M apps/web/src/app/(app)/parcels/page.tsx
 A apps/web/src/components/parcels/contact-fields.tsx
 A apps/web/src/components/parcels/delivery-form.spec.ts
 A apps/web/src/components/parcels/delivery-form.ts

@@ -66,13 +66,15 @@ delivery. See the [event contract](../../../contracts/events/README.md).
 
 ## Configuration and screens
 
-| Variable            | Default                | Purpose                                |
-| ------------------- | ---------------------- | -------------------------------------- |
-| `INTERNAL_TOKEN`    | unset, fail closed     | Internal and downstream authentication |
-| `PRICING_BASE_URL`  | `http://pricing:8083`  | Real Pricing service origin            |
-| `PRICING_TIMEOUT`   | `3s`                   | Pricing HTTP deadline                  |
-| `IDENTITY_BASE_URL` | `http://identity:8081` | Assigned courier contact               |
-| `IDENTITY_TIMEOUT`  | `3s`                   | Identity HTTP deadline                 |
+| Variable            | Default                | Purpose                                             |
+| ------------------- | ---------------------- | --------------------------------------------------- |
+| `INTERNAL_TOKEN`    | unset, fail closed     | Internal and downstream authentication              |
+| `PRICING_BASE_URL`  | `http://pricing:8083`  | Real Pricing service origin                         |
+| `PRICING_TIMEOUT`   | `3s`                   | Pricing HTTP deadline                               |
+| `IDENTITY_BASE_URL` | `http://identity:8081` | Assigned courier contact                            |
+| `IDENTITY_TIMEOUT`  | `3s`                   | Identity HTTP deadline                              |
+| `RABBITMQ_URL`      | unset, relay disabled  | M6 publisher connection; shared safe URL validation |
+| `RABBITMQ_EXCHANGE` | `swiftdrop.events`     | Versioned event exchange used by the relay          |
 
 Origins accept HTTP(S), without credentials, paths, queries or fragments. Clients
 reject redirects and propagate request IDs/cancellation. History and receipts use
