@@ -24,7 +24,7 @@ func TestLoadFrom(t *testing.T) {
 		t.Fatalf("LoadFrom() returned error: %v", err)
 	}
 
-	if config.Queue != "webhook.delivery.requested.v1" {
+	if config.Queue != "webhook.parcel.status_changed.v1" {
 		t.Fatalf("Queue = %q", config.Queue)
 	}
 	if config.RoutingKey != "parcel.status_changed.v1" {

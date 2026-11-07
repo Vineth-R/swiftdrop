@@ -50,7 +50,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, fmt.Errorf("RABBITMQ_URL: %w", err)
 	}
 
-	queue := loader.String("WEBHOOK_QUEUE", "webhook.delivery.requested.v1")
+	queue := loader.String("WEBHOOK_QUEUE", "webhook.parcel.status_changed.v1")
 
 	prefetch, err := loader.Int("RABBITMQ_PREFETCH", 10)
 	if err != nil {
