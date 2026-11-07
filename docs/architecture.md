@@ -1,6 +1,6 @@
 # SwiftDrop architecture
 
-This document describes the initialized foundation. It intentionally stops short of business workflows.
+This document describes the shared foundation and implemented service boundaries. M5 customer parcel workflows are detailed in [the implementation record](m5-complete-parcel-flow.md).
 
 ## System shape
 
@@ -36,7 +36,7 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 ## Service boundaries
 
 - **Identity** owns authentication, authorization, and user accounts. It issues the access and refresh tokens for email and password login and for Google sign-in, handles password reset, user management for administrators and the courier list, and exposes two service-to-service `/internal` lookups. Profile endpoints are still planned.
-- **Parcel** owns parcel lifecycle, status, tracking, and delivery reports. Anonymous public tracking and DISPATCHER/ADMIN daily and outcome reports are implemented; lifecycle and dispatch writes remain planned.
+- **Parcel** owns parcel lifecycle, status, tracking, and delivery reports. Customer creation, owner-scoped reads/history/PDF receipts, internal merchant creation/summary, anonymous public tracking and DISPATCHER/ADMIN reports are implemented. Creation atomically stores the accepted real pricing quote, initial history and PENDING outbox data. Courier lifecycle and dispatch writes remain planned.
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
@@ -73,13 +73,13 @@ Before a handler runs, the shared consumer validates message framing: the body m
 
 The main exchange and queues are unchanged. The shared consumer declares additional durable resources: `<exchange>.retry` and `<queue>.retry` for delayed retries, and `<exchange>.dlx` and `<queue>.dlq` for dead letters. Retry messages return to the original exchange and routing key after the delay; a worker routing key must not fan out to multiple worker queues. Retry and dead-letter publications use publisher confirms; the original delivery is acknowledged only after the broker confirms the publication.
 
-The outbox storage labels remain `parcel.created`, `parcel.assigned`, and `parcel.status_changed`; the stored `routing_key` is legacy/internal. The relay maps those labels to `parcel.created.v1`, `parcel.assigned.v1`, and `parcel.status_changed.v1`, uses the versioned event name as the published routing key, and builds the canonical envelope. No outbox writer, relay, or parcel producer exists yet. See [`contracts/events/README.md`](../contracts/events/README.md) for the canonical mapping and current implementation status.
+The outbox storage labels remain `parcel.created`, `parcel.assigned`, and `parcel.status_changed`; the stored `routing_key` is legacy/internal. The relay maps those labels to `parcel.created.v1`, `parcel.assigned.v1`, and `parcel.status_changed.v1`, uses the versioned event name as the published routing key, and builds the canonical envelope. M5 creation writes the agreed outbox data in the same transaction as the parcel and initial history. The M6 relay and bus publication remain unimplemented. See [`contracts/events/README.md`](../contracts/events/README.md) for the canonical mapping and current implementation status.
 
 When the broker or session fails, workers reconnect with capped exponential backoff and jitter between `RABBITMQ_RECONNECT_MIN` and `RABBITMQ_RECONNECT_MAX`. The backoff resets after a session reaches the consume phase, and reconnect waits and dials honor context cancellation so shutdown is prompt. A second termination signal forces exit if graceful shutdown does not finish.
 
 Handler deadlines are cooperative: handlers must honor their context because Go cannot preempt arbitrary code. Processing remains serial; the configured prefetch is a broker buffer, not concurrency. Do not add concurrent handlers solely to make prefetch look effective; introduce concurrency only with an explicit ordering, acknowledgement, and shutdown design.
 
-The public merchant webhook is a separate projection of `parcel.status_changed.v1`. It keeps the API v1.1 camelCase public body with `eventType: parcel.status_changed`, adds `schemaVersion: 1`, and uses the API v1.1 HMAC signing and six-attempt retry contract. The current worker does not implement HTTP delivery, signing, or delivery-attempt persistence; its legacy work-item consumer only validates and logs. `externalOrderId` is not in the domain event; the documented internal parcel summary is a required future dependency and is not implemented. See [`contracts/events/README.md`](../contracts/events/README.md) and API v1.1 section 10.
+The public merchant webhook is a separate projection of `parcel.status_changed.v1`. It keeps the API v1.1 camelCase public body with `eventType: parcel.status_changed`, adds `schemaVersion: 1`, and uses the API v1.1 HMAC signing and six-attempt retry contract. The current worker does not implement HTTP delivery, signing, or delivery-attempt persistence; its legacy work-item consumer only validates and logs. `externalOrderId` is not in the domain event; the authenticated internal parcel summary now supplies it to trusted callers. Webhook delivery remains planned. See [`contracts/events/README.md`](../contracts/events/README.md) and API v1.1 section 10.
 
 See [`contracts/events/README.md`](../contracts/events/README.md).
 

@@ -1,9 +1,10 @@
-name: M5 Parcel database
+name: M5 Parcel workflows and database
 
 on:
   push:
     branches:
       - feature/m5-parcel-creation
+      - feature/m5-complete-parcel-flow
   pull_request:
     branches:
       - development
@@ -13,6 +14,7 @@ on:
       - 'packages/go-common/**'
       - 'migrations/parcel/**'
       - 'tests/integration/**'
+      - 'scripts/check-m5-coverage.mjs'
       - 'infra/docker/postgres/init/01-schemas.sql'
       - 'go.mod'
       - 'go.sum'
@@ -28,7 +30,7 @@ concurrency:
 
 jobs:
   postgres:
-    name: Parcel migration and repository tests
+    name: Parcel workflows, migrations and coverage
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -72,6 +74,29 @@ jobs:
           go test -race -count=1 -tags=integration,postgres -run '^TestParcel'
           ./tests/integration ./tests/integration/parceltest
           ./apps/services/parcel/internal/repository
+
+      - name: Run complete Parcel workflows with PostgreSQL and coverage
+        run: >-
+          go test -race -count=1 -tags=integration,postgres
+          -covermode=atomic -coverpkg=./apps/services/parcel/...
+          -coverprofile=m5-parcel-coverage.out ./apps/services/parcel/...
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Test credential-safe live-journey diagnostics
+        run: node --test tests/integration/parcelflow/safe-errors.test.mjs
+
+      - name: Check Member 5 statement coverage
+        run: node scripts/check-m5-coverage.mjs m5-parcel-coverage.out
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m5-parcel-coverage
+          path: m5-parcel-coverage.out
+          if-no-files-found: ignore
 
       - name: Run the complete dispatch database suite
         run: >-
