@@ -50,6 +50,7 @@ type statusTx struct {
 	pgx.Tx
 	from                       statemachine.ParcelStatus
 	owner, customer, merchant  *string
+	assignmentCurrent          bool
 	fail                       string
 	cause                      error
 	commits, rollbacks, writes int
@@ -68,6 +69,11 @@ func (tx *statusTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.R
 			return statusRow{err: tx.cause}
 		}
 		return statusRow{values: []any{"SDK7M2Q9XP4", tx.from, tx.owner, tx.customer, tx.merchant}}
+	case strings.Contains(sql, "SELECT EXISTS ("):
+		if tx.fail == "assignment" {
+			return statusRow{err: tx.cause}
+		}
+		return statusRow{values: []any{tx.assignmentCurrent}}
 	case strings.Contains(sql, "UPDATE parcel.parcels"):
 		tx.writes++
 		tx.updateArgs = args
@@ -81,9 +87,13 @@ func (tx *statusTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.R
 		if tx.fail == "history" {
 			return statusRow{err: tx.cause}
 		}
+		createdAt := tx.stamp
+		if params, ok := args[8].(*time.Time); ok && params != nil {
+			createdAt = *params
+		}
 		return statusRow{values: []any{args[0].(string), args[1].(string),
 			args[2].(*repository.ParcelStatus), args[3].(repository.ParcelStatus),
-			args[4].(*string), args[5].(*string), args[6].(*string), args[7].(*string), tx.stamp}}
+			args[4].(*string), args[5].(*string), args[6].(*string), args[7].(*string), createdAt}}
 	default:
 		return statusRow{err: errors.New("unexpected query")}
 	}
@@ -119,7 +129,7 @@ func (tx *statusTx) Rollback(ctx context.Context) error {
 
 func newStatusTx(from statemachine.ParcelStatus) *statusTx {
 	owner, customer := statusCourierID, statusCourierID
-	return &statusTx{from: from, owner: &owner, customer: &customer,
+	return &statusTx{from: from, owner: &owner, customer: &customer, assignmentCurrent: true,
 		stamp: time.Date(2026, 11, 7, 12, 0, 0, 0, time.FixedZone("test", 19800))}
 }
 
@@ -216,7 +226,7 @@ func TestUpdateStatusValidationOrderAndBounds(t *testing.T) {
 
 func TestUpdateStatusTransactionFailures(t *testing.T) {
 	cause := errors.New("database failed")
-	for _, stage := range []string{"begin", "lock", "update", "history", "outbox", "commit", "rollback"} {
+	for _, stage := range []string{"begin", "lock", "assignment", "update", "history", "outbox", "commit"} {
 		t.Run(stage, func(t *testing.T) {
 			tx := newStatusTx(statemachine.StatusCreated)
 			tx.fail, tx.cause = stage, cause
@@ -230,17 +240,34 @@ func TestUpdateStatusTransactionFailures(t *testing.T) {
 			if !errors.Is(err, cause) {
 				t.Fatalf("error = %v", err)
 			}
-			if stage != "rollback" && result != (StatusResult{}) {
+			if result != (StatusResult{}) {
 				t.Fatal("failed write returned a success result")
 			}
 			if stage != "begin" && (tx.rollbacks != 1 || tx.cleanupCancelled) {
 				t.Fatal("transaction was not cleaned up")
 			}
-			if stage != "commit" && stage != "rollback" && tx.commits != 0 {
+			if stage == "commit" {
+				if tx.commits != 1 {
+					t.Fatal("commit was not attempted")
+				}
+			} else if tx.commits != 0 {
 				t.Fatal("committed a failed transaction")
 			}
 		})
 	}
+	t.Run("unexpected rollback error after commit is not a failure", func(t *testing.T) {
+		tx := newStatusTx(statemachine.StatusCreated)
+		tx.fail, tx.cause = "rollback", cause
+		result, err := NewRepository(statusDB{tx: tx}).UpdateStatus(t.Context(), StatusInput{
+			ParcelID: statusParcelID, CourierID: statusCourierID, Status: statemachine.StatusPickedUp,
+		})
+		if err != nil {
+			t.Fatalf("committed update reported an error: %v", err)
+		}
+		if result.Status != statemachine.StatusPickedUp || result.ParcelID != statusParcelID || tx.commits != 1 || tx.rollbacks != 1 {
+			t.Fatalf("result=%+v tx=%+v", result, tx)
+		}
+	})
 	if _, err := NewRepository(nil).UpdateStatus(t.Context(), StatusInput{}); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("unconfigured: %v", err)
 	}
@@ -248,6 +275,16 @@ func TestUpdateStatusTransactionFailures(t *testing.T) {
 	tx.fail, tx.cause = "lock", pgx.ErrNoRows
 	if _, err := NewRepository(statusDB{tx: tx}).UpdateStatus(t.Context(), StatusInput{}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing parcel: %v", err)
+	}
+	tx = newStatusTx(statemachine.StatusCreated)
+	tx.assignmentCurrent = false
+	if _, err := NewRepository(statusDB{tx: tx}).UpdateStatus(t.Context(), StatusInput{
+		ParcelID: statusParcelID, CourierID: statusCourierID, Status: statemachine.StatusPickedUp,
+	}); !errors.Is(err, ErrInconsistentAssignment) {
+		t.Fatalf("inconsistent assignment: %v", err)
+	}
+	if tx.writes != 0 || tx.commits != 0 {
+		t.Fatal("inconsistent assignment wrote or committed")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

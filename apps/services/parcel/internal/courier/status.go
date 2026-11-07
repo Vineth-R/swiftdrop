@@ -42,12 +42,20 @@ func (r *Repository) UpdateStatus(ctx context.Context, input StatusInput) (resul
 	if err != nil {
 		return StatusResult{}, fmt.Errorf("begin courier status update: %w", err)
 	}
+	committed := false
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if rollbackErr := tx.Rollback(cleanupCtx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-			err = errors.Join(err, fmt.Errorf("rollback courier status update: %w", rollbackErr))
+		rollbackErr := tx.Rollback(cleanupCtx)
+		if rollbackErr == nil || errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			return
 		}
+		// A committed transition is durable. An unexpected rollback error after
+		// commit must never turn a successful update into a reported failure.
+		if committed {
+			return
+		}
+		err = errors.Join(err, fmt.Errorf("rollback courier status update: %w", rollbackErr))
 	}()
 
 	result, err = updateStatusInTx(ctx, tx, input)
@@ -57,6 +65,7 @@ func (r *Repository) UpdateStatus(ctx context.Context, input StatusInput) (resul
 	if err := tx.Commit(ctx); err != nil {
 		return StatusResult{}, fmt.Errorf("commit courier status update: %w", err)
 	}
+	committed = true
 	return result, nil
 }
 
@@ -82,6 +91,20 @@ func updateStatusInTx(ctx context.Context, tx pgx.Tx, input StatusInput) (Status
 		}); err != nil {
 		return StatusResult{}, err
 	}
+	// The read API treats a current courier without a current assignment row as
+	// an internal consistency failure. Writes enforce the same invariant inside
+	// the parcel lock so a stale current_courier_id cannot authorize an update.
+	var assignmentCurrent bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM parcel.parcel_assignments
+		WHERE parcel_id = $1 AND courier_id = $2 AND is_current)`,
+		input.ParcelID, input.CourierID).Scan(&assignmentCurrent)
+	if err != nil {
+		return StatusResult{}, fmt.Errorf("verify courier assignment: %w", err)
+	}
+	if !assignmentCurrent {
+		return StatusResult{}, fmt.Errorf("verify courier assignment: %w", ErrInconsistentAssignment)
+	}
 
 	var recipient, reason, note *string
 	if input.Status == statemachine.StatusDelivered {
@@ -95,11 +118,17 @@ func updateStatusInTx(ctx context.Context, tx pgx.Tx, input StatusInput) (Status
 	if input.Note != "" {
 		note = &input.Note
 	}
-	err = tx.QueryRow(ctx, `UPDATE parcel.parcels SET status = $2::text,
+	// The shared set_updated_at trigger overwrites the updated_at column with
+	// transaction-start now(). Use one materialized clock value for the returned
+	// timestamp, delivery timestamps, history and outbox so a transition that
+	// waited on the parcel lock is ordered after the one it followed, and so all
+	// four values agree to the microsecond.
+	err = tx.QueryRow(ctx, `WITH ts AS MATERIALIZED (SELECT clock_timestamp() AS t)
+		UPDATE parcel.parcels SET status = $2::text,
 		failure_reason = $3, delivered_to_name = $4,
-		delivered_at = CASE WHEN $2 = 'DELIVERED' THEN now() ELSE delivered_at END,
-		failed_at = CASE WHEN $2 = 'FAILED' THEN now() ELSE failed_at END,
-		updated_at = now() WHERE id = $1 RETURNING updated_at`,
+		delivered_at = CASE WHEN $2 = 'DELIVERED' THEN ts.t ELSE delivered_at END,
+		failed_at = CASE WHEN $2 = 'FAILED' THEN ts.t ELSE failed_at END,
+		updated_at = ts.t FROM ts WHERE id = $1 RETURNING ts.t`,
 		input.ParcelID, input.Status, reason, recipient).Scan(&result.UpdatedAt)
 	if err != nil {
 		return StatusResult{}, fmt.Errorf("update courier parcel status: %w", err)
@@ -118,7 +147,7 @@ func updateStatusInTx(ctx context.Context, tx pgx.Tx, input StatusInput) (Status
 	_, err = parcelRepo.AppendStatusHistory(ctx, repository.AppendStatusHistoryParams{
 		ID: historyID, ParcelID: input.ParcelID, PreviousStatus: &previous,
 		NewStatus: repository.ParcelStatus(input.Status), ActorUserID: &input.CourierID,
-		ActorRole: &role, Note: note, FailureReason: reason,
+		ActorRole: &role, Note: note, FailureReason: reason, CreatedAt: &result.UpdatedAt,
 	})
 	if err != nil {
 		return StatusResult{}, fmt.Errorf("append courier status history: %w", err)
@@ -126,6 +155,9 @@ func updateStatusInTx(ctx context.Context, tx pgx.Tx, input StatusInput) (Status
 
 	// Store only the canonical data object. M6's relay supplies the envelope and
 	// maps these legacy storage labels to parcel.status_changed.v1, version 1.
+	// created_at reuses the parcel update's clock value so serialized transitions
+	// on one parcel cannot publish out of order when transaction start times
+	// differ from the row-lock acquisition order.
 	payload := map[string]any{
 		"parcel_id": input.ParcelID, "tracking_number": result.TrackingNumber,
 		"previous_status": result.PreviousStatus, "status": input.Status,
@@ -148,9 +180,9 @@ func updateStatusInTx(ctx context.Context, tx pgx.Tx, input StatusInput) (Status
 		return StatusResult{}, fmt.Errorf("encode courier status event: %w", err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO parcel.outbox_events
-		(id, event_type, routing_key, payload, status, attempts, aggregate_type, aggregate_id)
+		(id, event_type, routing_key, payload, status, attempts, aggregate_type, aggregate_id, created_at)
 		VALUES (gen_random_uuid(), 'parcel.status_changed', 'parcel.status.changed',
-		$1, 'PENDING', 0, 'parcel', $2)`, data, input.ParcelID)
+		$1, 'PENDING', 0, 'parcel', $2, $3)`, data, input.ParcelID, result.UpdatedAt)
 	if err != nil {
 		return StatusResult{}, fmt.Errorf("insert courier status event: %w", err)
 	}

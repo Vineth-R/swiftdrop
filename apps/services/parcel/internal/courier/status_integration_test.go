@@ -162,7 +162,9 @@ func TestCourierStatusDatabase(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !failed.Equal(result.UpdatedAt) || reason != "Recipient unavailable" || historyReason != reason || recipient != nil || data["failure_reason"] != reason || data["merchant_id"] != statusCourierID || data["customer_user_id"] != nil {
-				t.Fatalf("failure fields or merchant routing: %s", raw)
+				t.Fatalf("failure fields or merchant routing: failed=%v updated=%v equal=%t reason=%q historyReason=%q recipient=%v dataReason=%v merchant=%v customer=%v payload=%s",
+					failed, result.UpdatedAt, failed.Equal(result.UpdatedAt), reason, historyReason, recipient,
+					data["failure_reason"], data["merchant_id"], data["customer_user_id"], raw)
 			}
 		})
 	}
@@ -193,6 +195,17 @@ func TestCourierStatusDatabase(t *testing.T) {
 			assertStatusRows(t, pool, id, tc.from, 0)
 		})
 	}
+	t.Run("inconsistent assignment does not authorize a status write", func(t *testing.T) {
+		id := insertStatusParcel(t, pool, "CREATED", statusCourierID, false)
+		if _, err := pool.Exec(t.Context(), `DELETE FROM parcel.parcel_assignments WHERE parcel_id=$1`, id); err != nil {
+			t.Fatal(err)
+		}
+		_, err := repo.UpdateStatus(t.Context(), StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "PICKED_UP"})
+		if !errors.Is(err, ErrInconsistentAssignment) {
+			t.Fatalf("error=%v want=%v", err, ErrInconsistentAssignment)
+		}
+		assertStatusRows(t, pool, id, "CREATED", 0)
+	})
 	for _, table := range []string{"parcel_status_history", "outbox_events"} {
 		t.Run("rollback on "+table+" failure", func(t *testing.T) {
 			id := insertStatusParcel(t, pool, "OUT_FOR_DELIVERY", statusCourierID, false)

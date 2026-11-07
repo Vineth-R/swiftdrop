@@ -118,7 +118,9 @@ func run() error {
 	}
 
 	if database != nil {
-		options.Courier = courier.NewRepository(database)
+		courierRepository := courier.NewRepository(database)
+		options.Courier = courierRepository
+		options.CourierStatus = courierRepository
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)
 		pricingClient := parcels.NewPricingClient(config.PricingBaseURL, config.InternalToken, &http.Client{

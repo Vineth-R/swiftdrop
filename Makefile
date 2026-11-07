@@ -159,7 +159,7 @@ test-db:
 	}
 	PARCEL_TEST_DATABASE_URL="$${PARCEL_TEST_DATABASE_URL:-$${TEST_DATABASE_URL}}" \
 	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" \
-	go test -race -count=1 -v -tags=integration,postgres -run '^(TestParcel|TestCourier)' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository ./apps/services/parcel/internal/http
+	go test -race -count=1 -v -tags=integration,postgres -run '^(TestParcel|TestCourier)' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository ./apps/services/parcel/internal/http ./apps/services/parcel/internal/courier
 
 check-routes:
 	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \

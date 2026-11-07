@@ -15,7 +15,8 @@ import (
 
 func TestCourierStatusHTTPDatabase(t *testing.T) {
 	database := parceltest.New(t)
-	router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: courier.NewRepository(database.Pool)})
+	repository := courier.NewRepository(database.Pool)
+	router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: repository, CourierStatus: repository})
 	id, other := parceltest.UUID(t), parceltest.UUID(t)
 	_, err := database.Pool.Exec(t.Context(), `INSERT INTO parcel.parcels (
 		id,tracking_number,customer_user_id,sender_name,sender_phone,pickup_address,
@@ -70,9 +71,19 @@ func TestCourierStatusHTTPDatabase(t *testing.T) {
 					t.Fatalf("missing recipient: %d %s", invalid.Code, invalid.Body)
 				}
 			}
-			rec := courierStatusRequest(t, router, id, `{"status":"`+next+`","recipientName":"Accepted By"}`, courierTestID, auth.RoleCourier, true)
+			// Exercise both route forms through the real router. Gin must not
+			// redirect either form, because a redirect Location would omit the
+			// gateway's /api/v1 prefix.
+			path := "/courier/deliveries/" + id + "/status"
+			if next == "PICKED_UP" {
+				path += "/"
+			}
+			rec := courierStatusRequestPath(t, router, path, `{"status":"`+next+`","recipientName":"Accepted By"}`, courierTestID, auth.RoleCourier, true)
 			if rec.Code != 200 {
-				t.Fatalf("update: %d %s", rec.Code, rec.Body)
+				t.Fatalf("update via %s: %d %s", path, rec.Code, rec.Body)
+			}
+			if location := rec.Header().Get("Location"); location != "" {
+				t.Fatalf("update via %s redirected to %q", path, location)
 			}
 			var body struct {
 				Data courier.StatusResult `json:"data"`

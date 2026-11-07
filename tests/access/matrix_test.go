@@ -60,7 +60,8 @@ var matrix = []accesskit.Case{
 	{Name: "GET /dispatch/workload", Method: http.MethodGet, Path: "/api/v1/dispatch/workload", Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "PUT /dispatch/parcels/{id}/assignment", Method: http.MethodPut, Path: "/api/v1/dispatch/parcels/" + anyID + "/assignment", Body: `{}`, Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "GET /admin/parcels", Method: http.MethodGet, Path: "/api/v1/admin/parcels/", Allowed: []auth.Role{auth.RoleDispatcher}},
-	{Name: "GET /courier/deliveries", Method: http.MethodGet, Path: "/api/v1/courier/deliveries", Allowed: []auth.Role{auth.RoleCourier}, Missing: "the parcel service has no courier routes yet (API 6.1)"},
+	{Name: "GET /courier/deliveries", Method: http.MethodGet, Path: "/api/v1/courier/deliveries", Allowed: []auth.Role{auth.RoleCourier}},
+	{Name: "POST /courier/deliveries/{id}/status", Method: http.MethodPost, Path: "/api/v1/courier/deliveries/" + anyID + "/status", Body: `{}`, Allowed: []auth.Role{auth.RoleCourier}},
 }
 
 func TestRoleMatrix(t *testing.T) {

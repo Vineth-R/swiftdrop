@@ -6,10 +6,13 @@ info:
     Customer parcel creation, owned reads, PDF receipts, authenticated internal merchant
     creation and summaries, anonymous public tracking, DISPATCHER/ADMIN delivery reports,
     dispatch planning, courier assignment, workload balancing, admin parcel search,
-    assignment-scoped courier delivery reads and operational probes. Creation atomically
-    stores parcel, initial history and PENDING outbox data; the M6 relay publishes
-    versioned domain events. Courier lifecycle writes remain planned. Public tracking
-    exposes only status, cities and timeline timestamps.
+    assignment-scoped courier delivery reads and courier status updates, and operational
+    probes. Creation atomically stores parcel, initial history and PENDING outbox data;
+    courier status updates lock the parcel, verify the current assignment and commit the
+    parcel, history and PENDING outbox row in one transaction. The M6 relay publishes
+    versioned domain events after commit. Proof uploads and the remaining courier
+    lifecycle writes remain planned. Public tracking exposes only status, cities and
+    timeline timestamps.
 servers:
   - url: /api/v1
 paths:
@@ -1092,8 +1095,9 @@ paths:
       operationId: updateCourierDeliveryStatus
       summary: Update an assigned delivery status (API v1.1 section 6.3)
       description: |
-        COURIER only. Locks the parcel, verifies the current courier, then validates
-        the transition and required fields using the shared parcel state machine.
+        COURIER only. Locks the parcel, verifies the current courier and current
+        assignment, then validates the transition and required fields using the
+        shared parcel state machine.
         CREATED -> PICKED_UP or FAILED; PICKED_UP -> IN_TRANSIT or FAILED;
         IN_TRANSIT -> OUT_FOR_DELIVERY or FAILED; OUT_FOR_DELIVERY -> DELIVERED
         or FAILED. DELIVERED and FAILED are terminal. Identical updates return 409.
@@ -1663,20 +1667,16 @@ components:
       properties:
         status:
           type: string
-          enum:
-            [
-              CREATED,
-              PICKED_UP,
-              IN_TRANSIT,
-              OUT_FOR_DELIVERY,
-              DELIVERED,
-              FAILED,
-            ]
+          description: Target status. CREATED is not a valid target.
+          enum: [PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
         recipientName:
           type: string
+          maxLength: 150
           description: Required and non-blank for DELIVERED; maximum 150 characters after trimming.
         failureReason:
           type: string
+          minLength: 5
+          maxLength: 255
           description: Required for FAILED; 5 to 255 characters after trimming.
         note:
           type: string
@@ -1700,15 +1700,7 @@ components:
             ]
         status:
           type: string
-          enum:
-            [
-              CREATED,
-              PICKED_UP,
-              IN_TRANSIT,
-              OUT_FOR_DELIVERY,
-              DELIVERED,
-              FAILED,
-            ]
+          enum: [PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
         updatedAt: { type: string, format: date-time }
     CourierDelivery:
       type: object

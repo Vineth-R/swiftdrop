@@ -17,17 +17,17 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
-// CourierStatusStore is separate from CourierStore to preserve the read interface.
+// CourierStatusStore is separate from CourierStore so read-only wiring cannot
+// silently satisfy the write dependency.
 type CourierStatusStore interface {
 	UpdateStatus(context.Context, courier.StatusInput) (courier.StatusResult, error)
 }
 
-func registerCourierStatus(group *gin.RouterGroup, reads CourierStore, logger *slog.Logger) {
-	store, ok := reads.(CourierStatusStore)
-	if !ok {
+func registerCourierStatus(group *gin.RouterGroup, store CourierStatusStore, logger *slog.Logger) {
+	if store == nil {
 		store = courier.NewRepository(nil)
 	}
-	group.POST("/:parcelId/status", func(c *gin.Context) {
+	update := func(c *gin.Context) {
 		claims, ok := courierClaims(c)
 		if !ok {
 			return
@@ -74,5 +74,9 @@ func registerCourierStatus(group *gin.RouterGroup, reads CourierStore, logger *s
 			logger.ErrorContext(c.Request.Context(), "courier status update failed", "request_id", requestid.FromGin(c))
 			httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "delivery status could not be saved")
 		}
-	})
+	}
+	// Register both forms so a trailing slash never falls back to Gin's redirect,
+	// whose Location would omit the gateway's external /api/v1 prefix.
+	group.POST("/:parcelId/status", update)
+	group.POST("/:parcelId/status/", update)
 }

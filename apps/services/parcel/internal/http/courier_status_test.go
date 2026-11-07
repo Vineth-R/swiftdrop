@@ -37,7 +37,12 @@ func (f *courierStatusFixture) UpdateStatus(ctx context.Context, input courier.S
 
 func courierStatusRequest(t *testing.T, router *gin.Engine, parcelID, body, userID string, role auth.Role, cookie bool) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/courier/deliveries/"+parcelID+"/status", strings.NewReader(body))
+	return courierStatusRequestPath(t, router, "/courier/deliveries/"+parcelID+"/status", body, userID, role, cookie)
+}
+
+func courierStatusRequestPath(t *testing.T, router *gin.Engine, path, body, userID string, role auth.Role, cookie bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if role != "" {
 		manager, err := auth.NewTokenManager(reportTestSecret, time.Hour)
@@ -74,7 +79,7 @@ func TestCourierStatusAuthorization(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &courierStatusFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
 			rec := courierStatusRequest(t, router, courierParcelID, `{"status":"PICKED_UP"}`, courierTestID, tc.role, false)
 			if rec.Code != tc.want || rec.Header().Get("Cache-Control") != "no-store" {
 				t.Fatalf("response %d %s", rec.Code, rec.Body)
@@ -125,7 +130,7 @@ func TestCourierStatusRequestValidation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &courierStatusFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
 			rec := courierStatusRequest(t, router, tc.id, tc.body, courierTestID, auth.RoleCourier, true)
 			if rec.Code != 400 || store.writeCalls != 0 || !strings.Contains(rec.Body.String(), `"code":"BAD_REQUEST"`) {
 				t.Fatalf("response %d %s; calls=%d", rec.Code, rec.Body, store.writeCalls)
@@ -138,7 +143,7 @@ func TestCourierStatusResultAndClaims(t *testing.T) {
 	for _, cookie := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cookie=%t", cookie), func(t *testing.T) {
 			store := &courierStatusFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
 			rec := courierStatusRequest(t, router, courierParcelID,
 				`{"status":"DELIVERED","recipientName":"Test Recipient","note":"At door"}`, strings.ToUpper(courierTestID), auth.RoleCourier, cookie)
 			if rec.Code != 200 || store.writeCalls != 1 {
@@ -161,6 +166,40 @@ func TestCourierStatusResultAndClaims(t *testing.T) {
 	}
 }
 
+func TestCourierStatusTrailingSlash(t *testing.T) {
+	for _, path := range []string{
+		"/courier/deliveries/" + courierParcelID + "/status",
+		"/courier/deliveries/" + courierParcelID + "/status/",
+	} {
+		t.Run(path, func(t *testing.T) {
+			store := &courierStatusFixture{}
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
+			rec := courierStatusRequestPath(t, router, path, `{"status":"PICKED_UP"}`, courierTestID, auth.RoleCourier, true)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("response %d %s", rec.Code, rec.Body)
+			}
+			if location := rec.Header().Get("Location"); location != "" {
+				t.Fatalf("unexpected redirect to %q", location)
+			}
+			if rec.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("no-store header missing")
+			}
+			if store.writeCalls != 1 {
+				t.Fatalf("handler calls = %d, want 1", store.writeCalls)
+			}
+		})
+	}
+	t.Run("trailing slash still requires the courier role", func(t *testing.T) {
+		store := &courierStatusFixture{}
+		router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
+		rec := courierStatusRequestPath(t, router, "/courier/deliveries/"+courierParcelID+"/status/",
+			`{"status":"PICKED_UP"}`, courierTestID, auth.RoleCustomer, true)
+		if rec.Code != http.StatusForbidden || store.writeCalls != 0 {
+			t.Fatalf("response %d %s; calls=%d", rec.Code, rec.Body, store.writeCalls)
+		}
+	})
+}
+
 func TestCourierStatusErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name, code string
@@ -174,11 +213,12 @@ func TestCourierStatusErrors(t *testing.T) {
 		{name: "failure reason", err: statemachine.ErrFailureReasonRequired, want: 422, code: "FAILURE_REASON_REQUIRED"},
 		{name: "validation", err: statemachine.ErrValidationError, want: 422, code: "VALIDATION_ERROR"},
 		{name: "unavailable", err: courier.ErrUnavailable, want: 503, code: "SERVICE_UNAVAILABLE"},
+		{name: "inconsistent assignment", err: courier.ErrInconsistentAssignment, want: 500, code: "INTERNAL_ERROR"},
 		{name: "database", err: errors.New("SQL with secret recipient information"), want: 500, code: "INTERNAL_ERROR"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &courierStatusFixture{writeErr: fmt.Errorf("wrapped: %w", tc.err)}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
 			rec := courierStatusRequest(t, router, courierParcelID, `{"status":"PICKED_UP"}`, courierTestID, auth.RoleCourier, false)
 			if rec.Code != tc.want || !strings.Contains(rec.Body.String(), `"code":"`+tc.code+`"`) {
 				t.Fatalf("response %d %s", rec.Code, rec.Body)

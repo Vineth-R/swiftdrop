@@ -69,13 +69,14 @@ jobs:
           go test -race -count=1 ./apps/services/parcel/...
           ./packages/go-common/postgres ./tests/integration/parceltest
 
-      - name: Run PostgreSQL migration, repository and courier read tests
+      - name: Run PostgreSQL migration, repository and courier tests
         run: >-
           go test -race -count=1 -v -tags=integration,postgres
           -run '^(TestParcel|TestCourier)'
           ./tests/integration ./tests/integration/parceltest
           ./apps/services/parcel/internal/repository
           ./apps/services/parcel/internal/http
+          ./apps/services/parcel/internal/courier
 
       - name: Run complete Parcel workflows with PostgreSQL and coverage
         run: >-
