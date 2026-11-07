@@ -28,7 +28,7 @@ SwiftDrop is a parcel delivery and courier management platform. The repository i
 
 This file is the project-specific source of guidance for AI agents. The Nx block above is maintained by Nx and must stay intact. The code and configuration in this repository take precedence over README summaries, generic skill advice, and assumptions from other projects.
 
-## Current phase: foundation with identity auth, M4 pricing/tracking, parcel reports, notification reads and the shadcn UI foundation
+## Current phase: foundation with identity auth, M4 pricing/tracking, M5 customer parcel creation, parcel reports, notification reads and the shadcn UI foundation
 
 M5 now implements customer parcel creation, list/detail/history/PDF receipts,
 internal merchant creation/summary, and the `/new`, `/parcels` and
@@ -56,7 +56,7 @@ The repository is a production-oriented foundation. Identity authentication, pri
 Planned responsibilities:
 
 - `identity`: email and password authentication (register, login, refresh, logout), Google login, password reset, admin users, the courier list, the internal courier-eligibility and user-contact lookups, and the signed-in user's own profile (`GET` and `PATCH /users/me`) and password change (`PUT /users/me/password`) are implemented.
-- `parcel`: anonymous public tracking reads are implemented from real parcel/status-history rows, and DISPATCHER/ADMIN daily and outcome reports are served from the same parcel data. Customer parcel creation, owned reads/history/PDF receipt and internal merchant creation/summary are implemented; courier lifecycle/status writes remain future work.
+- `parcel`: anonymous public tracking reads are implemented from real parcel/status-history rows, and DISPATCHER/ADMIN daily and outcome reports are served from the same parcel data. Customer parcel creation, owned reads/history/PDF receipt and internal merchant creation/summary are implemented; courier lifecycle/status writes remain future work. The internal merchant route is a trusted-caller boundary: M8 must authenticate the API key/approval and supply the verified owner because Parcel has no Merchant internal lookup yet.
 - `pricing`: public estimate and zones, internal quote/zone lookups, and ADMIN pricing configuration with audit logging are implemented.
 - `merchant`: future merchant accounts, integration settings, and API credentials.
 - `notification-worker`: consumes the legacy `notification.requested.v1` work item and the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` domain events; resolves customer contact through identity; sends branded parcel email; merchant-owned events are dead-lettered as unsupported; SMS is a permanent failure; it records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`). The success log and processed-event writes share one transaction. It also exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API on internal HTTP port `8086`; recipients are masked and status filtering is supported. A background scheduler deletes processed-event rows older than 30 days at startup and every 24 hours by default.
@@ -271,6 +271,7 @@ Email and password authentication is implemented in the identity service, and `p
 - Use golang-migrate as documented in `migrations/README.md`. Each service uses its own migration version table.
 - `000001` creates the service schema. `000002_tables` is reserved for the platform baseline tables from `docs/db.sql`. Other owners add new migrations from `000003`; do not renumber or reuse an applied version.
 - Parcel `000003_dispatch_foundations` extends the baseline `parcel_assignments` and `outbox_events` tables. It adds reassignment metadata, an assignment `updated_at` trigger, and outbox aggregate metadata without recreating tables.
+- Parcel `000006_customer_parcel_list_index` adds the additive `(customer_user_id, created_at, id)` index for the ordered customer list; `000004` and `000005` remain unchanged.
 - Applied migrations are immutable. Fix mistakes with a new migration.
 - Do not run migrations automatically at service startup.
 - Do not modify schemas manually without a migration.

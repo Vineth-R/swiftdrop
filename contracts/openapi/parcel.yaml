@@ -470,7 +470,8 @@ paths:
       description:
         CUSTOMER owner, DISPATCHER or ADMIN. Another customer's parcel returns the same 404 as
         a missing parcel. Assigned courier contact is resolved through Identity; only staff receive
-        courier.id.
+        courier.id. If the assigned courier user no longer exists, the parcel is still returned with
+        courier null. A genuine Identity outage returns SERVICE_UNAVAILABLE.
       responses:
         '200':
           description: Authorized parcel detail with the stored fee.

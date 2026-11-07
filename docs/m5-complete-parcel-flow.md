@@ -408,3 +408,29 @@ A tests/integration/parcelflow/customer-journey.mjs
 A tests/integration/parcelflow/safe-errors.mjs
 A tests/integration/parcelflow/safe-errors.test.mjs
 ```
+
+## Remediation addendum
+
+The merge-readiness review fixes are tracked in this branch without changing the
+M5 API contracts:
+
+- The M5 CI workflow installs the repository's pinned pnpm before
+  `actions/setup-node`, so the coverage gate actually executes.
+- `golang.org/x/net` is upgraded to `v0.62.0` (with the matching `x/crypto`,
+  `x/sync`, `x/sys` and `x/text` versions) to clear CVE-2026-78661 in every Go
+  container image.
+- Receipt fonts and the compressed Latin font are parsed once per process; each
+  receipt owns its shaping buffer. Font initialization failures return an error
+  instead of panicking.
+- Unexpected parcel 500s log the wrapped error, path, method and request ID
+  server-side while the client receives a generic error.
+- The outbox relay is cancelled and awaited before the database and broker
+  connections close.
+- A deleted assigned courier yields `courier: null` rather than a 503; genuine
+  Identity outages still fail.
+- The internal merchant route documents its trusted-caller boundary and the
+  remaining M8 approval/owner-verification dependency.
+- Parcel migration `000006` adds the customer-list composite index; applied
+  migrations are unchanged.
+- Access tests name ADMIN explicitly for parcel detail/history, and HTTP tests
+  cover JSON-only state-changing requests and safe error logging.

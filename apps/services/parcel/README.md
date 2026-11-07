@@ -39,7 +39,10 @@ components and total are stored; receipts never reprice using current rules.
 
 Parcel insertion, initial append-only CREATED history and PENDING `parcel.created`
 outbox data commit in one pgx transaction. Failure rolls back all three. Existing
-M5.1 repository and migrations `000001`–`000005` are reused unchanged.
+M5.1 repository and migrations `000001`–`000005` are reused unchanged; the
+additive `000006_customer_parcel_list_index` adds the composite
+`(customer_user_id, created_at, id)` index used by the ordered customer list and
+does not rewrite applied history.
 
 A customer UUID `Idempotency-Key` is scoped to the authenticated owner. PostgreSQL
 transaction advisory locks serialize replay, quote and commit across instances.
@@ -57,7 +60,33 @@ Merchant replay uses `(merchantId, externalOrderId)`. The trusted M8 caller must
 send `createdByUserId`, the verified merchant owner's identity user UUID, for
 DB v1.1's required audit field. Merchant ID is never used as a user ID. This
 completes the previously planned internal contract; no order caller existed.
-M8 remains responsible for approval and verifying the supplied owner identity.
+
+The internal merchant route is a **trusted-caller boundary**, not an
+authentication broker. `POST /internal/parcels` verifies the shared internal
+token, the request shape, and stable replay ownership, but it cannot prove that
+`merchantId` belongs to `createdByUserId` or that the merchant is APPROVED:
+the Merchant service exposes no trusted internal merchant lookup yet. M8's order
+caller must authenticate the API key, enforce `MerchantStatusApproved`
+(including suspension), and supply the verified owner. Until that integration is
+reviewed, do not claim merchant-ownership security is fully enforced by Parcel,
+and never route `/internal` through the gateway.
+
+## Couriers, receipts and request safety
+
+When an assigned courier no longer exists, `GET /parcels/{parcelId}` succeeds
+with `courier: null`; history and receipts are unaffected. Genuine Identity
+outages still return `503`. Customers receive the assigned courier's name and
+phone (documented in API v1.1), while only staff receive `courier.id`.
+
+Session cookies are `HttpOnly`, `SameSite=Lax` and optionally `Secure`. All
+state-changing parcel routes require `Content-Type: application/json`, which a
+cross-site form cannot send without a preflight, so cookie-authenticated writes
+are protected without a separate CSRF token. Adding a token is an M2/shared-auth
+change and must not be duplicated here.
+
+Receipt font faces and the compressed Latin font are parsed once per process and
+shared read-only; each receipt gets its own shaping buffer. A font
+initialization failure becomes a generic 500 and is logged server-side.
 
 Outbox data contains identifiers/status only. The merged M6 relay builds the canonical envelope
 and publishes `parcel.created.v1` using the outbox UUID as `event_id`; the stored

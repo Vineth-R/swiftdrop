@@ -1973,11 +1973,19 @@ Response 200:
 
 
 
- courier is null until assigned. Dispatchers and admins also receive courier.id . Errors:
+ courier is null until assigned. Customers receive the assigned courier's fullName and
+
+phone; dispatchers and admins also receive courier.id . If the assigned courier user no
+
+longer exists, the parcel detail is still returned with courier null (the parcel is not
+
+made unavailable); a genuine Identity outage returns 503 SERVICE_UNAVAILABLE . Errors:
 
 404 (also returned when a customer asks for a parcel they do not own, so IDs cannot be
 
-probed).
+probed). State-changing parcel routes require Content-Type: application/json ; session
+
+cookies are HttpOnly and SameSite=Lax.
 
 
 
