@@ -3,6 +3,8 @@ package delivery
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Vineth-R/swiftdrop/packages/go-common/webhookurl"
 )
 
 const testSecret = "whsec_test_secret"
@@ -185,10 +189,35 @@ func TestSendRejectsUntrustedCertificate(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
 	s := newTestSender(srv, time.Now())
-	s.client = &http.Client{Timeout: 2 * time.Second} // default roots: does not trust the test CA
+	// Default roots: does not trust the test CA. Use the production timeout so
+	// a loaded CI machine cannot turn the expected TLS error into a timeout.
+	s.client = &http.Client{Timeout: RequestTimeout}
 	res := s.Send(context.Background(), Target{URL: srv.URL, Secret: testSecret}, testEvent())
 	if res.Success || res.ErrorMessage != errTLS {
 		t.Fatalf("Result = %+v; want failure %q", res, errTLS)
+	}
+}
+
+// Classification is deterministic and independent of network timing.
+func TestClassify(t *testing.T) {
+	certErr := &tls.CertificateVerificationError{Err: errors.New("x509: certificate signed by unknown authority")}
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"cancelled", context.Canceled, errCancelled},
+		{"deadline", context.DeadlineExceeded, errTimeout},
+		{"blocked address", fmt.Errorf("dial: %w", webhookurl.ErrBlockedIP), errAddrNotAllowed},
+		{"untrusted certificate", fmt.Errorf("request: %w", certErr), errTLS},
+		{"connection failure", errors.New("connection refused"), errConnect},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classify(tc.err); got != tc.want {
+				t.Fatalf("classify(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
 	}
 }
 

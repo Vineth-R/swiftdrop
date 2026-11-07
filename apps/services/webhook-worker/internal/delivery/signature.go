@@ -52,14 +52,20 @@ func Verify(secret, timestamp string, body []byte, signature string) bool {
 
 // VerifyAt is Verify with an explicit current time. The timestamp is the raw
 // X-SwiftDrop-Timestamp header value, not a parsed integer, so the HMAC is
-// computed over the exact bytes the sender signed. Malformed, non-positive,
-// stale and future-dated timestamps are rejected.
+// computed over the exact bytes the sender signed. Malformed, non-canonical,
+// non-positive, stale and future-dated timestamps are rejected.
 func VerifyAt(secret, timestamp string, body []byte, signature string, now time.Time) bool {
 	if !strings.HasPrefix(signature, signaturePrefix) {
 		return false
 	}
 	ts, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil || ts <= 0 {
+		return false
+	}
+	// Require canonical Unix seconds ("1762000000", not "01762000000" or
+	// "+1762000000"). Signing the raw text alone would accept those forms when
+	// a caller signed the same non-canonical string.
+	if strconv.FormatInt(ts, 10) != timestamp {
 		return false
 	}
 	if !withinReplayWindow(ts, now) {

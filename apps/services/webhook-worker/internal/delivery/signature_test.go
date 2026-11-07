@@ -64,6 +64,21 @@ func TestVerifyAt(t *testing.T) {
 	}
 }
 
+// A timestamp must be canonical Unix seconds. A non-canonical string is
+// rejected even when the supplied signature was computed over that exact text,
+// so verification cannot depend on how the sender happened to encode it.
+func TestVerifyRejectsNonCanonicalTimestamp(t *testing.T) {
+	const secret = "whsec_test_secret"
+	body := []byte(`{"a":1}`)
+	now := time.Unix(1762000000, 0)
+	for _, ts := range []string{"01762000000", "001762000000", "+1762000000"} {
+		sig := signTimestamp(secret, ts, body)
+		if VerifyAt(secret, ts, body, sig, now) {
+			t.Errorf("non-canonical timestamp %q was accepted", ts)
+		}
+	}
+}
+
 // Verify is the convenience form that uses the current time. A freshly signed
 // timestamp must pass and a stale one must fail.
 func TestVerifyUsesCurrentTime(t *testing.T) {
