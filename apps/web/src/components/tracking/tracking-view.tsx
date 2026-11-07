@@ -18,6 +18,11 @@ import {
 import { useCountdown } from '../../lib/use-countdown';
 import { useForm, type FormRules } from '../../lib/use-form';
 import {
+  useLiveUpdates,
+  type LiveState,
+  type StatusUpdate,
+} from '../../lib/use-live-updates';
+import {
   serverFieldMessage,
   TRACKING_NUMBER_MESSAGE,
 } from '../../lib/validation';
@@ -105,6 +110,39 @@ export function TrackingView() {
 }
 
 /**
+ * A live update moves the parcel on: its status, its last scan and one more
+ * history step. A repeat or an older update changes nothing. Only these three
+ * public fields are copied, so a socket message can never add private text.
+ */
+function withUpdate(tracking: Tracking, update: StatusUpdate): Tracking {
+  const isRepeat = tracking.timeline.some(
+    (event) => event.status === update.status && event.at === update.updatedAt,
+  );
+  const isOlder =
+    new Date(update.updatedAt).getTime() <
+    new Date(tracking.lastUpdatedAt).getTime();
+  if (isRepeat || isOlder) return tracking;
+  return {
+    ...tracking,
+    status: update.status,
+    lastUpdatedAt: update.updatedAt,
+    timeline: [
+      ...tracking.timeline,
+      { status: update.status, at: update.updatedAt },
+    ],
+  };
+}
+
+/** The live connection in words, as M10's hook asks. */
+const liveCaptions: Record<LiveState, string> = {
+  live: 'Live. Changes appear here as they happen.',
+  connecting: 'Connecting to live updates. Use Refresh to check now.',
+  reconnecting: 'Connecting to live updates. Use Refresh to check now.',
+  denied: 'Live updates are off. Use Refresh to check for changes.',
+  limited: 'Live updates are off. Use Refresh to check for changes.',
+};
+
+/**
  * The number lives in the address (/track?number=SDK7M2Q9XP4), so a link can be
  * shared and the page refreshed. Everything shown comes from getTracking, which
  * keeps only cities, statuses and times (rule 11).
@@ -125,6 +163,35 @@ function TrackSearch() {
   const isWaiting = problem?.kind === 'rate-limited' && remaining > 0;
   const isSearching = view.status === 'loading';
   const isRefreshing = view.status === 'found' && view.isRefreshing;
+  const followed =
+    view.status === 'found' ? view.tracking.trackingNumber : undefined;
+
+  // Every load goes through getTracking, so only public fields are kept.
+  const { state: liveState } = useLiveUpdates({
+    trackingNumber: followed,
+    onUpdate: (update) =>
+      setView((current) =>
+        current.status === 'found' &&
+        current.tracking.trackingNumber === update.trackingNumber
+          ? { ...current, tracking: withUpdate(current.tracking, update) }
+          : current,
+      ),
+    // After each (re)connection the socket may have missed changes, so load the
+    // parcel again quietly: no spinner, and a failure leaves the page as it is.
+    onSync: () =>
+      followed === undefined
+        ? undefined
+        : getTracking(followed)
+            .then((tracking) =>
+              setView((current) =>
+                current.status === 'found' &&
+                current.tracking.trackingNumber === tracking.trackingNumber
+                  ? { ...current, tracking }
+                  : current,
+              ),
+            )
+            .catch(() => undefined),
+  });
 
   // Only a new address replaces the field: Refresh keeps what is being typed.
   useEffect(() => {
@@ -259,6 +326,7 @@ function TrackSearch() {
           <Found
             tracking={view.tracking}
             isRefreshing={view.isRefreshing}
+            liveState={liveState}
             onRefresh={() => setAttempt((count) => count + 1)}
           />
         )}
@@ -270,10 +338,12 @@ function TrackSearch() {
 function Found({
   tracking,
   isRefreshing,
+  liveState,
   onRefresh,
 }: {
   tracking: Tracking;
   isRefreshing: boolean;
+  liveState: LiveState | 'idle';
   onRefresh: () => void;
 }) {
   const { show } = useToast();
@@ -317,7 +387,6 @@ function Found({
         <Button variant="secondary" size="lg" onClick={copyNumber}>
           Copy number
         </Button>
-        {/* TODO(realtime): subscribe when M10's hook lands */}
         <Button
           variant="secondary"
           size="lg"
@@ -327,6 +396,11 @@ function Found({
           {isRefreshing ? 'Refreshing' : 'Refresh'}
         </Button>
       </div>
+      {liveState !== 'idle' && (
+        <p role="status" className="text-body-sm text-text-muted">
+          {liveCaptions[liveState]}
+        </p>
+      )}
       <Card>
         <CardContent>
           <Section
