@@ -12,6 +12,7 @@ import {
   type SizeCategory,
   type Zone,
 } from '../../lib/pricing-api';
+import { useCountdown } from '../../lib/use-countdown';
 import { useForm } from '../../lib/use-form';
 import { serverFieldMessage } from '../../lib/validation';
 import { formatKg, formatLkr } from '../../lib/format';
@@ -43,7 +44,11 @@ import {
   type DeliveryValues,
 } from './delivery-form';
 import { FeeBreakdown } from './fee-breakdown';
-import { ParcelProblem, parcelMessages } from './parcel-problem';
+import {
+  ParcelProblem,
+  parcelMessages,
+  rateLimitSeconds,
+} from './parcel-problem';
 
 /** The estimate's own fields, as the wizard names them. */
 const estimateFields: Record<string, keyof DeliveryValues> = {
@@ -61,6 +66,9 @@ function estimateFieldErrors(
   error: unknown,
 ): Partial<Record<keyof DeliveryValues, string>> {
   if (!(error instanceof ApiError)) return {};
+  // The service reports the origin/destination pair, not which zone is wrong.
+  // Destination is where the wizard asks for the route being priced, so that is
+  // where the message goes; the contract gives no way to split the pair.
   if (error.code === 'ROUTE_NOT_SERVICEABLE')
     return { recipientZone: parcelMessages.ROUTE_NOT_SERVICEABLE };
   if (error.code === 'WEIGHT_NOT_PRICED')
@@ -107,9 +115,17 @@ function DeliveryWizard() {
   const inFlight = useRef(false);
   const heading = useRef<HTMLDivElement>(null);
   const values = form.values;
-  const { setServerErrors } = form;
-  // The fields the last estimate marked, so the next estimate can clear only those.
-  const estimateMarked = useRef<(keyof DeliveryValues)[]>([]);
+  // Estimate problems live apart from the form's client and create-form errors,
+  // so one source can never clear the other.
+  const [estimateErrors, setEstimateErrors] = useState<
+    Partial<Record<keyof DeliveryValues, string>>
+  >({});
+  const estimateRetry =
+    quote.status === 'error' ? rateLimitSeconds(quote.error) : null;
+  const estimateWait = useCountdown(estimateRetry);
+  const createWait = useCountdown(rateLimitSeconds(problem));
+  // The countdown is display state; this ref stops a new estimate while it runs.
+  const estimateBlocked = useRef(false);
   const fingerprint = JSON.stringify([
     values.senderZone,
     values.recipientZone,
@@ -119,6 +135,10 @@ function DeliveryWizard() {
   const isRouteValid = routeFields.every(
     (field) => !deliveryRules[field](values),
   );
+
+  useEffect(() => {
+    estimateBlocked.current = estimateWait > 0;
+  }, [estimateWait]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -131,18 +151,10 @@ function DeliveryWizard() {
   }, [reload]);
 
   useEffect(() => {
-    if (!isRouteValid) return;
+    if (!isRouteValid || estimateBlocked.current) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setQuote({ status: 'loading' });
-      const marked = estimateMarked.current;
-      estimateMarked.current = [];
-      if (marked.length > 0)
-        setServerErrors((current) => {
-          const next = { ...current };
-          for (const field of marked) delete next[field];
-          return next;
-        });
       estimate(
         {
           originZoneId: values.senderZone,
@@ -153,17 +165,13 @@ function DeliveryWizard() {
         controller.signal,
       )
         .then((fee) => {
-          if (!controller.signal.aborted)
-            setQuote({ status: 'ready', fee, fingerprint });
+          if (controller.signal.aborted) return;
+          setEstimateErrors({});
+          setQuote({ status: 'ready', fee, fingerprint });
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
-          const errors = estimateFieldErrors(error);
-          const fields = Object.keys(errors) as (keyof DeliveryValues)[];
-          if (fields.length > 0) {
-            estimateMarked.current = fields;
-            setServerErrors((current) => ({ ...current, ...errors }));
-          }
+          setEstimateErrors(estimateFieldErrors(error));
           setQuote({ status: 'error', error });
         });
     }, 350);
@@ -176,7 +184,6 @@ function DeliveryWizard() {
     fingerprint,
     isRouteValid,
     reload,
-    setServerErrors,
     values.senderZone,
     values.recipientZone,
     values.weight,
@@ -196,7 +203,9 @@ function DeliveryWizard() {
       wasRejected.current = false;
     }
     form.setValue(field, value);
-    setProblem(null);
+    // A rate limit belongs to the endpoint, not to these values: editing a
+    // field must not clear its countdown.
+    if (rateLimitSeconds(problem) === null) setProblem(null);
   }
   function next(event: FormEvent) {
     event.preventDefault();
@@ -223,6 +232,7 @@ function DeliveryWizard() {
   async function submit() {
     if (
       inFlight.current ||
+      createWait > 0 ||
       quote.status !== 'ready' ||
       quote.fingerprint !== fingerprint
     )
@@ -302,8 +312,10 @@ function DeliveryWizard() {
         weightKg: Number(values.weight),
         sizeCategory: values.size as SizeCategory,
       });
+      setEstimateErrors({});
       setQuote({ status: 'ready', fee, fingerprint });
     } catch (error) {
+      setEstimateErrors(estimateFieldErrors(error));
       setQuote({ status: 'error', error });
     }
   }
@@ -423,7 +435,7 @@ function DeliveryWizard() {
                         label: zone.name,
                       }))}
                       value={values[field]}
-                      error={form.errors[field]}
+                      error={form.errors[field] ?? estimateErrors[field]}
                       onChange={(event) => edit(field, event.target.value)}
                       onBlur={() => form.blur(field)}
                     />
@@ -436,7 +448,7 @@ function DeliveryWizard() {
                     suffix="kg"
                     isMono
                     value={values.weight}
-                    error={form.errors.weight}
+                    error={form.errors.weight ?? estimateErrors.weight}
                     onChange={(event) => edit('weight', event.target.value)}
                     onBlur={() => form.blur('weight')}
                   />
@@ -449,7 +461,7 @@ function DeliveryWizard() {
                       label: sizeLabel(size),
                     }))}
                     value={values.size}
-                    error={form.errors.size}
+                    error={form.errors.size ?? estimateErrors.size}
                     onChange={(event) => edit('size', event.target.value)}
                     onBlur={() => form.blur('size')}
                   />
@@ -537,7 +549,7 @@ function DeliveryWizard() {
               {quote.status === 'ready' && quote.fingerprint === fingerprint ? (
                 <FeeBreakdown fee={quote.fee} />
               ) : quote.status === 'error' &&
-                Object.keys(estimateFieldErrors(quote.error)).length > 0 ? (
+                Object.keys(estimateErrors).length > 0 ? (
                 // The message is beside its field, and retrying would not help.
                 <p className="text-body-sm text-text-muted">
                   Change the marked details to see a fee estimate.
@@ -548,7 +560,10 @@ function DeliveryWizard() {
                   <Button
                     variant="secondary"
                     type="button"
-                    onClick={() => setReload((n) => n + 1)}
+                    isDisabled={estimateWait > 0}
+                    onClick={() => {
+                      if (estimateWait === 0) setReload((n) => n + 1);
+                    }}
                   >
                     Retry estimate
                   </Button>
@@ -579,7 +594,9 @@ function DeliveryWizard() {
                 type="submit"
                 isLoading={isLoading}
                 isDisabled={
-                  quote.status !== 'ready' || quote.fingerprint !== fingerprint
+                  (step === 2 && createWait > 0) ||
+                  quote.status !== 'ready' ||
+                  quote.fingerprint !== fingerprint
                 }
               >
                 {isLoading
