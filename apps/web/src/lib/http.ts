@@ -5,6 +5,8 @@ export type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
+  /** Per-request headers, including a stable Idempotency-Key for safe retries. */
+  headers?: Record<string, string>;
 };
 
 /**
@@ -20,6 +22,7 @@ export async function send(
       method: options.method ?? 'GET',
       headers: {
         Accept: 'application/json',
+        ...options.headers,
         ...(options.body === undefined
           ? {}
           : { 'Content-Type': 'application/json' }),

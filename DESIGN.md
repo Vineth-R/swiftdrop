@@ -376,6 +376,7 @@ const form = useForm<Values>({ recipient: '' }, rules);
 - Browser code calls `/api/v1/...` only through `api<T>(path, options)` or `apiWithMeta<T>(path, options)` in `lib/api.ts`. Paths are relative to `/api/v1`. `api()` returns the `data` of the success envelope (and `undefined` for a 204). `apiWithMeta()` also returns `meta`, which carries `pagination` (`page`, `pageSize`, `totalItems`, `totalPages`) for list endpoints.
 - Put a feature's calls and types in `lib/<feature>-api.ts`, with the field names exactly as `docs/API_Documentation_v1.1.md` writes them. If the API does not match what the screen needs, fix the API document and the contract in the same change; do not work around it in the screen.
 - The session lives in HttpOnly cookies. You never read or store a token.
+- PDF downloads use `apiBlob()` from the same API module, including session renewal and common errors. Creation requests may pass `headers: { 'Idempotency-Key': key }`; preserve that key on retries. `PRICE_CHANGED` exposes a validated numeric `currentFee` for explicit reconfirmation, never server message text.
 - If an access token has expired, `api()` renews the session once and retries. If that fails, the person is sent to the login page. A `401 INVALID_CREDENTIALS` is a wrong password, not an expired session, and is left alone.
 - A failure throws `ApiError`. Decide by `error.code`, never by message text:
 

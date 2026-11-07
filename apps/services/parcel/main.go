@@ -3,18 +3,22 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/courier"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/dispatch"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/outbox"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/parcels"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/reports"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
@@ -22,7 +26,26 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
-const serviceName = "parcel"
+const (
+	serviceName          = "parcel"
+	relayShutdownTimeout = 10 * time.Second
+)
+
+// waitForRelay waits for the relay goroutine to stop, bounded by timeout so a
+// stuck broker publish cannot block process shutdown forever.
+func waitForRelay(wg *sync.WaitGroup, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -49,6 +72,13 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The relay gets its own context. It is cancelled only after the HTTP
+	// server finishes draining, so an in-flight publish can complete and mark
+	// its outbox row PUBLISHED before the database and broker are closed.
+	relayCtx, stopRelay := context.WithCancel(context.Background())
+	defer stopRelay()
+	var relayWG sync.WaitGroup
+
 	var database *postgres.Pool
 	var pinger postgres.Pinger
 	if config.DatabaseURL != "" {
@@ -69,9 +99,13 @@ func run() error {
 		TrustedProxies: config.TrustedProxies,
 		AccessSecret:   config.AccessSecret,
 		CookieName:     config.CookieName,
+		InternalToken:  config.InternalToken,
 	}
 	if config.AccessSecret == "" {
-		logger.Warn("JWT_ACCESS_SECRET is not set; the reports API will return 503")
+		logger.Warn("JWT_ACCESS_SECRET is not set; authenticated APIs, reports and courier delivery APIs will return 503")
+	}
+	if config.InternalTokenProblem != "" {
+		logger.Warn(config.InternalTokenProblem)
 	}
 	var courierClient identityclient.CourierClient
 	if config.IdentityBaseURL != "" {
@@ -84,8 +118,22 @@ func run() error {
 	}
 
 	if database != nil {
+		options.Courier = courier.NewRepository(database)
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)
+		pricingClient := parcels.NewPricingClient(config.PricingBaseURL, config.InternalToken, &http.Client{
+			Timeout: config.PricingTimeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		})
+		options.Parcels = parcels.NewService(parcels.NewStore(database), pricingClient)
+		options.Parcels.WithCourierReader(parcels.NewCourierClient(config.IdentityBaseURL, config.InternalToken, &http.Client{
+			Timeout: config.IdentityTimeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}))
 
 		dispatchRepo := dispatch.NewRepository(database)
 		dispatchService := dispatch.NewService(dispatchRepo, courierClient)
@@ -100,8 +148,28 @@ func run() error {
 		} else {
 			logger.Warn("RABBITMQ_URL is not set; outbox events will remain pending")
 		}
-		relay := outbox.NewRelay(outboxStore, publisher, logger)
-		go relay.Run(ctx)
+		relayOptions := outbox.DefaultRelayOptions()
+		relayOptions.Exchange = config.RabbitMQExchange
+		relay := outbox.NewRelay(
+			outboxStore,
+			publisher,
+			logger,
+			relayOptions,
+		)
+		relayWG.Add(1)
+		go func() {
+			defer relayWG.Done()
+			relay.Run(relayCtx)
+		}()
+		// Registered after the database and publisher cleanup defers, so it
+		// runs first: stop the relay and wait for it before those resources
+		// are closed.
+		defer func() {
+			stopRelay()
+			if !waitForRelay(&relayWG, relayShutdownTimeout) {
+				logger.Warn("outbox relay did not stop within the shutdown timeout")
+			}
+		}()
 	}
 	router, err := servicehttp.New(logger, options)
 	if err != nil {
