@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { api } from './api';
+import { refreshSession } from './api';
 import {
   createLiveConnection,
   type LiveState,
@@ -14,7 +14,11 @@ export type { LiveState, StatusUpdate } from './live-connection';
 export type UseLiveUpdatesOptions = {
   /** Follow one parcel. Public pages may do this without signing in. */
   trackingNumber?: string;
-  /** Follow every parcel. Dispatchers and administrators only. */
+  /**
+   * Follow every parcel. This is a server-authorized capability for dispatchers
+   * and administrators only. A merchant must never use it: merchant live views
+   * must be scoped by the server to that merchant's own parcels.
+   */
   scope?: 'all';
   /** Set to false to stay disconnected, for example while still loading. */
   enabled?: boolean;
@@ -24,7 +28,7 @@ export type UseLiveUpdatesOptions = {
    * Fetch the current state again. Called after every confirmed subscription,
    * the first one and after each reconnect, because the socket can miss events.
    */
-  onSync?: () => void;
+  onSync?: () => void | Promise<unknown>;
 };
 
 /**
@@ -36,10 +40,13 @@ export type UseLiveUpdatesOptions = {
  *     onSync: refetch,
  *   });
  *
- * `state` is 'idle' while disabled, then 'connecting', 'live', 'reconnecting'
- * or 'denied'. Show it in words, not only a colour ("Live", "Reconnecting").
+ * `state` is 'idle' while disabled, then 'connecting', 'live', 'reconnecting',
+ * 'denied' or 'limited'. Show it in words, not only a colour ("Live",
+ * "Reconnecting"). 'limited' means the server closed the connection for
+ * exceeding a subscription or message limit; it is not retried automatically.
  * Behind the gateway the address is the page's own host. For `nx dev`, set
- * NEXT_PUBLIC_WS_URL=ws://localhost:8080/ws in an untracked apps/web/.env.local.
+ * NEXT_PUBLIC_WS_URL=ws://localhost:8080/ws in an untracked apps/web/.env.local
+ * (see apps/web/.env.example).
  */
 export function useLiveUpdates({
   trackingNumber,
@@ -71,8 +78,9 @@ export function useLiveUpdates({
       onUpdate: (update) => updateRef.current(update),
       onSync: () => syncRef.current?.(),
       onState: setState,
-      // A 401 makes api() renew the session; the next attempt then carries it.
-      onAuthExpired: () => api('/users/me'),
+      // A 4401 means the access token expired. Renew it directly; the next
+      // handshake then carries the rotated cookie.
+      onAuthExpired: refreshSession,
     });
     return () => connection.close();
   }, [active, scope, trackingNumber]);

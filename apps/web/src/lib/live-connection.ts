@@ -1,4 +1,4 @@
-import type { ParcelStatus } from './tokens';
+import { parcelStatuses, type ParcelStatus } from './tokens';
 
 /**
  * The live updates connection (API v1.1 section 9), without React so it can be
@@ -10,10 +10,18 @@ import type { ParcelStatus } from './tokens';
  * - calls `onSync` after every confirmed subscription, first and after every
  *   reconnect, so the screen fetches the current state again (the socket is
  *   never the source of truth);
+ * - sends the documented client keepalive (`{ type: "ping" }`) at a fixed
+ *   interval so the server's idle timeout does not close an active connection;
  * - reconnects after a drop with a growing delay and some randomness;
  * - stops for good when the server says the caller is not allowed (4403 or a
- *   FORBIDDEN message);
+ *   FORBIDDEN message), or when a limit is exceeded (4429);
  * - on 4401 (token expired) asks for a new session, then reconnects.
+ *
+ * Heartbeat note: API v1.1 section 9 defines only the client message
+ * `{ "type": "ping" }`. It does not define a server JSON ping frame or a client
+ * `pong` frame, so this module sends the documented client ping and does not
+ * invent a pong message. Protocol-level WebSocket pings are answered by the
+ * browser automatically.
  */
 
 export type LiveSubscription = { trackingNumber: string } | { scope: 'all' };
@@ -28,9 +36,12 @@ export type StatusUpdate = {
 
 /**
  * connecting: first attempt. live: subscribed. reconnecting: waiting to retry
- * after a drop. denied: not allowed, no more attempts.
+ * after a drop. denied: not allowed, no more attempts. limited: the server
+ * closed the connection for exceeding a subscription or message limit, so no
+ * more attempts are made automatically.
  */
-export type LiveState = 'connecting' | 'live' | 'reconnecting' | 'denied';
+export type LiveState =
+  'connecting' | 'live' | 'reconnecting' | 'denied' | 'limited';
 
 /** The part of a WebSocket this module uses, so a test can supply a fake. */
 export type SocketLike = {
@@ -47,7 +58,7 @@ export type LiveOptions = {
   subscription: LiveSubscription;
   onUpdate: (update: StatusUpdate) => void;
   /** Fetch the current state again. */
-  onSync: () => void;
+  onSync: () => void | Promise<unknown>;
   onState: (state: LiveState) => void;
   /** Called on close code 4401, before the next attempt. */
   onAuthExpired?: () => Promise<unknown>;
@@ -57,17 +68,19 @@ export type LiveOptions = {
   random?: () => number;
 };
 
-const STATUSES: readonly string[] = [
-  'CREATED',
-  'PICKED_UP',
-  'IN_TRANSIT',
-  'OUT_FOR_DELIVERY',
-  'DELIVERED',
-  'FAILED',
-];
+const STATUS_SET: ReadonlySet<string> = new Set(parcelStatuses);
 
 export const BACKOFF_BASE_MS = 1000;
 export const BACKOFF_MAX_MS = 30_000;
+
+/**
+ * The documented 60-second idle timeout leaves room for one missed ping, so a
+ * ping every 25 seconds keeps an otherwise idle connection alive.
+ */
+export const HEARTBEAT_INTERVAL_MS = 25_000;
+
+/** How long to wait for the server's `subscribed` confirmation after opening. */
+export const SUBSCRIBE_TIMEOUT_MS = 10_000;
 
 /** The wait before attempt number `attempt` (0 is the first retry), in milliseconds. */
 export function backoffDelay(
@@ -80,7 +93,7 @@ export function backoffDelay(
 }
 
 function isStatus(value: unknown): value is ParcelStatus {
-  return typeof value === 'string' && STATUSES.includes(value);
+  return typeof value === 'string' && STATUS_SET.has(value);
 }
 
 type Message = { type: string; code?: unknown; data?: unknown };
@@ -138,9 +151,12 @@ export function createLiveConnection(options: LiveOptions): {
   } = options;
 
   let socket: SocketLike | null = null;
-  let timer: unknown = null;
+  let reconnectTimer: unknown = null;
+  let heartbeatTimer: unknown = null;
+  let subscribeTimer: unknown = null;
   let attempt = 0;
   let closed = false;
+  let confirmed = false;
   let state: LiveState | null = null;
 
   function setState(next: LiveState) {
@@ -156,7 +172,27 @@ export function createLiveConnection(options: LiveOptions): {
     );
   }
 
+  function clearReconnect() {
+    if (reconnectTimer === null) return;
+    cancel(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  function clearHeartbeat() {
+    if (heartbeatTimer === null) return;
+    cancel(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+
+  function clearSubscribeTimeout() {
+    if (subscribeTimer === null) return;
+    cancel(subscribeTimer);
+    subscribeTimer = null;
+  }
+
   function detach() {
+    clearHeartbeat();
+    clearSubscribeTimeout();
     const current = socket;
     socket = null;
     if (!current) return;
@@ -169,21 +205,54 @@ export function createLiveConnection(options: LiveOptions): {
 
   function stop() {
     closed = true;
-    if (timer !== null) {
-      cancel(timer);
-      timer = null;
-    }
+    clearReconnect();
+    clearHeartbeat();
+    clearSubscribeTimeout();
     detach();
   }
 
-  function deny() {
+  function terminate(next: 'denied' | 'limited') {
     stop();
-    setState('denied');
+    setState(next);
+  }
+
+  function safeSync() {
+    try {
+      void Promise.resolve(onSync()).catch(() => undefined);
+    } catch {
+      // A screen's refetch must not break the socket.
+    }
+  }
+
+  function startHeartbeat(current: SocketLike) {
+    if (heartbeatTimer !== null) return;
+    heartbeatTimer = schedule(() => {
+      heartbeatTimer = null;
+      if (closed || socket !== current) return;
+      try {
+        current.send(JSON.stringify({ type: 'ping' }));
+      } catch {
+        return;
+      }
+      startHeartbeat(current);
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  function startSubscribeTimeout(current: SocketLike) {
+    clearSubscribeTimeout();
+    subscribeTimer = schedule(() => {
+      subscribeTimer = null;
+      if (closed || confirmed || socket !== current) return;
+      setState('reconnecting');
+      detach();
+      scheduleReconnect();
+    }, SUBSCRIBE_TIMEOUT_MS);
   }
 
   function scheduleReconnect() {
     if (closed) return;
-    timer = schedule(connect, backoffDelay(attempt, random));
+    clearReconnect();
+    reconnectTimer = schedule(connect, backoffDelay(attempt, random));
     attempt += 1;
   }
 
@@ -192,9 +261,13 @@ export function createLiveConnection(options: LiveOptions): {
     if (!message) return;
 
     if (message.type === 'subscribed') {
+      // A duplicate confirmation must not refetch the screen again.
+      if (confirmed) return;
+      confirmed = true;
       attempt = 0;
+      clearSubscribeTimeout();
       setState('live');
-      onSync();
+      safeSync();
       return;
     }
     if (message.type === 'parcel.status.updated') {
@@ -202,14 +275,21 @@ export function createLiveConnection(options: LiveOptions): {
       if (update && matches(update)) onUpdate(update);
       return;
     }
-    if (message.type === 'error' && message.code === 'FORBIDDEN') deny();
+    if (message.type === 'error' && message.code === 'FORBIDDEN')
+      terminate('denied');
   }
 
   function handleClose(code: number) {
+    if (closed) return;
     if (code === 4403) {
-      deny();
+      terminate('denied');
       return;
     }
+    if (code === 4429) {
+      terminate('limited');
+      return;
+    }
+    detach();
     setState('reconnecting');
     if (code === 4401 && onAuthExpired) {
       Promise.resolve()
@@ -222,13 +302,32 @@ export function createLiveConnection(options: LiveOptions): {
   }
 
   function connect() {
-    timer = null;
+    reconnectTimer = null;
     if (closed) return;
-    const current = createSocket(url);
+    clearHeartbeat();
+    clearSubscribeTimeout();
+    confirmed = false;
+
+    let current: SocketLike;
+    try {
+      current = createSocket(url);
+    } catch {
+      setState('reconnecting');
+      scheduleReconnect();
+      return;
+    }
+
     socket = current;
     current.onopen = () => {
       if (socket !== current) return;
-      current.send(JSON.stringify({ type: 'subscribe', ...subscription }));
+      try {
+        current.send(JSON.stringify({ type: 'subscribe', ...subscription }));
+      } catch {
+        handleClose(1006);
+        return;
+      }
+      startHeartbeat(current);
+      if (!confirmed) startSubscribeTimeout(current);
     };
     current.onmessage = (event) => {
       if (socket === current) handleMessage(event.data);
