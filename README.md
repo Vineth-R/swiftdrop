@@ -282,6 +282,8 @@ The application is available at <http://localhost:3000>. Run the frontend unit t
 
 The browser only ever calls `/api/v1/...` on its own origin. In development, Next proxies those calls to the gateway at `http://127.0.0.1:8080` (set `API_PROXY_TARGET` to use another address), so the session cookies stay first-party. Start the backend first with `make up`, otherwise sign-in, register and password reset fail with "We could not reach SwiftDrop". Google sign-in only completes from <http://localhost:8080>, because its redirect address is the gateway.
 
+Live updates use a WebSocket, and Next proxies `/api/v1` but not `/ws`. For `nx dev`, copy `apps/web/.env.example` to the untracked `apps/web/.env.local` so the client connects to the gateway at `ws://localhost:8080/ws`. Behind the gateway (production and Docker) the client uses the page's own host, so no override is needed.
+
 The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, a placeholder `/dashboard`, `/profile`, `/profile/security`, the COURIER `/history` delivery-history screen, the DISPATCHER/ADMIN `/reports` screen, the ADMIN `/admin/users` and `/admin/notification-logs`, and the public `/track` parcel tracking page. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
 
 ## Run an individual HTTP service
