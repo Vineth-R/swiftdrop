@@ -95,7 +95,7 @@ func newFixture(t *testing.T) *fixture {
 		queue:         base + ".queue",
 		routingKey:    base + ".event.v1",
 		retryExchange: base + ".events.retry",
-		retryQueue:    base + ".queue.retry",
+		retryQueue:    base + ".queue.retry.v2",
 		dlx:           base + ".events.dlx",
 		dlq:           base + ".queue.dlq",
 	}

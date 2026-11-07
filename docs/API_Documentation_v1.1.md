@@ -3824,7 +3824,7 @@ These webhook business retries are separate from shared RabbitMQ consumer retrie
 
 Queue names are deployment details. The currently implemented worker queues use legacy work-item names and are not yet migrated; do not treat this table as evidence that the target bindings are running. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
 
-Failure topology is derived by the shared consumer: retry exchange `<exchange>.retry`, retry queue `<queue>.retry`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The legacy name `swiftdrop.dlx` is not the implemented exchange. Messages are persistent, and consumers deduplicate by `event_id`.
+Failure topology is derived by the shared consumer: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. A retry is dead-lettered to its owning queue through the default exchange, so it cannot reach another worker bound to the same event. The legacy name `swiftdrop.dlx` is not the implemented exchange. Messages are persistent, and consumers deduplicate by `event_id`.
 
 ### 11.2 Envelope
 

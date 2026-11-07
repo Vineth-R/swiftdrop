@@ -261,8 +261,8 @@ services:
         SERVICE: webhook-worker
     environment:
       <<: [*app-env, *rabbitmq-env]
-      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.delivery.requested.v1}
-      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-webhook.delivery.requested.v1}
+      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.parcel.status_changed.v1}
+      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-parcel.status_changed.v1}
     stop_grace_period: 35s
     depends_on:
       rabbitmq:

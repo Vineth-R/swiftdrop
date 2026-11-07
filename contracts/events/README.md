@@ -10,7 +10,7 @@ Event names use `<domain>.<past_tense_action>.v<major>`:
 - `parcel.assigned.v1`
 - `parcel.status_changed.v1`
 - `notification.requested.v1` (legacy; see below)
-- `webhook.delivery.requested.v1` (legacy work item; see below)
+- `webhook.delivery.requested.v1` (retired legacy work item; see below)
 
 The major version is part of both the event type and its routing key. Breaking changes require a new major version and a new queue binding. A producer must not silently change the meaning of an existing versioned event.
 
@@ -24,7 +24,7 @@ Each event file follows `<event_name>.schema.json` and uses JSON Schema draft 20
 | Published RabbitMQ events | Versioned event names with the same versioned routing key. This is the canonical bus contract. Creation outbox data is implemented; bus publication is not.                                                                                                                                                                                                                                               |
 | Internal envelope         | `packages/go-common/messaging.Envelope`: snake_case metadata and a nested object in `data`. Envelope validation is implemented.                                                                                                                                                                                                                                                                           |
 | Public merchant webhook   | The API v1.1 camelCase projection with public `eventType: parcel.status_changed` and `schemaVersion: 1`. Delivery and signing are not implemented.                                                                                                                                                                                                                                                        |
-| Legacy work items         | `notification.requested.v1` and `webhook.delivery.requested.v1` have consumers but no producers. They are not the target domain-event contracts.                                                                                                                                                                                                                                                          |
+| Legacy work items         | `notification.requested.v1` has a consumer but no producer. `webhook.delivery.requested.v1` is retired: the webhook worker now consumes `parcel.status_changed.v1` on its own queue. Neither is a target domain-event contract.                                                                                                                                                                           |
 
 Do not use the database `routing_key` column directly as a RabbitMQ routing key. The relay owns the storage-to-bus mapping.
 
@@ -104,8 +104,8 @@ strategy before it can safely run with more than one instance.
 - Acknowledge a message only after processing succeeds or after a retry/dead-letter publication is confirmed by the broker.
 - Treat delivery as at-least-once: deduplicate by `event_id` and make handlers idempotent. Duplicate or redelivered messages are normal, including after reconnects and retries.
 - Retry unclassified handler failures up to `RABBITMQ_MAX_RETRIES` (default `3`) with `RABBITMQ_RETRY_DELAY` (default `30s`). After exhaustion, route the message to the dead-letter queue. Shutdown requeues in-flight messages.
-- Retry and dead-letter resources are derived from the main exchange and queue: `<exchange>.retry`, `<queue>.retry`, `<exchange>.dlx`, and `<queue>.dlq`. Retry messages return to the original exchange and routing key after the delay.
-- A worker routing key must not fan out to multiple worker queues; retry re-entry routes through the original routing key.
+- Retry and dead-letter resources are derived from the main exchange and queue: `<exchange>.retry`, `<queue>.retry.v2`, `<exchange>.dlx`, and `<queue>.dlq`. A retry is dead-lettered to its owning queue through the default exchange (`x-dead-letter-exchange: ""`, `x-dead-letter-routing-key: <queue>`) after the delay.
+- Multiple workers may bind separate durable queues to the same versioned routing key; queue-isolated retry routing means a retry never reaches another worker's queue.
 - Retry count, original exchange and routing key, failure reason, and failure time are carried in message headers. Do not use these headers as authorization or trust them as business data.
 - Connection URLs, passwords, and other credentials are never logged. AMQP URL parse and dial errors are redacted before they reach structured logs.
 - The dead-letter queue is for inspection and replay; no consumer is implemented in the foundation.
@@ -210,9 +210,9 @@ The webhook is a separate public projection. Do not reuse the internal RabbitMQ 
 - Retry: six attempts following API v1.1: immediate, 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours; then dead-letter and record the attempt. Business retries must not reuse the shared RabbitMQ consumer retry loop and multiply attempts.
 - Delivery logs store outcome metadata, not request or response bodies. Never log payloads, signing secrets, recipient data, or raw responses.
 
-Current state: `webhook-worker` consumes the legacy `webhook.delivery.requested.v1` work item, validates the envelope/type/version, and logs only. It does not deliver HTTP requests, sign, or write delivery attempts. The merchant webhook settings, signing-secret lookup, and delivery-attempt recording endpoints are not implemented. `docs/API_Documentation_v1.1.md` section 10 is the public webhook contract; this repository's current runtime does not yet implement it.
+Current state: `webhook-worker` consumes `parcel.status_changed.v1` on its own durable queue, validates the envelope/type/version, and logs only. It does not deliver HTTP requests, sign, or write delivery attempts. The merchant webhook settings, signing-secret lookup, and delivery-attempt recording endpoints are not implemented. `docs/API_Documentation_v1.1.md` section 10 is the public webhook contract; this repository's current runtime does not yet implement it.
 
-The internal trigger for the target flow is `parcel.status_changed.v1`; no producer exists yet. If a dedicated `webhook.delivery.requested.v1` dispatcher is introduced instead, it requires a separately approved payload schema and must not duplicate the domain-event publisher.
+The internal trigger for the target flow is `parcel.status_changed.v1`, produced by the parcel service: the M7 courier status writer records a PENDING `parcel.status_changed` outbox row in the status transaction, and the M6 relay publishes `parcel.status_changed.v1` to `swiftdrop.events`. A dedicated `webhook.delivery.requested.v1` dispatcher is not used; it would require a separately approved payload schema and must not duplicate the domain-event publisher.
 
 ## Queue and routing topology
 
@@ -222,15 +222,15 @@ The internal trigger for the target flow is `parcel.status_changed.v1`; no produ
   - `notification.requested.v1` (legacy notification work item; no producer)
   - `notification.parcel.created.v1` (bound to `parcel.created.v1`)
   - `notification.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
-  - `webhook.delivery.requested.v1` (legacy webhook work item; no producer)
+  - `webhook.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
 - Consumer bindings:
   - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned parcels; merchant-owned unsupported)
-  - Webhook worker: `parcel.status_changed.v1` (target; not implemented)
+  - Webhook worker: `parcel.status_changed.v1` (implemented; validates and logs only)
   - Realtime: `parcel.assigned.v1`, `parcel.status_changed.v1` (target; not implemented)
   - Merchant integration: `parcel.status_changed.v1` (target; not implemented)
 - Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. The notification worker's parcel consumers use separate durable queues; future consumers should add new durable queues or an explicit queue migration rather than changing an existing queue's arguments.
-- Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
-- A worker routing key must not fan out to multiple worker queues. Retry re-entry preserves the original routing key.
+- Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The retry queue dead-letters to its owning queue through the default exchange, so retries stay queue-isolated. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
+- Multiple workers may consume the same versioned event through separate queues; each queue has its own retry queue, so a retry is never delivered to another worker. The retry queue name carries a topology suffix because durable queue arguments are immutable; the legacy `<queue>.retry` retry queue is no longer written to, and should be drained and deleted after upgrading.
 
 ## Implementation status
 
