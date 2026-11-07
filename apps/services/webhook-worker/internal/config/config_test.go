@@ -27,8 +27,8 @@ func TestLoadFrom(t *testing.T) {
 	if config.Queue != "webhook.delivery.requested.v1" {
 		t.Fatalf("Queue = %q", config.Queue)
 	}
-	if config.RoutingKey != config.Queue {
-		t.Fatalf("RoutingKey = %q, want %q", config.RoutingKey, config.Queue)
+	if config.RoutingKey != "parcel.status_changed.v1" {
+		t.Fatalf("RoutingKey = %q, want parcel.status_changed.v1", config.RoutingKey)
 	}
 	if config.MaxRetries != 3 {
 		t.Fatalf("MaxRetries = %d, want 3", config.MaxRetries)
