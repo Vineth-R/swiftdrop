@@ -16,6 +16,7 @@ type TrackingStore interface {
 	Lookup(context.Context, string) (tracking.Result, error)
 }
 type Options struct {
+	Courier        CourierStore
 	Tracking       TrackingStore
 	Reports        ReportStore
 	Dispatch       DispatchService

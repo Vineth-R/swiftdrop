@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/courier"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/dispatch"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/identityclient"
@@ -84,6 +85,7 @@ func run() error {
 	}
 
 	if database != nil {
+		options.Courier = courier.NewRepository(database)
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)
 
