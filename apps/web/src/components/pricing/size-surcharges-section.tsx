@@ -7,7 +7,8 @@ import { formatLkr } from '../../lib/format';
 import {
   listSizeSurcharges,
   setSizeSurcharge,
-  type SizeCategory,
+  sizeNames,
+  sizeVolumes,
   type SizeSurcharge,
 } from '../../lib/pricing-api';
 import { useForm, type FormRules } from '../../lib/use-form';
@@ -23,13 +24,6 @@ import { FailureAlert, fieldErrors } from './failure-alert';
 import { asApiError } from './use-paged-list';
 
 const FORM_ID = 'surcharge-form';
-
-const sizeNames: Record<SizeCategory, string> = {
-  SMALL: 'Small',
-  MEDIUM: 'Medium',
-  LARGE: 'Large',
-  OVERSIZED: 'Oversized',
-};
 
 const rules: FormRules<{ surcharge: string }> = {
   surcharge: (v) => validateAmount(v.surcharge, { isZeroAllowed: true }),
@@ -110,6 +104,11 @@ export function SizeSurchargesSection() {
       key: 'size',
       header: 'Size',
       cell: (row) => sizeNames[row.sizeCategory],
+    },
+    {
+      key: 'volume',
+      header: 'Volume',
+      cell: (row) => sizeVolumes[row.sizeCategory],
     },
     {
       key: 'surcharge',

@@ -38,6 +38,19 @@ Errors: malformed JSON is 400 `BAD_REQUEST`; invalid types/weight/size/IDs are 4
 
 Public estimates allow **300 requests per rolling minute per client IP**, the explicit anonymous policy used for this implementation. Tracking uses its separate required 30/minute limit. Limiters are bounded and process-local; a multi-replica deployment needs coordinated enforcement at the edge. Successful responses include `X-RateLimit-Remaining`; 429 `RATE_LIMITED` includes `Retry-After`. A full client table fails closed until expired entries can be reclaimed.
 
+### Size categories
+
+A parcel's size is one of `SMALL`, `MEDIUM`, `LARGE` or `OVERSIZED`. The web app shows a volume beside each size so customers can choose the right one:
+
+| Size      | Volume     |
+| --------- | ---------- |
+| Small     | up to 5 L  |
+| Medium    | up to 20 L |
+| Large     | up to 60 L |
+| Oversized | over 60 L  |
+
+These volumes are a **draft** awaiting team agreement. They are guidance only: they live in `apps/web/src/lib/pricing-api.ts` (`sizeVolumes`), the API still receives only the size name, and nothing checks a parcel's volume.
+
 ## Internal pricing handoff
 
 Inside the Compose network:
