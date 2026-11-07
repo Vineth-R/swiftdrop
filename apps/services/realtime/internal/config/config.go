@@ -21,9 +21,9 @@ type Config struct {
 	LogLevel    string
 	DatabaseURL string
 
-	// AccessSecret verifies access tokens. When it is empty the service still
-	// serves anonymous parcel-tracking subscriptions, but every connection that
-	// presents a token is refused (fail closed).
+	// AccessSecret verifies access tokens. When it is empty every connection is
+	// treated as anonymous: following one parcel by tracking number still works,
+	// but following everything (scope all) is refused (fail closed).
 	AccessSecret string
 	CookieName   string
 
