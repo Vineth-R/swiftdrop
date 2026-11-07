@@ -23,5 +23,8 @@ func New(logger *slog.Logger, configurations ...Options) (*gin.Engine, error) {
 	if err := registerReports(router, logger, options); err != nil {
 		return nil, err
 	}
+	if err := registerDispatch(router, logger, options); err != nil {
+		return nil, err
+	}
 	return router, nil
 }
