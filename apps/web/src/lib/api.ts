@@ -61,6 +61,18 @@ function renewSession(): Promise<boolean> {
 }
 
 /**
+ * Renews the session once for a transport that is not an HTTP request, such as
+ * the live updates socket. It tells the app when the session is gone, matching
+ * what `api()` does when its own retry cannot recover. `api()` keeps its own
+ * flow because it also re-sends the original request.
+ */
+export async function refreshSession(): Promise<boolean> {
+  const renewed = await renewSession();
+  if (!renewed) emitSessionExpired();
+  return renewed;
+}
+
+/**
  * A 401 means "sign in again", except when the API says INVALID_CREDENTIALS:
  * that is a wrong current password on the change-password form, and the person
  * is still signed in. Renewing the session for it would sign them out.

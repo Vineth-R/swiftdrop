@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/courier"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/dispatch"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/identityclient"
@@ -101,7 +102,7 @@ func run() error {
 		InternalToken:  config.InternalToken,
 	}
 	if config.AccessSecret == "" {
-		logger.Warn("JWT_ACCESS_SECRET is not set; authenticated APIs will return 503")
+		logger.Warn("JWT_ACCESS_SECRET is not set; authenticated APIs, reports and courier delivery APIs will return 503")
 	}
 	if config.InternalTokenProblem != "" {
 		logger.Warn(config.InternalTokenProblem)
@@ -117,6 +118,7 @@ func run() error {
 	}
 
 	if database != nil {
+		options.Courier = courier.NewRepository(database)
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)
 		pricingClient := parcels.NewPricingClient(config.PricingBaseURL, config.InternalToken, &http.Client{

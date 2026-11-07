@@ -17,6 +17,7 @@ type TrackingStore interface {
 	Lookup(context.Context, string) (tracking.Result, error)
 }
 type Options struct {
+	Courier        CourierStore
 	Parcels        *parcels.Service
 	InternalToken  string
 	Tracking       TrackingStore

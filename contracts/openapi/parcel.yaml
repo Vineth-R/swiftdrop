@@ -4,10 +4,11 @@ info:
   version: 1.1.0
   description:
     Customer parcel creation, owned reads, PDF receipts, authenticated internal merchant
-    creation and summaries, anonymous public tracking, DISPATCHER/ADMIN delivery reports, dispatch
-    planning, courier assignment, workload balancing, admin parcel search and operational probes.
-    Creation atomically stores parcel, initial history and PENDING outbox data; the M6 relay
-    publishes versioned domain events. Courier lifecycle writes remain planned. Public tracking
+    creation and summaries, anonymous public tracking, DISPATCHER/ADMIN delivery reports,
+    dispatch planning, courier assignment, workload balancing, admin parcel search,
+    assignment-scoped courier delivery reads and operational probes. Creation atomically
+    stores parcel, initial history and PENDING outbox data; the M6 relay publishes
+    versioned domain events. Courier lifecycle writes remain planned. Public tracking
     exposes only status, cities and timeline timestamps.
 servers:
   - url: /api/v1
@@ -974,6 +975,118 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /courier/deliveries:
+    get:
+      operationId: listCourierDeliveries
+      summary: Courier deliveries for a Colombo calendar day (API v1.1 section 6.1)
+      description: |
+        COURIER only. Uses the verified token subject, never a supplied courier ID.
+        Returns currently assigned active parcels regardless of date, plus DELIVERED
+        or FAILED parcels completed in the selected Asia/Colombo day. Completion
+        bounds are inclusive at midnight and exclusive at the following midnight.
+        Optional status filters this set. Sorted by current assignment time descending,
+        then parcel ID for stable pagination. Unknown, repeated or empty query values
+        are rejected. Responses, including errors, carry Cache-Control no-store.
+      tags: [Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: date
+          description: Calendar date; defaults to today in Asia/Colombo.
+          schema: { type: string, format: date }
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum:
+              [
+                CREATED,
+                PICKED_UP,
+                IN_TRANSIT,
+                OUT_FOR_DELIVERY,
+                DELIVERED,
+                FAILED,
+              ]
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Deliveries, or an empty array with valid pagination metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/CourierDelivery' }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+        '400':
+          description: BAD_REQUEST. Malformed query string.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401': { $ref: '#/components/responses/CourierUnauthenticated' }
+        '403': { $ref: '#/components/responses/CourierForbidden' }
+        '422':
+          description: VALIDATION_ERROR. Invalid date, status, pagination or unsupported query parameter.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/CourierUnavailable' }
+  '/courier/deliveries/{parcelId}':
+    get:
+      operationId: getCourierDelivery
+      summary: Assigned courier delivery detail (API v1.1 section 6.2)
+      description: |
+        COURIER only. The parcel must currently belong to the verified courier.
+        Returns 403 for another courier's or an unassigned parcel and 404 for a
+        missing parcel, without contact information in errors. History is oldest
+        first (created_at, ID). Proof is the latest proof (created_at, ID), or null.
+        No photo path, storage URL, actor user ID or other internal metadata is exposed.
+        Ownership and detail reads use one database snapshot. Cache-Control no-store.
+      tags: [Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: parcelId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Authorized delivery, contacts, history and proof metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/CourierDeliveryDetail' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400':
+          description: BAD_REQUEST. Invalid parcel UUID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401': { $ref: '#/components/responses/CourierUnauthenticated' }
+        '403': { $ref: '#/components/responses/CourierForbidden' }
+        '404':
+          description: PARCEL_NOT_FOUND.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/CourierUnavailable' }
 components:
   parameters:
     ParcelID:
@@ -1477,6 +1590,79 @@ components:
         createdAt:
           type: string
           format: date-time
+    CourierDelivery:
+      type: object
+      required:
+        [
+          id,
+          trackingNumber,
+          status,
+          pickupAddress,
+          dropoffAddress,
+          dropoffCity,
+          recipientName,
+          recipientPhone,
+          weightKg,
+          assignedAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        trackingNumber: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        pickupAddress: { type: string }
+        dropoffAddress: { type: string }
+        dropoffCity: { type: string }
+        recipientName: { type: string }
+        recipientPhone: { type: string }
+        weightKg: { type: number }
+        assignedAt: { type: string, format: date-time }
+    CourierDeliveryDetail:
+      allOf:
+        - $ref: '#/components/schemas/CourierDelivery'
+        - type: object
+          required:
+            [description, sizeCategory, senderName, senderPhone, history, proof]
+          properties:
+            description: { type: string, nullable: true }
+            sizeCategory:
+              { type: string, enum: [SMALL, MEDIUM, LARGE, OVERSIZED] }
+            senderName: { type: string }
+            senderPhone: { type: string }
+            history:
+              type: array
+              items: { $ref: '#/components/schemas/CourierHistory' }
+            proof:
+              type: object
+              nullable: true
+              additionalProperties: false
+              required: [recipientName, note, hasPhoto, createdAt]
+              properties:
+                recipientName: { type: string, nullable: true }
+                note: { type: string, nullable: true }
+                hasPhoto: { type: boolean }
+                createdAt: { type: string, format: date-time }
+    CourierHistory:
+      type: object
+      additionalProperties: false
+      required:
+        [previousStatus, status, note, failureReason, actorRole, changedAt]
+      properties:
+        previousStatus: { type: string, nullable: true }
+        status: { type: string }
+        note: { type: string, nullable: true }
+        failureReason: { type: string, nullable: true }
+        actorRole: { type: string, nullable: true }
+        changedAt: { type: string, format: date-time }
   responses:
     ParcelBadRequest:
       description:
@@ -1555,6 +1741,21 @@ components:
               message: internal server error
             meta:
               requestId: req_01
+    CourierUnauthenticated:
+      description: UNAUTHENTICATED or TOKEN_EXPIRED. Missing, invalid or expired access token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    CourierForbidden:
+      description: FORBIDDEN. Role is not COURIER, or parcel is not currently assigned to this courier.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    CourierUnavailable:
+      description: SERVICE_UNAVAILABLE. Authentication or database is not configured.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
   securitySchemes:
     InternalToken:
       type: apiKey
