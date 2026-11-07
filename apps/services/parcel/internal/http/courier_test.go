@@ -101,6 +101,30 @@ func TestCourierAccess(t *testing.T) {
 	}
 }
 
+func TestCourierTrailingSlash(t *testing.T) {
+	for _, path := range []string{
+		"/courier/deliveries",
+		"/courier/deliveries/",
+		"/courier/deliveries/" + courierParcelID,
+		"/courier/deliveries/" + courierParcelID + "/",
+	} {
+		t.Run(path, func(t *testing.T) {
+			store := &courierFixture{}
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			rec := courierRequest(t, router, path, courierTestID, auth.RoleCourier, false)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", rec.Code, rec.Body)
+			}
+			if location := rec.Header().Get("Location"); location != "" {
+				t.Fatalf("unexpected redirect to %q", location)
+			}
+			if store.calls != 1 {
+				t.Fatalf("store calls = %d, want 1", store.calls)
+			}
+		})
+	}
+}
+
 func TestCourierQueryValidation(t *testing.T) {
 	for _, query := range []string{
 		"date=2026-02-30", "date=2026-11-07T00:00:00Z", "date=", "date=2026-11-07&date=2026-11-08",
@@ -193,6 +217,7 @@ func TestCourierDetailValidationAndErrors(t *testing.T) {
 		{name: "missing", path: courierParcelID, err: courier.ErrNotFound, want: 404, code: "PARCEL_NOT_FOUND"},
 		{name: "another courier", path: courierParcelID, err: courier.ErrForbidden, want: 403, code: "FORBIDDEN"},
 		{name: "database unconfigured", path: courierParcelID, err: courier.ErrUnavailable, want: 503, code: "SERVICE_UNAVAILABLE"},
+		{name: "inconsistent assignment", path: courierParcelID, err: courier.ErrInconsistentAssignment, want: 500, code: "INTERNAL_ERROR"},
 		{name: "safe server error", path: courierParcelID, err: errors.New("SELECT password from secret_table contact@example.com"), want: 500, code: "INTERNAL_ERROR"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

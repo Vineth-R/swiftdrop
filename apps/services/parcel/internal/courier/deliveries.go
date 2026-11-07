@@ -9,6 +9,7 @@ import (
 	_ "time/tzdata" // Keep Asia/Colombo available on Windows and minimal images.
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/repository"
 )
@@ -17,6 +18,10 @@ var (
 	ErrNotFound    = errors.New("parcel not found")
 	ErrForbidden   = errors.New("parcel is not assigned to this courier")
 	ErrUnavailable = errors.New("courier deliveries are unavailable")
+	// ErrInconsistentAssignment reports a parcel whose current courier has no
+	// matching current assignment row. It is an internal data-consistency
+	// failure, never a client-facing validation or authorization result.
+	ErrInconsistentAssignment = errors.New("parcel has no current assignment for its current courier")
 )
 
 // Filter is validated at the HTTP boundary. End is exclusive.
@@ -159,12 +164,16 @@ func (r *Repository) List(ctx context.Context, filter Filter) (result Page, err 
 	defer rows.Close()
 	for rows.Next() {
 		var item Delivery
+		var assignedAt pgtype.Timestamptz
 		if err := rows.Scan(&item.ID, &item.TrackingNumber, &item.Status,
 			&item.PickupAddress, &item.DropoffAddress, &item.DropoffCity,
-			&item.RecipientName, &item.RecipientPhone, &item.WeightKG, &item.AssignedAt); err != nil {
+			&item.RecipientName, &item.RecipientPhone, &item.WeightKG, &assignedAt); err != nil {
 			return Page{}, fmt.Errorf("scan courier delivery: %w", err)
 		}
-		item.AssignedAt = item.AssignedAt.UTC()
+		if !assignedAt.Valid {
+			return Page{}, fmt.Errorf("scan courier delivery %s: %w", item.ID, ErrInconsistentAssignment)
+		}
+		item.AssignedAt = assignedAt.Time.UTC()
 		result.Items = append(result.Items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -204,12 +213,16 @@ func (r *Repository) Detail(ctx context.Context, courierID, parcelID string) (re
 		Description: p.Description, SizeCategory: p.SizeCategory, SenderName: p.SenderName,
 		SenderPhone: p.SenderPhone, History: make([]History, 0),
 	}
+	var assignedAt pgtype.Timestamptz
 	err = tx.QueryRow(ctx, `SELECT assigned_at FROM parcel.parcel_assignments
-		WHERE parcel_id = $1 AND courier_id = $2 AND is_current`, parcelID, courierID).Scan(&result.AssignedAt)
+		WHERE parcel_id = $1 AND courier_id = $2 AND is_current`, parcelID, courierID).Scan(&assignedAt)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !assignedAt.Valid) {
+		return Detail{}, fmt.Errorf("read courier assignment: %w", ErrInconsistentAssignment)
+	}
 	if err != nil {
 		return Detail{}, fmt.Errorf("read courier assignment: %w", err)
 	}
-	result.AssignedAt = result.AssignedAt.UTC()
+	result.AssignedAt = assignedAt.Time.UTC()
 	history, err := repo.StatusHistoryByParcel(ctx, parcelID)
 	if err != nil {
 		return Detail{}, fmt.Errorf("read courier history: %w", err)

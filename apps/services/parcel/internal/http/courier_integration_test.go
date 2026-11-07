@@ -306,6 +306,35 @@ func TestCourierDatabaseReads(t *testing.T) {
 			}
 		}
 	})
+	t.Run("current courier without a current assignment is a controlled internal error", func(t *testing.T) {
+		// The helper inserts with no owner and no assignment; setting the copy
+		// afterwards creates the inconsistent state without fabricating data.
+		orphan := insert("CREATED", time.Time{}, nil)
+		if _, err := database.Pool.Exec(ctx,
+			`UPDATE parcel.parcels SET current_courier_id = $1 WHERE id = $2`,
+			courierTestID, orphan); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{
+			"/courier/deliveries?date=2026-11-07",
+			"/courier/deliveries/" + orphan,
+		} {
+			rec := courierRequest(t, router, path, courierTestID, auth.RoleCourier, false)
+			if rec.Code != 500 || !strings.Contains(rec.Body.String(), `"code":"INTERNAL_ERROR"`) {
+				t.Fatalf("%s: %d %s", path, rec.Code, rec.Body)
+			}
+			for _, internal := range []string{"assigned_at", "parcel_assignments", "current_courier_id", "SQL"} {
+				if strings.Contains(rec.Body.String(), internal) {
+					t.Fatalf("%s leaked internal detail %q: %s", path, internal, rec.Body)
+				}
+			}
+		}
+		// A valid assignment continues to work after the inconsistent row exists.
+		rec := courierRequest(t, router, "/courier/deliveries/"+delivered, courierTestID, auth.RoleCourier, false)
+		if rec.Code != 200 {
+			t.Fatalf("valid assignment regressed: %d %s", rec.Code, rec.Body)
+		}
+	})
 }
 
 func ptrCourier(id string) *string { return &id }

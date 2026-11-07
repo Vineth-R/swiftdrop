@@ -72,7 +72,7 @@ func run() error {
 		CookieName:     config.CookieName,
 	}
 	if config.AccessSecret == "" {
-		logger.Warn("JWT_ACCESS_SECRET is not set; the reports API will return 503")
+		logger.Warn("JWT_ACCESS_SECRET is not set; the reports and courier delivery APIs will return 503")
 	}
 	var courierClient identityclient.CourierClient
 	if config.IdentityBaseURL != "" {

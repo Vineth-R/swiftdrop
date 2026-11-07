@@ -53,8 +53,12 @@ func registerCourier(router *gin.Engine, logger *slog.Logger, options Options) e
 		}
 		group.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleCourier))
 	}
+	// Register both forms so a trailing slash never falls back to Gin's redirect,
+	// whose Location would omit the gateway's external /api/v1 prefix.
 	group.GET("", h.list)
+	group.GET("/", h.list)
 	group.GET("/:parcelId", h.detail)
+	group.GET("/:parcelId/", h.detail)
 	return nil
 }
 
