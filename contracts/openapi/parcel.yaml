@@ -2,10 +2,14 @@ openapi: 3.0.3
 info:
   title: SwiftDrop Parcel API
   version: 1.1.0
-  description: Implemented anonymous public tracking, DISPATCHER/ADMIN delivery
-    reports, dispatch planning, courier assignment, workload balancing, admin parcel search,
-    and assignment-scoped courier delivery reads. Public tracking exposes only status,
-    cities and timeline timestamps.
+  description:
+    Customer parcel creation, owned reads, PDF receipts, authenticated internal merchant
+    creation and summaries, anonymous public tracking, DISPATCHER/ADMIN delivery reports,
+    dispatch planning, courier assignment, workload balancing, admin parcel search,
+    assignment-scoped courier delivery reads and operational probes. Creation atomically
+    stores parcel, initial history and PENDING outbox data; the M6 relay publishes
+    versioned domain events. Courier lifecycle writes remain planned. Public tracking
+    exposes only status, cities and timeline timestamps.
 servers:
   - url: /api/v1
 paths:
@@ -39,8 +43,7 @@ paths:
       summary: Service readiness
       responses:
         '200':
-          description: The service is ready. The database check is reported when
-            DATABASE_URL is configured.
+          description: The service is ready. The database check is reported when DATABASE_URL is configured.
           content:
             application/json:
               schema:
@@ -76,10 +79,10 @@ paths:
       tags:
         - Public tracking
       security: []
-      description: Anonymous lookup of actual persisted parcel state and ordered
-        history. Limited to 30 requests per rolling minute per client IP. No
-        names, addresses, phones, notes, failure details or proof data are
-        returned.
+      description:
+        Anonymous lookup of actual persisted parcel state and ordered history. Limited to 30
+        requests per rolling minute per client IP. No names, addresses, phones, notes, failure
+        details or proof data are returned.
       parameters:
         - name: trackingNumber
           in: path
@@ -147,13 +150,12 @@ paths:
     get:
       operationId: dailyReport
       summary: Daily created, delivered and failed counts
-      description: DISPATCHER and ADMIN. Counts by event date in UTC. `created`
-        uses the parcel creation date, `delivered` the delivery date and
-        `failed` the failure date, so one parcel can appear on more than one
-        day. `from` and `to` are inclusive UTC dates. The default is the last
-        7 calendar dates (7 dates ending today UTC); the range may not exceed
-        90 days. Every date in the range is returned, including dates with no
-        parcels.
+      description:
+        DISPATCHER and ADMIN. Counts by event date in UTC. `created` uses the parcel creation
+        date, `delivered` the delivery date and `failed` the failure date, so one parcel can appear
+        on more than one day. `from` and `to` are inclusive UTC dates. The default is the last 7
+        calendar dates (7 dates ending today UTC); the range may not exceed 90 days. Every date in
+        the range is returned, including dates with no parcels.
       tags:
         - Reports
       security:
@@ -236,13 +238,12 @@ paths:
     get:
       operationId: outcomesReport
       summary: Success and failure rates with top failure reasons
-      description: DISPATCHER and ADMIN. Follows parcels whose creation date is
-        in the inclusive UTC range and reports their current status, so
-        `created = delivered + failed + inProgress`. Rates are percentages of
-        finished parcels (delivered plus failed), rounded to two decimals. The
-        default is the last 30 calendar dates (30 dates ending today UTC);
-        `topFailureReasons` is limited to five entries; the range may not
-        exceed 90 days.
+      description:
+        DISPATCHER and ADMIN. Follows parcels whose creation date is in the inclusive UTC range
+        and reports their current status, so `created = delivered + failed + inProgress`. Rates are
+        percentages of finished parcels (delivered plus failed), rounded to two decimals. The
+        default is the last 30 calendar dates (30 dates ending today UTC); `topFailureReasons` is
+        limited to five entries; the range may not exceed 90 days.
       tags:
         - Reports
       security:
@@ -350,11 +351,289 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /parcels:
+    post:
+      operationId: createCustomerParcel
+      summary: Create a customer delivery
+      tags: [Customer parcels]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: >-
+        CUSTOMER only. Owner comes from the access token. The real internal pricing quote is
+        compared with expectedFee before writing. The stored fee is immutable with respect to later
+        pricing changes. Parcel, initial CREATED history and parcel.created outbox data commit
+        together. A UUID key is scoped to the customer; identical retries (including concurrent
+        inserts) return the existing parcel with 201. Reusing a key for different delivery fields
+        returns IDEMPOTENCY_CONFLICT. expectedFee is consent metadata and excluded from replay
+        comparison. An existing replay does not need pricing to be available.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerParcelInput' }
+      responses:
+        '201':
+          description: Created parcel or successful idempotent replay.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/CreatedParcel' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400': { $ref: '#/components/responses/ParcelBadRequest' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '409':
+          description: PRICE_CHANGED with error.currentFee in LKR, or IDEMPOTENCY_CONFLICT.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  {
+                    code: PRICE_CHANGED,
+                    message: Confirm the current delivery fee.,
+                    currentFee: 600,
+                  }
+                meta: { requestId: req_price }
+        '413': { $ref: '#/components/responses/ParcelBadRequest' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+    get:
+      operationId: listCustomerParcels
+      summary: List the signed-in customer's parcels
+      tags: [Customer parcels]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: CUSTOMER only. Ownership is applied in SQL. Date boundaries are inclusive UTC calendar dates.
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ParcelStatus' }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100000, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: sort
+          in: query
+          schema:
+            {
+              type: string,
+              enum: ['createdAt:asc', 'createdAt:desc'],
+              default: 'createdAt:desc',
+            }
+      responses:
+        '200':
+          description: Owned parcels, with deterministic createdAt/id ordering.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ParcelListItem' }
+                  meta: { $ref: '#/components/schemas/ParcelListMeta' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: getParcelDetail
+      summary: Read a parcel
+      tags: [Customer parcels]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description:
+        CUSTOMER owner, DISPATCHER or ADMIN. Another customer's parcel returns the same 404 as
+        a missing parcel. Assigned courier contact is resolved through Identity; only staff receive
+        courier.id. If the assigned courier user no longer exists, the parcel is still returned with
+        courier null. A genuine Identity outage returns SERVICE_UNAVAILABLE.
+      responses:
+        '200':
+          description: Authorized parcel detail with the stored fee.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/ParcelDetail' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/history':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: getParcelHistory
+      summary: Read chronological append-only history
+      tags: [Customer parcels]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: CUSTOMER owner, DISPATCHER or ADMIN. Ordered oldest first by created_at then id.
+      responses:
+        '200':
+          description: Status history, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ParcelHistoryItem' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/receipt':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: downloadParcelReceipt
+      summary: Download a PDF receipt using the original stored price
+      tags: [Customer parcels]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description:
+        CUSTOMER owner or ADMIN. Contains tracking number, names, cities, weight, size, stored
+        fee components, status and dates. No repricing occurs.
+      responses:
+        '200':
+          description: PDF receipt. Authenticated parcel responses use Cache-Control no-store.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              example: attachment; filename="receipt_SDK7M2Q9XP4.pdf"
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  /internal/parcels:
+    servers: [{ url: 'http://parcel:8082' }]
+    post:
+      operationId: createMerchantParcel
+      summary: Create a merchant-owned parcel
+      tags: [Internal parcels]
+      x-internal: true
+      security: [{ InternalToken: [] }]
+      description: >-
+        Never routed by Nginx. Caller supplies the verified merchant owner's user ID as
+        createdByUserId, required by DB v1.1. No synthetic customer identity is inferred from
+        merchantId. External order uniqueness is merchant scoped; same-delivery replay returns the
+        existing SDN parcel. Pricing is authoritative and uses the real internal quote API without
+        customer expectedFee consent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MerchantParcelInput' }
+      responses:
+        '201':
+          description: Merchant parcel or idempotent external-order replay.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [parcelId, trackingNumber, status, fee]
+                    properties:
+                      parcelId: { type: string, format: uuid }
+                      trackingNumber:
+                        { type: string, pattern: '^SDN[A-Z2-9]{8}$' }
+                      status: { $ref: '#/components/schemas/ParcelStatus' }
+                      fee: { $ref: '#/components/schemas/ParcelFee' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400': { $ref: '#/components/responses/ParcelBadRequest' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '409':
+          description: IDEMPOTENCY_CONFLICT for an external order reused with a different delivery.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '413': { $ref: '#/components/responses/ParcelBadRequest' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/internal/parcels/{parcelId}/summary':
+    servers: [{ url: 'http://parcel:8082' }]
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: getInternalParcelSummary
+      summary: Minimal internal parcel summary
+      tags: [Internal parcels]
+      x-internal: true
+      security: [{ InternalToken: [] }]
+      description:
+        Shared internal-token authentication; never routed by the public gateway. Does not
+        expose phones, addresses or fees.
+      responses:
+        '200':
+          description: Summary for trusted notification and merchant integration.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/ParcelSummary' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
   /dispatch/unassigned:
     get:
       operationId: listUnassignedParcels
       summary: List unassigned parcels for dispatch planning
-      description: DISPATCHER and ADMIN. Lists parcels that have no current courier and are not in a terminal state (DELIVERED or FAILED).
+      description:
+        DISPATCHER and ADMIN. Lists parcels that have no current courier and are not in a
+        terminal state (DELIVERED or FAILED).
       tags:
         - Dispatch
       security:
@@ -443,12 +722,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
-  '/dispatch/parcels/{parcelId}/assignment':
+  /dispatch/parcels/{parcelId}/assignment:
     put:
       operationId: assignParcelCourier
       summary: Assign or reassign a parcel to a courier
-      description: DISPATCHER and ADMIN. Assigns a parcel to an eligible courier, atomically updates current assignments, and queues a parcel.assigned.v1 event.
+      description:
+        DISPATCHER and ADMIN. Assigns a parcel to an eligible courier, atomically updates
+        current assignments, and queues a parcel.assigned.v1 event.
       tags:
         - Dispatch
       security:
@@ -541,12 +821,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
   /dispatch/workload:
     get:
       operationId: getCourierWorkload
       summary: View courier active delivery workload and availability
-      description: DISPATCHER and ADMIN. Lists active couriers with counts of parcels assigned to them by status.
+      description:
+        DISPATCHER and ADMIN. Lists active couriers with counts of parcels assigned to them by
+        status.
       tags:
         - Dispatch
       security:
@@ -589,7 +870,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
   /admin/parcels:
     get:
       operationId: listAdminParcels
@@ -808,80 +1088,221 @@ paths:
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/CourierUnavailable' }
 components:
+  parameters:
+    ParcelID:
+      name: parcelId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
   schemas:
-    CourierDelivery:
+    ParcelStatus:
+      type: string
+      enum:
+        [CREATED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
+    ParcelContact:
+      type: object
+      additionalProperties: false
+      required: [name, phone, address, city, zoneId]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 150 }
+        phone: { type: string, pattern: '^\+[1-9][0-9]{8,14}$' }
+        address: { type: string, minLength: 1, maxLength: 255 }
+        city: { type: string, minLength: 1, maxLength: 100 }
+        zoneId: { type: string, format: uuid }
+    ParcelFee:
+      type: object
+      required: [currency, baseFee, weightCharge, sizeSurcharge, total]
+      properties:
+        currency: { type: string, enum: [LKR] }
+        baseFee: { type: number, minimum: 0, multipleOf: 0.01 }
+        weightCharge: { type: number, minimum: 0, multipleOf: 0.01 }
+        sizeSurcharge: { type: number, minimum: 0, multipleOf: 0.01 }
+        total: { type: number, minimum: 0, multipleOf: 0.01 }
+    CustomerParcelInput:
+      type: object
+      additionalProperties: false
+      required: [sender, recipient, weightKg, sizeCategory, expectedFee]
+      properties:
+        sender: { $ref: '#/components/schemas/ParcelContact' }
+        recipient: { $ref: '#/components/schemas/ParcelContact' }
+        weightKg:
+          { type: number, minimum: 0.01, maximum: 9999.99, multipleOf: 0.01 }
+        sizeCategory: { type: string, enum: [SMALL, MEDIUM, LARGE, OVERSIZED] }
+        description: { type: string, nullable: true, maxLength: 255 }
+        expectedFee:
+          { type: number, minimum: 0, maximum: 9999999999.99, multipleOf: 0.01 }
+    MerchantParcelInput:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          merchantId,
+          createdByUserId,
+          externalOrderId,
+          pickup,
+          recipient,
+          weightKg,
+          sizeCategory,
+        ]
+      properties:
+        merchantId: { type: string, format: uuid }
+        createdByUserId:
+          type: string
+          format: uuid
+          description: Verified merchant owner's identity user ID, supplied by the trusted Merchant service.
+        externalOrderId: { type: string, minLength: 1, maxLength: 100 }
+        idempotencyKey: { type: string, maxLength: 100 }
+        pickup: { $ref: '#/components/schemas/ParcelContact' }
+        recipient: { $ref: '#/components/schemas/ParcelContact' }
+        weightKg:
+          { type: number, minimum: 0.01, maximum: 9999.99, multipleOf: 0.01 }
+        sizeCategory: { type: string, enum: [SMALL, MEDIUM, LARGE, OVERSIZED] }
+        description: { type: string, nullable: true, maxLength: 255 }
+    CreatedParcel:
       type: object
       required:
         [
           id,
           trackingNumber,
           status,
-          pickupAddress,
-          dropoffAddress,
-          dropoffCity,
-          recipientName,
-          recipientPhone,
+          sender,
+          recipient,
           weightKg,
-          assignedAt,
+          sizeCategory,
+          description,
+          fee,
+          createdAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        trackingNumber: { type: string, pattern: '^SD[KN][A-Z2-9]{8}$' }
+        status: { $ref: '#/components/schemas/ParcelStatus' }
+        sender:
+          type: object
+          required: [name, city]
+          properties:
+            name: { type: string }
+            city: { type: string }
+        recipient:
+          type: object
+          required: [name, city]
+          properties:
+            name: { type: string }
+            city: { type: string }
+        weightKg: { type: number }
+        sizeCategory: { type: string, enum: [SMALL, MEDIUM, LARGE, OVERSIZED] }
+        description: { type: string, nullable: true }
+        fee: { $ref: '#/components/schemas/ParcelFee' }
+        createdAt: { type: string, format: date-time }
+    ParcelDetail:
+      type: object
+      required:
+        [
+          id,
+          trackingNumber,
+          status,
+          sender,
+          recipient,
+          weightKg,
+          sizeCategory,
+          description,
+          fee,
+          courier,
+          failureReason,
+          createdAt,
+          updatedAt,
+          deliveredAt,
         ]
       properties:
         id: { type: string, format: uuid }
         trackingNumber: { type: string }
-        status:
-          type: string
-          enum:
-            [
-              CREATED,
-              PICKED_UP,
-              IN_TRANSIT,
-              OUT_FOR_DELIVERY,
-              DELIVERED,
-              FAILED,
-            ]
-        pickupAddress: { type: string }
-        dropoffAddress: { type: string }
-        dropoffCity: { type: string }
-        recipientName: { type: string }
-        recipientPhone: { type: string }
+        status: { $ref: '#/components/schemas/ParcelStatus' }
+        sender: { $ref: '#/components/schemas/ParcelContact' }
+        recipient: { $ref: '#/components/schemas/ParcelContact' }
         weightKg: { type: number }
-        assignedAt: { type: string, format: date-time }
-    CourierDeliveryDetail:
-      allOf:
-        - $ref: '#/components/schemas/CourierDelivery'
-        - type: object
-          required:
-            [description, sizeCategory, senderName, senderPhone, history, proof]
+        sizeCategory: { type: string }
+        description: { type: string, nullable: true }
+        fee: { $ref: '#/components/schemas/ParcelFee' }
+        courier:
+          type: object
+          nullable: true
+          required: [fullName, phone]
           properties:
-            description: { type: string, nullable: true }
-            sizeCategory:
-              { type: string, enum: [SMALL, MEDIUM, LARGE, OVERSIZED] }
-            senderName: { type: string }
-            senderPhone: { type: string }
-            history:
-              type: array
-              items: { $ref: '#/components/schemas/CourierHistory' }
-            proof:
-              type: object
-              nullable: true
-              additionalProperties: false
-              required: [recipientName, note, hasPhoto, createdAt]
-              properties:
-                recipientName: { type: string, nullable: true }
-                note: { type: string, nullable: true }
-                hasPhoto: { type: boolean }
-                createdAt: { type: string, format: date-time }
-    CourierHistory:
+            id: { type: string, format: uuid, description: Staff only. }
+            fullName: { type: string }
+            phone: { type: string }
+        failureReason: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        deliveredAt: { type: string, format: date-time, nullable: true }
+    ParcelListItem:
       type: object
-      additionalProperties: false
+      required:
+        [
+          id,
+          trackingNumber,
+          status,
+          recipientName,
+          dropoffCity,
+          total,
+          currency,
+          createdAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        trackingNumber: { type: string }
+        status: { $ref: '#/components/schemas/ParcelStatus' }
+        recipientName: { type: string }
+        dropoffCity: { type: string }
+        total: { type: number }
+        currency: { type: string, enum: [LKR] }
+        createdAt: { type: string, format: date-time }
+    ParcelListMeta:
+      type: object
+      required: [requestId, timestamp, pagination]
+      properties:
+        requestId: { type: string }
+        timestamp: { type: string, format: date-time }
+        pagination:
+          type: object
+          required: [page, pageSize, totalItems, totalPages]
+          properties:
+            page: { type: integer }
+            pageSize: { type: integer }
+            totalItems: { type: integer }
+            totalPages: { type: integer }
+    ParcelHistoryItem:
+      type: object
       required:
         [previousStatus, status, note, failureReason, actorRole, changedAt]
       properties:
         previousStatus: { type: string, nullable: true }
-        status: { type: string }
+        status: { $ref: '#/components/schemas/ParcelStatus' }
         note: { type: string, nullable: true }
         failureReason: { type: string, nullable: true }
         actorRole: { type: string, nullable: true }
         changedAt: { type: string, format: date-time }
+    ParcelSummary:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          parcelId,
+          trackingNumber,
+          status,
+          customerUserId,
+          merchantId,
+          externalOrderId,
+          recipientName,
+        ]
+      properties:
+        parcelId: { type: string, format: uuid }
+        trackingNumber: { type: string }
+        status: { $ref: '#/components/schemas/ParcelStatus' }
+        customerUserId: { type: string, format: uuid, nullable: true }
+        merchantId: { type: string, format: uuid, nullable: true }
+        externalOrderId: { type: string, nullable: true }
+        recipientName: { type: string }
     HealthResponse:
       type: object
       additionalProperties: false
@@ -939,6 +1360,10 @@ components:
           items:
             type: object
             additionalProperties: true
+        currentFee:
+          type: number
+          minimum: 0
+          description: Authoritative total in LKR, present for PRICE_CHANGED only.
     ResponseMeta:
       type: object
       additionalProperties: false
@@ -1165,25 +1590,113 @@ components:
         createdAt:
           type: string
           format: date-time
+    CourierDelivery:
+      type: object
+      required:
+        [
+          id,
+          trackingNumber,
+          status,
+          pickupAddress,
+          dropoffAddress,
+          dropoffCity,
+          recipientName,
+          recipientPhone,
+          weightKg,
+          assignedAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        trackingNumber: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        pickupAddress: { type: string }
+        dropoffAddress: { type: string }
+        dropoffCity: { type: string }
+        recipientName: { type: string }
+        recipientPhone: { type: string }
+        weightKg: { type: number }
+        assignedAt: { type: string, format: date-time }
+    CourierDeliveryDetail:
+      allOf:
+        - $ref: '#/components/schemas/CourierDelivery'
+        - type: object
+          required:
+            [description, sizeCategory, senderName, senderPhone, history, proof]
+          properties:
+            description: { type: string, nullable: true }
+            sizeCategory:
+              { type: string, enum: [SMALL, MEDIUM, LARGE, OVERSIZED] }
+            senderName: { type: string }
+            senderPhone: { type: string }
+            history:
+              type: array
+              items: { $ref: '#/components/schemas/CourierHistory' }
+            proof:
+              type: object
+              nullable: true
+              additionalProperties: false
+              required: [recipientName, note, hasPhoto, createdAt]
+              properties:
+                recipientName: { type: string, nullable: true }
+                note: { type: string, nullable: true }
+                hasPhoto: { type: boolean }
+                createdAt: { type: string, format: date-time }
+    CourierHistory:
+      type: object
+      additionalProperties: false
+      required:
+        [previousStatus, status, note, failureReason, actorRole, changedAt]
+      properties:
+        previousStatus: { type: string, nullable: true }
+        status: { type: string }
+        note: { type: string, nullable: true }
+        failureReason: { type: string, nullable: true }
+        actorRole: { type: string, nullable: true }
+        changedAt: { type: string, format: date-time }
   responses:
-    CourierUnauthenticated:
-      description: UNAUTHENTICATED or TOKEN_EXPIRED. Missing, invalid or expired access token.
+    ParcelBadRequest:
+      description:
+        Malformed JSON, unknown fields, invalid decimal encoding, or a request exceeding the 1
+        MiB limit (413).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
-    CourierForbidden:
-      description: FORBIDDEN. Role is not COURIER, or parcel is not currently assigned to this courier.
+    ParcelUnauthenticated:
+      description: Missing or invalid access credentials or internal token.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
-    CourierUnavailable:
-      description: SERVICE_UNAVAILABLE. Authentication or database is not configured.
+    ParcelForbidden:
+      description: The signed-in role cannot perform this operation.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ParcelValidation:
+      description:
+        VALIDATION_ERROR, ROUTE_NOT_SERVICEABLE or WEIGHT_NOT_PRICED. Field validation uses
+        error.details.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ParcelUnavailable:
+      description:
+        SERVICE_UNAVAILABLE. Authentication, internal token, database or required downstream
+        service is unavailable.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     NotFound:
-      description: No route matched the request path. Returns the standard error
-        envelope with code `NOT_FOUND`.
+      description: No route matched the request path. Returns the standard error envelope with code `NOT_FOUND`.
       content:
         application/json:
           schema:
@@ -1196,9 +1709,8 @@ components:
               requestId: req_01
     MethodNotAllowed:
       description:
-        The HTTP method is not allowed for the requested path. Returns the
-        standard error envelope with code `METHOD_NOT_ALLOWED`; the `Allow`
-        header lists the permitted methods.
+        The HTTP method is not allowed for the requested path. Returns the standard error
+        envelope with code `METHOD_NOT_ALLOWED`; the `Allow` header lists the permitted methods.
       headers:
         Allow:
           description: Comma-separated list of methods allowed for the path.
@@ -1217,8 +1729,8 @@ components:
               requestId: req_01
     InternalServerError:
       description:
-        An unexpected server error occurred. Returns the standard error
-        envelope with code `INTERNAL_ERROR`; internal details are not exposed.
+        An unexpected server error occurred. Returns the standard error envelope with code
+        `INTERNAL_ERROR`; internal details are not exposed.
       content:
         application/json:
           schema:
@@ -1229,7 +1741,26 @@ components:
               message: internal server error
             meta:
               requestId: req_01
+    CourierUnauthenticated:
+      description: UNAUTHENTICATED or TOKEN_EXPIRED. Missing, invalid or expired access token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    CourierForbidden:
+      description: FORBIDDEN. Role is not COURIER, or parcel is not currently assigned to this courier.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    CourierUnavailable:
+      description: SERVICE_UNAVAILABLE. Authentication or database is not configured.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
   securitySchemes:
+    InternalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
     AccessCookie:
       type: apiKey
       in: cookie

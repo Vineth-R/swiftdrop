@@ -18,13 +18,13 @@ Each event file follows `<event_name>.schema.json` and uses JSON Schema draft 20
 
 ## Source of truth and compatibility layers
 
-| Layer                     | Contract                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Database outbox storage   | Unversioned labels `parcel.created`, `parcel.assigned`, and `parcel.status_changed` with the exact stored routing keys below. The database rejects `.v1` labels and mixed pairs; parcel `000005_outbox_event_types` reasserts the contract. The stored `routing_key` is a legacy/internal value and is not the published routing key. The table exists; no writer or relay is implemented. |
-| Published RabbitMQ events | Versioned event names with the same versioned routing key. This is the canonical bus contract. Producers are not implemented.                                                                                                                                                                                                                                                              |
-| Internal envelope         | `packages/go-common/messaging.Envelope`: snake_case metadata and a nested object in `data`. Envelope validation is implemented.                                                                                                                                                                                                                                                            |
-| Public merchant webhook   | The API v1.1 camelCase projection with public `eventType: parcel.status_changed` and `schemaVersion: 1`. Delivery and signing are not implemented.                                                                                                                                                                                                                                         |
-| Legacy work items         | `notification.requested.v1` and `webhook.delivery.requested.v1` have consumers but no producers. They are not the target domain-event contracts.                                                                                                                                                                                                                                           |
+| Layer                     | Contract                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Database outbox storage   | Unversioned labels `parcel.created`, `parcel.assigned`, and `parcel.status_changed` with the exact stored routing keys below. The database rejects `.v1` labels and mixed pairs; parcel `000005_outbox_event_types` reasserts the contract. The stored `routing_key` is a legacy/internal value and is not the published routing key. Creation and M6 dispatch writers plus the M6 relay are implemented. |
+| Published RabbitMQ events | Versioned event names with the same versioned routing key. This is the canonical bus contract. Creation outbox data is implemented; bus publication is not.                                                                                                                                                                                                                                               |
+| Internal envelope         | `packages/go-common/messaging.Envelope`: snake_case metadata and a nested object in `data`. Envelope validation is implemented.                                                                                                                                                                                                                                                                           |
+| Public merchant webhook   | The API v1.1 camelCase projection with public `eventType: parcel.status_changed` and `schemaVersion: 1`. Delivery and signing are not implemented.                                                                                                                                                                                                                                                        |
+| Legacy work items         | `notification.requested.v1` and `webhook.delivery.requested.v1` have consumers but no producers. They are not the target domain-event contracts.                                                                                                                                                                                                                                                          |
 
 Do not use the database `routing_key` column directly as a RabbitMQ routing key. The relay owns the storage-to-bus mapping.
 
@@ -84,7 +84,12 @@ The transactional outbox is the source record for parcel events. The unversioned
 
 The relay must validate the storage label, build the canonical envelope, and publish with the mapped event type and routing key. It must not copy the stored legacy routing key. The event ID is the outbox row UUID; the payload is the versioned event's `data` object, not the full envelope.
 
-No outbox writer, relay, publisher, or retry loop is implemented yet. Adding them must preserve the transaction that writes the parcel/status/assignment and the outbox row. The relay also needs a documented claim/lock strategy before it can safely run with more than one instance.
+The Parcel creation writer inserts `parcel.created` with aggregate metadata and
+the canonical event's `data` object in the same transaction as the parcel and
+initial history. The merged M6 relay publishes committed events with confirms
+and bounded retries.
+The relay must preserve this committed boundary and needs a documented claim/lock
+strategy before it can safely run with more than one instance.
 
 ## Producers
 
@@ -136,7 +141,10 @@ Each schema validates the canonical envelope (`event_id`, `event_type`, `event_v
 
 Domain event payloads must not contain phone numbers, email addresses, physical addresses, passwords, JWTs or access tokens, webhook signing secrets, or raw authentication credentials. Contact details are resolved through the appropriate internal service. Parcel event schemas therefore expose identifiers and lifecycle attributes, not contact data.
 
-No producer exists for these schemas yet; the notification consumer is implemented for customer-owned parcels. The contract is final, but the parcel producer remains pending.
+Customer and internal merchant creation now produce the `parcel.created` outbox
+data described above. The notification consumer is implemented for customer-owned
+published events. M6 relay publication and assignment producers are implemented;
+M7 courier status producers remain pending.
 
 ### Notification rendering (implemented)
 
@@ -228,8 +236,8 @@ The internal trigger for the target flow is `parcel.status_changed.v1`; no produ
 
 The following are contracts and target architecture, not evidence of working functionality:
 
-- Parcel outbox writer and relay: not implemented.
-- Parcel event producer: not implemented.
+- Parcel creation outbox writer: implemented atomically with parcel and initial history. Relay: not implemented.
+- Parcel creation bus publication and assignment writers: implemented through the merged M6 relay. M7 courier status writers remain planned.
 - Notification domain-event consumer: implemented for customer-owned `parcel.created.v1` and `parcel.status_changed.v1`; merchant-owned events are dead-lettered as unsupported. The legacy `notification.requested.v1` consumer remains.
 - Webhook delivery, signing, and attempt logging: not implemented; the current worker only logs a legacy work item.
 - Realtime and merchant event consumers: not implemented.

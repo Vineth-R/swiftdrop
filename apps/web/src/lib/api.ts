@@ -87,10 +87,10 @@ async function isSessionEnded(response: Response): Promise<boolean> {
   }
 }
 
-async function call<T>(
+async function callResponse(
   path: string,
   options: ApiRequestOptions,
-): Promise<Envelope<T>> {
+): Promise<Response> {
   const mayRenew = options.renewSession ?? !path.startsWith('/auth/');
 
   let response = await send(path, options);
@@ -102,12 +102,42 @@ async function call<T>(
   }
 
   if (!response.ok) throw await readError(response);
+  return response;
+}
+
+async function call<T>(
+  path: string,
+  options: ApiRequestOptions,
+): Promise<Envelope<T>> {
+  const response = await callResponse(path, options);
   if (response.status === 204) return { data: undefined as T };
 
   try {
     return (await response.json()) as Envelope<T>;
   } catch {
     throw new ApiError({ code: 'INTERNAL', status: response.status });
+  }
+}
+
+/** Downloads a PDF through the same cookie, renewal and error handling path. */
+export async function apiBlob(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<Blob> {
+  const response = await callResponse(path, {
+    ...options,
+    headers: { ...options.headers, Accept: 'application/pdf' },
+  });
+  if (
+    response.headers.get('Content-Type')?.split(';')[0].trim() !==
+    'application/pdf'
+  ) {
+    throw new ApiError({ code: 'INTERNAL', status: response.status });
+  }
+  try {
+    return await response.blob();
+  } catch {
+    throw new ApiError({ code: 'NETWORK', status: 0 });
   }
 }
 

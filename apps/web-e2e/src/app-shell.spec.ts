@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-import { fail, mockApi } from './support/mock-api';
+import { fail, mockApi, ok } from './support/mock-api';
 import { signInAs, type Role } from './support/sign-in';
 
 const sidebar = (page: Page) => page.locator('aside nav[aria-label="Main"]');
@@ -77,10 +77,10 @@ test.describe('the sidebar', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
   });
 
-  test('marks the current page, and a page that is not built yet shows 404 inside the shell', async ({
+  test('marks My parcels as current, and unknown routes show 404 inside the shell', async ({
     page,
   }) => {
-    await signInAs(page, 'CUSTOMER');
+    await signInAs(page, 'CUSTOMER', { 'GET /parcels': ok([]) });
     await page.goto('/dashboard');
     await expect(
       sidebar(page).getByRole('link', { name: 'Dashboard' }),
@@ -89,11 +89,15 @@ test.describe('the sidebar', () => {
     await sidebar(page).getByRole('link', { name: 'My parcels' }).click();
     await expect(page).toHaveURL(/\/parcels$/);
     await expect(
-      page.getByRole('heading', { name: 'This page does not exist' }),
+      page.getByRole('heading', { name: 'My parcels', exact: true }),
     ).toBeVisible();
     await expect(
       sidebar(page).getByRole('link', { name: 'My parcels' }),
     ).toHaveAttribute('aria-current', 'page');
+    await page.goto('/not-a-built-screen');
+    await expect(
+      page.getByRole('heading', { name: 'This page does not exist' }),
+    ).toBeVisible();
     await expect(
       page.getByRole('link', { name: 'Go to my dashboard' }),
     ).toHaveAttribute('href', '/dashboard');
