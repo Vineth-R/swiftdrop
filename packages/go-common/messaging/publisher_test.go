@@ -70,8 +70,8 @@ func TestPublisherPublishesRetry(t *testing.T) {
 	if call.exchange != "swiftdrop.events.retry" {
 		t.Fatalf("exchange = %q, want swiftdrop.events.retry", call.exchange)
 	}
-	if call.key != "notification.requested.v1.retry" {
-		t.Fatalf("routing key = %q, want notification.requested.v1.retry", call.key)
+	if call.key != "notification.requested.v1.retry.v2" {
+		t.Fatalf("routing key = %q, want notification.requested.v1.retry.v2", call.key)
 	}
 	if !call.mandatory {
 		t.Fatal("mandatory = false, want true")

@@ -8,9 +8,23 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
-// defaultRoutingKey is the event the worker listens for: the parcel service
-// publishes it to the swiftdrop.events exchange whenever a parcel changes status.
-const defaultRoutingKey = "parcel.status_changed.v1"
+const (
+	// defaultQueue is the webhook worker's own durable queue. A separate queue
+	// per worker keeps retries isolated now that both the notification worker
+	// and the webhook worker consume parcel.status_changed.v1.
+	defaultQueue = "webhook.parcel.status_changed.v1"
+
+	// defaultRoutingKey is the event the worker listens for: the parcel service
+	// publishes it to the swiftdrop.events exchange whenever a parcel changes
+	// status.
+	defaultRoutingKey = "parcel.status_changed.v1"
+
+	// legacyQueue and legacyRoutingKey are the retired webhook work item. It has
+	// no producer. Deployments that still set either value keep their
+	// configuration, but they receive no parcel status events.
+	legacyQueue      = "webhook.delivery.requested.v1"
+	legacyRoutingKey = "webhook.delivery.requested.v1"
+)
 
 type Config struct {
 	AppEnv         string
@@ -25,6 +39,13 @@ type Config struct {
 	RetryDelay     time.Duration
 	ReconnectMin   time.Duration
 	ReconnectMax   time.Duration
+}
+
+// UsesLegacyQueue reports whether the resolved configuration points at the
+// retired webhook work item. Callers should warn at startup; the configured
+// values are never rewritten.
+func (c Config) UsesLegacyQueue() bool {
+	return c.Queue == legacyQueue || c.RoutingKey == legacyRoutingKey
 }
 
 func Load() (Config, error) {
@@ -50,7 +71,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, fmt.Errorf("RABBITMQ_URL: %w", err)
 	}
 
-	queue := loader.String("WEBHOOK_QUEUE", "webhook.parcel.status_changed.v1")
+	queue := loader.String("WEBHOOK_QUEUE", defaultQueue)
 
 	prefetch, err := loader.Int("RABBITMQ_PREFETCH", 10)
 	if err != nil {

@@ -198,3 +198,55 @@ func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 		t.Fatalf("LogLevel = %q, want warning", config.LogLevel)
 	}
 }
+
+func TestUsesLegacyQueue(t *testing.T) {
+	tests := map[string]struct {
+		values map[string]string
+		want   bool
+	}{
+		"defaults":           {},
+		"new queue":          {values: map[string]string{"WEBHOOK_QUEUE": "webhook.parcel.status_changed.v1"}},
+		"legacy queue":       {values: map[string]string{"WEBHOOK_QUEUE": "webhook.delivery.requested.v1"}, want: true},
+		"legacy routing key": {values: map[string]string{"WEBHOOK_ROUTING_KEY": "webhook.delivery.requested.v1"}, want: true},
+		"both legacy": {
+			values: map[string]string{
+				"WEBHOOK_QUEUE":       "webhook.delivery.requested.v1",
+				"WEBHOOK_ROUTING_KEY": "webhook.delivery.requested.v1",
+			},
+			want: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			values := map[string]string{
+				"APP_ENV":      "development",
+				"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+			}
+			for key, value := range test.values {
+				values[key] = value
+			}
+
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := values[key]
+				return value, ok
+			})
+
+			config, err := LoadFrom(loader)
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if got := config.UsesLegacyQueue(); got != test.want {
+				t.Fatalf("UsesLegacyQueue() = %v, want %v", got, test.want)
+			}
+
+			// Explicit configuration is reported, never rewritten.
+			if value, ok := test.values["WEBHOOK_QUEUE"]; ok && config.Queue != value {
+				t.Fatalf("Queue = %q, want %q", config.Queue, value)
+			}
+			if value, ok := test.values["WEBHOOK_ROUTING_KEY"]; ok && config.RoutingKey != value {
+				t.Fatalf("RoutingKey = %q, want %q", config.RoutingKey, value)
+			}
+		})
+	}
+}

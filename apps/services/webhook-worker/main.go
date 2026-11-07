@@ -72,6 +72,14 @@ func run() error {
 		"environment", config.AppEnv,
 	)
 
+	if config.UsesLegacyQueue() {
+		logger.Warn("legacy webhook queue configuration detected",
+			"queue", config.Queue,
+			"routing_key", config.RoutingKey,
+			"hint", "webhook.delivery.requested.v1 has no producer; set WEBHOOK_QUEUE=webhook.parcel.status_changed.v1 and WEBHOOK_ROUTING_KEY=parcel.status_changed.v1 to receive parcel status events",
+		)
+	}
+
 	err = messaging.Run(ctx, messaging.ConsumerConfig{
 		URL:            config.RabbitMQURL,
 		Exchange:       config.Exchange,
