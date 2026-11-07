@@ -8,6 +8,10 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
+// defaultRoutingKey is the event the worker listens for: the parcel service
+// publishes it to the swiftdrop.events exchange whenever a parcel changes status.
+const defaultRoutingKey = "parcel.status_changed.v1"
+
 type Config struct {
 	AppEnv         string
 	LogLevel       string
@@ -96,7 +100,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		RabbitMQURL:    rabbitMQURL,
 		Exchange:       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
 		Queue:          queue,
-		RoutingKey:     loader.String("WEBHOOK_ROUTING_KEY", queue),
+		RoutingKey:     loader.String("WEBHOOK_ROUTING_KEY", defaultRoutingKey),
 		Prefetch:       prefetch,
 		HandlerTimeout: handlerTimeout,
 		MaxRetries:     maxRetries,
