@@ -40,6 +40,18 @@ const routeMessage =
 const weightMessage =
   'A delivery fee is not available for this weight. Change the weight and try again.';
 
+test('each size shows its volume', async ({ page }) => {
+  await open(page, ok(fee));
+  await expect(
+    page.getByLabel('Size category', { exact: false }).getByRole('option'),
+  ).toHaveText([
+    'Small (up to 5 L)',
+    'Medium (up to 20 L)',
+    'Large (up to 60 L)',
+    'Oversized (over 60 L)',
+  ]);
+});
+
 test.describe('booking fee estimate problems', () => {
   test('a route with no price is shown beside the destination zone', async ({
     page,

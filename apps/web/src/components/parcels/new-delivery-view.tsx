@@ -7,6 +7,7 @@ import {
   estimate,
   getZones,
   sizeCategories,
+  sizeLabel,
   type Estimate,
   type SizeCategory,
   type Zone,
@@ -445,7 +446,7 @@ function DeliveryWizard() {
                     isRequired
                     options={sizeCategories.map((size) => ({
                       value: size,
-                      label: size.charAt(0) + size.slice(1).toLowerCase(),
+                      label: sizeLabel(size),
                     }))}
                     value={values.size}
                     error={form.errors.size}
