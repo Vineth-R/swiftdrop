@@ -1087,6 +1087,72 @@ paths:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/CourierUnavailable' }
+  '/courier/deliveries/{parcelId}/status':
+    post:
+      operationId: updateCourierDeliveryStatus
+      summary: Update an assigned delivery status (API v1.1 section 6.3)
+      description: |
+        COURIER only. Locks the parcel, verifies the current courier, then validates
+        the transition and required fields using the shared parcel state machine.
+        CREATED -> PICKED_UP or FAILED; PICKED_UP -> IN_TRANSIT or FAILED;
+        IN_TRANSIT -> OUT_FOR_DELIVERY or FAILED; OUT_FOR_DELIVERY -> DELIVERED
+        or FAILED. DELIVERED and FAILED are terminal. Identical updates return 409.
+        Status, delivery fields, history and outbox data commit in one transaction.
+        M6's existing relay publishes parcel.status_changed.v1 (version 1) after
+        commit; notification or webhook delivery never gates this response.
+        Limits count Unicode characters. Recipient and failure reason are trimmed.
+        Irrelevant recipientName/failureReason values are not persisted.
+        Cache-Control no-store. The gateway already forwards this courier path.
+      tags: [Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: parcelId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourierStatusUpdate'
+      responses:
+        '200':
+          description: Status, history and pending outbox event committed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/CourierStatusResult' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400':
+          description: BAD_REQUEST. Invalid parcel UUID, malformed JSON, unknown fields, multiple JSON values or body exceeding 16 KiB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401': { $ref: '#/components/responses/CourierUnauthenticated' }
+        '403': { $ref: '#/components/responses/CourierForbidden' }
+        '404':
+          description: PARCEL_NOT_FOUND.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: INVALID_TRANSITION. Skipped, backward, identical or terminal transition.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: RECIPIENT_REQUIRED for a missing or blank DELIVERED recipient; FAILURE_REASON_REQUIRED for a FAILED reason outside 5–255 trimmed characters; VALIDATION_ERROR for an unknown/missing status, recipient over 150 trimmed characters or note over 500 characters. Ownership is checked before these rules.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/CourierUnavailable' }
 components:
   parameters:
     ParcelID:
@@ -1590,6 +1656,60 @@ components:
         createdAt:
           type: string
           format: date-time
+    CourierStatusUpdate:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        recipientName:
+          type: string
+          description: Required and non-blank for DELIVERED; maximum 150 characters after trimming.
+        failureReason:
+          type: string
+          description: Required for FAILED; 5 to 255 characters after trimming.
+        note:
+          type: string
+          maxLength: 500
+    CourierStatusResult:
+      type: object
+      required: [parcelId, trackingNumber, previousStatus, status, updatedAt]
+      properties:
+        parcelId: { type: string, format: uuid }
+        trackingNumber: { type: string }
+        previousStatus:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        updatedAt: { type: string, format: date-time }
     CourierDelivery:
       type: object
       required:

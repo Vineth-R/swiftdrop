@@ -59,6 +59,7 @@ func registerCourier(router *gin.Engine, logger *slog.Logger, options Options) e
 	group.GET("/", h.list)
 	group.GET("/:parcelId", h.detail)
 	group.GET("/:parcelId/", h.detail)
+	registerCourierStatus(group, store, logger)
 	return nil
 }
 
