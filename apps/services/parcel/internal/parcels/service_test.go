@@ -208,7 +208,11 @@ func TestTrackingRandomnessAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.Sender.Name = "Nimal (test) \\"
-	pdf := string(Receipt(p))
+	raw, err := Receipt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf := string(raw)
 	for _, part := range []string{"%PDF-1.4", p.TrackingNumber, "Total fee: 550.00", "Base fee: 450.00", "Weight charge: 100.00", "%%EOF", "/ActualText", "Nimal \\(test\\)"} {
 		if !strings.Contains(pdf, part) {
 			t.Errorf("receipt missing %q", part)
@@ -241,7 +245,11 @@ func TestReceiptWrapsAndPaginatesLongFields(t *testing.T) {
 	}
 	delivered := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	p.DeliveredAt = &delivered
-	pdf := string(Receipt(p))
+	raw, err := Receipt(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf := string(raw)
 	if !strings.Contains(pdf, "/Count 2") || !strings.Contains(pdf, "Delivered:") {
 		t.Fatal("long receipt was not paginated or lost delivered date")
 	}
@@ -259,6 +267,10 @@ func TestMerchantAndFailures(t *testing.T) {
 	p2, err := s.CreateMerchant(ctx, merchant)
 	if err != nil || p2.ID != p.ID {
 		t.Fatalf("merchant replay %+v %v", p2, err)
+	}
+	merchant.CreatedByUserID = testOther
+	if _, err := s.CreateMerchant(ctx, merchant); !errors.Is(err, ErrConflict) {
+		t.Fatalf("merchant order replay under a different owner: %v", err)
 	}
 	merchant.CreatedByUserID = ""
 	if _, err := s.CreateMerchant(ctx, merchant); err == nil {

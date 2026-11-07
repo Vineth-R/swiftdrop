@@ -6,9 +6,11 @@ import (
 	"embed"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf16"
 
@@ -23,10 +25,84 @@ import (
 //go:embed receiptfonts/*.ttf receiptfonts/OFL.txt
 var receiptFontAssets embed.FS
 
-var receiptFontFiles = []string{"NotoSans-Regular.ttf", "NotoSansSinhala-Regular.ttf", "NotoSansTamil-Regular.ttf", "NotoSansArabic-Regular.ttf", "NotoSansHebrew-Regular.ttf"}
+const receiptLatinFont = "NotoSans-Regular.ttf"
 
+var receiptFontFiles = []string{receiptLatinFont, "NotoSansSinhala-Regular.ttf", "NotoSansTamil-Regular.ttf", "NotoSansArabic-Regular.ttf", "NotoSansHebrew-Regular.ttf"}
+
+// receiptFontSet holds the parsed font faces and the Latin font bytes used by
+// the searchable logical-text layer. Parsing five TTFs and compressing the
+// Latin face costs tens of milliseconds and several megabytes, so it happens
+// once per process instead of once per receipt.
+type receiptFontSet struct {
+	faces     []*font.Face
+	byName    map[string]*font.Face
+	latin     []byte
+	latinZlib []byte
+}
+
+var (
+	receiptFontsOnce sync.Once
+	receiptFonts     *receiptFontSet
+	receiptFontsErr  error
+
+	// go-text's font.Face keeps mutable glyph caches, so the parsed faces
+	// cannot be used by two receipts at once. Parsing is still done once; only
+	// font-dependent receipt generation is serialized. ASCII-only receipts do
+	// not touch the faces or this lock.
+	receiptRenderMu sync.Mutex
+)
+
+func loadReceiptFonts() (*receiptFontSet, error) {
+	receiptFontsOnce.Do(func() {
+		receiptFonts, receiptFontsErr = parseReceiptFonts(receiptFontFiles, receiptFontAssets.ReadFile)
+	})
+	if receiptFontsErr != nil {
+		return nil, fmt.Errorf("initializing receipt fonts: %w", receiptFontsErr)
+	}
+	return receiptFonts, nil
+}
+
+// parseReceiptFonts is separated from the package-level cache so tests can
+// exercise missing or malformed font data without poisoning other receipts.
+func parseReceiptFonts(names []string, read func(string) ([]byte, error)) (*receiptFontSet, error) {
+	set := &receiptFontSet{byName: make(map[string]*font.Face, len(names))}
+	for _, name := range names {
+		data, err := read("receiptfonts/" + name)
+		if err != nil {
+			return nil, fmt.Errorf("read embedded receipt font %s: %w", name, err)
+		}
+		face, err := font.ParseTTF(bytes.NewReader(data))
+		if err != nil {
+			return nil, fmt.Errorf("parse embedded receipt font %s: %w", name, err)
+		}
+		set.faces = append(set.faces, face)
+		set.byName[name] = face
+		if name != receiptLatinFont {
+			continue
+		}
+		set.latin = data
+		var compressed bytes.Buffer
+		zw := zlib.NewWriter(&compressed)
+		if _, err := zw.Write(data); err != nil {
+			return nil, fmt.Errorf("compress embedded receipt font %s: %w", name, err)
+		}
+		if err := zw.Close(); err != nil {
+			return nil, fmt.Errorf("finish embedded receipt font %s: %w", name, err)
+		}
+		set.latinZlib = compressed.Bytes()
+	}
+	if len(set.faces) == 0 || set.latin == nil {
+		return nil, errors.New("embedded receipt font set is missing the Latin face")
+	}
+	return set, nil
+}
+
+// receiptText owns one shaping buffer. The parsed font faces are cached and
+// shared because parsing is expensive, but both the shaper and the faces keep
+// mutable scratch caches; Receipt serializes the font-dependent work with
+// receiptRenderMu.
 type receiptText struct {
-	faces  []*font.Face
+	fonts  *receiptFontSet
 	shaper shaping.HarfbuzzShaper
 }
 type receiptRow struct {
@@ -34,28 +110,20 @@ type receiptRow struct {
 	runs shaping.Line
 }
 
-func newReceiptText() *receiptText {
-	t := &receiptText{}
-	for _, name := range receiptFontFiles {
-		data, err := receiptFontAssets.ReadFile("receiptfonts/" + name)
-		if err != nil {
-			panic("missing embedded receipt font")
-		}
-		face, err := font.ParseTTF(bytes.NewReader(data))
-		if err != nil {
-			panic("invalid embedded receipt font")
-		}
-		t.faces = append(t.faces, face)
+func newReceiptText() (*receiptText, error) {
+	fonts, err := loadReceiptFonts()
+	if err != nil {
+		return nil, err
 	}
-	return t
+	return &receiptText{fonts: fonts}, nil
 }
 func (t *receiptText) ResolveFace(r rune) *font.Face {
-	for _, f := range t.faces {
+	for _, f := range t.fonts.faces {
 		if _, ok := f.NominalGlyph(r); ok {
 			return f
 		}
 	}
-	return t.faces[0]
+	return t.fonts.faces[0]
 }
 func asciiReceipt(s string) bool {
 	for _, r := range s {
@@ -201,23 +269,17 @@ func receiptSearchOrder(s string) string {
 	}
 	return out.String()
 }
-func (u *receiptUnicode) fontObjects() []string {
-	data, err := receiptFontAssets.ReadFile("receiptfonts/NotoSans-Regular.ttf")
-	if err != nil {
-		panic("missing embedded receipt font")
+func (u *receiptUnicode) fontObjects(fonts *receiptFontSet) []string {
+	if fonts == nil {
+		return nil
 	}
-	var compressed bytes.Buffer
-	zw := zlib.NewWriter(&compressed)
-	_, _ = zw.Write(data)
-	_ = zw.Close()
+	data := fonts.latin
+	compressed := fonts.latinZlib
 	// The invisible font may use .notdef where a script-specific face is needed;
 	// visible glyphs always come from the appropriate real Noto outline above.
 	glyphs := make([]byte, 2*(len(u.runes)+1))
 	var widths strings.Builder
-	face, err := font.ParseTTF(bytes.NewReader(data))
-	if err != nil {
-		panic("invalid embedded receipt font")
-	}
+	face := fonts.byName[receiptLatinFont]
 	for i, r := range u.runes {
 		gid, _ := face.NominalGlyph(r)
 		binary.BigEndian.PutUint16(glyphs[2*(i+1):], uint16(gid))
@@ -246,7 +308,7 @@ func (u *receiptUnicode) fontObjects() []string {
 		"<< /Type /Font /Subtype /Type0 /BaseFont /NotoSans-Regular /Encoding /Identity-H /DescendantFonts [5 0 R] /ToUnicode 9 0 R >>",
 		fmt.Sprintf("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /NotoSans-Regular /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 6 0 R /DW 500 /W [1 [%s]] /CIDToGIDMap 8 0 R >>", widths.String()),
 		"<< /Type /FontDescriptor /FontName /NotoSans-Regular /Flags 32 /FontBBox [-621 -389 2800 1067] /ItalicAngle 0 /Ascent 1069 /Descent -293 /CapHeight 714 /StemV 80 /FontFile2 7 0 R >>",
-		fmt.Sprintf("<< /Length %d /Length1 %d /Filter /FlateDecode >>\nstream\n%sendstream", compressed.Len(), len(data), compressed.String()),
+		fmt.Sprintf("<< /Length %d /Length1 %d /Filter /FlateDecode >>\nstream\n%sendstream", len(compressed), len(data), compressed),
 		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(glyphs), string(glyphs)),
 		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", cmap.Len(), cmap.String()),
 	}
@@ -257,7 +319,7 @@ func receiptHasUnsupportedRune(t *receiptText, s string) bool {
 			continue
 		}
 		found := false
-		for _, f := range t.faces {
+		for _, f := range t.fonts.faces {
 			if _, ok := f.NominalGlyph(r); ok {
 				found = true
 				break

@@ -44,7 +44,12 @@ func (c *CourierClient) Lookup(ctx context.Context, id string) (Courier, error) 
 		return Courier{}, ErrUnavailable
 	}
 	defer res.Body.Close()
-	if res.StatusCode != 200 {
+	if res.StatusCode == http.StatusNotFound {
+		// The assigned user no longer exists. The parcel itself is still valid;
+		// the caller decides whether to omit the courier or fail.
+		return Courier{}, ErrCourierNotFound
+	}
+	if res.StatusCode != http.StatusOK {
 		return Courier{}, ErrUnavailable
 	}
 	var envelope struct {

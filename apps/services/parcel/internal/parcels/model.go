@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	ErrUnavailable = errors.New("parcel dependency unavailable")
-	ErrNotFound    = errors.New("parcel not found")
-	ErrConflict    = errors.New("idempotency key reused with different request")
+	ErrUnavailable     = errors.New("parcel dependency unavailable")
+	ErrNotFound        = errors.New("parcel not found")
+	ErrConflict        = errors.New("idempotency key reused with different request")
+	ErrCourierNotFound = errors.New("assigned courier no longer exists")
 )
 
 type Invalid struct{ Issues []validation.Issue }

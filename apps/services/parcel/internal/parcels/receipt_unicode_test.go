@@ -20,7 +20,10 @@ func TestReceiptUnicodeShapingAndSearchLayer(t *testing.T) {
 	}{{"latin", "José François Müller", false}, {"latin_decomposed", "Jose\u0301 Franc\u0327ois", false}, {"sinhala", "නිමල් පෙරේරා", false}, {"tamil", "அமலி பெர்னாண்டோ", false}, {"arabic", "محمد أحمد", true}, {"arabic_marks", "مُحَمَّد أَحْمَد", true}, {"hebrew", "דוד לוי", true}, {"hebrew_marks", "דָּוִד לֵוִי", true}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			text := newReceiptText()
+			text, err := newReceiptText()
+			if err != nil {
+				t.Fatal(err)
+			}
 			if receiptHasUnsupportedRune(text, tc.value) {
 				t.Fatal("bundled fonts lack a requested glyph")
 			}
@@ -48,7 +51,10 @@ func TestReceiptUnicodeShapingAndSearchLayer(t *testing.T) {
 				t.Fatalf("wrong script direction: RTL%v", hasRTL)
 			}
 			p := Detail{TrackingNumber: "SDKABCDEFGH", Status: "CREATED", Sender: Contact{Name: tc.value, City: "Colombo"}, Recipient: Contact{Name: "Recipient", City: "Kandy"}, WeightKG: 200, SizeCategory: "SMALL", Fee: Fee{"LKR", 45000, 10000, 0, 55000}, CreatedAt: time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)}
-			pdf := Receipt(p)
+			pdf, err := Receipt(p)
+			if err != nil {
+				t.Fatal(err)
+			}
 			for _, required := range []string{"/ToUnicode", "/FontFile2", "3 Tr", "f Q"} {
 				if !strings.Contains(string(pdf), required) {
 					t.Fatalf("missing real Unicode PDF component %s", required)
@@ -71,7 +77,10 @@ func TestReceiptUnicodeShapingAndSearchLayer(t *testing.T) {
 	}
 }
 func TestReceiptUnicodeWrapPreservesClusters(t *testing.T) {
-	text := newReceiptText()
+	text, err := newReceiptText()
+	if err != nil {
+		t.Fatal(err)
+	}
 	value := strings.Repeat("ක්‍රියාකාරී ", 35)
 	rows := text.layout(value)
 	if len(rows) < 2 {

@@ -50,8 +50,11 @@ var matrix = []accesskit.Case{
 	// Customer parcel and dispatcher operations. Courier lifecycle remains separate.
 	{Name: "POST /parcels", Method: http.MethodPost, Path: "/api/v1/parcels", Body: `{}`, Allowed: []auth.Role{auth.RoleCustomer}},
 	{Name: "GET /parcels", Method: http.MethodGet, Path: "/api/v1/parcels", Allowed: []auth.Role{auth.RoleCustomer}},
-	{Name: "GET /parcels/{id}", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID, Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher}},
-	{Name: "GET /parcels/{id}/history", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/history", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher}},
+	// ADMIN is listed explicitly even though it also satisfies DISPATCHER, so
+	// the intended staff access to parcel detail/history is documented and
+	// checked without relying on the hierarchy alone.
+	{Name: "GET /parcels/{id}", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID, Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin}},
+	{Name: "GET /parcels/{id}/history", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/history", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/receipt", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/receipt", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleAdmin}},
 	{Name: "GET /dispatch/unassigned", Method: http.MethodGet, Path: "/api/v1/dispatch/unassigned", Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "GET /dispatch/workload", Method: http.MethodGet, Path: "/api/v1/dispatch/workload", Allowed: []auth.Role{auth.RoleDispatcher}},

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,7 +25,26 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
-const serviceName = "parcel"
+const (
+	serviceName          = "parcel"
+	relayShutdownTimeout = 10 * time.Second
+)
+
+// waitForRelay waits for the relay goroutine to stop, bounded by timeout so a
+// stuck broker publish cannot block process shutdown forever.
+func waitForRelay(wg *sync.WaitGroup, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -50,6 +70,13 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// The relay gets its own context. It is cancelled only after the HTTP
+	// server finishes draining, so an in-flight publish can complete and mark
+	// its outbox row PUBLISHED before the database and broker are closed.
+	relayCtx, stopRelay := context.WithCancel(context.Background())
+	defer stopRelay()
+	var relayWG sync.WaitGroup
 
 	var database *postgres.Pool
 	var pinger postgres.Pinger
@@ -127,7 +154,20 @@ func run() error {
 			logger,
 			relayOptions,
 		)
-		go relay.Run(ctx)
+		relayWG.Add(1)
+		go func() {
+			defer relayWG.Done()
+			relay.Run(relayCtx)
+		}()
+		// Registered after the database and publisher cleanup defers, so it
+		// runs first: stop the relay and wait for it before those resources
+		// are closed.
+		defer func() {
+			stopRelay()
+			if !waitForRelay(&relayWG, relayShutdownTimeout) {
+				logger.Warn("outbox relay did not stop within the shutdown timeout")
+			}
+		}()
 	}
 	router, err := servicehttp.New(logger, options)
 	if err != nil {

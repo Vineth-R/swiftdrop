@@ -99,7 +99,12 @@ func (h *parcelHandlers) failure(c *gin.Context, err error) bool {
 	case errors.Is(err, parcels.ErrUnavailable):
 		httpx.Error(c, 503, "SERVICE_UNAVAILABLE", "parcel service dependencies are unavailable")
 	default:
-		h.logger.ErrorContext(c.Request.Context(), "parcel operation failed", "request_id", requestid.FromGin(c))
+		h.logger.ErrorContext(c.Request.Context(), "parcel operation failed",
+			"request_id", requestid.FromGin(c),
+			"path", c.FullPath(),
+			"method", c.Request.Method,
+			"error", err,
+		)
 		httpx.Error(c, 500, "INTERNAL_ERROR", "the parcel operation could not be completed")
 	}
 	return true
@@ -146,9 +151,15 @@ func (h *parcelHandlers) receipt(c *gin.Context) {
 	if h.failure(c, err) {
 		return
 	}
+	pdf, err := parcels.Receipt(result)
+	if err != nil {
+		h.logger.ErrorContext(c.Request.Context(), "parcel receipt generation failed", "request_id", requestid.FromGin(c), "parcel_id", result.ID, "error", err)
+		httpx.Error(c, 500, "INTERNAL_ERROR", "the receipt could not be generated")
+		return
+	}
 	c.Header("Content-Disposition", `attachment; filename="receipt_`+result.TrackingNumber+`.pdf"`)
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Data(200, "application/pdf", parcels.Receipt(result))
+	c.Data(200, "application/pdf", pdf)
 }
 func (h *parcelHandlers) list(c *gin.Context) {
 	f := parcels.Filter{Status: c.Query("status"), Sort: c.DefaultQuery("sort", "createdAt:desc"), Page: 1, PageSize: 20}

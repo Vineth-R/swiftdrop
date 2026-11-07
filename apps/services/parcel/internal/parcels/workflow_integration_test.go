@@ -261,7 +261,11 @@ func TestParcelWorkflowStoredPriceAndApplicationRestart(t *testing.T) {
 	if err != nil || replayed.ID != created.ID || replayed.Fee != created.Fee {
 		t.Fatalf("idempotency did not survive application restart: %+v %v", replayed, err)
 	}
-	receipt := string(Receipt(stored))
+	rawReceipt, err := Receipt(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := string(rawReceipt)
 	for _, text := range []string{"%PDF-1.4", stored.TrackingNumber, stored.Sender.Name, stored.Recipient.Name, "Base fee: 450.00", "Weight charge: 100.00", "Size surcharge: 0.00", "Total fee: 550.00", "Currency: LKR", "%%EOF"} {
 		if !strings.Contains(receipt, text) {
 			t.Fatalf("receipt omitted stored parcel information %q", text)

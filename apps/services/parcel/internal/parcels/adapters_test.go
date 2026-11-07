@@ -110,6 +110,10 @@ func TestCourierAdapter(t *testing.T) {
 				if err != nil || result.FullName != "Courier" || result.ID != nil {
 					t.Fatalf("%+v %v", result, err)
 				}
+			} else if tc.name == "missing" {
+				if !errors.Is(err, ErrCourierNotFound) {
+					t.Fatalf("missing courier error = %v, want ErrCourierNotFound", err)
+				}
 			} else if !errors.Is(err, ErrUnavailable) {
 				t.Fatal(err)
 			}
@@ -124,6 +128,12 @@ type failedCourier struct{}
 
 func (failedCourier) Lookup(context.Context, string) (Courier, error) {
 	return Courier{}, ErrUnavailable
+}
+
+type missingCourier struct{}
+
+func (missingCourier) Lookup(context.Context, string) (Courier, error) {
+	return Courier{}, ErrCourierNotFound
 }
 
 type knownCourier struct{}
@@ -146,8 +156,8 @@ func TestAssignedCourierVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	contact, ok := customer.Courier.(Courier)
-	if !ok || contact.ID != nil || contact.FullName != "Assigned Courier" {
-		t.Fatalf("unsafe customer contact %+v", customer.Courier)
+	if !ok || contact.ID != nil || contact.FullName != "Assigned Courier" || contact.Phone != "+94771111111" {
+		t.Fatalf("unexpected customer contact %+v", customer.Courier)
 	}
 	staff, err := s.Detail(ctx, p.ID, testOther, true)
 	if err != nil {
@@ -158,6 +168,34 @@ func TestAssignedCourierVisibility(t *testing.T) {
 		t.Fatalf("staff contact missing id %+v", staff.Courier)
 	}
 }
+
+// A deleted assigned user must not make the parcel unreadable. The detail is
+// returned without a courier and neither history nor the receipt is affected.
+func TestDeletedCourierDoesNotHideParcel(t *testing.T) {
+	ctx := context.Background()
+	store := &memoryStore{}
+	s := NewService(store, quote550()).WithCourierReader(missingCourier{})
+	p, err := s.CreateCustomer(ctx, testUser, "", validInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	courier := testOther
+	store.p.CurrentCourierID = &courier
+	detail, err := s.Detail(ctx, p.ID, testUser, false)
+	if err != nil {
+		t.Fatalf("missing courier made the parcel unavailable: %v", err)
+	}
+	if detail.Courier != nil {
+		t.Fatalf("missing courier was still returned: %+v", detail.Courier)
+	}
+	if _, err := s.History(ctx, p.ID, testUser, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReceiptData(ctx, p.ID, testUser, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHistoryAndReceiptIndependentOfCourier(t *testing.T) {
 	ctx := context.Background()
 	store := &memoryStore{}

@@ -75,6 +75,14 @@ func (s *Service) createCustomer(ctx context.Context, userID, key string, in Cre
 	}
 	return s.create(ctx, &userID, nil, nil, key, userID, "CUSTOMER", in)
 }
+
+// CreateMerchant is an internal, trusted-caller operation protected by the
+// shared internal token. It validates the request shape and enforces stable
+// ownership on external-order replay, but it cannot yet prove that merchantId
+// is APPROVED or that createdByUserId owns that merchant: the Merchant service
+// does not expose a trusted internal merchant lookup. M8's order caller must
+// authenticate the API key and merchant approval first and must supply the
+// verified owner. This endpoint must never be routed through the public gateway.
 func (s *Service) CreateMerchant(ctx context.Context, in MerchantInput) (Detail, error) {
 	in.MerchantID = strings.ToLower(in.MerchantID)
 	in.CreatedByUserID = strings.ToLower(in.CreatedByUserID)
@@ -201,6 +209,11 @@ func (s *Service) Detail(ctx context.Context, id, user string, staff bool) (Deta
 			return Detail{}, ErrUnavailable
 		}
 		courier, err := s.couriers.Lookup(ctx, *p.CurrentCourierID)
+		if errors.Is(err, ErrCourierNotFound) {
+			// A deleted courier must not make a valid parcel unreadable.
+			// Genuine upstream failures still surface as ErrUnavailable.
+			return d, nil
+		}
 		if err != nil {
 			return Detail{}, err
 		}

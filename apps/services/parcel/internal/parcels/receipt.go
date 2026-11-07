@@ -10,7 +10,9 @@ import (
 
 // Receipt produces a searchable PDF from authorized, stored parcel values.
 // Unicode names use correctly shaped Noto outlines and a logical text layer.
-func Receipt(p Detail) []byte {
+// It returns an error when the bundled font resources cannot be initialized;
+// the caller turns that into a generic server error.
+func Receipt(p Detail) ([]byte, error) {
 	lines := []string{"SwiftDrop delivery receipt", "Tracking number: " + p.TrackingNumber, "Sender: " + p.Sender.Name, "Pickup city: " + p.Sender.City, "Recipient: " + p.Recipient.Name, "Destination city: " + p.Recipient.City, "Weight (kg): " + p.WeightKG.String(), "Size: " + p.SizeCategory, "Status: " + p.Status, "Created: " + p.CreatedAt.UTC().Format("2006-01-02 15:04:05 UTC"), "Updated: " + p.UpdatedAt.UTC().Format("2006-01-02 15:04:05 UTC"), "Currency: " + p.Fee.Currency, "Base fee: " + p.Fee.BaseFee.String(), "Weight charge: " + p.Fee.WeightCharge.String(), "Size surcharge: " + p.Fee.SizeSurcharge.String(), "Total fee: " + p.Fee.Total.String()}
 	if p.DeliveredAt != nil {
 		lines = append(lines, "Delivered: "+p.DeliveredAt.UTC().Format("2006-01-02 15:04:05 UTC"))
@@ -24,7 +26,16 @@ func Receipt(p Detail) []byte {
 			}
 		} else {
 			if text == nil {
-				text = newReceiptText()
+				// The parsed font faces carry mutable glyph caches; hold the
+				// shared lock for the rest of this Unicode receipt so concurrent
+				// requests cannot corrupt them. ASCII receipts never reach here.
+				receiptRenderMu.Lock()
+				defer receiptRenderMu.Unlock()
+				var err error
+				text, err = newReceiptText()
+				if err != nil {
+					return nil, err
+				}
 			}
 			rows = append(rows, text.layout(line)...)
 		}
@@ -35,7 +46,7 @@ func Receipt(p Detail) []byte {
 	var logical *receiptUnicode
 	if text != nil {
 		logical = newReceiptUnicode(rows)
-		objects = append(objects, logical.fontObjects()...)
+		objects = append(objects, logical.fontObjects(text.fonts)...)
 	}
 	firstPage := len(objects) + 1
 	var kids strings.Builder
@@ -86,7 +97,7 @@ func Receipt(p Detail) []byte {
 		fmt.Fprintf(&out, "%010d 00000 n \n", offset)
 	}
 	fmt.Fprintf(&out, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(offsets), xref)
-	return out.Bytes()
+	return out.Bytes(), nil
 }
 
 // At most 40 characters fit the content width even at Helvetica's widest
@@ -107,12 +118,16 @@ func receiptLines(s string) []string {
 			runes = runes[width:]
 		}
 		word = string(runes)
-		if len([]rune(line))+1+len(runes) > width {
+		if word == "" {
+			continue
+		}
+		switch {
+		case line == "":
+			line = word
+		case len([]rune(line))+1+len(runes) > width:
 			out = append(out, line)
 			line = word
-		} else if line == "" {
-			line = word
-		} else {
+		default:
 			line += " " + word
 		}
 	}
