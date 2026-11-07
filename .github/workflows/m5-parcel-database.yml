@@ -81,9 +81,18 @@ jobs:
           -covermode=atomic -coverpkg=./apps/services/parcel/...
           -coverprofile=m5-parcel-coverage.out ./apps/services/parcel/...
 
+      # This job only needs Node for `node --test` and the coverage script, but
+      # setup-node v5 enables package-manager caching by default and then looks
+      # for the repository's pinned pnpm binary. Install that pinned pnpm (the
+      # same convention the main CI jobs use) so the lookup cannot fail.
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          cache: pnpm
 
       - name: Test credential-safe live-journey diagnostics
         run: node --test tests/integration/parcelflow/safe-errors.test.mjs
