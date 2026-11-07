@@ -218,7 +218,7 @@ The internal trigger for the target flow is `parcel.status_changed.v1`; no produ
 - Consumer bindings:
   - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned parcels; merchant-owned unsupported)
   - Webhook worker: `parcel.status_changed.v1` (target; not implemented)
-  - Realtime: `parcel.assigned.v1`, `parcel.status_changed.v1` (target; not implemented)
+  - Realtime: `parcel.assigned.v1`, `parcel.status_changed.v1` (consumed by the realtime service on queue realtime.parcel.status_changed.v1; no producer yet)
   - Merchant integration: `parcel.status_changed.v1` (target; not implemented)
 - Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. The notification worker's parcel consumers use separate durable queues; future consumers should add new durable queues or an explicit queue migration rather than changing an existing queue's arguments.
 - Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
@@ -232,7 +232,7 @@ The following are contracts and target architecture, not evidence of working fun
 - Parcel event producer: not implemented.
 - Notification domain-event consumer: implemented for customer-owned `parcel.created.v1` and `parcel.status_changed.v1`; merchant-owned events are dead-lettered as unsupported. The legacy `notification.requested.v1` consumer remains.
 - Webhook delivery, signing, and attempt logging: not implemented; the current worker only logs a legacy work item.
-- Realtime and merchant event consumers: not implemented.
+-merchant event consumers: not implemented.
 
 Do not claim an event is published or delivered merely because a schema, queue name, or database table exists.
 
