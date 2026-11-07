@@ -7,7 +7,6 @@ import {
   estimate,
   getZones,
   sizeCategories,
-  sizeLabel,
   type Estimate,
   type SizeCategory,
   type Zone,
@@ -43,39 +42,7 @@ import {
   type DeliveryValues,
 } from './delivery-form';
 import { FeeBreakdown } from './fee-breakdown';
-import { ParcelProblem, parcelMessages } from './parcel-problem';
-
-/** The estimate's own fields, as the wizard names them. */
-const estimateFields: Record<string, keyof DeliveryValues> = {
-  originZoneId: 'senderZone',
-  destinationZoneId: 'recipientZone',
-  weightKg: 'weight',
-  sizeCategory: 'size',
-};
-
-/**
- * Where an estimate problem belongs: beside the field it is about, when there
- * is one. An empty result means it stays an alert.
- */
-function estimateFieldErrors(
-  error: unknown,
-): Partial<Record<keyof DeliveryValues, string>> {
-  if (!(error instanceof ApiError)) return {};
-  if (error.code === 'ROUTE_NOT_SERVICEABLE')
-    return { recipientZone: parcelMessages.ROUTE_NOT_SERVICEABLE };
-  if (error.code === 'WEIGHT_NOT_PRICED')
-    return { weight: parcelMessages.WEIGHT_NOT_PRICED };
-  if (error.code !== 'VALIDATION_FAILED') return {};
-  const errors: Partial<Record<keyof DeliveryValues, string>> = {};
-  for (const issue of error.issues) {
-    const field = estimateFields[issue.field];
-    if (field)
-      errors[field] =
-        serverFieldMessage(issue.field) ??
-        'Check this information and try again.';
-  }
-  return errors;
-}
+import { ParcelProblem } from './parcel-problem';
 
 type QuoteState =
   | { status: 'idle' | 'loading' }
@@ -107,9 +74,6 @@ function DeliveryWizard() {
   const inFlight = useRef(false);
   const heading = useRef<HTMLDivElement>(null);
   const values = form.values;
-  const { setServerErrors } = form;
-  // The fields the last estimate marked, so the next estimate can clear only those.
-  const estimateMarked = useRef<(keyof DeliveryValues)[]>([]);
   const fingerprint = JSON.stringify([
     values.senderZone,
     values.recipientZone,
@@ -135,14 +99,6 @@ function DeliveryWizard() {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setQuote({ status: 'loading' });
-      const marked = estimateMarked.current;
-      estimateMarked.current = [];
-      if (marked.length > 0)
-        setServerErrors((current) => {
-          const next = { ...current };
-          for (const field of marked) delete next[field];
-          return next;
-        });
       estimate(
         {
           originZoneId: values.senderZone,
@@ -157,14 +113,7 @@ function DeliveryWizard() {
             setQuote({ status: 'ready', fee, fingerprint });
         })
         .catch((error: unknown) => {
-          if (controller.signal.aborted) return;
-          const errors = estimateFieldErrors(error);
-          const fields = Object.keys(errors) as (keyof DeliveryValues)[];
-          if (fields.length > 0) {
-            estimateMarked.current = fields;
-            setServerErrors((current) => ({ ...current, ...errors }));
-          }
-          setQuote({ status: 'error', error });
+          if (!controller.signal.aborted) setQuote({ status: 'error', error });
         });
     }, 350);
     return () => {
@@ -176,7 +125,6 @@ function DeliveryWizard() {
     fingerprint,
     isRouteValid,
     reload,
-    setServerErrors,
     values.senderZone,
     values.recipientZone,
     values.weight,
@@ -446,7 +394,7 @@ function DeliveryWizard() {
                     isRequired
                     options={sizeCategories.map((size) => ({
                       value: size,
-                      label: sizeLabel(size),
+                      label: size.charAt(0) + size.slice(1).toLowerCase(),
                     }))}
                     value={values.size}
                     error={form.errors.size}
@@ -536,12 +484,6 @@ function DeliveryWizard() {
             <div aria-live="polite">
               {quote.status === 'ready' && quote.fingerprint === fingerprint ? (
                 <FeeBreakdown fee={quote.fee} />
-              ) : quote.status === 'error' &&
-                Object.keys(estimateFieldErrors(quote.error)).length > 0 ? (
-                // The message is beside its field, and retrying would not help.
-                <p className="text-body-sm text-text-muted">
-                  Change the marked details to see a fee estimate.
-                </p>
               ) : quote.status === 'error' ? (
                 <>
                   <ParcelProblem error={quote.error} />

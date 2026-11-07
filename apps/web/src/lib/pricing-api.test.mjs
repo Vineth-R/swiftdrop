@@ -32,16 +32,6 @@ const band = { minWeightKg: 5, maxWeightKg: 10, charge: 250 };
 
 afterEach(restoreFetch);
 
-test('every size has a name and a volume, in one label', async () => {
-  const { sizeCategories, sizeLabel } = await import('./pricing-api.ts');
-  assert.deepEqual(sizeCategories.map(sizeLabel), [
-    'Small (up to 5 L)',
-    'Medium (up to 20 L)',
-    'Large (up to 60 L)',
-    'Oversized (over 60 L)',
-  ]);
-});
-
 // What each call must send. The paths are the routes of the pricing service.
 for (const [name, run, method, path, body] of [
   ['estimate', () => estimate(input), 'POST', '/pricing/estimate', input],

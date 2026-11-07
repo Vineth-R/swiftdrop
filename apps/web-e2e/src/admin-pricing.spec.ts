@@ -457,9 +457,6 @@ test.describe('admin pricing', () => {
       const table = page.getByRole('table', { name: 'Size surcharges' });
       await expect(table.getByRole('row')).toHaveCount(5);
       await expect(
-        table.getByRole('row', { name: /Oversized/ }).getByText('over 60 L'),
-      ).toBeVisible();
-      await expect(
         table.getByRole('row', { name: /Small/ }).getByText('LKR 0.00'),
       ).toBeVisible();
     });

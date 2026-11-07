@@ -10,32 +10,6 @@ export const sizeCategories = [
 ] as const;
 export type SizeCategory = (typeof sizeCategories)[number];
 
-/** The size names as people read them. */
-export const sizeNames: Record<SizeCategory, string> = {
-  SMALL: 'Small',
-  MEDIUM: 'Medium',
-  LARGE: 'Large',
-  OVERSIZED: 'Oversized',
-};
-
-/**
- * How big each size is, so a customer can choose the right one.
- * DRAFT: these volumes still need the team's agreement.
- * They are guidance only. The API still takes the size name, and the server
- * works out the fee, so changing this text in a browser changes nothing.
- */
-export const sizeVolumes: Record<SizeCategory, string> = {
-  SMALL: 'up to 5 L',
-  MEDIUM: 'up to 20 L',
-  LARGE: 'up to 60 L',
-  OVERSIZED: 'over 60 L',
-};
-
-/** "Small (up to 5 L)". */
-export function sizeLabel(size: SizeCategory): string {
-  return `${sizeNames[size]} (${sizeVolumes[size]})`;
-}
-
 /** A zone in the public list, which holds active zones only (section 3.2). */
 export type Zone = {
   id: string;
