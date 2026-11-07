@@ -12,7 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/dispatch"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/outbox"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/parcels"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/reports"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
@@ -76,12 +79,55 @@ func run() error {
 	if config.InternalTokenProblem != "" {
 		logger.Warn(config.InternalTokenProblem)
 	}
+	var courierClient identityclient.CourierClient
+	if config.IdentityBaseURL != "" {
+		client, err := identityclient.New(config.IdentityBaseURL, config.InternalToken, config.IdentityTimeout)
+		if err != nil {
+			logger.Warn("identity client configuration error", "error", err)
+		} else {
+			courierClient = client
+		}
+	}
+
 	if database != nil {
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)
-		pricingClient := parcels.NewPricingClient(config.PricingBaseURL, config.InternalToken, &http.Client{Timeout: config.PricingTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }})
+		pricingClient := parcels.NewPricingClient(config.PricingBaseURL, config.InternalToken, &http.Client{
+			Timeout: config.PricingTimeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		})
 		options.Parcels = parcels.NewService(parcels.NewStore(database), pricingClient)
-		options.Parcels.WithCourierReader(parcels.NewCourierClient(config.IdentityBaseURL, config.InternalToken, &http.Client{Timeout: config.IdentityTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}))
+		options.Parcels.WithCourierReader(parcels.NewCourierClient(config.IdentityBaseURL, config.InternalToken, &http.Client{
+			Timeout: config.IdentityTimeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}))
+
+		dispatchRepo := dispatch.NewRepository(database)
+		dispatchService := dispatch.NewService(dispatchRepo, courierClient)
+		options.Dispatch = dispatchService
+
+		outboxStore := outbox.NewSQLStore(database)
+		var publisher outbox.Publisher
+		if config.RabbitMQURL != "" {
+			amqpPub := outbox.NewAMQPPublisher(config.RabbitMQURL, config.RabbitMQExchange)
+			defer amqpPub.Close()
+			publisher = amqpPub
+		} else {
+			logger.Warn("RABBITMQ_URL is not set; outbox events will remain pending")
+		}
+		relayOptions := outbox.DefaultRelayOptions()
+		relayOptions.Exchange = config.RabbitMQExchange
+		relay := outbox.NewRelay(
+			outboxStore,
+			publisher,
+			logger,
+			relayOptions,
+		)
+		go relay.Run(ctx)
 	}
 	router, err := servicehttp.New(logger, options)
 	if err != nil {

@@ -1837,8 +1837,8 @@ bodies are limited to 1 MiB. Money and weight accept at most two decimal places.
 Side effects: inserts the parcel, the first status history row and an outbox event, then
 
 queues `parcel.created` for M6's relay to publish as `parcel.created.v1`.
-The creation transaction is implemented; relay publication remains a separate,
-unimplemented dependency. A successful creation does not claim email delivery.
+The creation transaction is implemented; the merged M6 relay publishes after
+commit. A successful creation does not claim email delivery.
 
 
 

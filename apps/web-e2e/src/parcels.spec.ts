@@ -539,10 +539,15 @@ test('signed-out users return to login and other roles cannot create parcels', a
 test('dispatcher route never requests the customer parcel list', async ({
   page,
 }) => {
-  const { calls } = await signInAs(page, 'DISPATCHER');
+  const { calls } = await signInAs(page, 'DISPATCHER', {
+    'GET /admin/parcels': ok([]),
+  });
   await page.goto('/parcels');
   await expect(
     page.getByRole('heading', { name: 'All parcels', exact: true }),
   ).toBeVisible();
+  await expect
+    .poll(() => calls.some((call) => call.key === 'GET /admin/parcels'))
+    .toBe(true);
   expect(calls.some((call) => call.key === 'GET /parcels')).toBe(false);
 });

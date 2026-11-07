@@ -1,9 +1,18 @@
 # Member 5 parcel flow: implementation and verification
 
-Verification date: 6 November 2026. Working branch:
+Verification dates: 6?7 November 2026. Working branch:
 `feature/m5-complete-parcel-flow`; target: `development`. This record supplements
 the [merged M5.1 database record](m5-parcel-database-verification.md), rather than
 replacing the team design report.
+
+## Latest integration: 7 November
+
+Development `b6b49ca` added M6 dispatch APIs, the transactional outbox relay and
+dispatcher screens after the earlier verification. These have been merged into
+this branch, preserving both customer and dispatcher behavior at `/parcels`.
+The relay is now implemented, superseding the historical dependency status below.
+The original 511-test result and 83.75% M5 coverage describe the 6 November source;
+post-merge verification is recorded separately before publication.
 
 ## Sources and baseline
 
@@ -21,12 +30,11 @@ latest reports and webhook URL validation work. No teammate files conflicted.
 Already implemented and reused:
 
 - M5.1 parcel schema, repository, constraints and append-only history tests.
-- M6 dispatch/outbox migrations and state machine; no migrations were rewritten.
+- M6 dispatch/outbox migrations and state machine, plus the newly merged dispatch APIs, relay and dispatcher screens; no migrations were rewritten.
 - M4 real pricing estimate/quote, zones, admin rules and public tracking.
 - M1/M2/M3 shared HTTP/errors/auth/internal-token middleware, Identity APIs,
   notification consumers, API refresh handling, authenticated shell and UI kit.
-- M2/M10 reports and role navigation; M7 courier history UI. No existing
-  dispatcher parcel workspace was present to replace.
+- M2/M10 reports and role navigation; M7 courier history UI. No dispatcher parcel workspace existed at the initial checkout; the new M6 workspace is preserved by the final merge.
 - M8's schema/service foundation. There was no integrated merchant order caller.
 
 The interrupted work had already added the main API/UI implementation, isolated
@@ -54,7 +62,7 @@ M5 implementation exists; dependent flows can still be BLOCKED below.
 | `/new` wizard                                         | MISSING       | COMPLETE: shared form/kit, live estimate/review, stable key/retry, PRICE_CHANGED reconfirmation, safe loading/error/success states.           |
 | `/parcels` and `/parcels/{id}`                        | MISSING       | COMPLETE: customer list/details, filters/pages, timeline, stored fee, PDF download; role-aware shared route.                                  |
 | Responsive/accessibility checks                       | MISSING       | COMPLETE implementation; explicit 360px/1280px browser checks and screenshots.                                                                |
-| M6 bus relay and notification side effect             | BLOCKED       | Creation commits correct PENDING data; relay remains unimplemented. Email-on-create is not claimed.                                           |
+| M6 bus relay and notification side effect             | BLOCKED       | COMPLETE after merging M6: versioned relay and customer notification verification are recorded in the 7 November addendum.                    |
 | M8 merchant order-to-parcel caller                    | BLOCKED       | Internal API tested; actual merchant order caller/approval integration remains M8 work.                                                       |
 | M7 courier/status lifecycle                           | Outside M5    | Existing code preserved; no claim of courier lifecycle completion.                                                                            |
 
@@ -154,53 +162,53 @@ Identity/Pricing/Parcel/PostgreSQL, check cross-customer denial and download rea
 receipts. Optional admin credentials enable actual rule mutation/restoration.
 Mocked Playwright screens are reported separately from these journeys.
 
-### Executed results
+### 6 November executed results (before the M6 merge)
 
 PASS means executed successfully; FAIL preserves an observed failed attempt;
 BLOCKED names an unavailable dependency; NOT TESTED makes no verification claim.
 
-| Check | Result | Evidence / limitation |
-| --- | --- | --- |
-| Final Parcel unit + real PostgreSQL race suite | PASS | Nine packages completed, no failing packages. Includes concurrency, rollback, restart/pool persistence, fee stability, merchant creation and HTTP ownership/token/error cases. |
-| Member 5 statement coverage | PASS | 804/960 statements = 83.75%; minimum 60%. Final validated profile only. Whole Parcel service:85.5% using `go tool cover -func`. |
-| Final Parcel vet / build | PASS | go vet -p 1 ./apps/services/parcel/... and go build -p 1 ./apps/services/parcel/... both exit0. |
-| NUL and raw column-limit regressions | PASS | Observed red then green:32 HTTP cases (20 NUL, 12 raw-length), 24 raw-length service cases, NUL service cases, positive Unicode/newline/tab and exactmaximum inputs. |
-| Frontend TypeScript | PASS | Fresh app, unit and E2E tsconfig checks each exit0 using pnpm exec tsc --noEmit -p <config>. |
-| Frontend Vitest | PASS | 53/53 tests in 5 files, including 11 M5 validation cases; 2.33s. |
-| Frontend lint | PASS | pnpm exec eslint . in each exact project cwd: web 0 issues; E2E 0 errors / 39 pre-existing warnings. |
-| Production web Docker build | PASS | Dockerfile runs pnpm exec nx build @org/web: compile, TypeScript and 22 static pages; image `81668a6ad2c3`. Includes `/new`, `/parcels`, `/parcels/[id]`. |
-| Final Parcel Docker build | PASS | Linux build succeeded with final Unicode/pricing/NUL/rawlength changes; image `dd5456a73868`. |
-| Shared API and event contract Node tests | PASS | 89 passed, zero failed/skipped on resumed checkout. |
-| Broker-backed consumer tests | PASS | 8 passed, zero failed/skipped, 12.766s; real isolated RabbitMQ. Does not prove the unimplemented relay. |
-| Parcel migration/repository tests | PASS | Tagged race suite completed against isolated PostgreSQL 16. |
-| Complete dispatch database suite | PASS | Tagged race suite completed successfully, 27.089s. |
-| Native real-service customer journey | PASS | Real registration/estimate/create/list/detail/PDF and ownership denial; 360px/1280px artifacts. Before final receipt/validation refinements; final Docker results recorded separately. |
-| Native real pricing mutation journey | PASS | Actual ADMIN API changed/restored rule; stale expectedFee rejected, original parcel/replay/PDF fee retained. |
-| Independent Unicode PDF inspection | PASS | 8 samples: strict parse, exact original names and 550.00 fee with two PDF parsers, rasterization and visual comparison with native font shaping. |
-| Parcel vulnerability scan | PASS | govulncheck ./apps/services/parcel/...: 0 reachable or imported-package vulnerabilities; 3 module advisories concern code not called by this scope. |
-| Secret scan of intended files | PASS | Gitleaks 8.30.1, redacted report; no leaks. Runtime state/secrets excluded from commits. |
-| OpenAPI parse/references | PASS | YAML parsed; all 114 local references resolved. |
-| Scoped formatting and whitespace | PASS | Changed supported files pass Prettier; git diff --check passes. Historical API PDF-to-Markdown document already fails baseline formatting and was not broadly rewritten. |
-| Earlier interrupted coverage attempt | FAIL | One fixture pool-open timeout during concurrent heavy builds; partial profile excluded. Final rerun above passed without skipping or weakening the test. |
-| Initial full browser run on dev server | FAIL | 7 recorded navigation/StrictMode failures; interrupted. Final production rerun passed all 511 checks without weakening those tests. |
-| Resumed native Nx build | NOT TESTED | Interrupted during graph inference under severe host memory pressure; no compile result. Final Docker build provides production Nx build evidence. Direct project tools used for final host lint/types/unit checks. |
-| Whole-repository Windows Go vet/build | FAIL | Existing workers reference Linux-only syscall.Kill at notification main:129 and webhook main:61. No unrelated workaround added. |
-| Initial Docker migration wrapper | FAIL | CRLF checkout shebang caused /usr/local/bin/migrate-all: no such file or directory. Resolved as below. |
-| Same migrations, ephemeral LF normalization | PASS | All 5 schemas clean: identity 3, pricing 2, parcel 5, merchant 6, notification 2; 26 base tables. No applied migration edited. |
-| Documented migration command after checkout correction | PASS | docker compose run --rm --entrypoint /usr/local/bin/migrate-all migrate up: 5 clean no-change results. Restored tracked LF bytes under existing .gitattributes; no source content change. |
-| M6 relay to notification delivery | BLOCKED | Relay unavailable; no email-on-create or full downstream event-flow claim. |
-| M8 actual order caller | BLOCKED | Caller/merchant approval flow unavailable; internal API has isolated coverage. |
-| Container vulnerability/SBOM release checks | NOT TESTED | Local dependency/secret checks do not substitute for existing remote image-security jobs. |
-| Remote CI / production deployment | NOT TESTED | Local results do not imply remote CI success; no production systems touched. |
-| Real Docker customer API journey | PASS | No mocks: eight concurrent creates produce one parcel; real ADMIN rule mutation/restoration, 409 currentFee, original replay/detail/PDF fee, ownership denial, filters/history and internal gateway guards. Updated redaction harness rerun also passed in 3.699s. |
-| Real Docker internal merchant journey | PASS | Direct isolated service-network calls: real M4 quote, PostgreSQL SDN creation/replay/summary and missing/wrong token rejection. No public internal-route exposure. |
-| Actual Parcel container restart | PASS | Original detail and PDF byte-identical after process restart; stored total 550, one history row and one PENDING creation outbox row; persistent volumes retained. |
-| Real Docker customer browser journey | PASS | Registration through estimate/create/list/detail/timeline/PDF, cross-customer 404, public tracking privacy and 360px/1280px; zero mocks, 11.22s. Updated diagnostic/screenshot harness rerun recorded before publishing. |
-| Real gateway access matrix / ownership | PASS | Two top-level tests, 7.193s. 19 active endpoints checked anonymously and across five roles. Five planned M6/M7 child cases skipped; five M8 allowed-role checks remain pending, not counted as implemented passes. |
-| Service log privacy/error inspection | PASS | Seven service logs: no known fixture secrets/JWTs, recipient names, SQLSTATE, panic or Go ERROR entries; no Nginx errors. This does not erase the separate test-diagnostic incident below. |
-| Live-test error redaction | PASS | Four standalone regression tests; Playwright call logs/credential headers and original diagnostic properties omitted, assertion failures retained. Added to M5 CI workflow. |
-| Initial restart readiness probe | FAIL | Transient ECONNRESET immediately after restart. A bounded readiness retry then passed; no service code or test assertion weakened. |
-| Full production Chromium regression | PASS | 511/511 checks in 24 files, including all 16 M5 scenarios and 495 existing checks; zero failed/skipped/flaky; 386.068s. Direct Playwright against final Docker gateway, not the dev server. |
+| Check                                                  | Result     | Evidence / limitation                                                                                                                                                                                                                                              |
+| ------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Final Parcel unit + real PostgreSQL race suite         | PASS       | Nine packages completed, no failing packages. Includes concurrency, rollback, restart/pool persistence, fee stability, merchant creation and HTTP ownership/token/error cases.                                                                                     |
+| Member 5 statement coverage                            | PASS       | 804/960 statements = 83.75%; minimum 60%. Final validated profile only. Whole Parcel service:85.5% using `go tool cover -func`.                                                                                                                                    |
+| Final Parcel vet / build                               | PASS       | go vet -p 1 ./apps/services/parcel/... and go build -p 1 ./apps/services/parcel/... both exit0.                                                                                                                                                                    |
+| NUL and raw column-limit regressions                   | PASS       | Observed red then green:32 HTTP cases (20 NUL, 12 raw-length), 24 raw-length service cases, NUL service cases, positive Unicode/newline/tab and exactmaximum inputs.                                                                                               |
+| Frontend TypeScript                                    | PASS       | Fresh app, unit and E2E tsconfig checks each exit0 using pnpm exec tsc --noEmit -p <config>.                                                                                                                                                                       |
+| Frontend Vitest                                        | PASS       | 53/53 tests in 5 files, including 11 M5 validation cases; 2.33s.                                                                                                                                                                                                   |
+| Frontend lint                                          | PASS       | pnpm exec eslint . in each exact project cwd: web 0 issues; E2E 0 errors / 39 pre-existing warnings.                                                                                                                                                               |
+| Production web Docker build                            | PASS       | Dockerfile runs pnpm exec nx build @org/web: compile, TypeScript and 22 static pages; image `81668a6ad2c3`. Includes `/new`, `/parcels`, `/parcels/[id]`.                                                                                                          |
+| Final Parcel Docker build                              | PASS       | Linux build succeeded with final Unicode/pricing/NUL/rawlength changes; image `dd5456a73868`.                                                                                                                                                                      |
+| Shared API and event contract Node tests               | PASS       | 89 passed, zero failed/skipped on resumed checkout.                                                                                                                                                                                                                |
+| Broker-backed consumer tests                           | PASS       | 8 passed, zero failed/skipped, 12.766s; real isolated RabbitMQ. Does not prove the unimplemented relay.                                                                                                                                                            |
+| Parcel migration/repository tests                      | PASS       | Tagged race suite completed against isolated PostgreSQL 16.                                                                                                                                                                                                        |
+| Complete dispatch database suite                       | PASS       | Tagged race suite completed successfully, 27.089s.                                                                                                                                                                                                                 |
+| Native real-service customer journey                   | PASS       | Real registration/estimate/create/list/detail/PDF and ownership denial; 360px/1280px artifacts. Before final receipt/validation refinements; final Docker results recorded separately.                                                                             |
+| Native real pricing mutation journey                   | PASS       | Actual ADMIN API changed/restored rule; stale expectedFee rejected, original parcel/replay/PDF fee retained.                                                                                                                                                       |
+| Independent Unicode PDF inspection                     | PASS       | 8 samples: strict parse, exact original names and 550.00 fee with two PDF parsers, rasterization and visual comparison with native font shaping.                                                                                                                   |
+| Parcel vulnerability scan                              | PASS       | govulncheck ./apps/services/parcel/...: 0 reachable or imported-package vulnerabilities; 3 module advisories concern code not called by this scope.                                                                                                                |
+| Secret scan of intended files                          | PASS       | Gitleaks 8.30.1, redacted report; no leaks. Runtime state/secrets excluded from commits.                                                                                                                                                                           |
+| OpenAPI parse/references                               | PASS       | YAML parsed; all 114 local references resolved.                                                                                                                                                                                                                    |
+| Scoped formatting and whitespace                       | PASS       | Changed supported files pass Prettier; git diff --check passes. Historical API PDF-to-Markdown document already fails baseline formatting and was not broadly rewritten.                                                                                           |
+| Earlier interrupted coverage attempt                   | FAIL       | One fixture pool-open timeout during concurrent heavy builds; partial profile excluded. Final rerun above passed without skipping or weakening the test.                                                                                                           |
+| Initial full browser run on dev server                 | FAIL       | 7 recorded navigation/StrictMode failures; interrupted. Final production rerun passed all 511 checks without weakening those tests.                                                                                                                                |
+| Resumed native Nx build                                | NOT TESTED | Interrupted during graph inference under severe host memory pressure; no compile result. Final Docker build provides production Nx build evidence. Direct project tools used for final host lint/types/unit checks.                                                |
+| Whole-repository Windows Go vet/build                  | FAIL       | Existing workers reference Linux-only syscall.Kill at notification main:129 and webhook main:61. No unrelated workaround added.                                                                                                                                    |
+| Initial Docker migration wrapper                       | FAIL       | CRLF checkout shebang caused /usr/local/bin/migrate-all: no such file or directory. Resolved as below.                                                                                                                                                             |
+| Same migrations, ephemeral LF normalization            | PASS       | All 5 schemas clean: identity 3, pricing 2, parcel 5, merchant 6, notification 2; 26 base tables. No applied migration edited.                                                                                                                                     |
+| Documented migration command after checkout correction | PASS       | docker compose run --rm --entrypoint /usr/local/bin/migrate-all migrate up: 5 clean no-change results. Restored tracked LF bytes under existing .gitattributes; no source content change.                                                                          |
+| M6 relay to notification delivery                      | BLOCKED    | Relay unavailable; no email-on-create or full downstream event-flow claim.                                                                                                                                                                                         |
+| M8 actual order caller                                 | BLOCKED    | Caller/merchant approval flow unavailable; internal API has isolated coverage.                                                                                                                                                                                     |
+| Container vulnerability/SBOM release checks            | NOT TESTED | Local dependency/secret checks do not substitute for existing remote image-security jobs.                                                                                                                                                                          |
+| Remote CI / production deployment                      | NOT TESTED | Local results do not imply remote CI success; no production systems touched.                                                                                                                                                                                       |
+| Real Docker customer API journey                       | PASS       | No mocks: eight concurrent creates produce one parcel; real ADMIN rule mutation/restoration, 409 currentFee, original replay/detail/PDF fee, ownership denial, filters/history and internal gateway guards. Updated redaction harness rerun also passed in 3.699s. |
+| Real Docker internal merchant journey                  | PASS       | Direct isolated service-network calls: real M4 quote, PostgreSQL SDN creation/replay/summary and missing/wrong token rejection. No public internal-route exposure.                                                                                                 |
+| Actual Parcel container restart                        | PASS       | Original detail and PDF byte-identical after process restart; stored total 550, one history row and one PENDING creation outbox row; persistent volumes retained.                                                                                                  |
+| Real Docker customer browser journey                   | PASS       | Registration through estimate/create/list/detail/timeline/PDF, cross-customer 404, public tracking privacy and 360px/1280px; zero mocks, 11.22s. Updated diagnostic/screenshot harness rerun recorded before publishing.                                           |
+| Real gateway access matrix / ownership                 | PASS       | Two top-level tests, 7.193s. 19 active endpoints checked anonymously and across five roles. Five planned M6/M7 child cases skipped; five M8 allowed-role checks remain pending, not counted as implemented passes.                                                 |
+| Service log privacy/error inspection                   | PASS       | Seven service logs: no known fixture secrets/JWTs, recipient names, SQLSTATE, panic or Go ERROR entries; no Nginx errors. This does not erase the separate test-diagnostic incident below.                                                                         |
+| Live-test error redaction                              | PASS       | Four standalone regression tests; Playwright call logs/credential headers and original diagnostic properties omitted, assertion failures retained. Added to M5 CI workflow.                                                                                        |
+| Initial restart readiness probe                        | FAIL       | Transient ECONNRESET immediately after restart. A bounded readiness retry then passed; no service code or test assertion weakened.                                                                                                                                 |
+| Full production Chromium regression                    | PASS       | 511/511 checks in 24 files, including all 16 M5 scenarios and 495 existing checks; zero failed/skipped/flaky; 386.068s. Direct Playwright against final Docker gateway, not the dev server.                                                                        |
 
 ### Docker notes
 
@@ -219,7 +227,6 @@ patch or destructive reset.
 Final application images, real journeys, restart persistence and access checks
 are recorded separately above; infrastructure readiness alone was not counted
 as an application pass.
-
 
 Final host checks used the configured project tools directly after native Nx
 inference stalled under memory pressure:

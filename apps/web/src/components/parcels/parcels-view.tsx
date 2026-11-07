@@ -10,7 +10,9 @@ import {
   type ParcelQuery,
 } from '../../lib/parcels-api';
 import { useSession } from '../../lib/session';
+import { roleSatisfies } from '../../lib/roles';
 import { parcelStatuses, type ParcelStatus } from '../../lib/tokens';
+import { DispatcherParcelsView } from '../dispatch/dispatcher-parcels-view';
 import { PageHeader } from '../layout/page-header';
 import { RequireRole } from '../layout/require-role';
 import { Section } from '../layout/section';
@@ -33,29 +35,8 @@ import { ParcelProblem } from './parcel-problem';
 export function ParcelsView() {
   const { session } = useSession();
   if (session.status !== 'authenticated') return null;
-  // This shared route leaves the dispatcher's future interface separate from
-  // the customer-owned endpoint. No dispatcher implementation exists yet.
-  if (session.user.role === 'DISPATCHER' || session.user.role === 'ADMIN')
-    return (
-      <>
-        <PageHeader
-          title="All parcels"
-          description="Parcel management for dispatchers."
-        />
-        <Section title="Dispatch workspace">
-          <EmptyState
-            title="Parcel management is not available yet"
-            action={
-              <ButtonLink href="/reports" variant="secondary">
-                View reports
-              </ButtonLink>
-            }
-          >
-            The dispatcher parcel workspace is still being built.
-          </EmptyState>
-        </Section>
-      </>
-    );
+  if (roleSatisfies(session.user.role, 'DISPATCHER'))
+    return <DispatcherParcelsView />;
   return (
     <RequireRole roles={['CUSTOMER']} audience="customers">
       <CustomerParcels />

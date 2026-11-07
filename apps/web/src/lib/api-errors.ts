@@ -17,6 +17,8 @@ export type ApiErrorCode =
   | 'RULE_EXISTS'
   | 'BAND_OVERLAP'
   | 'TRACKING_NOT_FOUND'
+  | 'PARCEL_CLOSED'
+  | 'COURIER_NOT_ELIGIBLE'
   | 'CONFLICT'
   | 'PRICE_CHANGED'
   | 'VALIDATION_FAILED'
@@ -42,6 +44,8 @@ const codeFromApi: Record<string, ApiErrorCode> = {
   RULE_EXISTS: 'RULE_EXISTS',
   BAND_OVERLAP: 'BAND_OVERLAP',
   TRACKING_NOT_FOUND: 'TRACKING_NOT_FOUND',
+  PARCEL_CLOSED: 'PARCEL_CLOSED',
+  COURIER_NOT_ELIGIBLE: 'COURIER_NOT_ELIGIBLE',
   CONFLICT: 'CONFLICT',
   IDEMPOTENCY_CONFLICT: 'CONFLICT',
   PRICE_CHANGED: 'PRICE_CHANGED',
@@ -57,6 +61,7 @@ function codeFromStatus(status: number): ApiErrorCode {
   if (status === 401) return 'UNAUTHENTICATED';
   if (status === 403) return 'FORBIDDEN';
   if (status === 404) return 'NOT_FOUND';
+  if (status === 409) return 'CONFLICT';
   if (status === 422) return 'VALIDATION_FAILED';
   if (status === 429) return 'RATE_LIMITED';
   return 'INTERNAL';

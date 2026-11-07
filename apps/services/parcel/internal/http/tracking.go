@@ -21,6 +21,7 @@ type Options struct {
 	InternalToken  string
 	Tracking       TrackingStore
 	Reports        ReportStore
+	Dispatch       DispatchService
 	TrustedProxies []string
 	AccessSecret   string
 	CookieName     string

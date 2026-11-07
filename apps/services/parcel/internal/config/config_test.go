@@ -7,6 +7,47 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
+func TestParcelRelayConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "disabled"},
+		{name: "configured", url: "amqp://rabbitmq:5672/"},
+		{name: "wrong scheme", url: "https://local:PRIVATE_RABBIT_PASSWORD@rabbitmq:5672/", wantErr: true},
+		{name: "missing host", url: "amqp:///missing-host", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				values := map[string]string{
+					"APP_ENV":           "development",
+					"RABBITMQ_URL":      tc.url,
+					"RABBITMQ_EXCHANGE": "custom.parcel.events",
+				}
+				value, ok := values[key]
+				return value, ok
+			})
+			cfg, err := LoadFrom(loader)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("invalid relay URL accepted")
+				}
+				if strings.Contains(err.Error(), tc.url) || strings.Contains(err.Error(), "PRIVATE_RABBIT_PASSWORD") {
+					t.Fatal("relay configuration error reflected credentials")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.RabbitMQURL != tc.url || cfg.RabbitMQExchange != "custom.parcel.events" {
+				t.Fatal("configured relay origin or exchange was not retained")
+			}
+		})
+	}
+}
+
 func TestParcelDependencyConfiguration(t *testing.T) {
 	for _, tc := range []struct {
 		name, key, value string

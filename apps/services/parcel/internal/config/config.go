@@ -24,6 +24,8 @@ type Config struct {
 	PricingTimeout       time.Duration
 	IdentityBaseURL      string
 	IdentityTimeout      time.Duration
+	RabbitMQURL          string
+	RabbitMQExchange     string
 }
 
 func Load() (Config, error) {
@@ -82,6 +84,12 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	if identityTimeout < time.Millisecond {
 		return Config{}, errors.New("IDENTITY_TIMEOUT must be at least 1ms")
 	}
+	rabbitMQURL := loader.String("RABBITMQ_URL", "")
+	if rabbitMQURL != "" {
+		if err := sharedconfig.ValidateAMQPURL(rabbitMQURL); err != nil {
+			return Config{}, err
+		}
+	}
 
 	return Config{
 		Port:                 port,
@@ -97,6 +105,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		PricingTimeout:       pricingTimeout,
 		IdentityBaseURL:      identityURL,
 		IdentityTimeout:      identityTimeout,
+		RabbitMQURL:          rabbitMQURL,
+		RabbitMQExchange:     loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
 	}, nil
 }
 

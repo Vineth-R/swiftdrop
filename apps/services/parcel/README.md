@@ -2,7 +2,8 @@
 
 Parcel implements customer creation, owned list/detail/history and PDF receipts,
 internal merchant creation and summaries, public tracking and delivery reports.
-Courier/dispatch writes and the outbox relay remain separate work. See
+M6 dispatch APIs, screens and the outbox relay are integrated. M7 courier status
+writes remain separate work. See
 [M5 verification](../../../docs/m5-complete-parcel-flow.md) for executed evidence
 and the older [M5.1 record](../../../docs/m5-parcel-database-verification.md) for
 the already merged schema/repository foundation.
@@ -58,8 +59,8 @@ DB v1.1's required audit field. Merchant ID is never used as a user ID. This
 completes the previously planned internal contract; no order caller existed.
 M8 remains responsible for approval and verifying the supplied owner identity.
 
-Outbox data contains identifiers/status only. M6 must build the canonical envelope
-and publish `parcel.created.v1` using the outbox UUID as `event_id`; the stored
+Outbox data contains identifiers/status only. The merged M6 relay builds the canonical envelope
+and publishes `parcel.created.v1` using the outbox UUID as `event_id`; the stored
 label/key remain `parcel.created`. A successful create does not claim email
 delivery. See the [event contract](../../../contracts/events/README.md).
 
@@ -79,8 +80,8 @@ authorized stored data independently of courier-contact availability. Existing
 shared database/auth/startup validation continues to apply.
 
 Customer screens `/new`, `/parcels`, `/parcels/{id}` reuse the authenticated shell.
-The shared `/parcels` route selects by role; the dispatcher workspace remains
-explicitly planned. The wizard preserves keys on retry and data after errors,
+The shared `/parcels` route selects the customer list or M6 dispatcher workspace
+by role. The wizard preserves keys on retry and data after errors,
 requires fee reconfirmation, and prevents edits to an uncertain submission from
 creating duplicates.
 
