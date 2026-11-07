@@ -26,10 +26,40 @@ func TestEventBodyMatchesContract(t *testing.T) {
 	}
 	// Same keys, order and explicit nulls as API v1.1 section 10.1.
 	const want = `{"eventId":"ev12a3b4-5c6d-4e7f-8a9b-0c1d2e3f4a5b","eventType":"parcel.status_changed",` +
-		`"occurredAt":"2026-11-04T13:00:00Z","data":{"trackingNumber":"SDN4T8W2LC6","externalOrderId":"SZ-100245",` +
+		`"schemaVersion":1,"occurredAt":"2026-11-04T13:00:00Z",` +
+		`"data":{"trackingNumber":"SDN4T8W2LC6","externalOrderId":"SZ-100245",` +
 		`"previousStatus":"PICKED_UP","status":"IN_TRANSIT","note":null,"failureReason":null}}`
 	if string(got) != want {
 		t.Fatalf("Body() =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// The public body must carry the documented schema version on every event.
+func TestEventBodyIncludesSchemaVersion(t *testing.T) {
+	for _, ev := range []Event{
+		{
+			ID:         "e1",
+			Type:       EventTypeStatusChanged,
+			OccurredAt: time.Unix(0, 0),
+			Data:       EventData{TrackingNumber: "SDN1", Status: "CREATED"},
+		},
+		SampleEvent("e2", time.Unix(0, 0)),
+	} {
+		body, err := ev.Body()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		got, present := decoded["schemaVersion"]
+		if !present {
+			t.Fatalf("body has no schemaVersion: %s", body)
+		}
+		if got != float64(publicSchemaVersion) {
+			t.Fatalf("schemaVersion = %v, want %d", got, publicSchemaVersion)
+		}
 	}
 }
 
@@ -61,7 +91,7 @@ func TestEventBodyHasNoPersonalFields(t *testing.T) {
 
 func TestSampleEventIsMarkedAsTest(t *testing.T) {
 	ev := SampleEvent("e1", time.Unix(0, 0))
-	if ev.Type != EventTypeStatusChanged || ev.Data.TrackingNumber != "SDKTEST0001" {
+	if ev.Type != EventTypeStatusChanged || ev.Data.TrackingNumber != "SDNTEST0001" {
 		t.Fatalf("unexpected sample event: %+v", ev)
 	}
 }

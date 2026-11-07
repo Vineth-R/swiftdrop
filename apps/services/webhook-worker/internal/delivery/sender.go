@@ -30,9 +30,11 @@ const (
 	errURLNotAllowed  = "webhook url is not allowed"
 	errAddrNotAllowed = "address is not allowed"
 	errTimeout        = "request timed out"
+	errCancelled      = "request cancelled"
 	errTLS            = "tls certificate not trusted"
 	errConnect        = "could not connect"
 	errRequest        = "could not build request"
+	errNotConfigured  = "webhook sender is not configured"
 )
 
 // Target is where and how to send: the merchant's URL and signing secret.
@@ -54,16 +56,15 @@ type Result struct {
 	ErrorMessage string
 }
 
-// Sender performs one signed POST. The zero value is not usable: use
-// NewSender.
+// Sender performs one signed POST. Use NewSender to build one. The zero value
+// is not configured and Send reports a failed attempt instead of panicking.
 type Sender struct {
-	// Client sends the request. NewSender returns a hardened client; tests
-	// replace it to reach a local fake merchant.
-	Client *http.Client
-	// CheckURL is run before every request. It defaults to webhookurl.Validate.
-	CheckURL func(string) error
-	// Now supplies the signing timestamp. It defaults to time.Now.
-	Now func() time.Time
+	// client, checkURL and now are private so a production caller cannot
+	// replace the hardened client or bypass the SSRF check. Tests use the
+	// unexported newSender constructor to supply fakes.
+	client   *http.Client
+	checkURL func(string) error
+	now      func() time.Time
 }
 
 // NewSender returns a Sender with the production safety settings:
@@ -88,17 +89,21 @@ func NewSender() *Sender {
 		MaxIdleConns:        20,
 		IdleConnTimeout:     30 * time.Second,
 	}
-	return &Sender{
-		Client: &http.Client{
-			Timeout:   RequestTimeout,
-			Transport: transport,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
+	client := &http.Client{
+		Timeout:   RequestTimeout,
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
-		CheckURL: webhookurl.Validate,
-		Now:      time.Now,
 	}
+	return newSender(client, webhookurl.Validate, time.Now)
+}
+
+// newSender is the unexported construction seam used by NewSender and by
+// tests that need a local merchant server or a fixed clock. Production callers
+// must use NewSender so they cannot weaken the client, SSRF check or timeout.
+func newSender(client *http.Client, checkURL func(string) error, now func() time.Time) *Sender {
+	return &Sender{client: client, checkURL: checkURL, now: now}
 }
 
 // Send signs and POSTs the event to the target and reports the outcome. It
@@ -110,7 +115,13 @@ func (s *Sender) Send(ctx context.Context, target Target, event Event) Result {
 		return Result{StatusCode: status, Duration: time.Since(start), ErrorMessage: msg}
 	}
 
-	if err := s.CheckURL(target.URL); err != nil {
+	// The zero value and any partially built Sender fail as a recorded attempt
+	// rather than panicking on a nil client or check function.
+	if s == nil || s.client == nil || s.checkURL == nil || s.now == nil {
+		return fail(0, errNotConfigured)
+	}
+
+	if err := s.checkURL(target.URL); err != nil {
 		return fail(0, errURLNotAllowed)
 	}
 
@@ -119,7 +130,7 @@ func (s *Sender) Send(ctx context.Context, target Target, event Event) Result {
 		return fail(0, errRequest)
 	}
 
-	timestamp := s.Now().Unix()
+	timestamp := s.now().Unix()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, bytes.NewReader(body))
 	if err != nil {
 		return fail(0, errRequest)
@@ -131,7 +142,7 @@ func (s *Sender) Send(ctx context.Context, target Target, event Event) Result {
 	req.Header.Set("X-SwiftDrop-Timestamp", strconv.FormatInt(timestamp, 10))
 	req.Header.Set("X-SwiftDrop-Signature", Sign(target.Secret, timestamp, body))
 
-	resp, err := s.Client.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fail(0, classify(err))
 	}
@@ -152,6 +163,8 @@ func (s *Sender) Send(ctx context.Context, target Target, event Event) Result {
 func classify(err error) string {
 	var certErr *tls.CertificateVerificationError
 	switch {
+	case errors.Is(err, context.Canceled):
+		return errCancelled
 	case errors.Is(err, webhookurl.ErrBlockedIP):
 		return errAddrNotAllowed
 	case errors.Is(err, context.DeadlineExceeded) || isTimeout(err):

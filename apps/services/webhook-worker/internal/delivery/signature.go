@@ -9,10 +9,17 @@ import (
 	"encoding/hex"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // signaturePrefix is the scheme part of the X-SwiftDrop-Signature header.
 const signaturePrefix = "sha256="
+
+// SignatureMaxAge is the acceptance window for a request timestamp (API v1.1,
+// section 10.2). A request is rejected when its timestamp is more than five
+// minutes in the past, and also when it is more than five minutes in the
+// future so a captured request cannot widen its own replay window.
+const SignatureMaxAge = 5 * time.Minute
 
 // Sign returns the X-SwiftDrop-Signature header value: "sha256=" followed by
 // the hex HMAC-SHA256 of "<timestamp>.<raw body>" keyed with the webhook
@@ -20,21 +27,52 @@ const signaturePrefix = "sha256="
 // is the same value sent in X-SwiftDrop-Timestamp. Signing the timestamp as
 // well as the body stops an old, captured request from being replayed later.
 func Sign(secret string, timestamp int64, body []byte) string {
+	return signTimestamp(secret, strconv.FormatInt(timestamp, 10), body)
+}
+
+// signTimestamp signs the exact timestamp text that travels in the header, so
+// a non-canonical value cannot be swapped for a canonical one.
+func signTimestamp(secret, timestamp string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(strconv.FormatInt(timestamp, 10)))
+	mac.Write([]byte(timestamp))
 	mac.Write([]byte("."))
 	mac.Write(body)
 	return signaturePrefix + hex.EncodeToString(mac.Sum(nil))
 }
 
-// Verify reports whether signature is the correct signature for the secret,
-// timestamp and raw body. It compares in constant time. SwiftDrop never
-// verifies its own requests; this is what a merchant does, and the tests and
-// the merchant documentation use it as the reference.
-func Verify(secret string, timestamp int64, body []byte, signature string) bool {
+// Verify reports whether a webhook request is authentic and fresh. It is the
+// complete merchant-side check from API v1.1 section 10.2: it parses the
+// X-SwiftDrop-Timestamp header value, rejects timestamps outside
+// SignatureMaxAge, and compares the signature in constant time. It uses the
+// current time; use VerifyAt to supply it explicitly (for tests or when the
+// receiver's clock is not the system clock).
+func Verify(secret, timestamp string, body []byte, signature string) bool {
+	return VerifyAt(secret, timestamp, body, signature, time.Now())
+}
+
+// VerifyAt is Verify with an explicit current time. The timestamp is the raw
+// X-SwiftDrop-Timestamp header value, not a parsed integer, so the HMAC is
+// computed over the exact bytes the sender signed. Malformed, non-positive,
+// stale and future-dated timestamps are rejected.
+func VerifyAt(secret, timestamp string, body []byte, signature string, now time.Time) bool {
 	if !strings.HasPrefix(signature, signaturePrefix) {
 		return false
 	}
-	want := Sign(secret, timestamp, body)
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil || ts <= 0 {
+		return false
+	}
+	if !withinReplayWindow(ts, now) {
+		return false
+	}
+	want := signTimestamp(secret, timestamp, body)
 	return hmac.Equal([]byte(want), []byte(signature))
+}
+
+// withinReplayWindow reports whether timestamp is within SignatureMaxAge of
+// now in either direction.
+func withinReplayWindow(timestamp int64, now time.Time) bool {
+	window := int64(SignatureMaxAge / time.Second)
+	delta := now.Unix() - timestamp
+	return delta >= -window && delta <= window
 }

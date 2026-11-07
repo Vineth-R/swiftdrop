@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,11 +23,7 @@ func newTestSender(srv *httptest.Server, fixedNow time.Time) *Sender {
 	client := srv.Client()
 	client.Timeout = 2 * time.Second
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &Sender{
-		Client:   client,
-		CheckURL: func(string) error { return nil },
-		Now:      func() time.Time { return fixedNow },
-	}
+	return newSender(client, func(string) error { return nil }, func() time.Time { return fixedNow })
 }
 
 func testEvent() Event {
@@ -67,19 +64,22 @@ func TestSendSignsAndSendsRequiredHeaders(t *testing.T) {
 			t.Errorf("header %s = %q, want %q", k, gotHeader.Get(k), v)
 		}
 	}
-	ts, err := strconv.ParseInt(gotHeader.Get("X-SwiftDrop-Timestamp"), 10, 64)
-	if err != nil {
+	tsHeader := gotHeader.Get("X-SwiftDrop-Timestamp")
+	if _, err := strconv.ParseInt(tsHeader, 10, 64); err != nil {
 		t.Fatalf("timestamp header is not Unix seconds: %v", err)
 	}
-	if !Verify(testSecret, ts, gotBody, gotHeader.Get("X-SwiftDrop-Signature")) {
+	if !VerifyAt(testSecret, tsHeader, gotBody, gotHeader.Get("X-SwiftDrop-Signature"), now) {
 		t.Fatalf("signature %q does not verify against the received raw body", gotHeader.Get("X-SwiftDrop-Signature"))
 	}
-	if Verify("wrong-secret", ts, gotBody, gotHeader.Get("X-SwiftDrop-Signature")) {
+	if VerifyAt("wrong-secret", tsHeader, gotBody, gotHeader.Get("X-SwiftDrop-Signature"), now) {
 		t.Fatal("signature verified with the wrong secret")
 	}
 	wantBody, _ := ev.Body()
 	if string(gotBody) != string(wantBody) {
 		t.Errorf("body = %s, want %s", gotBody, wantBody)
+	}
+	if !strings.Contains(string(gotBody), `"schemaVersion":1`) {
+		t.Errorf("body has no schemaVersion 1: %s", gotBody)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestSendTimeoutRecordsNoStatus(t *testing.T) {
 	defer close(release)
 
 	s := newTestSender(srv, time.Now())
-	s.Client.Timeout = 150 * time.Millisecond
+	s.client.Timeout = 150 * time.Millisecond
 	start := time.Now()
 	res := s.Send(context.Background(), Target{URL: srv.URL, Secret: testSecret}, testEvent())
 
@@ -164,6 +164,9 @@ func TestSendCancelledContext(t *testing.T) {
 	if res.Success || res.StatusCode != 0 {
 		t.Fatalf("Result = %+v; want failure with no status", res)
 	}
+	if res.ErrorMessage != errCancelled {
+		t.Errorf("ErrorMessage = %q, want %q", res.ErrorMessage, errCancelled)
+	}
 }
 
 func TestSendConnectionRefused(t *testing.T) {
@@ -182,7 +185,7 @@ func TestSendRejectsUntrustedCertificate(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
 	s := newTestSender(srv, time.Now())
-	s.Client = &http.Client{Timeout: 2 * time.Second} // default roots: does not trust the test CA
+	s.client = &http.Client{Timeout: 2 * time.Second} // default roots: does not trust the test CA
 	res := s.Send(context.Background(), Target{URL: srv.URL, Secret: testSecret}, testEvent())
 	if res.Success || res.ErrorMessage != errTLS {
 		t.Fatalf("Result = %+v; want failure %q", res, errTLS)
@@ -195,7 +198,7 @@ func TestSendRefusesUnsafeURLWithoutRequest(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
 	defer srv.Close()
 	s := newTestSender(srv, time.Now())
-	s.CheckURL = func(string) error { return http.ErrNotSupported }
+	s.checkURL = func(string) error { return http.ErrNotSupported }
 
 	res := s.Send(context.Background(), Target{URL: srv.URL, Secret: testSecret}, testEvent())
 	if res.Success || res.StatusCode != 0 || res.ErrorMessage != errURLNotAllowed {
@@ -214,7 +217,7 @@ func TestProductionSenderRefusesLoopback(t *testing.T) {
 	defer srv.Close()
 
 	s := NewSender()
-	s.CheckURL = func(string) error { return nil } // skip the text check so only DialControl is tested
+	s.checkURL = func(string) error { return nil } // skip the text check so only DialControl is tested
 	res := s.Send(context.Background(), Target{URL: srv.URL, Secret: testSecret}, testEvent())
 
 	if res.Success || res.StatusCode != 0 || res.ErrorMessage != errAddrNotAllowed {
@@ -237,15 +240,100 @@ func TestProductionSenderChecksURLText(t *testing.T) {
 
 func TestNewSenderSettings(t *testing.T) {
 	s := NewSender()
-	if s.Client.Timeout != 10*time.Second {
-		t.Errorf("timeout = %v, want 10s", s.Client.Timeout)
+	if RequestTimeout != 10*time.Second {
+		t.Errorf("RequestTimeout = %v, want 10s", RequestTimeout)
 	}
-	if s.Client.CheckRedirect == nil {
+	if s.client.Timeout != RequestTimeout {
+		t.Errorf("timeout = %v, want %v", s.client.Timeout, RequestTimeout)
+	}
+	if s.client.CheckRedirect == nil {
 		t.Error("redirects must be disabled")
 	}
-	tr, ok := s.Client.Transport.(*http.Transport)
-	if !ok || tr.Proxy != nil {
+	tr, ok := s.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport = %T, want *http.Transport", s.client.Transport)
+	}
+	if tr.Proxy != nil {
 		t.Error("the transport must not use an HTTP proxy")
+	}
+	if tr.TLSClientConfig == nil {
+		t.Fatal("TLS config must be set")
+	}
+	if tr.TLSClientConfig.MinVersion != tls.VersionTLS12 {
+		t.Errorf("MinVersion = %x, want TLS 1.2", tr.TLSClientConfig.MinVersion)
+	}
+	if tr.TLSClientConfig.InsecureSkipVerify {
+		t.Error("certificate verification must stay enabled")
+	}
+}
+
+// An uninitialised Sender must report a safe failure, not panic on a nil
+// client.
+func TestZeroValueSenderFailsSafely(t *testing.T) {
+	var s Sender
+	res := s.Send(context.Background(), Target{URL: "https://shop.example.com/hook", Secret: testSecret}, testEvent())
+	if res.Success || res.StatusCode != 0 || res.ErrorMessage != errNotConfigured {
+		t.Fatalf("Result = %+v; want failure %q", res, errNotConfigured)
+	}
+
+	var nilSender *Sender
+	res = nilSender.Send(context.Background(), Target{URL: "https://shop.example.com/hook", Secret: testSecret}, testEvent())
+	if res.Success || res.StatusCode != 0 || res.ErrorMessage != errNotConfigured {
+		t.Fatalf("nil Sender Result = %+v; want failure %q", res, errNotConfigured)
+	}
+}
+
+// roundTripFunc lets a test return a response without a network call.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// trackingBody records how much was read and whether it was closed.
+type trackingBody struct {
+	remaining int
+	read      int
+	closed    bool
+}
+
+func (b *trackingBody) Read(p []byte) (int, error) {
+	if b.remaining == 0 {
+		return 0, io.EOF
+	}
+	n := len(p)
+	if n > b.remaining {
+		n = b.remaining
+	}
+	b.read += n
+	b.remaining -= n
+	return n, nil
+}
+
+func (b *trackingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+// The merchant response body is bounded, drained and always closed.
+func TestSendBoundsAndClosesResponseBody(t *testing.T) {
+	body := &trackingBody{remaining: 1 << 20}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       body,
+			Header:     make(http.Header),
+		}, nil
+	})}
+	s := newSender(client, func(string) error { return nil }, time.Now)
+
+	res := s.Send(context.Background(), Target{URL: "https://shop.example.com/hook", Secret: testSecret}, testEvent())
+	if !res.Success || res.StatusCode != http.StatusOK {
+		t.Fatalf("Result = %+v; want success", res)
+	}
+	if !body.closed {
+		t.Fatal("the response body was not closed")
+	}
+	if body.read > maxResponseDrain {
+		t.Fatalf("read %d bytes; want at most %d", body.read, maxResponseDrain)
 	}
 }
 
