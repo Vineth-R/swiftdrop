@@ -27,10 +27,14 @@ Guest/user -> chat widget (apps/web) -> /api/v1/ai/chat -> Nginx -> ai-assistant
 - The browser sends its own `sd_access` cookie automatically. Guests also receive
   an HttpOnly `sd_ai_guest` session cookie from the assistant; anonymous
   conversations are bound to it.
-- Guests can use FAQs, pricing and public tracking. CUSTOMER can use the private
-  parcel tools for their own parcels; DISPATCHER and ADMIN can use them for
-  operational parcel access. MERCHANT and COURIER are denied private tools.
-  The backend enforces this; the frontend never decides it.
+- Guests can use FAQs and pricing, but must not retrieve parcel status with a
+  tracking number through the assistant: a tracking number is not an
+  authentication credential. CUSTOMER can use the private parcel tools for
+  their own parcels (including their own tracking numbers); DISPATCHER and ADMIN
+  can use them for operational parcel access. MERCHANT and COURIER are denied
+  private tools. The backend enforces this; the frontend never decides it. The
+  separate anonymous public tracking page at `/track` remains available and
+  returns only its existing allowlisted fields.
 
 ## Request and response
 
@@ -59,14 +63,26 @@ and never shows `error.message`.
 | Tool                       | What it does                                                              | Access                            |
 | -------------------------- | ------------------------------------------------------------------------- | --------------------------------- |
 | `calculate_delivery_fee`   | Real pricing estimate from the Pricing API                                | Public                            |
-| `get_public_parcel_status` | Public tracking by tracking number                                        | Public                            |
+| `get_public_parcel_status` | Ownership-scoped tracking by tracking number                              | CUSTOMER (own), DISPATCHER, ADMIN |
 | `get_my_parcel_history`    | Parcel status history by parcel ID                                        | CUSTOMER (own), DISPATCHER, ADMIN |
 | `get_my_active_deliveries` | CUSTOMER own list; DISPATCHER/ADMIN operational search (`/admin/parcels`) | CUSTOMER, DISPATCHER, ADMIN       |
 
 No other tool can run. The model cannot choose a user ID, role or owner.
-GUEST, MERCHANT and COURIER are denied both private tools before any upstream
-call. CUSTOMER ownership is enforced by Parcel; DISPATCHER/ADMIN access uses
-their verified token and Parcel's existing staff authorization.
+GUEST, MERCHANT and COURIER are denied all three parcel tools before any
+upstream call. CUSTOMER ownership, including tracking-number lookup, is enforced
+by Parcel; DISPATCHER/ADMIN access uses their verified token and Parcel's
+existing staff authorization. For a customer, another customer's tracking number
+returns the same not-found result as a nonexistent one, so numbers cannot be
+enumerated.
+
+## Chat panel scrolling
+
+The panel's internal conversation container starts at the top on first open, so
+the header, welcome copy and suggested questions are fully visible. Automatic
+scrolling only happens after a conversation update and only while the reader is
+near the bottom (or has just sent a message); scrolling up to read older messages
+is never interrupted. Closing and reopening starts a fresh conversation at the
+top, and signing in or out discards the previous identity's panel state.
 
 ## Local setup
 
@@ -140,7 +156,7 @@ it and try:
 - `What is SwiftDrop?` — approved knowledge, no tool.
 - `How does delivery pricing work?` — asks for a missing route, weight or size.
 - `How much is 2 kg from Colombo to Kandy?` — calls the real pricing estimate.
-- `Track parcel SDK7M2Q9XP4` — public tracking, public fields only.
+- `Track parcel SDK7M2Q9XP4` — signed-in customer or authorized staff only; guests are asked to sign in.
 - `Show my active deliveries.` — needs a signed-in CUSTOMER; DISPATCHER and ADMIN use operational parcel search.
 
 ## Environment variables

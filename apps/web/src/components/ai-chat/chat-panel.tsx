@@ -45,15 +45,46 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     dismissError,
   } = useAiChat();
   const panelRef = useRef<HTMLDivElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const previousConversationState = useRef({
+    length: messages.length,
+    sending: isSending,
+  });
+  const stickToBottom = useRef(true);
 
   useEffect(() => {
     panelRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
   }, []);
 
+  // Only follow new messages after the first render. The initial welcome and
+  // suggested questions must stay at the top, and a reader who scrolled up is
+  // never pulled back to the bottom. Comparing with the previous values also
+  // keeps the mount-time effect (including React StrictMode's double invoke)
+  // from being mistaken for a conversation update.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' });
+    const previous = previousConversationState.current;
+    const changed =
+      previous.length !== messages.length || previous.sending !== isSending;
+    previousConversationState.current = {
+      length: messages.length,
+      sending: isSending,
+    };
+    if (!changed || !stickToBottom.current) return;
+    const conversation = conversationRef.current;
+    if (conversation) {
+      conversation.scrollTo({ top: conversation.scrollHeight });
+    }
   }, [messages.length, isSending]);
+
+  function handleConversationScroll() {
+    const conversation = conversationRef.current;
+    if (!conversation) return;
+    const distance =
+      conversation.scrollHeight -
+      conversation.scrollTop -
+      conversation.clientHeight;
+    stickToBottom.current = distance <= 48;
+  }
 
   useEffect(() => {
     if (!failure?.waitSeconds || failure.waitSeconds <= 0) return;
@@ -92,6 +123,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
   function sendMessage(message: string) {
     dismissError();
+    stickToBottom.current = true;
     send(message);
   }
 
@@ -129,10 +161,12 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       </header>
 
       <div
+        ref={conversationRef}
         role="log"
         aria-live="polite"
         aria-relevant="additions"
         aria-label="Conversation"
+        onScroll={handleConversationScroll}
         className="flex-1 overflow-y-auto px-4 py-4"
       >
         {messages.length === 0 ? (
@@ -176,7 +210,6 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
             {isSending && <TypingIndicator />}
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
       {failure && (
