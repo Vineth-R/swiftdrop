@@ -1,0 +1,5 @@
+# Security-sensitive CI and secret-scanning configuration. CODEOWNERS review is
+# only enforced when the branch rules require code-owner approval.
+/.github/workflows/ @Vineth-R
+/.gitleaks.toml @Vineth-R
+/.github/CODEOWNERS @Vineth-R

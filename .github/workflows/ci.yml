@@ -170,8 +170,19 @@ jobs:
 
       - name: Scan protected branch and tag history for secrets
         if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main' || github.ref_type == 'tag')
+        env:
+          # Scan only history reachable from the pushed protected ref. The
+          # checkout fetches every branch, so an unscoped scan would also
+          # inspect unmerged feature branches and report their fixtures.
+          PROTECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [ -z "${PROTECTED_SHA:-}" ]; then
+            echo "::error::The pushed protected ref SHA is missing; refusing to scan"
+            exit 1
+          fi
+          git cat-file -e "${PROTECTED_SHA}^{commit}"
+          echo "Scanning protected ref history ${PROTECTED_SHA} (merge diffs included)"
           gitleaks git \
             --config .gitleaks.toml \
             --redact \
@@ -179,6 +190,7 @@ jobs:
             --no-color \
             --verbose \
             --exit-code 1 \
+            --log-opts="${PROTECTED_SHA} -m" \
             .
 
       - name: Scan pull request commit range for secrets
@@ -188,55 +200,28 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          PR_CONFIG="$(mktemp)"
+          trap 'rm -f "${PR_CONFIG}"' EXIT
           if [ -z "${PR_BASE_SHA:-}" ] || [ -z "${PR_HEAD_SHA:-}" ]; then
             echo "::error::Pull request base or head SHA is missing; refusing to scan"
             exit 1
           fi
           git cat-file -e "${PR_BASE_SHA}^{commit}"
           git cat-file -e "${PR_HEAD_SHA}^{commit}"
-          echo "Scanning PR commit range ${PR_BASE_SHA}..${PR_HEAD_SHA} (merge diffs included)"
+          if ! git cat-file -e "${PR_BASE_SHA}:.gitleaks.toml"; then
+            echo "::error::The PR base has no .gitleaks.toml; refusing to scan"
+            exit 1
+          fi
+          git show "${PR_BASE_SHA}:.gitleaks.toml" > "${PR_CONFIG}"
+          echo "Scanning PR commit range ${PR_BASE_SHA}..${PR_HEAD_SHA} with the trusted base config (merge diffs included)"
           gitleaks git \
-            --config .gitleaks.toml \
+            --config "${PR_CONFIG}" \
             --redact \
             --no-banner \
             --no-color \
             --verbose \
             --exit-code 1 \
             --log-opts="${PR_BASE_SHA}..${PR_HEAD_SHA} -m" \
-            .
-
-      - name: Scan feature branch push commit range for secrets
-        if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref != 'refs/heads/development' && github.ref != 'refs/heads/main'
-        env:
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-          PUSH_AFTER_SHA: ${{ github.event.after }}
-        run: |
-          set -euo pipefail
-          if [ -z "${PUSH_AFTER_SHA:-}" ] || [ "${PUSH_AFTER_SHA}" = "0000000000000000000000000000000000000000" ]; then
-            echo "::error::Pushed commit SHA is missing; refusing to scan"
-            exit 1
-          fi
-          git cat-file -e "${PUSH_AFTER_SHA}^{commit}"
-          if [ -n "${PUSH_BEFORE_SHA:-}" ] && [ "${PUSH_BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
-            git cat-file -e "${PUSH_BEFORE_SHA}^{commit}"
-            BASE_SHA="${PUSH_BEFORE_SHA}"
-          else
-            BASE_SHA="$(git merge-base origin/development "${PUSH_AFTER_SHA}")"
-          fi
-          if [ -z "${BASE_SHA:-}" ]; then
-            echo "::error::Could not resolve a base SHA for the pushed branch; refusing to scan"
-            exit 1
-          fi
-          git cat-file -e "${BASE_SHA}^{commit}"
-          echo "Scanning pushed branch range ${BASE_SHA}..${PUSH_AFTER_SHA} (merge diffs included)"
-          gitleaks git \
-            --config .gitleaks.toml \
-            --redact \
-            --no-banner \
-            --no-color \
-            --verbose \
-            --exit-code 1 \
-            --log-opts="${BASE_SHA}..${PUSH_AFTER_SHA} -m" \
             .
 
   sast:

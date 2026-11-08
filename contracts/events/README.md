@@ -196,16 +196,6 @@ The customer-owned domain-event path is implemented. Merchant-owned parcel notif
 
 Per-event schemas may be closed for their specific payload, as the notification example is. Additive changes are still compatible for consumers that ignore unknown fields; update the schema within the same major version when adding optional fields. Adding a required field, removing a field, changing a type, or changing semantics is a breaking change that requires a new major version.
 
-### Realtime delivery (implemented)
-
-The realtime service consumes `parcel.status_changed.v1` on its own durable queue `realtime.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`) and pushes each change to connected WebSocket clients as `parcel.status.updated` (API v1.1 section 9).
-
-- The consumer decodes only `tracking_number`, `previous_status`, and `status` from `data`, and takes the update time from the envelope's `occurred_at`. Every other field (`parcel_id`, `merchant_id`, `customer_user_id`, `actor_user_id`, `note`, `failure_reason`) is never decoded or forwarded to clients.
-- An envelope that fails validation, a different event type, an invalid tracking number, or an unknown status is a permanent failure and is dead-lettered without retrying.
-- Updates are not stored or replayed. A client receives only changes that happen while it is connected and subscribed.
-- The queue is shared. With several realtime replicas, each update reaches only the replica that consumes it; fan-out to every replica would need a per-replica queue.
-- `parcel.assigned.v1` is not consumed by the realtime service.
-
 ### Public merchant webhook projection (v1 contract; not implemented)
 
 The webhook is a separate public projection. Do not reuse the internal RabbitMQ envelope as the merchant body. Merchants receive only `parcel.status_changed`; `parcel.created` and `parcel.assigned` remain internal events unless a separate public contract is approved.
@@ -233,12 +223,12 @@ The internal trigger for the target flow is `parcel.status_changed.v1`, produced
   - `notification.parcel.created.v1` (bound to `parcel.created.v1`)
   - `notification.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
   - `webhook.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
-  - `realtime.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
 - Consumer bindings:
   - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned parcels; merchant-owned unsupported)
   - Webhook worker: `parcel.status_changed.v1` (implemented; validates and logs only)
-  - Realtime: `parcel.status_changed.v1` (implemented; queue `realtime.parcel.status_changed.v1`). `parcel.assigned.v1` is not consumed yet.
+  - Realtime: `parcel.status_changed.v1` (implemented; in-process WebSocket fan-out, no replay). `parcel.assigned.v1` remains a target.
   - Merchant integration: `parcel.status_changed.v1` (target; not implemented)
+- The realtime consumer validates the envelope and only reads `tracking_number`, `previous_status`, `status`, and `occurred_at` from `parcel.status_changed.v1`; private fields are not decoded or forwarded to clients.
 - Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. The notification worker's parcel consumers use separate durable queues; future consumers should add new durable queues or an explicit queue migration rather than changing an existing queue's arguments.
 - Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The retry queue dead-letters to its owning queue through the default exchange, so retries stay queue-isolated. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
 - Multiple workers may consume the same versioned event through separate queues; each queue has its own retry queue, so a retry is never delivered to another worker. The retry queue name carries a topology suffix because durable queue arguments are immutable; the legacy `<queue>.retry` retry queue is no longer written to, and should be drained and deleted after upgrading.
@@ -250,9 +240,8 @@ The following are contracts and target architecture, not evidence of working fun
 - Parcel creation outbox writer: implemented atomically with parcel and initial history. Relay: not implemented.
 - Parcel creation bus publication and assignment writers: implemented through the merged M6 relay. M7 courier status writers remain planned.
 - Notification domain-event consumer: implemented for customer-owned `parcel.created.v1` and `parcel.status_changed.v1`; merchant-owned events are dead-lettered as unsupported. The legacy `notification.requested.v1` consumer remains.
-- Realtime consumer: implemented for `parcel.status_changed.v1` (WebSocket `/ws` delivery); tested end to end by inserting a `parcel.status_changed` outbox row that the relay published.
 - Webhook delivery, signing, and attempt logging: not implemented; the current worker only logs a legacy work item.
-- Merchant event consumers: not implemented.
+- Realtime and merchant event consumers: not implemented.
 
 Do not claim an event is published or delivered merely because a schema, queue name, or database table exists.
 
