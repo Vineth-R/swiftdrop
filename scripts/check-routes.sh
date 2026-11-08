@@ -42,6 +42,23 @@ check_upstream() {
   fi
 }
 
+check_ai_chat_route() {
+  local path="$1" description="$2"
+  local body code
+  # An empty message is rejected by the AI service itself, so a 422 proves the
+  # gateway reached the upstream without needing a configured model provider.
+  body="$(curl -s --max-time 5 -w '\n%{http_code}' \
+    -X POST "$BASE_URL$path" \
+    -H 'Content-Type: application/json' \
+    -d '{"message":"","conversationId":null}' || true)"
+  code="$(printf '%s' "$body" | tail -n1)"
+  if [ "$code" = "422" ] && printf '%s' "$body" | grep -q '"code":"VALIDATION_ERROR"'; then
+    pass "$description ($path -> upstream $code)"
+  else
+    fail "$description ($path -> $code, expected upstream 422 VALIDATION_ERROR)"
+  fi
+}
+
 check_notification_admin_route() {
   local path="$1" description="$2"
   local body code
@@ -59,7 +76,9 @@ check_notification_admin_route() {
 
 check_status "/healthz" "200" "gateway health"
 check_status "/internal/pricing/quote" "404" "internal APIs are blocked"
-check_status "/api/v1/ai/chat" "404" "ai service is a TODO"
+check_ai_chat_route "/api/v1/ai/chat" "ai-assistant:chat"
+check_status "/api/v1/ai/health" "404" "AI health probes are internal"
+check_status "/api/v1/ai/ready" "404" "AI readiness probes are internal"
 check_status "/" "200" "web frontend"
 
 check_upstream "/api/v1/auth/probe" "identity:auth"

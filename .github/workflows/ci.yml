@@ -454,6 +454,13 @@ jobs:
               - 'go.sum'
               - 'infra/docker/go.Dockerfile'
               - '.dockerignore'
+            ai-assistant:
+              - 'apps/services/ai-assistant/**'
+              - 'packages/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'infra/docker/go.Dockerfile'
+              - '.dockerignore'
             notification-worker:
               - 'apps/services/notification-worker/**'
               - 'packages/**'
@@ -488,6 +495,7 @@ jobs:
               - 'Makefile'
               - 'scripts/migrate.sh'
               - 'scripts/verify-db.sh'
+              - 'scripts/check-routes.sh'
               - '.env.example'
             notificationflow:
               - 'apps/services/notification-worker/**'

@@ -1,5 +1,6 @@
 import localFont from 'next/font/local';
 
+import { AiChatWidget } from '../components/ai-chat/chat-widget';
 import { ToastProvider } from '@/components/ui/toast';
 import { THEME_INIT } from '@/lib/theme';
 import './globals.css';
@@ -48,6 +49,7 @@ export default function RootLayout({
       </head>
       <body>
         <ToastProvider>{children}</ToastProvider>
+        <AiChatWidget />
       </body>
     </html>
   );

@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, DISPATCHER/ADMIN parcel reports and the reports screen, and ADMIN notification-log reads and UI are implemented. Customer parcel creation, owned reads, internal merchant creation/summaries and customer screens are implemented. Courier/dispatch status writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md) and [`docs/architecture.md`](docs/architecture.md).
+Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, DISPATCHER/ADMIN parcel reports and the reports screen, and ADMIN notification-log reads and UI are implemented. Customer parcel creation, owned reads, internal merchant creation/summaries and customer screens are implemented. The SwiftDrop Delivery Assistant (Gemini-backed service, chat widget, `/api/v1/ai/chat` gateway route and `ai-assistant` Compose service) is implemented against its [`IMPLEMENTATION_CONTRACT.md`](apps/services/ai-assistant/IMPLEMENTATION_CONTRACT.md). Courier/dispatch status writes, merchant onboarding, SMS notification delivery, webhook delivery and realtime subscriptions remain planned. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md), [`docs/ai-assistant.md`](docs/ai-assistant.md) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
@@ -23,6 +23,7 @@ Identity authentication, pricing estimates/zones/internal quote and admin config
 | `pricing`             | Delivery quotes, zones, and ADMIN pricing configuration                                             | 8083          |
 | `merchant`            | Future merchant accounts, settings, and API credentials                                             | 8084          |
 | `realtime`            | Future live tracking over WebSocket or Server-Sent Events                                           | 8085          |
+| `ai-assistant`        | Gemini-backed SwiftDrop Delivery Assistant with four approved read-only tools                       | 8087          |
 | `notification-worker` | Notification delivery (legacy + customer parcel domain events), email, ADMIN notification-log reads | 8086          |
 | `webhook-worker`      | Future outgoing webhook delivery                                                                    | no HTTP port  |
 | `@org/web`            | Next.js frontend                                                                                    | 3000          |
@@ -41,6 +42,7 @@ apps/
     parcel/
     pricing/
     merchant/
+    ai-assistant/
     notification-worker/
     webhook-worker/
     realtime/
@@ -89,7 +91,7 @@ pnpm install --frozen-lockfile
 
 `.env.example` contains safe local placeholders only. Set `APP_ENV` explicitly to `development`, `staging`, or `production`; all backend services and workers refuse to start without it. Do not commit `.env`, credentials, private keys, or production secrets. Docker Compose reads `.env` automatically. Go services read process environment variables directly and do not load `.env`; export it before running a service or worker on the host.
 
-The template documents every variable currently used: PostgreSQL, RabbitMQ, gateway, Mailpit, Gmail SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`), pool overrides, and the M4 pricing/tracking settings (`HTTP_TRUSTED_PROXIES` for Pricing and Parcel, plus `INTERNAL_TOKEN`, `JWT_ACCESS_SECRET` and `COOKIE_NAME` for Pricing). It also includes identity settings (`JWT_REFRESH_SECRET`, token TTLs, cookie names and flags, Google OAuth client settings, `FRONTEND_BASE_URL`) and the notification worker's identity contact lookup (`IDENTITY_BASE_URL`, `IDENTITY_TIMEOUT`, `INTERNAL_TOKEN`), email links/footer (`FRONTEND_BASE_URL`, `SUPPORT_EMAIL`) and legacy plus parcel domain-event queues (`NOTIFICATION_QUEUE`/`NOTIFICATION_ROUTING_KEY`, `NOTIFICATION_PARCEL_CREATED_*`, `NOTIFICATION_PARCEL_STATUS_*`). In development, an unset or shorter-than-16-character `INTERNAL_TOKEN` keeps the internal endpoints fail-closed. Outside development, identity and pricing refuse to start unless the token is at least 32 random bytes and is not a placeholder. `JWT_ACCESS_SECRET` must be at least 32 random bytes and not a placeholder outside development; an unset value leaves pricing, parcel and notification-worker authenticated routes fail-closed with `503`. Never commit real credentials.
+The template documents every variable currently used: PostgreSQL, RabbitMQ, gateway, Mailpit, Gmail SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`), pool overrides, and the M4 pricing/tracking settings (`HTTP_TRUSTED_PROXIES` for Pricing and Parcel, plus `INTERNAL_TOKEN`, `JWT_ACCESS_SECRET` and `COOKIE_NAME` for Pricing). It also includes identity settings (`JWT_REFRESH_SECRET`, token TTLs, cookie names and flags, Google OAuth client settings, `FRONTEND_BASE_URL`) and the notification worker's identity contact lookup (`IDENTITY_BASE_URL`, `IDENTITY_TIMEOUT`, `INTERNAL_TOKEN`), email links/footer (`FRONTEND_BASE_URL`, `SUPPORT_EMAIL`) and legacy plus parcel domain-event queues (`NOTIFICATION_QUEUE`/`NOTIFICATION_ROUTING_KEY`, `NOTIFICATION_PARCEL_CREATED_*`, `NOTIFICATION_PARCEL_STATUS_*`). The AI section adds `AI_*`, `GEMINI_API_KEY`, and the internal Pricing/Parcel origins; `GEMINI_API_KEY` is injected only into the `ai-assistant` container and must never use a `NEXT_PUBLIC_` name. In development, an unset or shorter-than-16-character `INTERNAL_TOKEN` keeps the internal endpoints fail-closed. Outside development, identity and pricing refuse to start unless the token is at least 32 random bytes and is not a placeholder. `JWT_ACCESS_SECRET` must be at least 32 random bytes and not a placeholder outside development; an unset value leaves pricing, parcel and notification-worker authenticated routes fail-closed with `503`. Never commit real credentials.
 
 ```sh
 set -a
@@ -272,6 +274,29 @@ Set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in `.env` (or export
 
 `make migrate` fails clearly if the database is unreachable or credentials are wrong. Inspect with `docker compose ps postgres` and `docker compose logs postgres`. The migration runner never prints the connection URL.
 
+## SwiftDrop Delivery Assistant
+
+The Delivery Assistant is a floating chat widget available on every page. It
+answers SwiftDrop questions and, when needed, calls the real Pricing and Parcel
+service through exactly four read-only tools. Gemini is the only provider; the
+browser talks only to `POST /api/v1/ai/chat` through Nginx, and the Gemini key
+exists only in the `ai-assistant` container.
+
+```sh
+cp .env.example .env          # then set GEMINI_API_KEY, or AI_PROVIDER=mock
+make up-build
+curl -s http://localhost:8080/api/v1/ai/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"What is SwiftDrop?","conversationId":null}'
+```
+
+Setup, the endpoint contract, mock-provider flow, tests, security notes and the
+known limitations (in-process conversations and rate limiting) are in
+[`docs/ai-assistant.md`](docs/ai-assistant.md). The Go service, Gemini
+integration, knowledge base and tool registry live in
+[`apps/services/ai-assistant`](apps/services/ai-assistant) and follow its
+[`IMPLEMENTATION_CONTRACT.md`](apps/services/ai-assistant/IMPLEMENTATION_CONTRACT.md).
+
 ## Run the frontend
 
 ```sh
@@ -380,7 +405,7 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
 pnpm exec nx show projects
 
 pnpm exec nx run-many -t lint test build \
-  -p identity,parcel,pricing,merchant,notification-worker,webhook-worker,realtime,go-common
+  -p identity,parcel,pricing,merchant,ai-assistant,notification-worker,webhook-worker,realtime,go-common
 
 pnpm exec nx lint @org/web
 pnpm exec nx build @org/web
@@ -593,8 +618,10 @@ The parcel service implements the COURIER delivery reads and status updates. `GE
 
 Notification email delivery is implemented in the notification worker for the legacy `notification.requested.v1` work item and the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` domain events. The legacy path validates the required `parcel_id` and `recipient`; the domain path resolves the customer's contact through the identity internal endpoint and renders a branded parcel email. `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`); the success log and processed-event writes share one transaction. A background scheduler deletes processed-event records older than 30 days at startup and every 24 hours by default. The worker also exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API through its internal HTTP port `8086`; recipients are masked and `status` can filter `PENDING`, `SENT` or `FAILED`. Merchant-owned parcel notifications are unsupported and dead-lettered because no approved recipient-contact mechanism exists. Delivery remains at-least-once, not exactly-once, and M5 creation now writes transactional outbox data; M6 relay publication is implemented and integrated with creation.
 
+The SwiftDrop Delivery Assistant is implemented end to end: a global launcher and responsive panel, a welcome state and suggested questions, assistant and user turns, a typing state, retry for safe failures, conversation continuity, and the 422/429/503/network handling in the shared API client. The widget calls `POST /api/v1/ai/chat` with the browser's own session cookie, so signed-in callers can use private parcel tools without the frontend ever handling a token or deciding permissions. Nginx forwards `POST /api/v1/ai/chat` (prefix-stripped to `/ai/chat`) to the `ai-assistant` upstream on internal port `8087`, keeps the assistant's health probes internal, and Compose injects the assistant's environment and runs its `/ready` health check. Playwright covers the widget with a mocked chat endpoint; a live Gemini smoke test needs a configured key. The Gemini-backed Go service, knowledge base and four-tool registry live in `apps/services/ai-assistant`; see its README, [`docs/ai-assistant.md`](docs/ai-assistant.md) and the implementation contract.
+
 Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
 
 Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: the legacy notification worker, the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` consumer with identity contact resolution, ADMIN notification delivery-log reads and the ADMIN notification-log screen, with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`). Implemented by M10: the DISPATCHER/ADMIN reports screen (`/reports`). The COURIER `/history` delivery-history screen is implemented in the web app against the implemented parcel `GET /courier/deliveries` list and detail reads.
 
-Not implemented: proof uploads (API v1.1 section 6.4), the complete delivery status workflow and its full successful/failed delivery E2E scenarios, M8's merchant order-to-parcel caller and merchant-owned parcel notification contact resolution, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the pricing administration UI, the AI assistant, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
+Not implemented: proof uploads (API v1.1 section 6.4), the complete delivery status workflow and its full successful/failed delivery E2E scenarios, M8's merchant order-to-parcel caller and merchant-owned parcel notification contact resolution, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, realtime subscriptions, the pricing administration UI, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.

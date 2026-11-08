@@ -1,0 +1,42 @@
+{
+  "name": "ai-assistant",
+  "root": "apps/services/ai-assistant",
+  "projectType": "application",
+  "sourceRoot": "apps/services/ai-assistant",
+  "tags": ["go", "service", "http", "ai"],
+  "implicitDependencies": ["go-common"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "outputs": ["{workspaceRoot}/dist/apps/services/ai-assistant"],
+      "options": {
+        "command": "mkdir -p dist/apps/services/ai-assistant && go build -trimpath -o dist/apps/services/ai-assistant/ai-assistant ./apps/services/ai-assistant"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "options": {
+        "command": "go test ./apps/services/ai-assistant/..."
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "goShared"],
+      "options": {
+        "command": "files=\"$(gofmt -l apps/services/ai-assistant packages/go-common)\" && test -z \"$files\""
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "options": {
+        "command": "go run ./apps/services/ai-assistant"
+      }
+    }
+  }
+}

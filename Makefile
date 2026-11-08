@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 
 COMPOSE ?= docker compose
-BUILD_SERVICES ?= identity parcel pricing merchant realtime notification-worker webhook-worker web
+BUILD_SERVICES ?= identity parcel pricing merchant realtime ai-assistant notification-worker webhook-worker web
 BUILD_FLAGS ?=
 
 .PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-down db-verify db-reset seed check-routes test test-db test-access coverage email-preview email-send-preview
