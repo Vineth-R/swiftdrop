@@ -116,9 +116,10 @@ WebSocket handler tests to issue tokens for the test server. It is not used by
 an application service at runtime, is not present in configuration, and is not
 a production credential.
 
-Replacing it with an ephemeral key is still the better practice for that
-feature branch. That change belongs to the realtime feature branch owner, not
-to `development`, where the file does not exist.
+PR #109 replaced the hardcoded fixture with an ephemeral key in the current
+`feature/m10-realtime-handler` source. The historical commit that introduced
+the value remains in that branch's ancestry, but the current source no longer
+contains it.
 
 ## 6. How the historical occurrence was resolved
 
@@ -141,9 +142,12 @@ gitleaks git ... --log-opts="${PROTECTED_SHA} -m" .
   non-protected branches. It keeps the same fail-closed base/head resolution.
 
 No Gitleaks allowlist was added, no rule was suppressed, and no shared history
-was rewritten. The feature branch still contains the fixture and is still
-detectable by a feature-branch scan. Its owner should replace it with an
-ephemeral test key before that branch is merged.
+was rewritten. PR #109 replaced the fixture in the current feature-branch
+source. The historical commit `c3d22b3` remains in feature-branch ancestry and
+is still detectable by a full-history scan; it is not reachable from
+`development`. The future feature-to-development integration should use a
+squash merge (or an approved history rewrite) so the original commit does not
+enter protected history.
 
 ## 7. Security gate root cause
 
@@ -173,12 +177,13 @@ independent required check failed. No change is required.
 
 ## 9. Files modified
 
-| File                                           | Change                                                                                                                                                                          |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`                     | Protected branch/tag Gitleaks step now scopes to `github.sha` with `-m` and fails closed on a missing/unresolvable SHA; the unreachable feature-branch step was removed         |
-| `.github/workflows/secret-scan-feature.yml`    | New lightweight workflow that scans the pushed range for feature-branch pushes, with the same pinned Gitleaks version and checksum                                              |
-| `tests/scripts/ci_secret_scan_test.go`         | Pins the protected-ref scope and the feature workflow, and adds a dynamic regression test proving unmerged refs are excluded while protected-history secrets are still detected |
-| `docs/DEVELOPMENT_CI_FAILURE_INVESTIGATION.md` | This document                                                                                                                                                                   |
+| File                                           | Change                                                                                                                                                                                                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/ci.yml`                     | Protected branch/tag Gitleaks step scopes to `github.sha` with `-m`; the PR scan now loads `.gitleaks.toml` from the trusted PR base SHA into a temporary file and fails closed if it is missing; the unreachable feature-branch step was removed |
+| `.github/workflows/secret-scan-feature.yml`    | New lightweight workflow that scans the pushed range for feature-branch pushes, using the trusted `origin/development` configuration, with the same pinned Gitleaks version and checksum                                                          |
+| `.github/CODEOWNERS`                           | New ownership rules for `.github/workflows/`, `.gitleaks.toml`, and CODEOWNERS itself; enforced only when code-owner review is required by branch rules                                                                                           |
+| `tests/scripts/ci_secret_scan_test.go`         | Pins the protected-ref scope, the trusted PR/feature configuration strategy, and the feature workflow; adds dynamic tests proving unmerged refs are excluded and a PR/feature cannot suppress its own secret by editing `.gitleaks.toml`          |
+| `docs/DEVELOPMENT_CI_FAILURE_INVESTIGATION.md` | This document                                                                                                                                                                                                                                     |
 
 No application service, security scanner, threshold, or required gate was
 modified.
@@ -206,16 +211,32 @@ GITLEAKS_BIN=<pinned gitleaks> go test -count=1 -v ./tests/scripts/ -run 'TestGi
   PASS TestGitleaksCurrentPRRange
   PASS TestGitleaksMergeOnlySecretDetected
   PASS TestGitleaksProtectedRefScope
+  PASS TestGitleaksPRConfigBypass
+  PASS TestGitleaksFeatureConfigBypass
 ```
+
+Trusted-configuration bypass result:
+
+| Configuration       | Exit | Meaning                  |
+| ------------------- | ---- | ------------------------ |
+| PR-controlled       | `0`  | Bypass is possible       |
+| Trusted base        | `1`  | Secret is still detected |
+| Feature-controlled  | `0`  | Bypass is possible       |
+| Trusted development | `1`  | Secret is still detected |
 
 The dynamic tests cover:
 
-- PR-range scanning with merge diffs.
+- PR-range scanning with merge diffs using the trusted base configuration.
 - Merge-only secret detection with and without `-m`.
 - Protected-ref scope: unmerged refs excluded, protected-history secret still
   detected.
-- The static test pins all three scan invocations, the fail-closed SHA checks,
-  and the absence of an allowlist for the realtime fixture.
+- A secret in an ancestor commit with a clean tip (full-history detection).
+- Feature-range detection with the trusted development configuration.
+- PR and feature configuration-bypass proofs: the head config allows a
+  self-introduced secret, while the trusted base/development config detects it.
+- The static test pins all scan invocations, trusted-config retrieval, the
+  fail-closed SHA checks, and the absence of an allowlist for the realtime
+  fixture.
 
 Additional checks:
 
@@ -228,12 +249,24 @@ Additional checks:
   including the shared pinned Gitleaks version and checksum.
 - `git diff --check` — clean.
 
+### Trusted configuration strategy
+
+- PR scans load `.gitleaks.toml` from `${PR_BASE_SHA}` into a temporary file
+  and pass it with `--config`. The PR head cannot weaken its own scan.
+- Feature-branch scans load `.gitleaks.toml` from `origin/development`. The
+  feature branch cannot weaken its own scan.
+- Protected branch/tag scans use `.gitleaks.toml` from the protected ref, which
+  is part of the protected branch's trusted history.
+- A missing trusted configuration fails the job closed; there is no fallback to
+  the untrusted checkout.
+
 ### GitHub Actions verification
 
-- PR #108 CI run `42480610088`: all required checks passed, including
+- PR #108 CI run `42481123424`: all required checks passed, including
   `Secret scanning (Gitleaks)`, `Security gate`, and `Required CI gate`.
-- Feature-branch workflow run `42480607642` (`Secret scanning (feature
+- Feature-branch workflow run `42481119844` (`Secret scanning (feature
 branches)`): passed.
+- The hardening branch's CI results are recorded by its own workflow runs.
 - The post-merge protected-branch run remains to be observed after review and
   merge.
 
@@ -243,10 +276,14 @@ branches)`): passed.
   enabled.
 - Merge commits remain in scope via `-m`.
 - Unmerged branches are no longer able to fail the protected-branch job.
-- The finding is not suppressed: a feature-branch scan still reports it.
+- PR and feature scans use trusted configuration, so a PR or feature branch
+  cannot suppress its own introduced secret by editing `.gitleaks.toml`.
+- The historical finding is not suppressed: a feature-branch full-history scan
+  still reports `c3d22b3`.
 - No production credential is involved, so no production secret is exposed.
-- The test fixture should still be replaced with an ephemeral key on its own
-  branch.
+- PR #109 fixed the current feature-branch source; the historical commit
+  remains until the feature branch is squash-merged or its history is rewritten
+  with approval.
 
 ## 12. Credential rotation requirements
 
@@ -259,22 +296,72 @@ no evidence of that here.
 
 ## 13. Remaining manual actions
 
-1. Feature branch owner: replace the hardcoded test signing key in
-   `apps/services/realtime/internal/ws/handler_test.go` with an ephemeral key
-   before merging `feature/m10-realtime-handler`.
-2. Review and merge this PR only after the PR checks pass.
+1. Use a **squash merge** for the eventual
+   `feature/m10-realtime-handler` → `development` integration so `c3d22b3`
+   does not become reachable from protected history. PR #109 already fixed the
+   current feature-branch source.
+2. Review and merge the hardening branch into PR #108, then re-run PR #108's
+   checks. Do not merge PR #108 automatically.
 3. After merge, confirm the protected-branch push run's
    `Secret scanning (Gitleaks)` job passes with the scoped scan.
 4. Confirm the first push to a feature branch runs
-   `Secret scanning (feature branches)` and passes.
+   `Secret scanning (feature branches)` with the trusted development config.
+5. Apply the branch rules in section 16. If the token lacks ruleset
+   administration permission, this requires repository-owner action.
 
 ## 14. Known limitations
 
 - The protected-branch post-merge path cannot be exercised by a PR. It was
   validated locally with the pinned Gitleaks version against the real repository
   history; the actual post-merge run will confirm it in CI.
-- The feature branch fixture remains in the object database until that branch
-  is updated or deleted. It is not in protected history.
+- The historical feature-branch commit remains in the object database until
+  that branch is squash-merged or its history is rewritten with approval. The
+  current source is fixed.
 - Gitleaks is process-local and scans the fetched repository; the fix depends on
   `github.sha` being the pushed protected ref, which is guaranteed by the push
   event and validated with `git cat-file`.
+- The repository's `pull_request` trigger only covers `development` and `main`.
+  A PR targeting a feature branch does not run the full CI workflow; rely on
+  the push feature-branch scan and local validation for that stacked PR.
+
+## 15. Trusted Gitleaks configuration
+
+| Scan                   | Configuration source                                        |
+| ---------------------- | ----------------------------------------------------------- |
+| Pull request           | `${PR_BASE_SHA}:.gitleaks.toml`, written to a temp file     |
+| Feature branch push    | `origin/development:.gitleaks.toml`, written to a temp file |
+| Protected branch / tag | `.gitleaks.toml` from the pushed protected ref              |
+
+The temporary files are removed by an EXIT trap. A missing configuration fails
+the job with an explicit error; there is no fallback to the PR/branch checkout.
+Changes to `.gitleaks.toml` in a PR or feature branch do not take effect for
+that branch's own scan; they must land on the trusted base first.
+
+## 16. Branch protection
+
+The active **Development Branch Rules** ruleset was updated through the GitHub
+API while preserving the existing deletion and non-fast-forward protections.
+It now has:
+
+- `required_approving_review_count: 1`
+- `dismiss_stale_reviews_on_push: true`
+- `require_code_owner_review: true`
+- Required status checks: `Required CI gate` and `Security gate`
+- `strict_required_status_checks_policy: true`
+- Allowed merge methods remain `merge`, `squash`, and `rebase`
+
+CODEOWNERS was added for `.github/workflows/`, `.gitleaks.toml`, and
+`.github/CODEOWNERS` and names `@Vineth-R`. Code-owner review is only enforced
+once the ruleset requires it and the CODEOWNERS file exists on the base branch;
+the ruleset now does its part.
+
+Effects to expect:
+
+- PR #108 currently reports `BEHIND` because `development` has advanced and
+  branches must be up to date. Update the PR branch with `development` before
+  merging.
+- At least one approving review is now required on PRs to `development`.
+- A PR that changes a workflow or the Gitleaks configuration needs the
+  code-owner review once CODEOWNERS is on the base branch.
+- The required checks are the exact job contexts observed on recent runs:
+  `Required CI gate` and `Security gate`.
