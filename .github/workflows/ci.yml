@@ -200,15 +200,22 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          PR_CONFIG="$(mktemp)"
+          trap 'rm -f "${PR_CONFIG}"' EXIT
           if [ -z "${PR_BASE_SHA:-}" ] || [ -z "${PR_HEAD_SHA:-}" ]; then
             echo "::error::Pull request base or head SHA is missing; refusing to scan"
             exit 1
           fi
           git cat-file -e "${PR_BASE_SHA}^{commit}"
           git cat-file -e "${PR_HEAD_SHA}^{commit}"
-          echo "Scanning PR commit range ${PR_BASE_SHA}..${PR_HEAD_SHA} (merge diffs included)"
+          if ! git cat-file -e "${PR_BASE_SHA}:.gitleaks.toml"; then
+            echo "::error::The PR base has no .gitleaks.toml; refusing to scan"
+            exit 1
+          fi
+          git show "${PR_BASE_SHA}:.gitleaks.toml" > "${PR_CONFIG}"
+          echo "Scanning PR commit range ${PR_BASE_SHA}..${PR_HEAD_SHA} with the trusted base config (merge diffs included)"
           gitleaks git \
-            --config .gitleaks.toml \
+            --config "${PR_CONFIG}" \
             --redact \
             --no-banner \
             --no-color \
