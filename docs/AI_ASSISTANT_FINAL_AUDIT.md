@@ -508,3 +508,46 @@ This section records the approved Gitleaks scope correction and remains an appen
 - Required CI gate remains red while any required check is red.
 
 PR #106 remains open, mergeable and **not ready to merge** until the Docker/SBOM checks and the resulting required gate pass. No merge was performed.
+
+## 21. Syft installation reliability follow-up — 2026-11-08
+
+This section records the supply-chain-preserving fix for the intermittent Syft release download.
+
+### Change
+
+- Replaced the `anchore/sbom-action` step, whose internal installer does not retry the Syft release download, with `scripts/install-syft.sh` and a direct `syft scan`.
+- Syft remains pinned to **v1.56.0**.
+- The installer downloads only `https://github.com/anchore/syft/releases/download/v1.56.0/syft_1.56.0_linux_amd64.tar.gz`.
+- The installer verifies the official SHA-256 `1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528` before extraction and installation.
+- It fails immediately on a checksum mismatch, unexpected version, unsupported HTTP status, or any non-transient error.
+- It retries only transient HTTP 502/503/504 and selected connection/transfer failures, with at most **5 attempts** and exponential backoff of 2, 4, 8, and 16 seconds.
+- It verifies the extracted binary reports version 1.56.0 before installing it.
+- SBOM generation still produces CycloneDX JSON and the existing upload step is unchanged.
+- Trivy image scanning is unchanged: HIGH/CRITICAL findings still fail the job.
+
+### Tests added
+
+`tests/scripts/ci_syft_install_test.go` verifies:
+
+- The Syft version and SHA-256 remain pinned.
+- Retry attempts are bounded at 5.
+- Exponential backoff is present.
+- Checksum verification and version verification are mandatory.
+- SBOM and Trivy steps remain enabled, with no `continue-on-error`.
+- A controlled local server returning two HTTP 504s then 200 succeeds on the third attempt.
+- Persistent HTTP 504 responses fail after exactly 5 attempts.
+- A checksum mismatch fails without retrying.
+- An unexpected Syft version fails.
+- `bash -n scripts/install-syft.sh` passes.
+
+### Validation
+
+- `go test ./tests/scripts/...` passes.
+- `bash -n scripts/install-syft.sh` passes.
+- The official v1.56.0 linux/amd64 archive checksum was verified locally.
+- `git diff --check` passes.
+- The Syft release URL was observed returning both 200 and 504 during this work, confirming the retry need.
+
+### Outstanding blocker
+
+The actual post-push GitHub Actions Docker/SBOM result is authoritative. Do not merge PR #106 until the new run confirms the Docker/SBOM jobs, Trivy, Security gate and Required CI gate pass. No merge was performed.
