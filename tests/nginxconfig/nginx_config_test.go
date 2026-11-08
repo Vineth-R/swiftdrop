@@ -154,3 +154,18 @@ func TestNginxAIChatRouteIsExact(t *testing.T) {
 		t.Fatalf("AI health/other paths must not be public:\n%s", otherAI)
 	}
 }
+
+func TestNginxWebSocketAccessLogOmitsQueryString(t *testing.T) {
+	text := configText(t)
+
+	ws := blockAfter(text, "location = /ws")
+	if ws == "" {
+		t.Fatal("cannot find the /ws location")
+	}
+	if !strings.Contains(ws, "access_log /var/log/nginx/access.log swiftdrop_no_query;") {
+		t.Fatalf("/ws does not use the no-query access log: %q", ws)
+	}
+	if strings.Contains(ws, "access_log off") {
+		t.Fatal("/ws must keep WebSocket logging enabled without query strings")
+	}
+}
