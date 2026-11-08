@@ -183,7 +183,49 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     ).toBeLessThanOrEqual(4);
   });
 
-  test('reopening starts a fresh conversation at the top', async ({ page }) => {
+  test('closing and reopening keeps the conversation and continues it', async ({
+    page,
+  }) => {
+    const { calls } = await mockApi(page, {
+      [CHAT]: reply('Here is a delivery update.'),
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    await input(page).fill('First question');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('First question')).toBeVisible();
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Close the assistant' }).click();
+    await expect(panel(page)).toHaveCount(0);
+
+    // Reopening is a view change only: it neither clears the conversation nor
+    // sends another request.
+    await openAssistant(page);
+    await expect(panel(page).getByText('First question')).toBeVisible();
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toBeVisible();
+    expect(calls.filter((call) => call.key === CHAT)).toHaveLength(1);
+
+    await input(page).fill('Second question');
+    await input(page).press('Enter');
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toHaveCount(2);
+
+    const chatCalls = calls.filter((call) => call.key === CHAT);
+    expect(chatCalls).toHaveLength(2);
+    expect(chatCalls[1].body).toEqual({
+      message: 'Second question',
+      conversationId: CONVERSATION_A,
+    });
+  });
+
+  test('reopening restores the previous scroll position', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     const longReply = Array.from(
       { length: 60 },
@@ -197,24 +239,96 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     await input(page).fill('Show me a long update.');
     await input(page).press('Enter');
     await expect(panel(page)).toContainText('Delivery update 60.');
-    expect(await log.evaluate((element) => element.scrollTop)).toBeGreaterThan(
-      0,
-    );
+    await expect
+      .poll(() => log.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
 
     await page.getByRole('button', { name: 'Close the assistant' }).click();
     await expect(panel(page)).toHaveCount(0);
     await openAssistant(page);
 
-    await expect(
-      panel(page).getByRole('log', { name: 'Conversation' }),
-    ).toContainText("Hi! I'm your SwiftDrop Delivery Assistant.");
+    const reopened = panel(page).getByRole('log', { name: 'Conversation' });
+    await expect(reopened).toContainText('Delivery update 60.');
     await expect
-      .poll(() =>
-        panel(page)
-          .getByRole('log', { name: 'Conversation' })
-          .evaluate((element) => element.scrollTop),
-      )
-      .toBe(0);
+      .poll(() => reopened.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+  });
+
+  test('navigating to another page while closed keeps the conversation', async ({
+    page,
+  }) => {
+    const { calls } = await mockApi(page, {
+      [CHAT]: reply('Here is a delivery update.'),
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+    await input(page).fill('First question');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('First question')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Close the assistant' }).click();
+    await expect(panel(page)).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'SwiftDrop home' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await openAssistant(page);
+
+    await expect(panel(page).getByText('First question')).toBeVisible();
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toBeVisible();
+
+    await input(page).fill('Second question');
+    await input(page).press('Enter');
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toHaveCount(2);
+
+    const chatCalls = calls.filter((call) => call.key === CHAT);
+    expect(chatCalls[1].body).toEqual({
+      message: 'Second question',
+      conversationId: CONVERSATION_A,
+    });
+  });
+
+  test('a page reload starts a fresh conversation', async ({ page }) => {
+    await mockApi(page, { [CHAT]: reply('Here is a delivery update.') });
+    await page.goto('/track');
+    await openAssistant(page);
+    await input(page).fill('First question');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('First question')).toBeVisible();
+
+    await page.reload();
+    await openAssistant(page);
+
+    await expect(panel(page).getByText('First question')).toHaveCount(0);
+    await expect(panel(page)).toContainText(
+      "Hi! I'm your SwiftDrop Delivery Assistant.",
+    );
+  });
+
+  test('a new tab starts an independent conversation', async ({
+    page,
+    context,
+  }) => {
+    await mockApi(page, { [CHAT]: reply('First tab answer.') });
+    await page.goto('/track');
+    await openAssistant(page);
+    await input(page).fill('First tab question');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('First tab answer.')).toBeVisible();
+
+    const second = await context.newPage();
+    await mockApi(second, {});
+    await second.goto('/track');
+    await openAssistant(second);
+
+    await expect(panel(second).getByText('First tab question')).toHaveCount(0);
+    await expect(panel(second)).toContainText(
+      "Hi! I'm your SwiftDrop Delivery Assistant.",
+    );
+    await second.close();
   });
 
   test('a suggested question sends a real message and renders the reply', async ({
