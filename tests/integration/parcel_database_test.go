@@ -24,8 +24,8 @@ func TestParcelMigrations(t *testing.T) {
 	); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 5 || dirty {
-		t.Fatalf("migration state = %d dirty=%v, want version 5 clean", version, dirty)
+	if version != 6 || dirty {
+		t.Fatalf("migration state = %d dirty=%v, want version 6 clean", version, dirty)
 	}
 	tablesToCheck := []string{
 		"parcels", "parcel_status_history", "parcel_assignments", "delivery_proofs", "outbox_events",
@@ -116,8 +116,8 @@ func TestParcelMigrations(t *testing.T) {
 	); err != nil {
 		t.Fatalf("read reapplied migration version: %v", err)
 	}
-	if version != 5 || dirty {
-		t.Fatalf("reapplied migration state = %d dirty=%v, want version 5 clean", version, dirty)
+	if version != 6 || dirty {
+		t.Fatalf("reapplied migration state = %d dirty=%v, want version 6 clean", version, dirty)
 	}
 }
 
@@ -536,3 +536,88 @@ const parcelFixtureInsert = `INSERT INTO parcel.parcels (
 	CASE WHEN $9 AND $7::varchar(20) = 'DELIVERED' THEN now() END,
 	CASE WHEN $9 AND $7::varchar(20) = 'FAILED' THEN now() END, $10
 )`
+
+// TestParcelCustomerListIndex verifies the additive 000006 index exists and
+// that the real customer-list shape can use it for the ordered page query.
+func TestParcelCustomerListIndex(t *testing.T) {
+	database := parceltest.New(t)
+	ctx := context.Background()
+
+	var exists bool
+	if err := database.Pool.QueryRow(ctx,
+		`SELECT to_regclass('parcel.idx_parcels_customer_created_id') IS NOT NULL`,
+	).Scan(&exists); err != nil {
+		t.Fatalf("inspect customer list index: %v", err)
+	}
+	if !exists {
+		t.Fatal("parcel.idx_parcels_customer_created_id is missing")
+	}
+
+	const customer = "11111111-1111-4111-8111-111111111111"
+	const originZone = "00000000-0000-4000-8000-000000000001"
+	const destinationZone = "00000000-0000-4000-8000-000000000002"
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO parcel.parcels (
+			tracking_number, customer_user_id, sender_name, sender_phone,
+			pickup_address, pickup_city, pickup_zone_id, recipient_name,
+			recipient_phone, dropoff_address, dropoff_city, dropoff_zone_id,
+			weight_kg, size_category, price_amount, price_breakdown,
+			created_by_user_id, created_at
+		)
+		SELECT 'SDK' || lpad(gs::text, 8, '0'), $1, 'Sender', '+94770000001',
+			'Pickup', 'Colombo', $2, 'Recipient', '+94770000002',
+			'Dropoff', 'Kandy', $3, 2.00, 'SMALL', 550.00,
+			'{"base_fee":450,"weight_charge":100,"size_surcharge":0}',
+			$1, now() - (gs || ' minutes')::interval
+		FROM generate_series(1, 200) AS gs`, customer, originZone, destinationZone,
+	); err != nil {
+		t.Fatalf("insert customer list fixtures: %v", err)
+	}
+
+	tx, err := database.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin explain transaction: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Sequential scans and explicit sorts are disabled so the plan must prove
+	// that the composite index can satisfy the customer filter and ordering
+	// without an extra sort. With realistic volumes the planner chooses it on
+	// cost as well.
+	if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off`); err != nil {
+		t.Fatalf("disable sequential scan: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL enable_sort = off`); err != nil {
+		t.Fatalf("disable sort: %v", err)
+	}
+	rows, err := tx.Query(ctx, `
+		EXPLAIN (COSTS OFF)
+		SELECT id FROM parcel.parcels
+		WHERE customer_user_id = $1
+		  AND ($2 = '' OR status = $2)
+		  AND ($3::timestamptz IS NULL OR created_at >= $3)
+		  AND ($4::timestamptz IS NULL OR created_at < $4)
+		ORDER BY created_at DESC, id DESC
+		LIMIT $5 OFFSET $6`,
+		customer, "", nil, nil, 20, 0,
+	)
+	if err != nil {
+		t.Fatalf("explain customer list: %v", err)
+	}
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			rows.Close()
+			t.Fatalf("scan explain line: %v", err)
+		}
+		plan.WriteString(line)
+		plan.WriteByte('\n')
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate explain lines: %v", err)
+	}
+	if !strings.Contains(plan.String(), "idx_parcels_customer_created_id") {
+		t.Fatalf("customer list did not use the composite index:\n%s", plan.String())
+	}
+}

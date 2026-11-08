@@ -17,7 +17,10 @@ export type ApiErrorCode =
   | 'RULE_EXISTS'
   | 'BAND_OVERLAP'
   | 'TRACKING_NOT_FOUND'
+  | 'PARCEL_CLOSED'
+  | 'COURIER_NOT_ELIGIBLE'
   | 'CONFLICT'
+  | 'PRICE_CHANGED'
   | 'VALIDATION_FAILED'
   | 'UNAUTHENTICATED'
   | 'FORBIDDEN'
@@ -41,7 +44,11 @@ const codeFromApi: Record<string, ApiErrorCode> = {
   RULE_EXISTS: 'RULE_EXISTS',
   BAND_OVERLAP: 'BAND_OVERLAP',
   TRACKING_NOT_FOUND: 'TRACKING_NOT_FOUND',
+  PARCEL_CLOSED: 'PARCEL_CLOSED',
+  COURIER_NOT_ELIGIBLE: 'COURIER_NOT_ELIGIBLE',
   CONFLICT: 'CONFLICT',
+  IDEMPOTENCY_CONFLICT: 'CONFLICT',
+  PRICE_CHANGED: 'PRICE_CHANGED',
   VALIDATION_ERROR: 'VALIDATION_FAILED',
   UNAUTHENTICATED: 'UNAUTHENTICATED',
   TOKEN_EXPIRED: 'UNAUTHENTICATED',
@@ -54,6 +61,7 @@ function codeFromStatus(status: number): ApiErrorCode {
   if (status === 401) return 'UNAUTHENTICATED';
   if (status === 403) return 'FORBIDDEN';
   if (status === 404) return 'NOT_FOUND';
+  if (status === 409) return 'CONFLICT';
   if (status === 422) return 'VALIDATION_FAILED';
   if (status === 429) return 'RATE_LIMITED';
   return 'INTERNAL';
@@ -68,6 +76,8 @@ export class ApiError extends Error {
   readonly retryAfter?: number;
   /** Field problems from a 422, already keyed by the API's field names. */
   readonly issues: ApiIssue[];
+  /** Current authoritative LKR total, only for PRICE_CHANGED reconfirmation. */
+  readonly currentFee?: number;
 
   constructor(init: {
     code: ApiErrorCode;
@@ -76,6 +86,7 @@ export class ApiError extends Error {
     requestId?: string;
     retryAfter?: number;
     issues?: ApiIssue[];
+    currentFee?: number;
   }) {
     super(init.message ?? init.code);
     this.name = 'ApiError';
@@ -84,6 +95,7 @@ export class ApiError extends Error {
     this.requestId = init.requestId;
     this.retryAfter = init.retryAfter;
     this.issues = init.issues ?? [];
+    this.currentFee = init.currentFee;
   }
 
   /** A fault on our side or in the network: the only case that shows a Reference line. */
@@ -93,7 +105,12 @@ export class ApiError extends Error {
 }
 
 export type ErrorEnvelope = {
-  error?: { code?: string; message?: string; details?: ApiIssue[] };
+  error?: {
+    code?: string;
+    message?: string;
+    details?: ApiIssue[];
+    currentFee?: number;
+  };
   meta?: { requestId?: string };
 };
 
@@ -118,5 +135,12 @@ export async function readError(response: Response): Promise<ApiError> {
     retryAfter:
       Number.isFinite(retryHeader) && retryHeader > 0 ? retryHeader : undefined,
     issues: Array.isArray(body.error?.details) ? body.error.details : [],
+    currentFee:
+      apiCode === 'PRICE_CHANGED' &&
+      typeof body.error?.currentFee === 'number' &&
+      Number.isFinite(body.error.currentFee) &&
+      body.error.currentFee >= 0
+        ? body.error.currentFee
+        : undefined,
   });
 }

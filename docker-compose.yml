@@ -135,14 +135,21 @@ services:
       args:
         SERVICE: parcel
     environment:
-      <<: *app-env
+      <<: [*app-env, *rabbitmq-env]
       PORT: '8082'
       HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      PRICING_BASE_URL: http://pricing:8083
+      PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8082/ready']
@@ -254,8 +261,8 @@ services:
         SERVICE: webhook-worker
     environment:
       <<: [*app-env, *rabbitmq-env]
-      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.delivery.requested.v1}
-      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-webhook.delivery.requested.v1}
+      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.parcel.status_changed.v1}
+      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-parcel.status_changed.v1}
     stop_grace_period: 35s
     depends_on:
       rabbitmq:

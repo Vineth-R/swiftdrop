@@ -153,6 +153,13 @@ test-db:
 		exit 1; \
 	fi
 	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/...
+	@command -v migrate >/dev/null 2>&1 || { \
+		echo "error: the golang-migrate 'migrate' CLI must be on PATH for parcel PostgreSQL tests." >&2; \
+		exit 1; \
+	}
+	PARCEL_TEST_DATABASE_URL="$${PARCEL_TEST_DATABASE_URL:-$${TEST_DATABASE_URL}}" \
+	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" \
+	go test -race -count=1 -v -tags=integration,postgres -run '^(TestParcel|TestCourier)' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository ./apps/services/parcel/internal/http ./apps/services/parcel/internal/courier
 
 check-routes:
 	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \

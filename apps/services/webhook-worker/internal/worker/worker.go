@@ -9,7 +9,8 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
 
-const EventType = "webhook.delivery.requested.v1"
+// EventType is the event published by the parcel service when a parcel changes status.
+const EventType = "parcel.status_changed.v1"
 
 type Handler struct {
 	logger *slog.Logger

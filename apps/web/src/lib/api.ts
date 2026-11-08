@@ -61,6 +61,18 @@ function renewSession(): Promise<boolean> {
 }
 
 /**
+ * Renews the session once for a transport that is not an HTTP request, such as
+ * the live updates socket. It tells the app when the session is gone, matching
+ * what `api()` does when its own retry cannot recover. `api()` keeps its own
+ * flow because it also re-sends the original request.
+ */
+export async function refreshSession(): Promise<boolean> {
+  const renewed = await renewSession();
+  if (!renewed) emitSessionExpired();
+  return renewed;
+}
+
+/**
  * A 401 means "sign in again", except when the API says INVALID_CREDENTIALS:
  * that is a wrong current password on the change-password form, and the person
  * is still signed in. Renewing the session for it would sign them out.
@@ -75,10 +87,10 @@ async function isSessionEnded(response: Response): Promise<boolean> {
   }
 }
 
-async function call<T>(
+async function callResponse(
   path: string,
   options: ApiRequestOptions,
-): Promise<Envelope<T>> {
+): Promise<Response> {
   const mayRenew = options.renewSession ?? !path.startsWith('/auth/');
 
   let response = await send(path, options);
@@ -90,12 +102,42 @@ async function call<T>(
   }
 
   if (!response.ok) throw await readError(response);
+  return response;
+}
+
+async function call<T>(
+  path: string,
+  options: ApiRequestOptions,
+): Promise<Envelope<T>> {
+  const response = await callResponse(path, options);
   if (response.status === 204) return { data: undefined as T };
 
   try {
     return (await response.json()) as Envelope<T>;
   } catch {
     throw new ApiError({ code: 'INTERNAL', status: response.status });
+  }
+}
+
+/** Downloads a PDF through the same cookie, renewal and error handling path. */
+export async function apiBlob(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<Blob> {
+  const response = await callResponse(path, {
+    ...options,
+    headers: { ...options.headers, Accept: 'application/pdf' },
+  });
+  if (
+    response.headers.get('Content-Type')?.split(';')[0].trim() !==
+    'application/pdf'
+  ) {
+    throw new ApiError({ code: 'INTERNAL', status: response.status });
+  }
+  try {
+    return await response.blob();
+  } catch {
+    throw new ApiError({ code: 'NETWORK', status: 0 });
   }
 }
 

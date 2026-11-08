@@ -75,7 +75,13 @@ describe('safeNext', () => {
 describe('homeFor', () => {
   it('returns a defined home for every role', () => {
     for (const role of roles) {
-      expect(homeFor(role)).toBe(DEFAULT_AUTH_ROUTE);
+      expect(homeFor(role)).toBeDefined();
+      expect(homeFor(role).startsWith('/')).toBe(true);
     }
+    expect(homeFor('DISPATCHER')).toBe('/unassigned');
+    expect(homeFor('CUSTOMER')).toBe(DEFAULT_AUTH_ROUTE);
+    expect(homeFor('MERCHANT')).toBe(DEFAULT_AUTH_ROUTE);
+    expect(homeFor('COURIER')).toBe(DEFAULT_AUTH_ROUTE);
+    expect(homeFor('ADMIN')).toBe(DEFAULT_AUTH_ROUTE);
   });
 });

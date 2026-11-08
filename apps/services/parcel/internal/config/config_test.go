@@ -7,6 +7,94 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
+func TestParcelRelayConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "disabled"},
+		{name: "configured", url: "amqp://rabbitmq:5672/"},
+		{name: "wrong scheme", url: "https://local:PRIVATE_RABBIT_PASSWORD@rabbitmq:5672/", wantErr: true},
+		{name: "missing host", url: "amqp:///missing-host", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				values := map[string]string{
+					"APP_ENV":           "development",
+					"RABBITMQ_URL":      tc.url,
+					"RABBITMQ_EXCHANGE": "custom.parcel.events",
+				}
+				value, ok := values[key]
+				return value, ok
+			})
+			cfg, err := LoadFrom(loader)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("invalid relay URL accepted")
+				}
+				if strings.Contains(err.Error(), tc.url) || strings.Contains(err.Error(), "PRIVATE_RABBIT_PASSWORD") {
+					t.Fatal("relay configuration error reflected credentials")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.RabbitMQURL != tc.url || cfg.RabbitMQExchange != "custom.parcel.events" {
+				t.Fatal("configured relay origin or exchange was not retained")
+			}
+		})
+	}
+}
+
+func TestParcelDependencyConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, key, value string
+		fail             bool
+	}{{"pricing credentials", "PRICING_BASE_URL", "http://user:secret@pricing:8083", true}, {"pricing scheme", "PRICING_BASE_URL", "file:///pricing", true}, {"pricing path", "PRICING_BASE_URL", "http://pricing:8083/path", true}, {"pricing timeout", "PRICING_TIMEOUT", "0s", true}, {"identity credentials", "IDENTITY_BASE_URL", "http://user:secret@identity:8081", true}, {"identity timeout", "IDENTITY_TIMEOUT", "-1s", true}, {"pricing valid", "PRICING_BASE_URL", "http://127.0.0.1:8083/", false}, {"identity valid", "IDENTITY_BASE_URL", "https://identity.example", false}, {"development short token", "INTERNAL_TOKEN", "tiny", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				if key == "APP_ENV" {
+					return "development", true
+				}
+				if key == tc.key {
+					return tc.value, true
+				}
+				return "", false
+			})
+			cfg, err := LoadFrom(loader)
+			if tc.fail {
+				if err == nil {
+					t.Fatal("invalid configuration accepted")
+				}
+				if strings.Contains(err.Error(), "secret@") {
+					t.Fatal("configuration leaked credentials")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.key == "INTERNAL_TOKEN" && (cfg.InternalToken != "" || cfg.InternalTokenProblem == "") {
+				t.Fatal("weak development token did not fail closed")
+			}
+		})
+	}
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		if key == "APP_ENV" {
+			return "production", true
+		}
+		if key == "INTERNAL_TOKEN" {
+			return "short", true
+		}
+		return "", false
+	})
+	if _, err := LoadFrom(loader); err == nil {
+		t.Fatal("weak production internal token accepted")
+	}
+}
+
 func TestLoadFromDefaults(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		if key == "APP_ENV" {

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/parcels"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
@@ -16,8 +17,13 @@ type TrackingStore interface {
 	Lookup(context.Context, string) (tracking.Result, error)
 }
 type Options struct {
+	Courier        CourierStore
+	CourierStatus  CourierStatusStore
+	Parcels        *parcels.Service
+	InternalToken  string
 	Tracking       TrackingStore
 	Reports        ReportStore
+	Dispatch       DispatchService
 	TrustedProxies []string
 	AccessSecret   string
 	CookieName     string
