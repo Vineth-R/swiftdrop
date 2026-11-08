@@ -1,7 +1,7 @@
-// Package delivery sends one signed webhook request to a merchant and decides
+// Package webhookdelivery sends one signed webhook request to a merchant and decides
 // when a failed delivery is retried. It has no RabbitMQ or database code, so
 // every rule in API v1.1 section 10 can be tested with a fake merchant server.
-package delivery
+package webhookdelivery
 
 import (
 	"crypto/hmac"
