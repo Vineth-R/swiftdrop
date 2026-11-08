@@ -198,10 +198,10 @@ func TestLimiterPerUserAndAnonymousIP(t *testing.T) {
 	}
 }
 
-func guestRouter(verifier auth.Verifier, secure bool) *gin.Engine {
+func guestRouter(verifier auth.Verifier) *gin.Engine {
 	router := gin.New()
 	router.Use(OptionalAuth(verifier, "sd_access"))
-	router.Use(GuestSession("sd_ai_guest", secure, time.Minute))
+	router.Use(GuestSession("sd_ai_guest", time.Minute))
 	router.GET("/", func(c *gin.Context) {
 		caller := CallerFrom(c)
 		c.JSON(http.StatusOK, gin.H{
@@ -222,7 +222,7 @@ func namedCookie(cookies []*http.Cookie, name string) *http.Cookie {
 }
 
 func TestGuestSessionIssuesSecureCookie(t *testing.T) {
-	router := guestRouter(nil, true)
+	router := guestRouter(nil)
 	recorder := request(router, nil, "203.0.113.10:1234")
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d", recorder.Code)
@@ -249,7 +249,7 @@ func TestGuestSessionIssuesSecureCookie(t *testing.T) {
 }
 
 func TestGuestSessionReusesValidCookieAndRotatesInvalidOne(t *testing.T) {
-	router := guestRouter(nil, false)
+	router := guestRouter(nil)
 	first := request(router, nil, "203.0.113.10:1234")
 	cookie := namedCookie(first.Result().Cookies(), "sd_ai_guest")
 	if cookie == nil {
@@ -275,7 +275,7 @@ func TestGuestSessionIsClearedForAuthenticatedCallers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	router := guestRouter(manager, false)
+	router := guestRouter(manager)
 	recorder := request(router, map[string]string{
 		"Authorization": "Bearer " + token,
 		"Cookie":        "sd_ai_guest=gs000102030405060708090a0b0c0d0e0f",
@@ -286,6 +286,9 @@ func TestGuestSessionIsClearedForAuthenticatedCallers(t *testing.T) {
 	cookie := namedCookie(recorder.Result().Cookies(), "sd_ai_guest")
 	if cookie == nil || cookie.Value != "" || cookie.MaxAge >= 0 {
 		t.Fatalf("guest cookie was not cleared: %+v", cookie)
+	}
+	if !cookie.Secure {
+		t.Fatalf("cleared guest cookie is not Secure: %+v", cookie)
 	}
 	if !strings.Contains(recorder.Body.String(), `"authenticated":true`) {
 		t.Fatalf("body = %s", recorder.Body.String())
@@ -379,5 +382,18 @@ func TestOriginGuard(t *testing.T) {
 				t.Fatalf("status = %d, want 403", recorder.Code)
 			}
 		})
+	}
+}
+
+func TestGuestSessionSecureCannotBeDisabledByEnvironment(t *testing.T) {
+	t.Setenv("COOKIE_SECURE", "false")
+	router := guestRouter(nil)
+	recorder := request(router, nil, "203.0.113.10:1234")
+	cookie := namedCookie(recorder.Result().Cookies(), "sd_ai_guest")
+	if cookie == nil {
+		t.Fatal("guest cookie was not set")
+	}
+	if !cookie.Secure {
+		t.Fatalf("guest cookie ignored the unconditional Secure policy: %+v", cookie)
 	}
 }

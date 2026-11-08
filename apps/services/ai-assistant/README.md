@@ -169,7 +169,6 @@ approved repository facts, and run `go test ./apps/services/ai-assistant/...`.
 | `AI_RATE_WINDOW`               | `1m`                    |                                                     |
 | `AI_MAX_CONCURRENT`            | `3`                     | Simultaneous turns per user/IP                      |
 | `AI_GUEST_COOKIE_NAME`         | `sd_ai_guest`           | HttpOnly guest-session cookie                       |
-| `COOKIE_SECURE`                | `false`                 | Secure flag for the guest cookie                    |
 | `FRONTEND_BASE_URL`            | `http://localhost:8080` | Allowed browser Origin for chat requests            |
 | `JWT_ACCESS_SECRET`            | empty                   | Enables private tools; unset keeps them unavailable |
 | `COOKIE_NAME`                  | `sd_access`             |                                                     |

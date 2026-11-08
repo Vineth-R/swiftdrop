@@ -33,7 +33,7 @@ The Go Docker build uses the existing generic `infra/docker/go.Dockerfile` with 
 
 ### 3.1 `POST /api/v1/ai/chat`
 
-Access: public, rate limited. Authentication is optional. Anonymous callers receive an HttpOnly `sd_ai_guest` session cookie (`gs` + 32 lowercase hex) that is bound to their conversations. A conversation ID alone never grants access.
+Access: public, rate limited. Authentication is optional. Anonymous callers receive an HttpOnly, always-Secure `sd_ai_guest` session cookie (`gs` + 32 lowercase hex) that is bound to their conversations. A conversation ID alone never grants access. Local development must use localhost, 127.0.0.1 or HTTPS, which browsers treat as secure contexts for Secure cookies.
 
 - If a valid `Authorization: Bearer <token>` or `sd_access` cookie is present, the caller is authenticated; private tools run only when the verified role is CUSTOMER, DISPATCHER or ADMIN.
 - If no credentials are present, the caller is anonymous and only public tools may be used.
@@ -333,7 +333,6 @@ Limits (all configurable):
 | `AI_RATE_WINDOW`               | `1m`                    |                                                                    |
 | `AI_MAX_CONCURRENT`            | `3`                     | simultaneous turns per user/IP                                     |
 | `AI_GUEST_COOKIE_NAME`         | `sd_ai_guest`           | HttpOnly guest-session cookie name                                 |
-| `COOKIE_SECURE`                | `false`                 | Secure flag for the guest cookie; true outside local HTTP          |
 | `FRONTEND_BASE_URL`            | `http://localhost:8080` | Allowed browser Origin for cookie-authenticated chat               |
 | `JWT_ACCESS_SECRET`            | empty                   | Unset makes private tools unavailable; public tool use still works |
 | `COOKIE_NAME`                  | `sd_access`             |                                                                    |

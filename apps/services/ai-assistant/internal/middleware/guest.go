@@ -23,7 +23,12 @@ const (
 // conversation ID alone never grants access. Authenticated requests clear the
 // guest cookie; guest history is never merged into an account and a later
 // logout starts a new guest session.
-func GuestSession(cookieName string, secure bool, ttl time.Duration) gin.HandlerFunc {
+//
+// The cookie is always Secure. There is deliberately no environment override:
+// production must never set this cookie without it, and local development must
+// use http://localhost, http://127.0.0.1 or HTTPS, which browsers treat as
+// secure contexts for Secure cookies.
+func GuestSession(cookieName string, ttl time.Duration) gin.HandlerFunc {
 	if cookieName == "" {
 		cookieName = defaultGuestCookieName
 	}
@@ -37,7 +42,7 @@ func GuestSession(cookieName string, secure bool, ttl time.Duration) gin.Handler
 		caller := CallerFrom(c)
 		if caller.Authenticated {
 			if _, err := c.Cookie(cookieName); err == nil {
-				clearGuestCookie(c, cookieName, secure)
+				clearGuestCookie(c, cookieName)
 			}
 			c.Next()
 			return
@@ -56,7 +61,7 @@ func GuestSession(cookieName string, secure bool, ttl time.Duration) gin.Handler
 			sessionID = generated
 		}
 
-		setGuestCookie(c, cookieName, sessionID, ttl, secure)
+		setGuestCookie(c, cookieName, sessionID, ttl)
 		caller.SessionID = sessionID
 		c.Set(callerContextKey, caller)
 		c.Next()
@@ -71,7 +76,7 @@ func newGuestSessionID() (string, error) {
 	return guestSessionPrefix + hex.EncodeToString(buffer[:]), nil
 }
 
-func setGuestCookie(c *gin.Context, name, value string, ttl time.Duration, secure bool) {
+func setGuestCookie(c *gin.Context, name, value string, ttl time.Duration) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     name,
 		Value:    value,
@@ -79,12 +84,12 @@ func setGuestCookie(c *gin.Context, name, value string, ttl time.Duration, secur
 		MaxAge:   int(ttl.Seconds()),
 		Expires:  time.Now().Add(ttl),
 		HttpOnly: true,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
 
-func clearGuestCookie(c *gin.Context, name string, secure bool) {
+func clearGuestCookie(c *gin.Context, name string) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     name,
 		Value:    "",
@@ -92,7 +97,7 @@ func clearGuestCookie(c *gin.Context, name string, secure bool) {
 		MaxAge:   -1,
 		Expires:  time.Unix(1, 0),
 		HttpOnly: true,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }

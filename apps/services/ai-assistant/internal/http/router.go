@@ -27,16 +27,15 @@ type ChatService interface {
 
 // Options configures the ai-assistant router.
 type Options struct {
-	Service           ChatService
-	Limiter           *middleware.Limiter
-	Verifier          auth.Verifier
-	CookieName        string
-	GuestCookieName   string
-	GuestCookieSecure bool
-	GuestSessionTTL   time.Duration
-	FrontendOrigin    string
-	TrustedProxies    []string
-	ProviderStatus    string
+	Service         ChatService
+	Limiter         *middleware.Limiter
+	Verifier        auth.Verifier
+	CookieName      string
+	GuestCookieName string
+	GuestSessionTTL time.Duration
+	FrontendOrigin  string
+	TrustedProxies  []string
+	ProviderStatus  string
 }
 
 type handler struct {
@@ -77,7 +76,7 @@ func New(logger *slog.Logger, options Options) (*gin.Engine, error) {
 	group := router.Group("/ai")
 	group.Use(middleware.OptionalAuth(options.Verifier, options.CookieName))
 	group.Use(middleware.OriginGuard(options.FrontendOrigin))
-	group.Use(middleware.GuestSession(options.GuestCookieName, options.GuestCookieSecure, options.GuestSessionTTL))
+	group.Use(middleware.GuestSession(options.GuestCookieName, options.GuestSessionTTL))
 	if options.Limiter != nil {
 		group.Use(options.Limiter.Middleware())
 	}

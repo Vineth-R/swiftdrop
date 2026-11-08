@@ -28,7 +28,6 @@ type Config struct {
 	CookieName   string
 
 	GuestCookieName string
-	CookieSecure    bool
 	MaxConcurrent   int
 	FrontendOrigin  string
 
@@ -103,14 +102,6 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 	if guestCookieName == cookieName {
 		return Config{}, errors.New("AI_GUEST_COOKIE_NAME must differ from COOKIE_NAME")
-	}
-
-	cookieSecure, err := loaderBool(loader, "COOKIE_SECURE", false)
-	if err != nil {
-		return Config{}, err
-	}
-	if appEnv == "production" && !cookieSecure {
-		return Config{}, errors.New("COOKIE_SECURE must be true in production")
 	}
 
 	maxConcurrent, err := loader.Int("AI_MAX_CONCURRENT", 3)
@@ -264,7 +255,6 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		AccessSecret:            accessSecret,
 		CookieName:              cookieName,
 		GuestCookieName:         guestCookieName,
-		CookieSecure:            cookieSecure,
 		MaxConcurrent:           maxConcurrent,
 		FrontendOrigin:          frontendOrigin,
 		AIEnabled:               enabled,

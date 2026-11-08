@@ -162,7 +162,6 @@ defaults. The important ones:
 | `AI_RATE_WINDOW`       | `1m`                    |                                                     |
 | `AI_MAX_CONCURRENT`    | `3`                     | Simultaneous turns per caller                       |
 | `AI_GUEST_COOKIE_NAME` | `sd_ai_guest`           | HttpOnly guest-session cookie                       |
-| `COOKIE_SECURE`        | `false`                 | Secure flag for the guest cookie                    |
 | `FRONTEND_BASE_URL`    | `http://localhost:8080` | Allowed browser Origin for chat requests            |
 | `JWT_ACCESS_SECRET`    | empty                   | Enables private tools; unset keeps them unavailable |
 | `COOKIE_NAME`          | `sd_access`             | The session cookie the assistant reads              |
@@ -222,8 +221,8 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/v1/ai/chat \
 - A deterministic pre-provider guard refuses confident explicit system-prompt,
   credential, cross-user extraction and permission-bypass attempts. It never
   grants access; authorization remains in the tools and Parcel.
-- Guest conversations are bound to an HttpOnly `sd_ai_guest` session; a
-  conversation ID alone returns `404`. Authenticated requests clear the guest
+- Guest conversations are bound to an HttpOnly, always-Secure `sd_ai_guest`
+  session; a conversation ID alone returns `404`. Authenticated requests clear the guest
   cookie, so guest history is never merged into an account.
 - Browser requests with an `Origin` header must match `FRONTEND_BASE_URL`;
   mismatches return `403 FORBIDDEN` before any session or provider work.

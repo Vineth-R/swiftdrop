@@ -129,10 +129,11 @@ paths:
               schema: { type: integer, minimum: 0 }
             Set-Cookie:
               description: >-
-                For anonymous callers, the HttpOnly sd_ai_guest session cookie
-                (gs followed by 32 lowercase hex characters). Authenticated
-                responses clear it. The cookie is required, together with the
-                conversation ID, to continue a guest conversation.
+                For anonymous callers, the HttpOnly, always-Secure sd_ai_guest
+                session cookie (gs followed by 32 lowercase hex characters).
+                Authenticated responses clear it. The cookie is required,
+                together with the conversation ID, to continue a guest
+                conversation.
               schema: { type: string }
             Vary:
               description: Cookie, because guest ownership depends on the session cookie.

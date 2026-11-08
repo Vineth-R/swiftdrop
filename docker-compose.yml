@@ -213,7 +213,6 @@ services:
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       PRICING_BASE_URL: http://pricing:8083
       PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
       PARCEL_BASE_URL: http://parcel:8082
