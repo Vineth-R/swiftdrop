@@ -414,3 +414,56 @@ Production readiness is separate: the current in-process conversation/rate-limit
 The SwiftDrop AI Delivery Assistant is a sound, well-tested feature that is technically ready for integration into `development` after the release-process steps in section 15. It is **not** ready for a naive merge into the AI-free `main` line, and it is not yet a production-grade multi-replica service without shared conversation/rate-limit state and operational monitoring.
 
 The most important engineering outcome of this audit is the live-discovered Gemini 3.x thought-signature defect: the feature would have failed every real tool round without it. That is now fixed, tested and verified live. The remaining risks are release policy, provider availability and the documented MVP limitations—not unresolved authorization, sanitization or secret-exposure defects.
+
+## 19. CI follow-up — 2026-11-08
+
+This section is appended after the original audit and does not rewrite prior findings.
+
+### PR and run state
+
+- PR: [#106](https://github.com/Vineth-R/swiftdrop/pull/106)
+- Head audited: `3b0b63cf4e301914ebeac0444b3ad64c7dcb2d7e`
+- Workflow run: `42464200860`
+- PR state: open, targeting `development`, mergeable with no conflicts
+- Check summary at the end of the initial run: **18 passed, 10 failed, 0 pending** (29 checks)
+- Access tests (Compose stack): **passed** in 14m55s
+
+Passing checks included Go checks, frontend checks, Playwright E2E, Go vulnerability scan, PostgreSQL, RabbitMQ, identity, parcel and notification E2E, SAST/CodeQL, access tests, and the `pricing`/`webhook-worker` Docker builds.
+
+### Gitleaks / Security gate
+
+- Gitleaks: **failed** (job `128679815989`).
+- Finding: `generic-api-key` in `apps/services/realtime/internal/ws/handler_test.go` at commit `c3d22b3886c851ae83d062b22cf933b97819e25d`.
+- That commit is on `origin/feature/m10-realtime-handler`; it is not reachable from `development`, `main`, or PR #106.
+- The file is a realtime WebSocket test; the flagged value is a hard-coded test JWT signing secret with explicit placeholder-style words. It is used only with `auth.NewTokenManager` in tests. It is not an AI credential and there is no evidence it is used in production; it should still be treated as a test credential and not reused.
+- The branch has no open PR. The commit author is `WathsalaKJ`.
+- Root cause of the PR impact: the workflow checks out full history with `fetch-depth: 0` and runs `gitleaks git .`, which scans every fetched ref, including unmerged feature branches. This is a repository-wide security-gate scope issue, not an AI feature defect.
+- The finding was **not** suppressed. No broad Gitleaks exclusions were added. The Security gate and Required CI gate failed as downstream consequences.
+- Recommended remediation (owner/security decision): replace the hard-coded test secret in the realtime branch, or add a narrow, owner-approved allowlist; alternatively, scope the PR Gitleaks scan to the PR range while retaining full-history scans on `development` pushes. None of these changes were made in this PR.
+
+### Syft/SBOM Docker failures
+
+- Seven Docker jobs failed: `ai-assistant`, `identity`, `merchant`, `notification-worker`, `parcel`, `realtime`, `web`.
+- In every case the Docker build completed with no build error; the failure was the Syft installer download:
+  `HTTP status=504` for `syft_1.56.0_linux_amd64.tar.gz`, followed by `The Syft installer failed to install v1.56.0`.
+- `pricing` and `webhook-worker` Docker jobs passed.
+- A failed-jobs rerun reproduced the same Syft HTTP 504 in the completed reruns. This is external GitHub release/CDN availability, not an AI build defect.
+- SBOM/Trivy generation was not disabled or bypassed.
+
+### Access tests
+
+- Passed. The Compose stack built, started, migrated, passed the database baseline check, and completed the access test step.
+
+### Fixes applied
+
+- No AI code changes were required by this CI follow-up.
+- Only this documentation follow-up was added.
+- The unrelated realtime branch, booking-fee work, `main`, and PR #106 merge state were not modified.
+
+### Outstanding blockers and recommendation
+
+1. Gitleaks/Security gate: blocked by the unrelated realtime branch fixture; the owner must remediate it or the team must approve a scoped scanner-policy change.
+2. Docker/SBOM jobs: blocked by repeated Syft download HTTP 504; rerun after the external artifact is available.
+3. Required CI gate: fails while the above are red.
+
+AI-specific checks are green. PR #106 is **not ready to merge** until the security gate and Docker/SBOM checks pass. Do not merge without separate approval.
