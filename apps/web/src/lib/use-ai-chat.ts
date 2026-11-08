@@ -35,6 +35,7 @@ export function useAiChat() {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<ChatFailure | null>(null);
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   const conversationId = useRef<string | null>(null);
   const attempt = useRef<LastAttempt | null>(null);
@@ -140,6 +141,7 @@ export function useAiChat() {
   /** Re-sends the last message without adding a second user bubble. */
   const retry = useCallback(() => {
     if (!attempt.current) return;
+    setRetryToken((current) => current + 1);
     void run(attempt.current.message, false);
   }, [run]);
 
@@ -155,6 +157,7 @@ export function useAiChat() {
     failedMessage,
     send,
     retry,
+    retryToken,
     dismissError,
   };
 }

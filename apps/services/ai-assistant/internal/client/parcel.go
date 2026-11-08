@@ -60,6 +60,24 @@ type ParcelList struct {
 	Pagination Pagination
 }
 
+// AdminParcelListItem is one operational parcel row. Customer and merchant IDs
+// are deliberately not modelled so they cannot reach the model.
+type AdminParcelListItem struct {
+	ID             string  `json:"id"`
+	TrackingNumber string  `json:"trackingNumber"`
+	Status         string  `json:"status"`
+	PickupCity     string  `json:"pickupCity"`
+	DropoffCity    string  `json:"dropoffCity"`
+	CourierID      *string `json:"courierId"`
+	CreatedAt      string  `json:"createdAt"`
+}
+
+// AdminParcelList is the operational parcel search response.
+type AdminParcelList struct {
+	Items      []AdminParcelListItem
+	Pagination Pagination
+}
+
 // ParcelClient calls the Parcel service's public tracking and owned parcel
 // read endpoints.
 type ParcelClient struct {
@@ -135,4 +153,27 @@ func (c *ParcelClient) List(ctx context.Context, status, accessToken string) (Pa
 		}
 	}
 	return ParcelList{Items: envelope.Data, Pagination: envelope.Meta.Pagination}, nil
+}
+
+// AdminParcels returns the first page of the operational parcel search. The
+// Parcel API authorizes DISPATCHER and ADMIN callers; the assistant never
+// supplies an identity.
+func (c *ParcelClient) AdminParcels(ctx context.Context, status, accessToken string) (AdminParcelList, error) {
+	query := url.Values{}
+	query.Set("page", "1")
+	query.Set("pageSize", "20")
+	if trimmed := strings.TrimSpace(status); trimmed != "" {
+		query.Set("status", trimmed)
+	}
+
+	var envelope struct {
+		Data []AdminParcelListItem `json:"data"`
+		Meta struct {
+			Pagination Pagination `json:"pagination"`
+		} `json:"meta"`
+	}
+	if err := c.http.do(ctx, http.MethodGet, "/admin/parcels", query, nil, strings.TrimSpace(accessToken), &envelope); err != nil {
+		return AdminParcelList{}, err
+	}
+	return AdminParcelList{Items: envelope.Data, Pagination: envelope.Meta.Pagination}, nil
 }

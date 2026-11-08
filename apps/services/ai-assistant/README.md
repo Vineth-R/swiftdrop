@@ -1,8 +1,9 @@
 # SwiftDrop AI Delivery Assistant — backend
 
-The Go backend for the SwiftDrop Delivery Assistant. It answers SwiftDrop domain
-questions and, when live data is required, calls exactly four approved read-only
-business tools against the existing Pricing and Parcel APIs.
+The Go backend for the SwiftDrop Delivery Assistant. It is publicly accessible to
+guests and answers SwiftDrop domain questions. When live data is required it calls
+exactly four approved read-only business tools against the existing Pricing and
+Parcel APIs using the caller's verified identity and role.
 
 Gemini is the only model provider, accessed through the official
 [`google.golang.org/genai`](https://pkg.go.dev/google.golang.org/genai) Go SDK
@@ -22,8 +23,8 @@ Next.js widget
     -> ai-assistant:8087
          -> request validation + optional JWT identity
          -> rate limit (15/min per user or anonymous IP)
-         -> conversation load/create
-         -> business-scope guard
+         -> conversation ownership (guest session or verified user)
+         -> business-scope and deterministic extraction guards
          -> keyword knowledge retrieval (embedded Markdown)
          -> Gemini GenerateContent (function declarations)
          -> strict tool allowlist + argument validation
@@ -76,21 +77,24 @@ three approved knowledge sections, and runs a bounded tool loop:
 
 ## The four approved tools
 
-| Tool                       | Upstream                          | Access             |
-| -------------------------- | --------------------------------- | ------------------ |
-| `calculate_delivery_fee`   | `POST /pricing/estimate`          | Public             |
-| `get_public_parcel_status` | `GET /tracking/{trackingNumber}`  | Public             |
-| `get_my_parcel_history`    | `GET /parcels/{parcelId}/history` | Signed-in owner    |
-| `get_my_active_deliveries` | `GET /parcels?status=...`         | Signed-in customer |
+| Tool                       | Upstream                                                         | Access                                     |
+| -------------------------- | ---------------------------------------------------------------- | ------------------------------------------ |
+| `calculate_delivery_fee`   | `POST /pricing/estimate`                                         | Public                                     |
+| `get_public_parcel_status` | `GET /tracking/{trackingNumber}`                                 | Public                                     |
+| `get_my_parcel_history`    | `GET /parcels/{parcelId}/history`                                | CUSTOMER own; DISPATCHER/ADMIN operational |
+| `get_my_active_deliveries` | CUSTOMER: `GET /parcels`; DISPATCHER/ADMIN: `GET /admin/parcels` | CUSTOMER own; DISPATCHER/ADMIN operational |
 
 `calculate_delivery_fee` resolves the customer's location names against the
 public zone directory (`GET /zones`) and then calls the Pricing estimate. It
 never computes a price. Pricing remains the source of truth.
 
-The private tools refuse anonymous callers before any HTTP request. They forward
-only the caller's verified access token; they never accept a user/owner/customer
-ID from the model. Parcel remains authoritative for ownership, so another
-customer's parcel produces the same safe not-found result as a missing parcel.
+The private tools refuse guests, MERCHANT and COURIER before any HTTP request.
+CUSTOMER, DISPATCHER and ADMIN are allowed; the caller's verified access token is
+forwarded and Parcel remains authoritative for ownership and staff access. The
+model never supplies a user/owner/customer ID. DISPATCHER/ADMIN operational
+lists use `GET /admin/parcels` and return a separate allowlist without customer
+or merchant IDs. Another customer's parcel produces the same safe not-found
+result as a missing parcel for a customer.
 
 Argument validation is strict: required keys, exact types, enum membership,
 UUID/tracking formats, weight precision, and no unknown keys. Tracking output and
@@ -104,14 +108,17 @@ Bearer` or the `sd_access` cookie. Invalid supplied credentials return `401`;
   they are never downgraded to anonymous.
 - Identity/roles are read only from verified claims, never from the model.
 - Prompt injection: the system instruction marks user messages, knowledge and
-  tool results as untrusted data. Tool calls are independently validated and
+  tool results as untrusted data. A deterministic guard refuses confident
+  explicit prompt/secret/cross-user extraction and permission-bypass attempts
+  before the provider is called. Tool calls are independently validated and
   authorized; the model cannot grant permissions, reveal credentials or call an
-  unregistered tool.
+  unregistered tool. The guard is supplementary and never grants access.
 - Knowledge and tool results are untrusted reference material, not executable
   instructions.
 - Logs contain request ID, conversation ID, model, durations, tool name/status,
-  token usage and error category. They never contain message bodies, access
-  tokens, API keys or private parcel data.
+  token usage and error category. They never contain message bodies, guest
+  session IDs, access tokens, API keys or private parcel data. DISPATCHER/ADMIN
+  parcel lookups emit a safe audit event (actor, role, tool, outcome).
 - Rate limiting is process-local and bounded; a multi-replica deployment needs
   coordinated edge enforcement.
 - Errors never include provider payloads, SQL, stack traces or credentials.
@@ -137,35 +144,38 @@ approved repository facts, and run `go test ./apps/services/ai-assistant/...`.
 
 ## Configuration
 
-| Variable                       | Default               | Notes                                               |
-| ------------------------------ | --------------------- | --------------------------------------------------- |
-| `APP_ENV`                      | required              | `development`, `staging`, `production`              |
-| `LOG_LEVEL`                    | `info`                |                                                     |
-| `PORT`                         | `8087`                |                                                     |
-| `HTTP_TRUSTED_PROXIES`         | empty                 | CIDR allowlist for `X-Real-IP`                      |
-| `AI_ENABLED`                   | `true`                | `false` returns `503`                               |
-| `AI_PROVIDER`                  | `gemini`              | `gemini`; `mock` is development-only                |
-| `GEMINI_API_KEY`               | empty                 | Missing key leaves chat at 503, not startup failure |
-| `AI_MODEL`                     | `gemini-3.5-flash`    | Configurable                                        |
-| `AI_TEMPERATURE`               | `0.2`                 | 0–2                                                 |
-| `AI_MAX_OUTPUT_TOKENS`         | `1024`                | 1–8192                                              |
-| `AI_REQUEST_TIMEOUT`           | `15s`                 | Per provider call                                   |
-| `AI_TOOL_TIMEOUT`              | `5s`                  | Per tool call                                       |
-| `AI_TOTAL_TIMEOUT`             | `25s`                 | Whole turn; must be at least `AI_REQUEST_TIMEOUT`   |
-| `AI_MAX_TOOL_ROUNDS`           | `3`                   | 1–5                                                 |
-| `AI_MAX_TOOL_CALLS`            | `4`                   | 1–8                                                 |
-| `AI_MAX_HISTORY_MESSAGES`      | `12`                  |                                                     |
-| `AI_CONVERSATION_TTL`          | `30m`                 |                                                     |
-| `AI_CONVERSATION_MAX`          | `10000`               |                                                     |
-| `AI_CONVERSATION_MAX_MESSAGES` | `40`                  | ≥ history limit                                     |
-| `AI_RATE_LIMIT`                | `15`                  | Per rolling window                                  |
-| `AI_RATE_WINDOW`               | `1m`                  |                                                     |
-| `JWT_ACCESS_SECRET`            | empty                 | Enables private tools; unset keeps them unavailable |
-| `COOKIE_NAME`                  | `sd_access`           |                                                     |
-| `PRICING_BASE_URL`             | `http://pricing:8083` | HTTP(S) origin                                      |
-| `PRICING_TIMEOUT`              | `3s`                  |                                                     |
-| `PARCEL_BASE_URL`              | `http://parcel:8082`  | HTTP(S) origin                                      |
-| `PARCEL_TIMEOUT`               | `3s`                  |                                                     |
+| Variable                       | Default                 | Notes                                               |
+| ------------------------------ | ----------------------- | --------------------------------------------------- |
+| `APP_ENV`                      | required                | `development`, `staging`, `production`              |
+| `LOG_LEVEL`                    | `info`                  |                                                     |
+| `PORT`                         | `8087`                  |                                                     |
+| `HTTP_TRUSTED_PROXIES`         | empty                   | CIDR allowlist for `X-Real-IP`                      |
+| `AI_ENABLED`                   | `true`                  | `false` returns `503`                               |
+| `AI_PROVIDER`                  | `gemini`                | `gemini`; `mock` is development-only                |
+| `GEMINI_API_KEY`               | empty                   | Missing key leaves chat at 503, not startup failure |
+| `AI_MODEL`                     | `gemini-3.5-flash`      | Configurable                                        |
+| `AI_TEMPERATURE`               | `0.2`                   | 0–2                                                 |
+| `AI_MAX_OUTPUT_TOKENS`         | `1024`                  | 1–8192                                              |
+| `AI_REQUEST_TIMEOUT`           | `15s`                   | Per provider call                                   |
+| `AI_TOOL_TIMEOUT`              | `5s`                    | Per tool call                                       |
+| `AI_TOTAL_TIMEOUT`             | `25s`                   | Whole turn; must be at least `AI_REQUEST_TIMEOUT`   |
+| `AI_MAX_TOOL_ROUNDS`           | `3`                     | 1–5                                                 |
+| `AI_MAX_TOOL_CALLS`            | `4`                     | 1–8                                                 |
+| `AI_MAX_HISTORY_MESSAGES`      | `12`                    |                                                     |
+| `AI_CONVERSATION_TTL`          | `30m`                   |                                                     |
+| `AI_CONVERSATION_MAX`          | `10000`                 |                                                     |
+| `AI_CONVERSATION_MAX_MESSAGES` | `40`                    | ≥ history limit                                     |
+| `AI_RATE_LIMIT`                | `15`                    | Per rolling window                                  |
+| `AI_RATE_WINDOW`               | `1m`                    |                                                     |
+| `AI_MAX_CONCURRENT`            | `3`                     | Simultaneous turns per user/IP                      |
+| `AI_GUEST_COOKIE_NAME`         | `sd_ai_guest`           | HttpOnly guest-session cookie                       |
+| `FRONTEND_BASE_URL`            | `http://localhost:8080` | Allowed browser Origin for chat requests            |
+| `JWT_ACCESS_SECRET`            | empty                   | Enables private tools; unset keeps them unavailable |
+| `COOKIE_NAME`                  | `sd_access`             |                                                     |
+| `PRICING_BASE_URL`             | `http://pricing:8083`   | HTTP(S) origin                                      |
+| `PRICING_TIMEOUT`              | `3s`                    |                                                     |
+| `PARCEL_BASE_URL`              | `http://parcel:8082`    | HTTP(S) origin                                      |
+| `PARCEL_TIMEOUT`               | `3s`                    |                                                     |
 
 A missing `GEMINI_API_KEY` does not stop the process or the gateway: the
 service starts with an unconfigured provider, `/ready` reports `unconfigured`,
@@ -188,14 +198,16 @@ Success `200`:
 }
 ```
 
-Errors: `400 BAD_REQUEST`, `401 UNAUTHENTICATED`/`TOKEN_EXPIRED`, `404
-CONVERSATION_NOT_FOUND`, `413 PAYLOAD_TOO_LARGE`, `422 VALIDATION_ERROR`, `429
-RATE_LIMITED` with `Retry-After`, `503 AI_UNAVAILABLE`, `500 INTERNAL_ERROR`.
+Errors: `400 BAD_REQUEST`, `401 UNAUTHENTICATED`/`TOKEN_EXPIRED`, `403
+FORBIDDEN`, `404 CONVERSATION_NOT_FOUND`, `413 PAYLOAD_TOO_LARGE`, `422
+VALIDATION_ERROR`, `429 RATE_LIMITED` with `Retry-After`, `503 AI_UNAVAILABLE`,
+`500 INTERNAL_ERROR`.
 Tool-call statuses are `OK`, `INVALID`, `DENIED` and `UNAVAILABLE`.
 
 Conversation IDs are `cv` plus 32 lowercase hex characters. Anonymous
-conversations and signed-in conversations are isolated; cross-owner IDs return
-`404`. The store is not durable across restarts.
+conversations are also bound to the `sd_ai_guest` session; signed-in
+conversations are bound to the verified user. Cross-owner and cross-guest IDs
+return `404`. The store is not durable across restarts.
 
 ## Running locally
 
@@ -224,10 +236,13 @@ pnpm exec nx test ai-assistant
 pnpm exec nx lint ai-assistant
 ```
 
-Coverage includes message validation, conversation ownership/expiry/truncation,
-rate limiting, optional authentication, provider failure/timeout/empty response,
-tool loop success, unknown tools, strict arguments, private-tool denial before
-upstream, cross-customer safety, identity override rejection, public-tracking
+Coverage includes message validation, guest and authenticated conversation
+ownership, cross-guest isolation, session expiry/truncation, rate limiting,
+per-caller concurrency, optional authentication, the role matrix for both
+private tools, operational allowlists, privileged audit logging, the
+deterministic extraction guard, provider failure/timeout/empty response, tool
+loop success, unknown tools, strict arguments, denial before upstream,
+cross-customer safety, identity override rejection, public-tracking
 sanitization, pricing non-fabrication, upstream unavailability, scope refusal,
 knowledge retrieval and the final API envelope.
 
@@ -237,8 +252,11 @@ with a real `GEMINI_API_KEY` if required.
 
 ## Known limitations
 
-- Conversation history and rate limits are in-process; they do not survive a
-  restart and are not shared between replicas.
+- Conversation history, rate limits and concurrency slots are in-process; they do
+  not survive a restart and are not shared between replicas.
+- The deterministic extraction guard is a supplementary heuristic, not an
+  authorization mechanism. Backend role checks, conversation ownership and
+  Parcel authorization remain authoritative.
 - No streaming; the reply arrives after the provider/tool loop completes.
 - The knowledge base uses keyword retrieval, not semantic search.
 - The mock provider is for development and tests and does not prove Gemini.

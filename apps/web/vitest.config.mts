@@ -7,6 +7,12 @@ import { defineConfig } from 'vitest/config';
  * Component and authentication-flow behaviour stays in the Playwright suite.
  */
 export default defineConfig({
+  oxc: {
+    jsx: {
+      runtime: 'automatic',
+      importSource: 'react',
+    },
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -14,6 +20,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.spec.ts'],
+    include: ['src/**/*.spec.{ts,tsx}'],
   },
 });

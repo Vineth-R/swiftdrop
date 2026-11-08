@@ -12,6 +12,7 @@ import {
 
 import { ApiError, onSessionExpired } from './api';
 import { getMe, login, logout, type User } from './auth-api';
+import { emitSessionIdentity } from './session-events';
 
 /**
  * loading: the cookie is being checked (the splash shows).
@@ -45,8 +46,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController();
     getMe()
       .then((user) => {
-        if (!controller.signal.aborted)
-          setSession({ status: 'authenticated', user });
+        if (controller.signal.aborted) return;
+        emitSessionIdentity(user.id);
+        setSession({ status: 'authenticated', user });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -54,18 +56,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           error instanceof ApiError &&
           (error.code === 'UNAUTHENTICATED' ||
             error.code === 'ACCOUNT_DEACTIVATED');
+        if (isSignedOut) emitSessionIdentity(null);
         setSession({ status: isSignedOut ? 'unauthenticated' : 'unavailable' });
       });
     return () => controller.abort();
   }, [attempt]);
 
   useEffect(
-    () => onSessionExpired(() => setSession({ status: 'unauthenticated' })),
+    () =>
+      onSessionExpired(() => {
+        emitSessionIdentity(null);
+        setSession({ status: 'unauthenticated' });
+      }),
     [],
   );
 
   const signIn = useCallback(async (email: string, password: string) => {
     const user = await login(email, password);
+    emitSessionIdentity(user.id);
     setSession({ status: 'authenticated', user });
     return user;
   }, []);
@@ -75,12 +83,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // purpose: marking the session empty first would let the signed-in guard
     // redirect to the login page before the caller can show "signed out".
     await logout();
+    emitSessionIdentity(null);
   }, []);
 
-  const setUser = useCallback(
-    (user: User) => setSession({ status: 'authenticated', user }),
-    [],
-  );
+  const setUser = useCallback((user: User) => {
+    emitSessionIdentity(user.id);
+    setSession({ status: 'authenticated', user });
+  }, []);
 
   const recheck = useCallback(() => {
     setSession({ status: 'loading' });

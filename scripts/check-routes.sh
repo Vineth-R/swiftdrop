@@ -100,7 +100,7 @@ check_upstream "/api/v1/reports/probe" "parcel:reports"
 check_upstream "/api/v1/merchants/probe" "merchant:merchants"
 check_upstream "/api/v1/merchant/orders/probe" "merchant:merchant"
 check_upstream "/api/v1/admin/merchants/probe" "merchant:admin-merchants"
-check_status "/ws" "404" "realtime websocket route"
+check_status "/ws" "426" "realtime websocket route"
 
 if [ "$failures" -ne 0 ]; then
   printf '\n%d route check(s) failed\n' "$failures"

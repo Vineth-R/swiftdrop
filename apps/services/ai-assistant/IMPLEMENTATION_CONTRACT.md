@@ -6,7 +6,7 @@ Owner: `apps/services/ai-assistant` (Go backend). Session 2 owns `apps/web`, `do
 
 ## 1. Scope
 
-The assistant answers SwiftDrop domain questions and, when needed, calls exactly four approved read-only business tools that call existing SwiftDrop APIs with the caller's own credentials.
+The assistant answers SwiftDrop domain questions and, when needed, calls exactly four approved read-only business tools that call existing SwiftDrop APIs with the caller's own verified credentials. It is public: guests receive an HttpOnly server-generated session, while signed-in callers keep their verified identity and role.
 
 - Provider: Google Gemini only, through the official `google.golang.org/genai` Go SDK.
 - No database access from the model.
@@ -33,9 +33,9 @@ The Go Docker build uses the existing generic `infra/docker/go.Dockerfile` with 
 
 ### 3.1 `POST /api/v1/ai/chat`
 
-Access: public, rate limited. Authentication is optional.
+Access: public, rate limited. Authentication is optional. Anonymous callers receive an HttpOnly, always-Secure `sd_ai_guest` session cookie (`gs` + 32 lowercase hex) that is bound to their conversations. A conversation ID alone never grants access. Local development must use localhost, 127.0.0.1 or HTTPS, which browsers treat as secure contexts for Secure cookies.
 
-- If a valid `Authorization: Bearer <token>` or `sd_access` cookie is present, the caller is authenticated and private tools may be used.
+- If a valid `Authorization: Bearer <token>` or `sd_access` cookie is present, the caller is authenticated; private tools run only when the verified role is CUSTOMER, DISPATCHER or ADMIN.
 - If no credentials are present, the caller is anonymous and only public tools may be used.
 - If credentials are present but `JWT_ACCESS_SECRET` is not configured, the request fails closed with `503 SERVICE_UNAVAILABLE`; it is never downgraded to anonymous.
 - If credentials are present but invalid or expired, the request is rejected with `401 UNAUTHENTICATED` / `401 TOKEN_EXPIRED`. It is never silently downgraded to anonymous.
@@ -102,7 +102,8 @@ Errors use the existing API v1.1 envelope:
 | 404    | `CONVERSATION_NOT_FOUND` | Conversation ID is unknown, expired, or owned by someone else                      |
 | 413    | `PAYLOAD_TOO_LARGE`      | Body exceeds 1 MiB                                                                 |
 | 422    | `VALIDATION_ERROR`       | Empty/whitespace message, >500 characters, or malformed conversation ID            |
-| 429    | `RATE_LIMITED`           | More than 15 requests per rolling minute for this caller                           |
+| 403    | `FORBIDDEN`              | The request Origin does not match `FRONTEND_BASE_URL`                              |
+| 429    | `RATE_LIMITED`           | More than 15 requests per rolling minute for this caller, or the concurrency cap   |
 | 503    | `AI_UNAVAILABLE`         | Assistant disabled/unconfigured, provider failure/timeout, or empty model response |
 | 503    | `SERVICE_UNAVAILABLE`    | Credentials were supplied but `JWT_ACCESS_SECRET` is not configured                |
 
@@ -115,7 +116,9 @@ Dependent-service failures (Pricing/Parcel) are returned to the model as tool re
 ## 4. Rate limiting
 
 - 15 requests per rolling minute per authenticated user ID.
-- 15 requests per rolling minute per client IP for anonymous callers.
+- 15 requests per rolling minute per client IP for anonymous callers. Rotating the guest cookie does not reset the IP budget.
+- Each caller may have at most `AI_MAX_CONCURRENT` (default 3) turns in flight. Excess concurrent turns return `429 RATE_LIMITED` with `Retry-After`.
+- Invalid, oversized and out-of-scope requests never reach the provider.
 - Process-local and bounded (4096 keys), matching the existing shared limiter's fail-closed behaviour.
 - Multi-replica deployments must add coordinated edge enforcement; this is documented as a limitation.
 
@@ -124,7 +127,9 @@ Dependent-service failures (Pricing/Parcel) are returned to the model as tool re
 - Identity comes only from verified JWT access-token claims (`sub`, `role`) using `packages/go-common/auth`.
 - The Go service never accepts `userId`, `customerId`, `ownerId`, `role`, or `permissions` from the model.
 - The caller's raw access token is forwarded to Parcel only for private tools and is never sent to Gemini or logged.
-- Private tools (`get_my_parcel_history`, `get_my_active_deliveries`) fail closed with `DENIED` for anonymous callers before any HTTP call.
+- Private tools fail closed with `DENIED` before any HTTP call for guests, MERCHANT and COURIER.
+- CUSTOMER private reads use `GET /parcels` and `GET /parcels/{parcelId}/history`; ownership is enforced by Parcel.
+- DISPATCHER and ADMIN use `GET /admin/parcels` for operational lists and `GET /parcels/{parcelId}/history` for history. ADMIN inherits DISPATCHER permissions; the caller's verified token is forwarded so Parcel remains authoritative.
 - Parcel remains authoritative for ownership. Customer A receives the same `404` for Customer B's parcel; the assistant reports that the parcel could not be found.
 
 ## 6. Provider interface
@@ -218,6 +223,9 @@ type CallerContext struct {
     Role          string
     Authenticated bool
     AccessToken   string
+    // SessionID is the server-issued guest session for anonymous callers.
+    // It is set only by the guest-session middleware and is empty when the
+    // caller is authenticated.
     SessionID     string
 }
 ```
@@ -226,12 +234,12 @@ Argument validation is strict: required keys, exact types, enum membership, UUID
 
 ## 8. The four approved tools
 
-| Tool                       | Upstream call                             | Access                 |
-| -------------------------- | ----------------------------------------- | ---------------------- |
-| `calculate_delivery_fee`   | `POST {PRICING}/pricing/estimate`         | Public                 |
-| `get_public_parcel_status` | `GET {PARCEL}/tracking/{trackingNumber}`  | Public                 |
-| `get_my_parcel_history`    | `GET {PARCEL}/parcels/{parcelId}/history` | Authenticated owner    |
-| `get_my_active_deliveries` | `GET {PARCEL}/parcels?status=...`         | Authenticated customer |
+| Tool                       | Upstream call                                                                    | Access                      |
+| -------------------------- | -------------------------------------------------------------------------------- | --------------------------- |
+| `calculate_delivery_fee`   | `POST {PRICING}/pricing/estimate`                                                | Public                      |
+| `get_public_parcel_status` | `GET {PARCEL}/tracking/{trackingNumber}`                                         | Public                      |
+| `get_my_parcel_history`    | `GET {PARCEL}/parcels/{parcelId}/history`                                        | CUSTOMER, DISPATCHER, ADMIN |
+| `get_my_active_deliveries` | CUSTOMER: `GET {PARCEL}/parcels`; DISPATCHER/ADMIN: `GET {PARCEL}/admin/parcels` | CUSTOMER, DISPATCHER, ADMIN |
 
 ### 8.1 `calculate_delivery_fee`
 
@@ -254,20 +262,24 @@ Result allowlist: `trackingNumber`, `status`, `pickupCity`, `dropoffCity`, `last
 
 Arguments: `parcelId` (string, required, UUID).
 
-The model cannot supply an owner/user ID. The client forwards the caller's access token. Result allowlist: `previousStatus`, `status`, `changedAt`, `note`. `failureReason` and `actorRole` are excluded.
+Allowed roles: CUSTOMER (own parcels only), DISPATCHER and ADMIN (operational access). GUEST, MERCHANT and COURIER are denied before any HTTP call. The model cannot supply an owner/user ID. The client forwards the caller's access token and Parcel enforces ownership/staff authorization. Result allowlist: `previousStatus`, `status`, `changedAt`, `note`. `failureReason` and `actorRole` are excluded.
 
 ### 8.4 `get_my_active_deliveries`
 
 Arguments: `status` (string enum, optional): one of `CREATED`, `PICKED_UP`, `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `FAILED`.
 
-The client calls `GET {PARCEL}/parcels?page=1&pageSize=20` with the optional status filter and the caller's token. Result allowlist per parcel: `id`, `trackingNumber`, `status`, `dropoffCity`, `recipientName`, `total`, `currency`, `createdAt`. Addresses and internal fields are excluded.
+CUSTOMER calls `GET {PARCEL}/parcels?page=1&pageSize=20` with the optional status filter and the caller's token. DISPATCHER and ADMIN call `GET {PARCEL}/admin/parcels?page=1&pageSize=20` with the same filter and their own token. Result scope is `customer` or `operations`.
+
+- Customer allowlist: `id`, `trackingNumber`, `status`, `dropoffCity`, `recipientName`, `total`, `currency`, `createdAt`, `active`.
+- Operational allowlist: `id`, `trackingNumber`, `status`, `pickupCity`, `dropoffCity`, `courierId`, `createdAt`, `active`.
+- Both include `count`, `activeCount` and `totalItems`. Addresses, phone numbers, customer IDs, merchant IDs and internal metadata are excluded.
 
 There are no other tools. Unknown tool names are never executed.
 
 ## 9. Orchestration
 
 1. Validate request and load/create the conversation.
-2. Enforce business scope (SwiftDrop only).
+2. Enforce business scope (SwiftDrop only) and the deterministic extraction/permission guard.
 3. Retrieve a bounded set of approved knowledge sections.
 4. Build the system instruction (persona, scope, security, knowledge, tool rules).
 5. Call Gemini; execute approved tools in a bounded loop.
@@ -287,42 +299,47 @@ Limits (all configurable):
 ## 10. Conversation model
 
 - New conversation ID format: `cv` + 32 lowercase hex characters.
-- Anonymous conversations are owned by nobody; authenticated conversations are bound to the verified user ID.
-- Anonymous callers cannot continue authenticated conversations and authenticated users cannot continue anonymous conversations (both return `404 CONVERSATION_NOT_FOUND`).
+- Anonymous conversations are bound to a server-generated guest session ID (`gs` + 32 lowercase hex) delivered in the HttpOnly `sd_ai_guest` cookie. Authenticated conversations are bound to the verified user ID.
+- A guest must present both the conversation ID and the same guest session cookie. A conversation ID alone returns `404 CONVERSATION_NOT_FOUND`.
+- Anonymous callers cannot continue authenticated conversations, authenticated users cannot continue anonymous conversations, and guests cannot continue another guest's conversation (all return `404`).
+- Authenticated requests clear the guest cookie. Guest history is never merged into an account and does not reappear after logout.
 - Storage is an in-process, bounded, TTL store (default TTL 30 minutes, 10 000 conversations, 40 stored messages). It is not durable across restarts and not shared across replicas. This is an accepted MVP limitation; Session 2 must not assume persistence.
 - Provider context keeps the most recent `AI_MAX_HISTORY_MESSAGES` turns; older turns are truncated.
 
 ## 11. Configuration
 
-| Variable                       | Default               | Notes                                                              |
-| ------------------------------ | --------------------- | ------------------------------------------------------------------ |
-| `APP_ENV`                      | required              | `development`, `staging`, `production`                             |
-| `LOG_LEVEL`                    | `info`                |                                                                    |
-| `PORT`                         | `8087`                |                                                                    |
-| `HTTP_TRUSTED_PROXIES`         | empty                 | CIDR allowlist for forwarded client IPs                            |
-| `AI_ENABLED`                   | `true`                | `false` returns `503 AI_UNAVAILABLE`                               |
-| `AI_PROVIDER`                  | `gemini`              | `gemini`; `mock` is development-only                               |
-| `GEMINI_API_KEY`               | empty                 | Missing key leaves chat at 503; it does not fail startup           |
-| `AI_MODEL`                     | `gemini-3.5-flash`    | Verified default                                                   |
-| `AI_TEMPERATURE`               | `0.2`                 | 0–2                                                                |
-| `AI_MAX_OUTPUT_TOKENS`         | `1024`                |                                                                    |
-| `AI_REQUEST_TIMEOUT`           | `15s`                 |                                                                    |
-| `AI_TOOL_TIMEOUT`              | `5s`                  |                                                                    |
-| `AI_TOTAL_TIMEOUT`             | `25s`                 | Whole turn; must be at least `AI_REQUEST_TIMEOUT`                  |
-| `AI_MAX_TOOL_ROUNDS`           | `3`                   |                                                                    |
-| `AI_MAX_TOOL_CALLS`            | `4`                   |                                                                    |
-| `AI_MAX_HISTORY_MESSAGES`      | `12`                  |                                                                    |
-| `AI_CONVERSATION_TTL`          | `30m`                 |                                                                    |
-| `AI_CONVERSATION_MAX`          | `10000`               |                                                                    |
-| `AI_CONVERSATION_MAX_MESSAGES` | `40`                  |                                                                    |
-| `AI_RATE_LIMIT`                | `15`                  | requests per window                                                |
-| `AI_RATE_WINDOW`               | `1m`                  |                                                                    |
-| `JWT_ACCESS_SECRET`            | empty                 | Unset makes private tools unavailable; public tool use still works |
-| `COOKIE_NAME`                  | `sd_access`           |                                                                    |
-| `PRICING_BASE_URL`             | `http://pricing:8083` | HTTP(S) origin only                                                |
-| `PRICING_TIMEOUT`              | `3s`                  |                                                                    |
-| `PARCEL_BASE_URL`              | `http://parcel:8082`  | HTTP(S) origin only                                                |
-| `PARCEL_TIMEOUT`               | `3s`                  |                                                                    |
+| Variable                       | Default                 | Notes                                                              |
+| ------------------------------ | ----------------------- | ------------------------------------------------------------------ |
+| `APP_ENV`                      | required                | `development`, `staging`, `production`                             |
+| `LOG_LEVEL`                    | `info`                  |                                                                    |
+| `PORT`                         | `8087`                  |                                                                    |
+| `HTTP_TRUSTED_PROXIES`         | empty                   | CIDR allowlist for forwarded client IPs                            |
+| `AI_ENABLED`                   | `true`                  | `false` returns `503 AI_UNAVAILABLE`                               |
+| `AI_PROVIDER`                  | `gemini`                | `gemini`; `mock` is development-only                               |
+| `GEMINI_API_KEY`               | empty                   | Missing key leaves chat at 503; it does not fail startup           |
+| `AI_MODEL`                     | `gemini-3.5-flash`      | Verified default                                                   |
+| `AI_TEMPERATURE`               | `0.2`                   | 0–2                                                                |
+| `AI_MAX_OUTPUT_TOKENS`         | `1024`                  |                                                                    |
+| `AI_REQUEST_TIMEOUT`           | `15s`                   |                                                                    |
+| `AI_TOOL_TIMEOUT`              | `5s`                    |                                                                    |
+| `AI_TOTAL_TIMEOUT`             | `25s`                   | Whole turn; must be at least `AI_REQUEST_TIMEOUT`                  |
+| `AI_MAX_TOOL_ROUNDS`           | `3`                     |                                                                    |
+| `AI_MAX_TOOL_CALLS`            | `4`                     |                                                                    |
+| `AI_MAX_HISTORY_MESSAGES`      | `12`                    |                                                                    |
+| `AI_CONVERSATION_TTL`          | `30m`                   |                                                                    |
+| `AI_CONVERSATION_MAX`          | `10000`                 |                                                                    |
+| `AI_CONVERSATION_MAX_MESSAGES` | `40`                    |                                                                    |
+| `AI_RATE_LIMIT`                | `15`                    | requests per window                                                |
+| `AI_RATE_WINDOW`               | `1m`                    |                                                                    |
+| `AI_MAX_CONCURRENT`            | `3`                     | simultaneous turns per user/IP                                     |
+| `AI_GUEST_COOKIE_NAME`         | `sd_ai_guest`           | HttpOnly guest-session cookie name                                 |
+| `FRONTEND_BASE_URL`            | `http://localhost:8080` | Allowed browser Origin for cookie-authenticated chat               |
+| `JWT_ACCESS_SECRET`            | empty                   | Unset makes private tools unavailable; public tool use still works |
+| `COOKIE_NAME`                  | `sd_access`             |                                                                    |
+| `PRICING_BASE_URL`             | `http://pricing:8083`   | HTTP(S) origin only                                                |
+| `PRICING_TIMEOUT`              | `3s`                    |                                                                    |
+| `PARCEL_BASE_URL`              | `http://parcel:8082`    | HTTP(S) origin only                                                |
+| `PARCEL_TIMEOUT`               | `3s`                    |                                                                    |
 
 The Gemini API key is never exposed to the browser, included in prompts, or logged.
 
@@ -335,7 +352,9 @@ The Gemini API key is never exposed to the browser, included in prompts, or logg
 
 ## 13. Security requirements
 
-- Prompt-injection resistance: retrieved documents and tool arguments are untrusted data. The system instruction states that they cannot change rules or grant permissions.
+- Browser Origin validation: requests carrying an `Origin` header must match `FRONTEND_BASE_URL`; mismatches return `403 FORBIDDEN` before the guest session, rate limit or provider is touched. Requests without `Origin` (CLI clients) remain allowed.
+- Prompt-injection resistance: retrieved documents and tool arguments are untrusted data. The system instruction states that they cannot change rules or grant permissions. A deterministic pre-provider guard refuses confident explicit prompt/secret/cross-user extraction and permission-bypass attempts; it never grants access.
+- Private-tool authorization is centralized and checks the verified role before any upstream call. Model-supplied identity, role or owner fields are rejected.
 - Unknown tools are rejected; no tool can access the database or an arbitrary URL.
 - No identity, role or ownership values are accepted from the model.
 - Tokens and API keys are redacted from logs by the shared logging handler and are never logged by this service.
@@ -343,7 +362,7 @@ The Gemini API key is never exposed to the browser, included in prompts, or logg
 
 ## 14. Observability
 
-Structured logs include request ID, conversation ID (safe opaque ID), model, provider duration, tool name, tool duration, tool status, token usage when available, and error category. Message bodies and tool payloads are not logged.
+Structured logs include request ID, conversation ID (safe opaque ID), model, provider duration, tool name, tool duration, tool status, token usage when available, and error category. Message bodies, guest session IDs, tokens and tool payloads are not logged. DISPATCHER/ADMIN private parcel lookups emit a `privileged parcel lookup` audit event with request ID, actor ID, role, tool, outcome and timestamp; no message text, token, address, phone number or note is included. Security-guard refusals log only request ID and a coarse category.
 
 ## 15. File ownership (Session 1)
 
@@ -366,3 +385,5 @@ These are the required integration points; verify them after any Compose or Ngin
 5. Treat `404 CONVERSATION_NOT_FOUND` as "start a new conversation" in the UI.
 6. Show `toolCalls` only as non-sensitive progress labels; never render raw tool data.
 7. Add E2E coverage with a mocked chat endpoint, plus an optional live-stack check when `GEMINI_API_KEY` is configured.
+8. Render assistant Markdown with `react-markdown` only (no raw HTML) and keep user messages as plain text.
+9. Reset the chat panel when the signed-in identity changes.

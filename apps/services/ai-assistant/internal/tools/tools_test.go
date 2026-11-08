@@ -54,6 +54,11 @@ type fakeParcel struct {
 	listCalls        int
 	lastStatus       string
 	lastListToken    string
+	adminList        client.AdminParcelList
+	adminErr         error
+	adminCalls       int
+	lastAdminStatus  string
+	lastAdminToken   string
 }
 
 func (f *fakeParcel) Tracking(_ context.Context, trackingNumber string) (client.Tracking, error) {
@@ -74,6 +79,13 @@ func (f *fakeParcel) List(_ context.Context, status, accessToken string) (client
 	f.lastStatus = status
 	f.lastListToken = accessToken
 	return f.list, f.listErr
+}
+
+func (f *fakeParcel) AdminParcels(_ context.Context, status, accessToken string) (client.AdminParcelList, error) {
+	f.adminCalls++
+	f.lastAdminStatus = status
+	f.lastAdminToken = accessToken
+	return f.adminList, f.adminErr
 }
 
 func newRegistry(t *testing.T, pricing tools.PricingClient, parcel tools.ParcelClient) *tools.Registry {
@@ -115,6 +127,7 @@ func decodeObject(t *testing.T, value any) map[string]json.RawMessage {
 func authenticated() contract.CallerContext {
 	return contract.CallerContext{
 		UserID:        testUserID,
+		Role:          "CUSTOMER",
 		Authenticated: true,
 		AccessToken:   testToken,
 	}
@@ -695,3 +708,123 @@ func TestPublicToolsNeverForwardAccessToken(t *testing.T) {
 }
 
 func stringPtr(value string) *string { return &value }
+
+func callerWithRole(role string) contract.CallerContext {
+	return contract.CallerContext{
+		UserID:        testUserID,
+		Role:          role,
+		Authenticated: true,
+		AccessToken:   testToken,
+	}
+}
+
+func TestPrivateToolRoleMatrix(t *testing.T) {
+	historyArgs := map[string]any{"parcelId": testParcelID}
+	cases := []struct {
+		role            string
+		allowed         bool
+		expectAdminList bool
+	}{
+		{role: "CUSTOMER", allowed: true},
+		{role: "DISPATCHER", allowed: true, expectAdminList: true},
+		{role: "ADMIN", allowed: true, expectAdminList: true},
+		{role: "MERCHANT", allowed: false},
+		{role: "COURIER", allowed: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.role, func(t *testing.T) {
+			parcel := &fakeParcel{
+				history: []client.HistoryItem{{Status: "IN_TRANSIT", ChangedAt: "2026-11-01T00:00:00Z"}},
+				list: client.ParcelList{Items: []client.ParcelListItem{
+					{ID: testParcelID, TrackingNumber: testTracking, Status: "IN_TRANSIT"},
+				}},
+				adminList: client.AdminParcelList{Items: []client.AdminParcelListItem{
+					{ID: testParcelID, TrackingNumber: testTracking, Status: "IN_TRANSIT"},
+				}},
+			}
+			registry := newRegistry(t, &fakePricing{}, parcel)
+			caller := callerWithRole(testCase.role)
+
+			history := execute(t, registry, "get_my_parcel_history", historyArgs, caller)
+			deliveries := execute(t, registry, "get_my_active_deliveries", nil, caller)
+
+			if testCase.allowed {
+				if history.Status != contract.StatusOK || deliveries.Status != contract.StatusOK {
+					t.Fatalf("history=%q deliveries=%q", history.Status, deliveries.Status)
+				}
+				if parcel.lastHistoryToken != testToken {
+					t.Fatalf("history token = %q", parcel.lastHistoryToken)
+				}
+				if testCase.expectAdminList {
+					if parcel.adminCalls != 1 || parcel.listCalls != 0 {
+						t.Fatalf("operational calls admin=%d customer=%d", parcel.adminCalls, parcel.listCalls)
+					}
+				} else if parcel.listCalls != 1 || parcel.adminCalls != 0 {
+					t.Fatalf("customer calls list=%d admin=%d", parcel.listCalls, parcel.adminCalls)
+				}
+				return
+			}
+
+			if history.Status != contract.StatusDenied || deliveries.Status != contract.StatusDenied {
+				t.Fatalf("expected DENIED, got history=%q deliveries=%q", history.Status, deliveries.Status)
+			}
+			if parcel.historyCalls != 0 || parcel.listCalls != 0 || parcel.adminCalls != 0 {
+				t.Fatalf("denied role reached upstream: history=%d list=%d admin=%d",
+					parcel.historyCalls, parcel.listCalls, parcel.adminCalls)
+			}
+		})
+	}
+
+	t.Run("anonymous", func(t *testing.T) {
+		parcel := &fakeParcel{}
+		registry := newRegistry(t, &fakePricing{}, parcel)
+		history := execute(t, registry, "get_my_parcel_history", historyArgs, contract.CallerContext{})
+		deliveries := execute(t, registry, "get_my_active_deliveries", nil, contract.CallerContext{})
+		if history.Status != contract.StatusDenied || deliveries.Status != contract.StatusDenied {
+			t.Fatalf("expected DENIED")
+		}
+		if parcel.historyCalls != 0 || parcel.listCalls != 0 || parcel.adminCalls != 0 {
+			t.Fatal("anonymous call reached upstream")
+		}
+	})
+}
+
+func TestOperationalDeliveriesAllowlistAndScope(t *testing.T) {
+	parcel := &fakeParcel{adminList: client.AdminParcelList{
+		Items: []client.AdminParcelListItem{
+			{
+				ID: testParcelID, TrackingNumber: testTracking, Status: "IN_TRANSIT",
+				PickupCity: "Colombo", DropoffCity: "Kandy", CreatedAt: "2026-11-01T00:00:00Z",
+			},
+			{
+				ID: "p2", TrackingNumber: "SDN12345678", Status: "DELIVERED",
+				PickupCity: "Galle", DropoffCity: "Colombo", CreatedAt: "2026-11-02T00:00:00Z",
+			},
+		},
+		Pagination: client.Pagination{TotalItems: 7},
+	}}
+	registry := newRegistry(t, &fakePricing{}, parcel)
+
+	result := execute(t, registry, "get_my_active_deliveries", map[string]any{"status": "IN_TRANSIT"}, callerWithRole("DISPATCHER"))
+	if result.Status != contract.StatusOK {
+		t.Fatalf("expected OK, got %q (%s)", result.Status, result.Message)
+	}
+	if parcel.lastAdminStatus != "IN_TRANSIT" || parcel.lastAdminToken != testToken {
+		t.Fatalf("unexpected operational forward: status=%q token=%q", parcel.lastAdminStatus, parcel.lastAdminToken)
+	}
+
+	encoded := marshal(t, result.Data)
+	for _, expected := range []string{
+		`"scope":"operations"`, `"count":2`, `"activeCount":1`, `"totalItems":7`,
+		`"trackingNumber":"` + testTracking + `"`, `"pickupCity":"Colombo"`,
+	} {
+		if !strings.Contains(encoded, expected) {
+			t.Fatalf("operational output missing %q: %s", expected, encoded)
+		}
+	}
+	for _, forbidden := range []string{"customerId", "merchantId", "recipientName", "phone", "address", testToken} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("operational output leaked %q: %s", forbidden, encoded)
+		}
+	}
+}

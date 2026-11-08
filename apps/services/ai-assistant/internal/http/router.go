@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -26,12 +27,15 @@ type ChatService interface {
 
 // Options configures the ai-assistant router.
 type Options struct {
-	Service        ChatService
-	Limiter        *middleware.Limiter
-	Verifier       auth.Verifier
-	CookieName     string
-	TrustedProxies []string
-	ProviderStatus string
+	Service         ChatService
+	Limiter         *middleware.Limiter
+	Verifier        auth.Verifier
+	CookieName      string
+	GuestCookieName string
+	GuestSessionTTL time.Duration
+	FrontendOrigin  string
+	TrustedProxies  []string
+	ProviderStatus  string
 }
 
 type handler struct {
@@ -71,6 +75,8 @@ func New(logger *slog.Logger, options Options) (*gin.Engine, error) {
 	h := &handler{service: options.Service, logger: logger}
 	group := router.Group("/ai")
 	group.Use(middleware.OptionalAuth(options.Verifier, options.CookieName))
+	group.Use(middleware.OriginGuard(options.FrontendOrigin))
+	group.Use(middleware.GuestSession(options.GuestCookieName, options.GuestSessionTTL))
 	if options.Limiter != nil {
 		group.Use(options.Limiter.Middleware())
 	}
