@@ -16,13 +16,17 @@ import (
 // TestCISecretScanScopes pins the Gitleaks policy in the workflow:
 //
 //   - PRs scan only base..head (with merge diffs) and never unrelated refs.
-//   - Protected branch/tag pushes retain full-history scanning.
+//   - Protected branch/tag pushes scan the full history reachable from the
+//     pushed protected ref, not every ref fetched by the checkout.
 //   - Feature branch pushes scan only the pushed range.
 //   - Missing or unresolved SHAs fail closed.
 func TestCISecretScanScopes(t *testing.T) {
 	workflow := readCIWorkflow(t)
 	required := []string{
 		"if: github.event_name == 'push' && (github.ref == 'refs/heads/development' || github.ref == 'refs/heads/main' || github.ref_type == 'tag')",
+		"PROTECTED_SHA: ${{ github.sha }}",
+		`git cat-file -e "${PROTECTED_SHA}^{commit}"`,
+		`--log-opts="${PROTECTED_SHA} -m"`,
 		"if: github.event_name == 'pull_request'",
 		"PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
 		"PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
@@ -47,6 +51,9 @@ func TestCISecretScanScopes(t *testing.T) {
 	}
 	if count := strings.Count(workflow, "gitleaks git"); count != 3 {
 		t.Fatalf("workflow has %d gitleaks invocations, want 3 scoped invocations", count)
+	}
+	if count := strings.Count(workflow, "--log-opts="); count != 3 {
+		t.Fatalf("workflow has %d --log-opts scopes, want 3 (no unscoped scan)", count)
 	}
 
 	config, err := os.ReadFile(filepath.Join(repositoryRoot(t), ".gitleaks.toml"))
@@ -117,6 +124,56 @@ func TestGitleaksMergeOnlySecretDetected(t *testing.T) {
 	}
 	if code := runGitleaks(t, bin, repo, base+".."+head+" -m"); code != 1 {
 		t.Fatalf("gitleaks with -m exited %d, want 1 (merge-only secret must be detected)", code)
+	}
+}
+
+// TestGitleaksProtectedRefScope pins the protected-ref boundary: an unmerged
+// feature branch must not fail the protected-branch job, while a secret on the
+// protected ref itself must still be detected.
+func TestGitleaksProtectedRefScope(t *testing.T) {
+	bin := gitleaksBinary(t)
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not available")
+	}
+
+	repo := t.TempDir()
+	gitRun(t, repo, "init", "-q")
+	gitRun(t, repo, "checkout", "-q", "-b", "development")
+	gitRun(t, repo, "config", "user.email", "test@example.com")
+	gitRun(t, repo, "config", "user.name", "Test")
+
+	writeTestFile(t, repo, "safe.txt", "value = \"safe\"\n")
+	gitRun(t, repo, "add", "safe.txt")
+	gitRun(t, repo, "commit", "-q", "-m", "protected base")
+
+	// An unmerged feature branch carries a synthetic secret.
+	gitRun(t, repo, "checkout", "-q", "-b", "feature")
+	writeTestFile(t, repo, "config.txt", fmt.Sprintf("api_key = %q\n", testSecret(t)))
+	gitRun(t, repo, "add", "config.txt")
+	gitRun(t, repo, "commit", "-q", "-m", "feature secret")
+
+	// The protected branch advances without that commit.
+	gitRun(t, repo, "checkout", "-q", "development")
+	writeTestFile(t, repo, "safe.txt", "value = \"still safe\"\n")
+	gitRun(t, repo, "add", "safe.txt")
+	gitRun(t, repo, "commit", "-q", "-m", "protected head")
+	protectedHead := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	if code := runGitleaks(t, bin, repo, protectedHead+" -m"); code != 0 {
+		t.Fatalf("protected-ref scan exited %d, want 0; unmerged refs must not be scanned", code)
+	}
+	if code := runGitleaks(t, bin, repo, "--all"); code != 1 {
+		t.Fatalf("all-ref scan exited %d, want 1; the fixture must remain detectable", code)
+	}
+
+	// A secret introduced on the protected ref itself is still caught.
+	writeTestFile(t, repo, "config.txt", fmt.Sprintf("api_key = %q\n", testSecret(t)))
+	gitRun(t, repo, "add", "config.txt")
+	gitRun(t, repo, "commit", "-q", "-m", "protected secret")
+	protectedSecretHead := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	if code := runGitleaks(t, bin, repo, protectedSecretHead+" -m"); code != 1 {
+		t.Fatalf("protected-ref scan exited %d, want 1; protected history must be scanned", code)
 	}
 }
 
