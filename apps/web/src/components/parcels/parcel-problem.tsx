@@ -32,10 +32,15 @@ const pricingCodes: ApiErrorCode[] = [
   'WEIGHT_NOT_PRICED',
 ];
 
+/** Seconds to wait after a 429, or null for any other error. */
+export function rateLimitSeconds(error: unknown): number | null {
+  return error instanceof ApiError && error.code === 'RATE_LIMITED'
+    ? (error.retryAfter ?? RETRY_AFTER_FALLBACK_SECONDS)
+    : null;
+}
+
 function RateLimited({ error }: { error: ApiError }) {
-  const remaining = useCountdown(
-    error.retryAfter ?? RETRY_AFTER_FALLBACK_SECONDS,
-  );
+  const remaining = useCountdown(rateLimitSeconds(error));
   return <RateLimitedAlert remaining={remaining} />;
 }
 
