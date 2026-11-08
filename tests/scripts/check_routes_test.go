@@ -87,6 +87,10 @@ func newRouteCheckServer(t *testing.T, validPricing405 bool) *httptest.Server {
 			writeRouteError(w, http.StatusUnauthorized, "UNAUTHORIZED")
 		case "/api/v1/admin/merchants/probe":
 			writeRouteError(w, http.StatusForbidden, "FORBIDDEN")
+		case "/ws":
+			// A non-WebSocket request is upgraded-required, not missing.
+			w.Header().Set("Upgrade", "websocket")
+			w.WriteHeader(http.StatusUpgradeRequired)
 		case "/api/v1/ai/chat":
 			// The AI service itself rejects an empty message with 422, which
 			// proves the gateway reached the upstream.

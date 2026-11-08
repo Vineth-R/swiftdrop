@@ -14,17 +14,23 @@ this document covers the frontend, gateway, Compose and verification work.
 ## Flow
 
 ```text
-User -> chat widget (apps/web) -> /api/v1/ai/chat -> Nginx -> ai-assistant:8087
+Guest/user -> chat widget (apps/web) -> /api/v1/ai/chat -> Nginx -> ai-assistant:8087
+     -> optional JWT + guest session cookie
+     -> scope + deterministic extraction guard
      -> Gemini + approved knowledge + approved tools -> reply -> widget
 ```
 
 - Public route: `POST /api/v1/ai/chat` (Nginx strips `/api/v1`, so Gin serves
-  `POST /ai/chat`). Only `/chat` is proxied; other `/api/v1/ai/*` paths return 404. The service health and readiness probes stay internal.
+  `POST /ai/chat`).
 - Health: `GET /health` and `GET /healthz`; readiness: `GET /ready` and
   `GET /readyz`, on internal port `8087`.
-- The browser sends its own `sd_access` cookie automatically. Signed-in callers
-  can use the private parcel tools; anonymous callers can use FAQs, pricing and
-  public tracking. The backend enforces this; the frontend never decides it.
+- The browser sends its own `sd_access` cookie automatically. Guests also receive
+  an HttpOnly `sd_ai_guest` session cookie from the assistant; anonymous
+  conversations are bound to it.
+- Guests can use FAQs, pricing and public tracking. CUSTOMER can use the private
+  parcel tools for their own parcels; DISPATCHER and ADMIN can use them for
+  operational parcel access. MERCHANT and COURIER are denied private tools.
+  The backend enforces this; the frontend never decides it.
 
 ## Request and response
 
@@ -50,14 +56,17 @@ and never shows `error.message`.
 
 ## The four approved tools
 
-| Tool                       | What it does                               | Access             |
-| -------------------------- | ------------------------------------------ | ------------------ |
-| `calculate_delivery_fee`   | Real pricing estimate from the Pricing API | Public             |
-| `get_public_parcel_status` | Public tracking by tracking number         | Public             |
-| `get_my_parcel_history`    | The caller's own parcel history            | Signed-in owner    |
-| `get_my_active_deliveries` | The caller's own active deliveries         | Signed-in customer |
+| Tool                       | What it does                                                              | Access                            |
+| -------------------------- | ------------------------------------------------------------------------- | --------------------------------- |
+| `calculate_delivery_fee`   | Real pricing estimate from the Pricing API                                | Public                            |
+| `get_public_parcel_status` | Public tracking by tracking number                                        | Public                            |
+| `get_my_parcel_history`    | Parcel status history by parcel ID                                        | CUSTOMER (own), DISPATCHER, ADMIN |
+| `get_my_active_deliveries` | CUSTOMER own list; DISPATCHER/ADMIN operational search (`/admin/parcels`) | CUSTOMER, DISPATCHER, ADMIN       |
 
 No other tool can run. The model cannot choose a user ID, role or owner.
+GUEST, MERCHANT and COURIER are denied both private tools before any upstream
+call. CUSTOMER ownership is enforced by Parcel; DISPATCHER/ADMIN access uses
+their verified token and Parcel's existing staff authorization.
 
 ## Local setup
 
@@ -132,29 +141,33 @@ it and try:
 - `How does delivery pricing work?` — asks for a missing route, weight or size.
 - `How much is 2 kg from Colombo to Kandy?` — calls the real pricing estimate.
 - `Track parcel SDK7M2Q9XP4` — public tracking, public fields only.
-- `Show my active deliveries.` — needs a signed-in customer.
+- `Show my active deliveries.` — needs a signed-in CUSTOMER; DISPATCHER and ADMIN use operational parcel search.
 
 ## Environment variables
 
 See the AI section of [`.env.example`](../.env.example) for the full list and
 defaults. The important ones:
 
-| Variable             | Default               | Notes                                               |
-| -------------------- | --------------------- | --------------------------------------------------- |
-| `AI_ENABLED`         | `true`                | `false` makes every chat call return 503            |
-| `AI_PROVIDER`        | `gemini`              | `gemini` or `mock`                                  |
-| `GEMINI_API_KEY`     | empty                 | Missing key leaves chat at 503, not startup failure |
-| `AI_MODEL`           | `gemini-3.5-flash`    |                                                     |
-| `AI_REQUEST_TIMEOUT` | `15s`                 | Per provider call                                   |
-| `AI_TOOL_TIMEOUT`    | `5s`                  | Per tool call                                       |
-| `AI_MAX_TOOL_ROUNDS` | `3`                   |                                                     |
-| `AI_MAX_TOOL_CALLS`  | `4`                   |                                                     |
-| `AI_RATE_LIMIT`      | `15`                  | Requests per rolling window per caller              |
-| `AI_RATE_WINDOW`     | `1m`                  |                                                     |
-| `JWT_ACCESS_SECRET`  | empty                 | Enables private tools; unset keeps them unavailable |
-| `COOKIE_NAME`        | `sd_access`           | The session cookie the assistant reads              |
-| `PRICING_BASE_URL`   | `http://pricing:8083` | Compose sets this internally                        |
-| `PARCEL_BASE_URL`    | `http://parcel:8082`  | Compose sets this internally                        |
+| Variable               | Default                 | Notes                                               |
+| ---------------------- | ----------------------- | --------------------------------------------------- |
+| `AI_ENABLED`           | `true`                  | `false` makes every chat call return 503            |
+| `AI_PROVIDER`          | `gemini`                | `gemini` or `mock`                                  |
+| `GEMINI_API_KEY`       | empty                   | Missing key leaves chat at 503, not startup failure |
+| `AI_MODEL`             | `gemini-3.5-flash`      |                                                     |
+| `AI_REQUEST_TIMEOUT`   | `15s`                   | Per provider call                                   |
+| `AI_TOOL_TIMEOUT`      | `5s`                    | Per tool call                                       |
+| `AI_MAX_TOOL_ROUNDS`   | `3`                     |                                                     |
+| `AI_MAX_TOOL_CALLS`    | `4`                     |                                                     |
+| `AI_RATE_LIMIT`        | `15`                    | Requests per rolling window per caller              |
+| `AI_RATE_WINDOW`       | `1m`                    |                                                     |
+| `AI_MAX_CONCURRENT`    | `3`                     | Simultaneous turns per caller                       |
+| `AI_GUEST_COOKIE_NAME` | `sd_ai_guest`           | HttpOnly guest-session cookie                       |
+| `COOKIE_SECURE`        | `false`                 | Secure flag for the guest cookie                    |
+| `FRONTEND_BASE_URL`    | `http://localhost:8080` | Allowed browser Origin for chat requests            |
+| `JWT_ACCESS_SECRET`    | empty                   | Enables private tools; unset keeps them unavailable |
+| `COOKIE_NAME`          | `sd_access`             | The session cookie the assistant reads              |
+| `PRICING_BASE_URL`     | `http://pricing:8083`   | Compose sets this internally                        |
+| `PARCEL_BASE_URL`      | `http://parcel:8082`    | Compose sets this internally                        |
 
 For host-side Go development use `http://127.0.0.1:8083` and
 `http://127.0.0.1:8082`.
@@ -181,10 +194,12 @@ docker compose config --quiet
 ```
 
 The E2E suite mocks `POST /api/v1/ai/chat`, so it never needs a Gemini key. It
-covers opening/closing, the welcome and suggestions, sending, empty-message
-prevention, the typing state, conversation continuity, 422/429/503, network
-failure, retry, anonymous and signed-in journeys, conversation expiry, malformed
-responses, the phone layout and keyboard focus.
+covers opening/closing, the welcome and suggestions, sending, immediate composer
+clearing, duplicate prevention, Unicode counting, the typing state, conversation
+continuity, 422/429/503, network failure, retry without duplication, anonymous
+and signed-in journeys, fresh conversation after identity change, Markdown
+formatting, XSS/unsafe links, conversation expiry, malformed responses, the
+phone/landscape layouts and keyboard focus.
 
 A live-stack smoke test is optional and requires a configured provider:
 
@@ -201,13 +216,25 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/v1/ai/chat \
 - All four tools are read-only and are called with the caller's own credentials.
 - Ownership is enforced by the Parcel service. Customer A receives the same
   `404` for Customer B's parcel as for a missing one.
-- Anonymous callers cannot execute private tools; the backend fails closed
-  before any upstream call.
-- Rate limiting is process-local (15 requests per rolling minute per caller).
-  Multi-replica deployments need coordinated edge enforcement; this is a known
-  MVP limitation.
-- Conversation IDs are opaque, unguessable and bound to the caller when signed
-  in. They are held in an in-process store and do not survive a restart.
+- Guests, MERCHANT and COURIER cannot execute private tools; the backend fails
+  closed before any upstream call. DISPATCHER and ADMIN operational lookups are
+  audited with actor, role, tool and outcome (no message or token).
+- A deterministic pre-provider guard refuses confident explicit system-prompt,
+  credential, cross-user extraction and permission-bypass attempts. It never
+  grants access; authorization remains in the tools and Parcel.
+- Guest conversations are bound to an HttpOnly `sd_ai_guest` session; a
+  conversation ID alone returns `404`. Authenticated requests clear the guest
+  cookie, so guest history is never merged into an account.
+- Browser requests with an `Origin` header must match `FRONTEND_BASE_URL`;
+  mismatches return `403 FORBIDDEN` before any session or provider work.
+- Assistant replies render as safe Markdown (`react-markdown`, no raw HTML,
+  safe URL schemes). User messages stay plain text.
+- Rate limiting (15 requests per rolling minute) and the per-caller concurrency
+  cap (3) are process-local. Multi-replica deployments need coordinated edge
+  enforcement; this is a known MVP limitation.
+- Conversation IDs are opaque, unguessable and bound to the guest session or
+  signed-in user. They are held in an in-process store and do not survive a
+  restart.
 
 ## Troubleshooting
 
@@ -215,6 +242,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/v1/ai/chat \
 | ----------------------------------------- | --------------------------------------------------------------------- |
 | `503 AI_UNAVAILABLE` on every message     | `AI_ENABLED`, `AI_PROVIDER`, `GEMINI_API_KEY`; service logs           |
 | `401 UNAUTHENTICATED` after signing in    | The session cookie expired; sign in again. The widget does not retry  |
+| `403 FORBIDDEN`                           | The browser Origin differs from `FRONTEND_BASE_URL`                   |
 | Private questions say sign-in is required | Expected for anonymous callers; sign in as a customer                 |
 | Tracking or pricing says unavailable      | That upstream service is down; the assistant does not invent data     |
 | Nginx returns 404 for `/api/v1/ai/chat`   | Rebuild/reload Nginx after editing `infra/nginx/default.conf`         |
@@ -225,7 +253,9 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/v1/ai/chat \
 
 - The conversation store is in-process, bounded and TTL-based (30 minutes by
   default). It is not durable and not shared across replicas.
-- Rate limiting is process-local.
+- Rate limiting and the concurrency cap are process-local.
+- The extraction guard is a supplementary heuristic, not an authorization
+  control.
 - There is no streaming; a reply arrives when the provider and tool loop finish.
 - The mock provider is deterministic and intended for development and tests.
 - No write tools, database access, MCP, vector database or arbitrary HTTP.
