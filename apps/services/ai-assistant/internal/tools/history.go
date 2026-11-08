@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"strings"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/ai-assistant/internal/contract"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
@@ -17,14 +16,14 @@ type historyTool struct {
 func (t *historyTool) Definition() contract.ToolDeclaration {
 	return contract.ToolDeclaration{
 		Name: toolNameMyParcelHistory,
-		Description: "Read the signed-in customer's own parcel status history by parcel ID. " +
-			"Requires a signed-in user. Never invent or accept a user ID, customer ID or owner ID; ownership is taken from the session. " +
-			"Ask the customer for the parcel ID if it is missing.",
+		Description: "Read a parcel's status history by parcel ID. Signed-in customers may read only their own parcels; " +
+			"dispatchers and administrators may read parcels for operational purposes. Never invent or accept a user ID, " +
+			"customer ID or owner ID; authorization is taken from the verified session. Ask for the parcel ID if it is missing.",
 		Parameters: contract.Parameters{
 			Properties: map[string]contract.Parameter{
 				"parcelId": {
 					Type:        "string",
-					Description: "The parcel UUID from the customer's own parcel list.",
+					Description: "The parcel UUID from an authorized parcel list.",
 				},
 			},
 			Required: []string{"parcelId"},
@@ -44,8 +43,8 @@ type historyResult struct {
 }
 
 func (t *historyTool) Execute(ctx context.Context, args map[string]any, caller contract.CallerContext) (contract.ToolResult, error) {
-	if !caller.Authenticated || strings.TrimSpace(caller.AccessToken) == "" || strings.TrimSpace(caller.UserID) == "" {
-		return deniedResult("Please sign in to view your parcel history."), nil
+	if denial, ok := requireParcelAccess(caller, "Please sign in to view your parcel history."); !ok {
+		return denial, nil
 	}
 
 	values, message := validateArguments(args, []argSpec{

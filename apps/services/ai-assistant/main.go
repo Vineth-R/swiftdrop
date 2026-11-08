@@ -109,12 +109,16 @@ func run() error {
 	}
 
 	router, err := servicehttp.New(logger, servicehttp.Options{
-		Service:        orchestrator,
-		Limiter:        middleware.NewLimiter(cfg.RateLimit, cfg.RateWindow),
-		Verifier:       verifier,
-		CookieName:     cfg.CookieName,
-		TrustedProxies: cfg.TrustedProxies,
-		ProviderStatus: providerStatus,
+		Service:           orchestrator,
+		Limiter:           middleware.NewLimiter(cfg.RateLimit, cfg.RateWindow, middleware.WithMaxConcurrent(cfg.MaxConcurrent)),
+		Verifier:          verifier,
+		CookieName:        cfg.CookieName,
+		GuestCookieName:   cfg.GuestCookieName,
+		GuestCookieSecure: cfg.CookieSecure,
+		GuestSessionTTL:   cfg.ConversationTTL,
+		FrontendOrigin:    cfg.FrontendOrigin,
+		TrustedProxies:    cfg.TrustedProxies,
+		ProviderStatus:    providerStatus,
 	})
 	if err != nil {
 		return fmt.Errorf("configure ai-assistant router: %w", err)

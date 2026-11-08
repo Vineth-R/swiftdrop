@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const testGuestSession = "gs000102030405060708090a0b0c0d0e0f"
+
 type sequentialReader struct{ next byte }
 
 func (r *sequentialReader) Read(p []byte) (int, error) {
@@ -23,7 +25,7 @@ func fixedIDReader() *sequentialReader {
 
 func TestCreateAndLoad(t *testing.T) {
 	store := New(10, time.Minute, 10, WithRandom(fixedIDReader()))
-	item, err := store.Create("user-1", false)
+	item, err := store.Create("user-1", "", false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -45,10 +47,10 @@ func TestCreateAndLoad(t *testing.T) {
 
 func TestCreateRejectsInvalidOwnership(t *testing.T) {
 	store := New(10, time.Minute, 10, WithRandom(fixedIDReader()))
-	if _, err := store.Create("user-1", true); err == nil {
+	if _, err := store.Create("user-1", testGuestSession, true); err == nil {
 		t.Fatal("expected anonymous owner error")
 	}
-	if _, err := store.Create("  ", false); err == nil {
+	if _, err := store.Create("  ", "", false); err == nil {
 		t.Fatal("expected missing owner error")
 	}
 }
@@ -66,7 +68,7 @@ func TestLoadRejectsInvalidAndUnknown(t *testing.T) {
 func TestExpiry(t *testing.T) {
 	now := time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)
 	store := New(10, time.Minute, 10, WithRandom(fixedIDReader()), WithClock(func() time.Time { return now }))
-	item, err := store.Create("", true)
+	item, err := store.Create("", testGuestSession, true)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -79,7 +81,7 @@ func TestExpiry(t *testing.T) {
 
 func TestAppendTrimsHistory(t *testing.T) {
 	store := New(10, time.Minute, 3, WithRandom(fixedIDReader()))
-	item, err := store.Create("", true)
+	item, err := store.Create("", testGuestSession, true)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -102,9 +104,9 @@ func TestAppendTrimsHistory(t *testing.T) {
 
 func TestEvictsOldestWhenFull(t *testing.T) {
 	store := New(2, time.Hour, 10, WithRandom(fixedIDReader()))
-	first, _ := store.Create("", true)
-	second, _ := store.Create("", true)
-	third, _ := store.Create("", true)
+	first, _ := store.Create("", testGuestSession, true)
+	second, _ := store.Create("", testGuestSession, true)
+	third, _ := store.Create("", testGuestSession, true)
 
 	if _, err := store.Load(first.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("first conversation should be evicted, err = %v", err)
@@ -123,9 +125,9 @@ func TestEvictsOldestWhenTimestampsAreEqual(t *testing.T) {
 		WithRandom(fixedIDReader()),
 		WithClock(func() time.Time { return frozen }),
 	)
-	first, _ := store.Create("", true)
-	second, _ := store.Create("", true)
-	third, _ := store.Create("", true)
+	first, _ := store.Create("", testGuestSession, true)
+	second, _ := store.Create("", testGuestSession, true)
+	third, _ := store.Create("", testGuestSession, true)
 
 	if _, err := store.Load(first.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("first conversation should be evicted, err = %v", err)
@@ -146,7 +148,7 @@ func TestConcurrentAccess(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func() {
 			defer wait.Done()
-			item, err := store.Create("", true)
+			item, err := store.Create("", testGuestSession, true)
 			if err != nil {
 				t.Errorf("Create: %v", err)
 				return
@@ -165,7 +167,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 func TestSnapshotsDoNotAliasStore(t *testing.T) {
 	store := New(10, time.Minute, 10, WithRandom(fixedIDReader()))
-	item, _ := store.Create("", true)
+	item, _ := store.Create("", testGuestSession, true)
 	if err := store.Append(item.ID, Message{Role: RoleUser, Text: "hello"}); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
@@ -175,5 +177,32 @@ func TestSnapshotsDoNotAliasStore(t *testing.T) {
 	again, _ := store.Load(item.ID)
 	if again.Messages[0].Text != "hello" {
 		t.Fatal("store was mutated through a snapshot")
+	}
+}
+
+func TestCreateRequiresGuestSessionForAnonymous(t *testing.T) {
+	store := New(10, time.Minute, 10, WithRandom(fixedIDReader()))
+	if _, err := store.Create("", "", true); err == nil {
+		t.Fatal("expected anonymous conversation without a guest session to fail")
+	}
+	if _, err := store.Create("", "gs-not-a-session", true); err == nil {
+		t.Fatal("expected malformed guest session to fail")
+	}
+	if _, err := store.Create("user-1", testGuestSession, false); err == nil {
+		t.Fatal("expected authenticated conversation with a guest session to fail")
+	}
+	if _, err := store.Create("", testGuestSession, true); err != nil {
+		t.Fatalf("valid guest session: %v", err)
+	}
+}
+
+func TestValidGuestSessionID(t *testing.T) {
+	if !ValidGuestSessionID("gs0123456789abcdef0123456789abcdef") {
+		t.Fatal("expected valid guest session")
+	}
+	for _, value := range []string{"", "gs", "gsXYZ", "cv0123456789abcdef0123456789abcdef", "gs0123456789abcdef0123456789abcde"} {
+		if ValidGuestSessionID(value) {
+			t.Fatalf("unexpected valid guest session: %q", value)
+		}
 	}
 }

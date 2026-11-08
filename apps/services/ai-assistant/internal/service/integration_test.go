@@ -97,7 +97,7 @@ func TestEndToEndPricingUsesAuthoritativeQuote(t *testing.T) {
 	)
 
 	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
-	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "How much to send 2 kg from Colombo to Kandy?"})
+	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "How much to send 2 kg from Colombo to Kandy?", Caller: guestCaller()})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestEndToEndTrackingStripsPrivateFields(t *testing.T) {
 	)
 	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
 
-	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "Track SDK7M2Q9XP4"})
+	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "Track SDK7M2Q9XP4", Caller: guestCaller()})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestEndToEndAnonymousPrivateToolIsDeniedBeforeUpstream(t *testing.T) {
 	)
 	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
 
-	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "Show my parcel history"})
+	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "Show my parcel history", Caller: guestCaller()})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestEndToEndCrossCustomerIsSafeNotFound(t *testing.T) {
 
 	output, err := orchestrator.Chat(context.Background(), ChatInput{
 		Message: "Show my parcel history",
-		Caller:  contract.CallerContext{UserID: "user-a", Authenticated: true, AccessToken: "token-a"},
+		Caller:  contract.CallerContext{UserID: "user-a", Role: "CUSTOMER", Authenticated: true, AccessToken: "token-a"},
 	})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
@@ -266,7 +266,7 @@ func TestEndToEndModelSuppliedIdentityIsRejected(t *testing.T) {
 
 	output, err := orchestrator.Chat(context.Background(), ChatInput{
 		Message: "Show my deliveries",
-		Caller:  contract.CallerContext{UserID: "user-a", Authenticated: true, AccessToken: "token-a"},
+		Caller:  contract.CallerContext{UserID: "user-a", Role: "CUSTOMER", Authenticated: true, AccessToken: "token-a"},
 	})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
@@ -310,7 +310,7 @@ func TestEndToEndActiveDeliveriesAllowlist(t *testing.T) {
 
 	output, err := orchestrator.Chat(context.Background(), ChatInput{
 		Message: "Which of my deliveries are in transit?",
-		Caller:  contract.CallerContext{UserID: "user-a", Authenticated: true, AccessToken: "token-a"},
+		Caller:  contract.CallerContext{UserID: "user-a", Role: "CUSTOMER", Authenticated: true, AccessToken: "token-a"},
 	})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
@@ -353,7 +353,7 @@ func TestEndToEndPricingUnavailableDoesNotFabricate(t *testing.T) {
 	)
 	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
 
-	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "How much to send 2 kg Colombo to Kandy?"})
+	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "How much to send 2 kg Colombo to Kandy?", Caller: guestCaller()})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -406,4 +406,104 @@ func findFunctionResponse(request contract.GenerateRequest, name string) *contra
 		}
 	}
 	return nil
+}
+
+func TestEndToEndDispatcherOperationalList(t *testing.T) {
+	pricing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
+	defer pricing.Close()
+	parcel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/admin/parcels" {
+			t.Errorf("path = %q, want /admin/parcels", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("page") != "1" || r.URL.Query().Get("pageSize") != "20" {
+			t.Errorf("query = %q", r.URL.RawQuery)
+		}
+		if r.Header.Get("Authorization") != "Bearer dispatcher-token" {
+			t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"data":[{
+			"id":"b1d1b7f0-3a7b-4f1a-9d1d-1f0f5c3a2b10","trackingNumber":"SDK7M2Q9XP4",
+			"status":"IN_TRANSIT","pickupCity":"Colombo","dropoffCity":"Kandy","courierId":"c1",
+			"customerId":"private-customer","merchantId":"private-merchant","total":550,
+			"createdAt":"2026-11-01T00:00:00Z"
+		}],"meta":{"pagination":{"page":1,"pageSize":20,"totalItems":1,"totalPages":1}}}`))
+	}))
+	defer parcel.Close()
+
+	provider := mock.New(
+		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
+			Name: "get_my_active_deliveries", Arguments: map[string]any{},
+		}}},
+		contract.GenerateResponse{Text: "One operational parcel is in transit."},
+	)
+	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
+
+	output, err := orchestrator.Chat(context.Background(), ChatInput{
+		Message: "Show operational parcels in transit.",
+		Caller: contract.CallerContext{
+			UserID: "dispatcher-1", Role: "DISPATCHER", Authenticated: true, AccessToken: "dispatcher-token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if output.ToolCalls[0].Status != "OK" {
+		t.Fatalf("toolCalls = %+v", output.ToolCalls)
+	}
+	response := findFunctionResponse(provider.Requests()[1], "get_my_active_deliveries")
+	encoded, _ := json.Marshal(response)
+	text := string(encoded)
+	for _, expected := range []string{`"scope":"operations"`, `"trackingNumber":"SDK7M2Q9XP4"`, `"pickupCity":"Colombo"`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("operational response missing %q: %s", expected, text)
+		}
+	}
+	for _, forbidden := range []string{"private-customer", "private-merchant", "customerId", "merchantId", "dispatcher-token"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("operational response leaked %q: %s", forbidden, text)
+		}
+	}
+}
+
+func TestEndToEndMerchantPrivateToolsDeniedBeforeUpstream(t *testing.T) {
+	var parcelCalls atomic.Int32
+	pricing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
+	defer pricing.Close()
+	parcel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parcelCalls.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer parcel.Close()
+
+	provider := mock.New(
+		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{
+			{Name: "get_my_parcel_history", Arguments: map[string]any{"parcelId": "b1d1b7f0-3a7b-4f1a-9d1d-1f0f5c3a2b10"}},
+			{Name: "get_my_active_deliveries", Arguments: map[string]any{}},
+		}},
+		contract.GenerateResponse{Text: "That feature is not available for this account."},
+	)
+	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
+
+	output, err := orchestrator.Chat(context.Background(), ChatInput{
+		Message: "Show my parcels.",
+		Caller: contract.CallerContext{
+			UserID: "merchant-1", Role: "MERCHANT", Authenticated: true, AccessToken: "merchant-token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(output.ToolCalls) != 2 {
+		t.Fatalf("toolCalls = %+v", output.ToolCalls)
+	}
+	for _, call := range output.ToolCalls {
+		if call.Status != "DENIED" {
+			t.Fatalf("toolCalls = %+v", output.ToolCalls)
+		}
+	}
+	if parcelCalls.Load() != 0 {
+		t.Fatalf("parcel upstream calls = %d, want 0", parcelCalls.Load())
+	}
 }

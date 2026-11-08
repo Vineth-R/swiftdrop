@@ -490,3 +490,75 @@ func TestRedirectsAreNotFollowed(t *testing.T) {
 		t.Fatalf("expected KindUnavailable, got %v", err)
 	}
 }
+
+func TestAdminParcelsExactQueryAndAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/admin/parcels" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.URL.RawQuery; got != "page=1&pageSize=20&status=IN_TRANSIT" {
+			t.Fatalf("query = %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer dispatcher-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		_, _ = io.WriteString(w, `{"data":[{
+			"id":"p1","trackingNumber":"SDK7M2Q9XP4","status":"IN_TRANSIT",
+			"pickupCity":"Colombo","dropoffCity":"Kandy","courierId":"c1",
+			"customerId":"private-customer","merchantId":"private-merchant",
+			"total":550.00,"createdAt":"2026-11-01T00:00:00Z"
+		}],"meta":{"pagination":{"page":1,"pageSize":20,"totalItems":1,"totalPages":1}}}`)
+	}))
+	defer server.Close()
+
+	client, err := NewParcelClient(testConfig(t, server.URL))
+	if err != nil {
+		t.Fatalf("NewParcelClient: %v", err)
+	}
+
+	list, err := client.AdminParcels(context.Background(), "IN_TRANSIT", "dispatcher-token")
+	if err != nil {
+		t.Fatalf("AdminParcels: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].TrackingNumber != "SDK7M2Q9XP4" {
+		t.Fatalf("unexpected admin list: %+v", list)
+	}
+	if list.Items[0].CourierID == nil || *list.Items[0].CourierID != "c1" {
+		t.Fatalf("courier id = %+v", list.Items[0].CourierID)
+	}
+	if list.Pagination.TotalItems != 1 {
+		t.Fatalf("pagination = %+v", list.Pagination)
+	}
+
+	encoded, err := json.Marshal(list.Items)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, forbidden := range []string{"customerId", "merchantId", "private-customer", "private-merchant"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("admin list leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestAdminParcelsOmitsEmptyStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.RawQuery; got != "page=1&pageSize=20" {
+			t.Fatalf("query = %q", got)
+		}
+		_, _ = io.WriteString(w, `{"data":[],"meta":{"pagination":{"page":1,"pageSize":20,"totalItems":0,"totalPages":0}}}`)
+	}))
+	defer server.Close()
+
+	client, err := NewParcelClient(testConfig(t, server.URL))
+	if err != nil {
+		t.Fatalf("NewParcelClient: %v", err)
+	}
+	list, err := client.AdminParcels(context.Background(), "", "token")
+	if err != nil {
+		t.Fatalf("AdminParcels: %v", err)
+	}
+	if len(list.Items) != 0 {
+		t.Fatalf("expected empty list, got %+v", list.Items)
+	}
+}

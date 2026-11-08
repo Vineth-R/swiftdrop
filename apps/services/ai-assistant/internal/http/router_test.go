@@ -48,11 +48,14 @@ func testLogger(t *testing.T) *slog.Logger {
 func testRouter(t *testing.T, chat ChatService, limiter *middleware.Limiter, verifier auth.Verifier) *gin.Engine {
 	t.Helper()
 	router, err := New(testLogger(t), Options{
-		Service:        chat,
-		Limiter:        limiter,
-		Verifier:       verifier,
-		CookieName:     "sd_access",
-		ProviderStatus: "ok",
+		Service:         chat,
+		Limiter:         limiter,
+		Verifier:        verifier,
+		CookieName:      "sd_access",
+		GuestCookieName: "sd_ai_guest",
+		GuestSessionTTL: time.Minute,
+		FrontendOrigin:  "http://localhost:8080",
+		ProviderStatus:  "ok",
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -216,5 +219,124 @@ func TestChatRateLimit(t *testing.T) {
 	}
 	if !strings.Contains(second.Body.String(), `"code":"RATE_LIMITED"`) {
 		t.Fatalf("body = %s", second.Body.String())
+	}
+}
+
+func TestChatIssuesAndReusesGuestSession(t *testing.T) {
+	chat := &fakeChatService{output: service.ChatOutput{
+		ConversationID: "cv00000000000000000000000000000000",
+		Reply:          "ok",
+		ToolCalls:      []service.ToolCallSummary{},
+	}}
+	router := testRouter(t, chat, nil, nil)
+
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, newChatRequest(`{"message":"What is SwiftDrop?"}`))
+	if first.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", first.Code, first.Body.String())
+	}
+	cookie := guestCookie(first.Result().Cookies())
+	if cookie == nil {
+		t.Fatal("guest cookie was not set")
+	}
+	if chat.input.Caller.SessionID != cookie.Value {
+		t.Fatalf("service session = %q, cookie = %q", chat.input.Caller.SessionID, cookie.Value)
+	}
+
+	secondRequest := newChatRequest(`{"message":"How does pricing work?"}`)
+	secondRequest.AddCookie(&http.Cookie{Name: "sd_ai_guest", Value: cookie.Value})
+	second := httptest.NewRecorder()
+	router.ServeHTTP(second, secondRequest)
+	if second.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", second.Code, second.Body.String())
+	}
+	if chat.input.Caller.SessionID != cookie.Value {
+		t.Fatalf("session was not reused: %q", chat.input.Caller.SessionID)
+	}
+}
+
+func TestAuthenticatedChatClearsGuestSession(t *testing.T) {
+	manager, err := auth.NewTokenManager(strings.Repeat("s", 32), time.Minute)
+	if err != nil {
+		t.Fatalf("NewTokenManager: %v", err)
+	}
+	token, _, err := manager.Issue("user-1", auth.RoleCustomer)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	chat := &fakeChatService{output: service.ChatOutput{
+		ConversationID: "cv00000000000000000000000000000000",
+		Reply:          "ok",
+		ToolCalls:      []service.ToolCallSummary{},
+	}}
+	router := testRouter(t, chat, nil, manager)
+
+	request := newChatRequest(`{"message":"Show my deliveries"}`)
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.AddCookie(&http.Cookie{Name: "sd_ai_guest", Value: "gs000102030405060708090a0b0c0d0e0f"})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !chat.input.Caller.Authenticated || chat.input.Caller.Role != "CUSTOMER" {
+		t.Fatalf("caller = %+v", chat.input.Caller)
+	}
+	cookie := guestCookie(recorder.Result().Cookies())
+	if cookie == nil || cookie.Value != "" || cookie.MaxAge >= 0 {
+		t.Fatalf("guest cookie was not cleared: %+v", cookie)
+	}
+}
+
+func TestChatRejectsModelOrFrontendSuppliedIdentity(t *testing.T) {
+	chat := &fakeChatService{}
+	router := testRouter(t, chat, nil, nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, newChatRequest(`{"message":"Show my deliveries","userId":"victim"}`))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	if chat.calls != 0 {
+		t.Fatalf("service calls = %d, want 0", chat.calls)
+	}
+}
+
+func guestCookie(cookies []*http.Cookie) *http.Cookie {
+	for _, cookie := range cookies {
+		if cookie.Name == "sd_ai_guest" {
+			return cookie
+		}
+	}
+	return nil
+}
+
+func TestChatRejectsForeignOriginBeforeService(t *testing.T) {
+	chat := &fakeChatService{output: service.ChatOutput{
+		ConversationID: "cv00000000000000000000000000000000",
+		Reply:          "ok",
+		ToolCalls:      []service.ToolCallSummary{},
+	}}
+	router := testRouter(t, chat, nil, nil)
+
+	foreign := newChatRequest(`{"message":"What is SwiftDrop?"}`)
+	foreign.Header.Set("Origin", "https://evil.example")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, foreign)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("foreign origin status = %d, want 403", recorder.Code)
+	}
+	if chat.calls != 0 {
+		t.Fatalf("service calls = %d, want 0", chat.calls)
+	}
+
+	allowed := newChatRequest(`{"message":"What is SwiftDrop?"}`)
+	allowed.Header.Set("Origin", "http://localhost:8080")
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, allowed)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("allowed origin status = %d, want 200", recorder.Code)
+	}
+	if chat.calls != 1 {
+		t.Fatalf("service calls = %d, want 1", chat.calls)
 	}
 }
