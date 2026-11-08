@@ -467,3 +467,44 @@ Passing checks included Go checks, frontend checks, Playwright E2E, Go vulnerabi
 3. Required CI gate: fails while the above are red.
 
 AI-specific checks are green. PR #106 is **not ready to merge** until the security gate and Docker/SBOM checks pass. Do not merge without separate approval.
+
+## 20. CI policy follow-up — 2026-11-08
+
+This section records the approved Gitleaks scope correction and remains an append-only continuation of the audit.
+
+### Final Gitleaks scanning policy
+
+- **Pull requests:** scan only `${PR_BASE_SHA}..${PR_HEAD_SHA}` with `--log-opts` and `-m`, using the base and head SHAs from the pull-request event. Unrelated remote branches are no longer scanned.
+- **Protected branch and tag pushes:** retain the full-history scan only for pushes to `refs/heads/development`, `refs/heads/main`, and tag pushes.
+- **Feature-branch pushes:** when the workflow is configured to run for them, scan the pushed range using `github.event.before..github.event.after`; for a new branch, resolve the base with `git merge-base origin/development <after>`.
+- **Fail closed:** missing or unresolvable base/head/after SHAs stop the job before Gitleaks runs.
+- **Merge commits:** `-m` is required. A disposable-repository test confirmed that a secret introduced only in a merge-conflict resolution is missed without `-m` and detected with `-m`.
+- `.gitleaks.toml`, all existing rules, and all existing verified allowlists are unchanged. No broad exclusions, no disabled rules, and no security-check bypass were introduced.
+
+### Validation
+
+- Pinned Gitleaks 8.30.1 was downloaded and its `--log-opts` support verified.
+- Current PR range `origin/development..HEAD -m`: **no leaks found**.
+- Full-history scan still finds the unrelated realtime-branch fixture, proving the protected-branch/full-history path remains effective.
+- New workflow test `tests/scripts/ci_secret_scan_test.go` checks the three scopes, the PR/feature range arguments, fail-closed SHA checks, the removal of `github.event_name != 'pull_request'`, and the absence of a realtime fixture allowlist.
+- Dynamic test `TestGitleaksMergeOnlySecretDetected` confirms `-m` catches a merge-only secret.
+- `go test ./tests/scripts/...` passes; the dynamic Gitleaks tests are skipped unless `GITLEAKS_BIN` is supplied.
+
+### Syft/SBOM status
+
+- The external Syft v1.56.0 download continued to return HTTP 504 during this follow-up.
+- All eight Docker/SBOM jobs in run `42465547430` failed at the Syft installer; Docker builds themselves completed.
+- SBOM, Trivy and Syft checks were not changed or bypassed. Rerun the Docker/SBOM jobs when the external asset is available.
+
+### Access tests
+
+- Access tests passed in the previous completed run (`14m55s`).
+- The new run after this policy change is the authoritative result and must be observed before merging.
+
+### Remaining blockers and recommendation
+
+- Gitleaks/Security gate: expected to pass for PR #106 after this change because the PR range excludes the unrelated realtime branch.
+- Docker/SBOM: still blocked by the external Syft HTTP 504.
+- Required CI gate remains red while any required check is red.
+
+PR #106 remains open, mergeable and **not ready to merge** until the Docker/SBOM checks and the resulting required gate pass. No merge was performed.
