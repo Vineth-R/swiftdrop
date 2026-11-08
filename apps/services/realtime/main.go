@@ -11,9 +11,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/config"
+	"github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/consumer"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/live"
+	"github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/ws"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
@@ -66,6 +71,29 @@ func run() error {
 	router.GET("/health", postgres.HealthHandler())
 	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))
 
+	// The verifier stays an untyped nil without a secret: a nil
+	// *auth.TokenManager inside the interface would not compare equal to nil.
+	var verifier ws.Verifier
+	if config.AccessSecret != "" {
+		// The lifetime only matters for signing; this service only verifies.
+		manager, err := auth.NewTokenManager(config.AccessSecret, 15*time.Minute)
+		if err != nil {
+			return fmt.Errorf("configure token verifier: %w", err)
+		}
+		verifier = manager
+	} else {
+		logger.Warn("JWT_ACCESS_SECRET is not set; every WebSocket client is anonymous and may only follow a single tracking number")
+	}
+
+	hub := live.NewHub()
+	router.GET("/ws", gin.WrapH(ws.NewHandler(ctx, ws.Options{
+		Hub:            hub,
+		Verifier:       verifier,
+		CookieName:     config.CookieName,
+		OriginPatterns: config.AllowedOrigins,
+		Logger:         logger,
+	})))
+
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
 		Handler:           router,
@@ -76,5 +104,37 @@ func run() error {
 	})
 
 	logger.Info("starting http service", "address", config.Addr(), "environment", config.AppEnv)
-	return httpx.Serve(ctx, server, 10*time.Second)
+	logger.Info("starting event consumer",
+		"exchange", config.Exchange,
+		"queue", config.Queue,
+		"routing_key", config.RoutingKey,
+	)
+
+	consumerConfig := messaging.ConsumerConfig{
+		URL:            config.RabbitMQURL,
+		Exchange:       config.Exchange,
+		Queue:          config.Queue,
+		RoutingKey:     config.RoutingKey,
+		Prefetch:       config.Prefetch,
+		HandlerTimeout: config.HandlerTimeout,
+		MaxRetries:     config.MaxRetries,
+		RetryDelay:     config.RetryDelay,
+		ReconnectMin:   config.ReconnectMin,
+		ReconnectMax:   config.ReconnectMax,
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make(chan error, 2)
+	go func() { results <- httpx.Serve(runCtx, server, 10*time.Second) }()
+	go func() { results <- messaging.Run(runCtx, consumerConfig, consumer.New(hub), logger) }()
+
+	// Whichever stops first takes the other down with it.
+	firstErr := <-results
+	cancel()
+	if err := <-results; err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
 }

@@ -226,8 +226,9 @@ The internal trigger for the target flow is `parcel.status_changed.v1`, produced
 - Consumer bindings:
   - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned parcels; merchant-owned unsupported)
   - Webhook worker: `parcel.status_changed.v1` (implemented; validates and logs only)
-  - Realtime: `parcel.assigned.v1`, `parcel.status_changed.v1` (target; not implemented)
+  - Realtime: `parcel.status_changed.v1` (implemented; in-process WebSocket fan-out, no replay). `parcel.assigned.v1` remains a target.
   - Merchant integration: `parcel.status_changed.v1` (target; not implemented)
+- The realtime consumer validates the envelope and only reads `tracking_number`, `previous_status`, `status`, and `occurred_at` from `parcel.status_changed.v1`; private fields are not decoded or forwarded to clients.
 - Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. The notification worker's parcel consumers use separate durable queues; future consumers should add new durable queues or an explicit queue migration rather than changing an existing queue's arguments.
 - Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The retry queue dead-letters to its owning queue through the default exchange, so retries stay queue-isolated. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
 - Multiple workers may consume the same versioned event through separate queues; each queue has its own retry queue, so a retry is never delivered to another worker. The retry queue name carries a topology suffix because durable queue arguments are immutable; the legacy `<queue>.retry` retry queue is no longer written to, and should be drained and deleted after upgrading.
