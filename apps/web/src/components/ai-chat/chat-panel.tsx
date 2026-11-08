@@ -1,6 +1,7 @@
 'use client';
 
 import { Sparkles, X } from 'lucide-react';
+import Link from 'next/link';
 import {
   useEffect,
   useRef,
@@ -40,6 +41,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     failedMessage,
     send,
     retry,
+    retryToken,
     dismissError,
   } = useAiChat();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -141,6 +143,23 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                 I answer questions about SwiftDrop. I cannot help with other
                 topics.
               </p>
+              <p className="text-caption text-text-muted">
+                You can ask as a guest.{' '}
+                <Link
+                  href="/login"
+                  className="underline decoration-line underline-offset-2 hover:text-text"
+                >
+                  Sign in
+                </Link>{' '}
+                or{' '}
+                <Link
+                  href="/register"
+                  className="underline decoration-line underline-offset-2 hover:text-text"
+                >
+                  create an account
+                </Link>{' '}
+                to see your own deliveries.
+              </p>
             </div>
             <SuggestedQuestions onSelect={sendMessage} isDisabled={isSending} />
           </div>
@@ -195,6 +214,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           onSend={sendMessage}
           isSending={isSending}
           failedMessage={failedMessage}
+          clearToken={retryToken}
           retryAfterSeconds={failure?.waitSeconds}
         />
       </div>

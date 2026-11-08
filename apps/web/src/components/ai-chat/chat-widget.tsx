@@ -3,6 +3,7 @@
 import { MessageCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+import { useSessionIdentityVersion } from '../../lib/use-session-identity';
 import { ChatPanel } from './chat-panel';
 
 /**
@@ -12,6 +13,7 @@ import { ChatPanel } from './chat-panel';
  */
 export function AiChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
+  const identityVersion = useSessionIdentityVersion();
   const launcherRef = useRef<HTMLButtonElement>(null);
   const hasOpened = useRef(false);
 
@@ -26,7 +28,9 @@ export function AiChatWidget() {
 
   return (
     <>
-      {isOpen && <ChatPanel onClose={() => setIsOpen(false)} />}
+      {isOpen && (
+        <ChatPanel key={identityVersion} onClose={() => setIsOpen(false)} />
+      )}
       <button
         ref={launcherRef}
         type="button"

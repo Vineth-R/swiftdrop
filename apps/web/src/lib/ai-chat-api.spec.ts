@@ -114,7 +114,7 @@ describe('toolProgressLabel', () => {
         name: 'get_my_active_deliveries',
         status: 'DENIED',
       }),
-    ).toBe('Sign in to use your active deliveries.');
+    ).toBe('Sign in or use a customer account to use your active deliveries.');
   });
 
   it('reports an unavailable dependency without its payload', () => {
