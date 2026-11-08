@@ -524,5 +524,5 @@ func isPrivilegedParcelLookup(tool, role string) bool {
 	if role != string(auth.RoleDispatcher) && role != string(auth.RoleAdmin) {
 		return false
 	}
-	return tool == "get_my_parcel_history" || tool == "get_my_active_deliveries"
+	return tool == "get_public_parcel_status" || tool == "get_my_parcel_history" || tool == "get_my_active_deliveries"
 }

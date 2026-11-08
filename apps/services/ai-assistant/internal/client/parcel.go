@@ -93,8 +93,11 @@ func NewParcelClient(cfg Config) (*ParcelClient, error) {
 	return &ParcelClient{http: httpClient}, nil
 }
 
-// Tracking returns the public snapshot for one tracking number.
-func (c *ParcelClient) Tracking(ctx context.Context, trackingNumber string) (Tracking, error) {
+// Tracking returns the caller's authorized snapshot for one tracking number.
+// The Parcel service scopes CUSTOMER lookups to their own parcels and allows
+// DISPATCHER/ADMIN operational access; the assistant never calls the anonymous
+// public tracking projection.
+func (c *ParcelClient) Tracking(ctx context.Context, trackingNumber, accessToken string) (Tracking, error) {
 	number := strings.TrimSpace(trackingNumber)
 	if number == "" {
 		return Tracking{}, &Error{Kind: KindInvalid}
@@ -103,8 +106,8 @@ func (c *ParcelClient) Tracking(ctx context.Context, trackingNumber string) (Tra
 	var envelope struct {
 		Data Tracking `json:"data"`
 	}
-	path := "/tracking/" + url.PathEscape(number)
-	if err := c.http.do(ctx, http.MethodGet, path, nil, nil, "", &envelope); err != nil {
+	path := "/parcels/tracking/" + url.PathEscape(number)
+	if err := c.http.do(ctx, http.MethodGet, path, nil, nil, strings.TrimSpace(accessToken), &envelope); err != nil {
 		return Tracking{}, err
 	}
 	return envelope.Data, nil

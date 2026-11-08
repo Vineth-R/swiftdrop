@@ -21,7 +21,7 @@ The confirmed lifecycle statuses are:
 
 ## Status timeline
 
-Each parcel keeps an append-only status history. Public tracking shows the status and timestamp of each public event. Signed-in owners can view additional owner-visible history.
+Each parcel keeps an append-only status history. The assistant shows a signed-in owner's parcel status and timeline. The separate public tracking page shows the status and timestamp of each public event without signing in.
 
 ## Parcel size categories
 

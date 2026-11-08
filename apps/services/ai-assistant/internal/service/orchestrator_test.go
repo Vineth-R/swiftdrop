@@ -638,6 +638,49 @@ func TestPrivilegedParcelLookupIsAuditedWithoutSecrets(t *testing.T) {
 	}
 }
 
+func TestPrivilegedTrackingLookupIsAudited(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	registry := testRegistry()
+	registry.tools["get_public_parcel_status"] = &fakeTool{
+		definition: contract.ToolDeclaration{Name: "get_public_parcel_status"},
+		result:     contract.ToolResult{Status: contract.StatusOK, Data: map[string]any{"trackingNumber": "SDK7M2Q9XP4"}},
+	}
+	provider := mock.New(
+		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
+			Name:      "get_public_parcel_status",
+			Arguments: map[string]any{"trackingNumber": "SDK7M2Q9XP4"},
+		}}},
+		contract.GenerateResponse{Text: "The parcel is in transit."},
+	)
+	orchestrator := newOrchestrator(t, provider, registry, func(options *Options) {
+		options.Logger = logger
+	})
+
+	_, err := orchestrator.Chat(context.Background(), ChatInput{
+		Message: "Look up this operational tracking number.",
+		Caller: contract.CallerContext{
+			UserID: "admin-1", Role: "ADMIN", Authenticated: true, AccessToken: "secret-token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	logged := buffer.String()
+	for _, required := range []string{"privileged parcel lookup", "actor_id=admin-1", "role=ADMIN", "tool=get_public_parcel_status", "audit=true"} {
+		if !strings.Contains(logged, required) {
+			t.Fatalf("audit log missing %q: %s", required, logged)
+		}
+	}
+	for _, forbidden := range []string{"secret-token", "SDK7M2Q9XP4", "Look up this operational tracking number"} {
+		if strings.Contains(logged, forbidden) {
+			t.Fatalf("audit log leaked %q: %s", forbidden, logged)
+		}
+	}
+}
+
 func TestConcurrentGuestConversationsDoNotMixContext(t *testing.T) {
 	store := conversation.New(100, time.Minute, 40)
 	orchestrator := newOrchestrator(t, mock.New(), testRegistry(), func(options *Options) {

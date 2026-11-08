@@ -12,7 +12,8 @@ info:
     parcel, history and PENDING outbox row in one transaction. The M6 relay publishes
     versioned domain events after commit. Proof uploads and the remaining courier
     lifecycle writes remain planned. Public tracking exposes only status, cities and
-    timeline timestamps.
+    timeline timestamps; authenticated tracking is ownership-scoped and returns the same
+    allowlist, with DISPATCHER/ADMIN operational access.
 servers:
   - url: /api/v1
 paths:
@@ -458,6 +459,48 @@ paths:
                   meta: { $ref: '#/components/schemas/ParcelListMeta' }
         '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
         '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/tracking/{trackingNumber}':
+    get:
+      operationId: getAuthorizedTracking
+      summary: Read tracking for an owned or operationally authorized parcel
+      tags: [Customer parcels]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description:
+        CUSTOMER owner, DISPATCHER or ADMIN. The lookup is ownership-scoped in the same query
+        (customer_user_id) and staff may read operationally. Another customer's tracking number
+        returns the same 404 as a nonexistent one, so tracking numbers cannot be enumerated.
+        Returns the same public allowlist as anonymous tracking; no names, addresses, phones,
+        notes, failure details or proof data are returned. The AI assistant uses this endpoint
+        and never the anonymous projection.
+      parameters:
+        - name: trackingNumber
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^SD[KN][A-Z0-9]{8}$
+      responses:
+        '200':
+          description: Authorized parcel snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PublicTracking'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ParcelValidation' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ParcelUnavailable' }

@@ -80,7 +80,7 @@ three approved knowledge sections, and runs a bounded tool loop:
 | Tool                       | Upstream                                                         | Access                                     |
 | -------------------------- | ---------------------------------------------------------------- | ------------------------------------------ |
 | `calculate_delivery_fee`   | `POST /pricing/estimate`                                         | Public                                     |
-| `get_public_parcel_status` | `GET /tracking/{trackingNumber}`                                 | Public                                     |
+| `get_public_parcel_status` | `GET /parcels/tracking/{trackingNumber}`                         | CUSTOMER own; DISPATCHER/ADMIN operational |
 | `get_my_parcel_history`    | `GET /parcels/{parcelId}/history`                                | CUSTOMER own; DISPATCHER/ADMIN operational |
 | `get_my_active_deliveries` | CUSTOMER: `GET /parcels`; DISPATCHER/ADMIN: `GET /admin/parcels` | CUSTOMER own; DISPATCHER/ADMIN operational |
 
@@ -88,9 +88,13 @@ three approved knowledge sections, and runs a bounded tool loop:
 public zone directory (`GET /zones`) and then calls the Pricing estimate. It
 never computes a price. Pricing remains the source of truth.
 
-The private tools refuse guests, MERCHANT and COURIER before any HTTP request.
-CUSTOMER, DISPATCHER and ADMIN are allowed; the caller's verified access token is
-forwarded and Parcel remains authoritative for ownership and staff access. The
+The three parcel tools refuse guests, MERCHANT and COURIER before any HTTP
+request. CUSTOMER, DISPATCHER and ADMIN are allowed; the caller's verified access
+token is forwarded and Parcel remains authoritative for ownership and staff
+access. Tracking-number lookup uses the ownership-scoped Parcel endpoint, never
+the anonymous public tracking projection; a tracking number is not an identity
+credential. Another customer's tracking number returns the same safe not-found
+result as a missing one. The
 model never supplies a user/owner/customer ID. DISPATCHER/ADMIN operational
 lists use `GET /admin/parcels` and return a separate allowlist without customer
 or merchant IDs. Another customer's parcel produces the same safe not-found
@@ -242,7 +246,7 @@ per-caller concurrency, optional authentication, the role matrix for both
 private tools, operational allowlists, privileged audit logging, the
 deterministic extraction guard, provider failure/timeout/empty response, tool
 loop success, unknown tools, strict arguments, denial before upstream,
-cross-customer safety, identity override rejection, public-tracking
+cross-customer safety, identity override rejection, ownership-scoped tracking
 sanitization, pricing non-fabrication, upstream unavailability, scope refusal,
 knowledge retrieval and the final API envelope.
 

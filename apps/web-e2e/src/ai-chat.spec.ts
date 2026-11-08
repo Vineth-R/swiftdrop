@@ -83,6 +83,140 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     }
   });
 
+  test('a fresh conversation opens at the top with the welcome content visible', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await mockApi(page, {});
+    await page.goto('/track');
+    await openAssistant(page);
+
+    const log = panel(page).getByRole('log', { name: 'Conversation' });
+    await expect(
+      panel(page).getByRole('heading', {
+        level: 2,
+        name: 'SwiftDrop Delivery Assistant',
+      }),
+    ).toBeVisible();
+    await expect(log).toContainText(
+      "Hi! I'm your SwiftDrop Delivery Assistant.",
+    );
+    await expect(
+      log.getByRole('list', { name: 'Suggested questions' }),
+    ).toBeVisible();
+    await expect
+      .poll(() => log.evaluate((element) => element.scrollTop))
+      .toBe(0);
+  });
+
+  test('a new message follows the conversation to the latest entry', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const longReply = Array.from(
+      { length: 60 },
+      (_, index) => `Delivery update ${index + 1}.`,
+    ).join('\n\n');
+    await mockApi(page, { [CHAT]: reply(longReply) });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    const log = panel(page).getByRole('log', { name: 'Conversation' });
+    await expect
+      .poll(() => log.evaluate((element) => element.scrollTop))
+      .toBe(0);
+
+    await input(page).fill('Show me a long update.');
+    await input(page).press('Enter');
+    await expect(panel(page)).toContainText('Delivery update 60.');
+
+    const metrics = await log.evaluate((element) => ({
+      top: element.scrollTop,
+      max: element.scrollHeight - element.clientHeight,
+    }));
+    expect(metrics.max).toBeGreaterThan(0);
+    expect(metrics.top).toBeGreaterThan(0);
+    expect(metrics.max - metrics.top).toBeLessThanOrEqual(2);
+  });
+
+  test('reading older messages is not interrupted by a reply', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const longReply = Array.from(
+      { length: 60 },
+      (_, index) => `Delivery update ${index + 1}.`,
+    ).join('\n\n');
+    let call = 0;
+    await mockApi(page, {
+      [CHAT]: () => {
+        call += 1;
+        return call === 1
+          ? reply(longReply)
+          : { ...reply(longReply), delayMs: 800 };
+      },
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    const log = panel(page).getByRole('log', { name: 'Conversation' });
+    await input(page).fill('Show me a long update.');
+    await input(page).press('Enter');
+    await expect(panel(page)).toContainText('Delivery update 60.');
+
+    // A second turn scrolls down as usual, then the reader scrolls up while
+    // the reply is still in flight.
+    await input(page).fill('Show me another long update.');
+    await input(page).press('Enter');
+    await expect(panel(page)).toContainText('The assistant is typing');
+    const scrolled = await log.evaluate((element) => {
+      element.scrollTop = 0;
+      return element.scrollTop;
+    });
+    expect(scrolled).toBe(0);
+
+    await expect(panel(page).getByText('The assistant is typing')).toHaveCount(
+      0,
+    );
+    expect(
+      await log.evaluate((element) => element.scrollTop),
+    ).toBeLessThanOrEqual(4);
+  });
+
+  test('reopening starts a fresh conversation at the top', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const longReply = Array.from(
+      { length: 60 },
+      (_, index) => `Delivery update ${index + 1}.`,
+    ).join('\n\n');
+    await mockApi(page, { [CHAT]: reply(longReply) });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    const log = panel(page).getByRole('log', { name: 'Conversation' });
+    await input(page).fill('Show me a long update.');
+    await input(page).press('Enter');
+    await expect(panel(page)).toContainText('Delivery update 60.');
+    expect(await log.evaluate((element) => element.scrollTop)).toBeGreaterThan(
+      0,
+    );
+
+    await page.getByRole('button', { name: 'Close the assistant' }).click();
+    await expect(panel(page)).toHaveCount(0);
+    await openAssistant(page);
+
+    await expect(
+      panel(page).getByRole('log', { name: 'Conversation' }),
+    ).toContainText("Hi! I'm your SwiftDrop Delivery Assistant.");
+    await expect
+      .poll(() =>
+        panel(page)
+          .getByRole('log', { name: 'Conversation' })
+          .evaluate((element) => element.scrollTop),
+      )
+      .toBe(0);
+  });
+
   test('a suggested question sends a real message and renders the reply', async ({
     page,
   }) => {
