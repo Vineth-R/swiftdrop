@@ -42,7 +42,8 @@ type Options struct {
 	// CookieName is the access-token cookie, read when there is no ?token=.
 	CookieName string
 	// OriginPatterns are extra browser origins (host or host:port) allowed to
-	// connect. The page's own host is always allowed.
+	// connect. Behind the gateway the Host header is not the public host, so list
+	// every host users open.
 	OriginPatterns []string
 	Logger         *slog.Logger
 
@@ -164,7 +165,9 @@ func (c *client) Deliver(update live.Update) bool {
 // Overflow closes a connection that cannot keep up (live.Subscriber). The web
 // client reconnects and fetches the current state again.
 func (c *client) Overflow() {
-	c.closeWith(websocket.StatusTryAgainLater, "cannot keep up")
+	// Runs on the broker consumer's goroutine through Hub.Broadcast. A polite
+	// close can wait for a client that is not reading, so do it elsewhere.
+	go c.closeWith(websocket.StatusTryAgainLater, "cannot keep up")
 }
 
 func (c *client) send(message []byte) bool {
@@ -325,7 +328,8 @@ func (c *client) pingLoop() {
 			continue
 		}
 		if c.idleFor() >= c.opts.IdleTimeout {
-			c.closeWith(websocket.StatusGoingAway, "idle timeout")
+			// The peer has gone quiet, so a closing handshake would only wait.
+			c.finish()
 			return
 		}
 	}

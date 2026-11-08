@@ -381,3 +381,21 @@ func TestDeliverDoesNotBlockWhenTheQueueIsFull(t *testing.T) {
 		t.Fatal("Deliver() should report false when the queue is full, not block")
 	}
 }
+
+func TestSilentClientIsDroppedByTheIdleTimeout(t *testing.T) {
+	server := newTestServer(t, func(options *Options) {
+		options.PingInterval = 30 * time.Millisecond
+		options.IdleTimeout = 100 * time.Millisecond
+	})
+	conn := server.dial(t, "", nil)
+	send(t, conn, fmt.Sprintf(`{"type":"subscribe","trackingNumber":%q}`, trackingNumber))
+	// This client never reads again, so it never answers a ping.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if server.hub.Connections() == 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("a silent client was not dropped by the idle timeout")
+}
