@@ -228,8 +228,14 @@ Additional checks:
   including the shared pinned Gitleaks version and checksum.
 - `git diff --check` — clean.
 
-GitHub Actions results are not asserted here beyond the original failed run.
-PR and post-merge results are recorded by the workflow itself.
+### GitHub Actions verification
+
+- PR #108 CI run `42480610088`: all required checks passed, including
+  `Secret scanning (Gitleaks)`, `Security gate`, and `Required CI gate`.
+- Feature-branch workflow run `42480607642` (`Secret scanning (feature
+branches)`): passed.
+- The post-merge protected-branch run remains to be observed after review and
+  merge.
 
 ## 11. Security implications
 
