@@ -13,7 +13,7 @@ import (
 // developmentOrigins are the browser origins allowed to open a WebSocket in
 // development: the Next.js dev server, which is served on a different port
 // than the gateway.
-const developmentOrigins = "localhost:3000,127.0.0.1:3000"
+const developmentOrigins = "localhost:3000,127.0.0.1:3000,localhost:8080,127.0.0.1:8080"
 
 type Config struct {
 	Port        int
@@ -28,7 +28,8 @@ type Config struct {
 	CookieName   string
 
 	// AllowedOrigins are extra browser origins (host or host:port patterns)
-	// allowed to open a WebSocket. The page's own host is always allowed.
+	// allowed to open a WebSocket. Behind the gateway the Host header is not the
+	// public host, so list every host users open.
 	AllowedOrigins []string
 
 	RabbitMQURL    string

@@ -265,18 +265,18 @@ func TestLoadFromAccessSecret(t *testing.T) {
 }
 
 func TestLoadFromAllowedOrigins(t *testing.T) {
-	t.Run("development allows the Next.js dev server by default", func(t *testing.T) {
+	t.Run("development allows the Next.js dev server and the gateway by default", func(t *testing.T) {
 		config, err := LoadFrom(loaderFor(valid(nil)))
 		if err != nil {
 			t.Fatalf("LoadFrom() returned error: %v", err)
 		}
-		want := []string{"localhost:3000", "127.0.0.1:3000"}
+		want := []string{"localhost:3000", "127.0.0.1:3000", "localhost:8080", "127.0.0.1:8080"}
 		if !reflect.DeepEqual(config.AllowedOrigins, want) {
 			t.Fatalf("AllowedOrigins = %v, want %v", config.AllowedOrigins, want)
 		}
 	})
 
-	t.Run("other environments allow only the page's own host", func(t *testing.T) {
+	t.Run("other environments have no default, so list the public hosts", func(t *testing.T) {
 		for _, appEnv := range []string{"staging", "production"} {
 			config, err := LoadFrom(loaderFor(valid(map[string]string{"APP_ENV": appEnv})))
 			if err != nil {
