@@ -101,6 +101,14 @@ The scan was intended to be a full-history scan of the protected branch. An
 unscoped scan is both broader than intended and coupled to unrelated,
 unmerged work.
 
+### Independent CI design issue: unreachable feature-branch scan
+
+The `CI` workflow only triggers on `push` to `development`, `main`, and tags.
+Its `Scan feature branch push commit range` step therefore never ran. The step
+was moved to a dedicated `Secret scanning (feature branches)` workflow that
+triggers on pushes to non-protected branches. This gives feature-branch pushes
+the required range scan without running the entire CI pipeline on every branch.
+
 ## 5. Genuine credential or test-only fixture
 
 The value is a test-only JWT signing fixture. It is used only by the realtime
@@ -127,8 +135,10 @@ gitleaks git ... --log-opts="${PROTECTED_SHA} -m" .
   feature work and merge diffs (`-m`).
 - Unmerged refs are no longer scanned by the protected-branch job.
 - Missing or unresolvable SHAs fail closed before the scan.
-- The PR and feature-branch push scans are unchanged and still cover their
-  ranges.
+- The PR scan is unchanged and still covers its range.
+- The previously unreachable feature-branch scan now lives in
+  `.github/workflows/secret-scan-feature.yml`, triggered by pushes to
+  non-protected branches. It keeps the same fail-closed base/head resolution.
 
 No Gitleaks allowlist was added, no rule was suppressed, and no shared history
 was rewritten. The feature branch still contains the fixture and is still
@@ -163,11 +173,12 @@ independent required check failed. No change is required.
 
 ## 9. Files modified
 
-| File                                           | Change                                                                                                                                                |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`                     | Protected branch/tag Gitleaks step now scopes to `github.sha` with `-m` and fails closed on a missing/unresolvable SHA                                |
-| `tests/scripts/ci_secret_scan_test.go`         | Pins the protected-ref scope and adds a dynamic regression test proving unmerged refs are excluded while protected-history secrets are still detected |
-| `docs/DEVELOPMENT_CI_FAILURE_INVESTIGATION.md` | This document                                                                                                                                         |
+| File                                           | Change                                                                                                                                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/ci.yml`                     | Protected branch/tag Gitleaks step now scopes to `github.sha` with `-m` and fails closed on a missing/unresolvable SHA; the unreachable feature-branch step was removed         |
+| `.github/workflows/secret-scan-feature.yml`    | New lightweight workflow that scans the pushed range for feature-branch pushes, with the same pinned Gitleaks version and checksum                                              |
+| `tests/scripts/ci_secret_scan_test.go`         | Pins the protected-ref scope and the feature workflow, and adds a dynamic regression test proving unmerged refs are excluded while protected-history secrets are still detected |
+| `docs/DEVELOPMENT_CI_FAILURE_INVESTIGATION.md` | This document                                                                                                                                                                   |
 
 No application service, security scanner, threshold, or required gate was
 modified.
@@ -212,7 +223,9 @@ Additional checks:
 - `go vet ./tests/scripts/...` — clean.
 - `go test ./apps/services/realtime/...` — clean (the `ws` package is not
   present on `development`).
-- Workflow YAML parsed successfully.
+- Both workflow YAML files parsed successfully.
+- The static policy test covers both `ci.yml` and the feature workflow,
+  including the shared pinned Gitleaks version and checksum.
 - `git diff --check` — clean.
 
 GitHub Actions results are not asserted here beyond the original failed run.
@@ -246,6 +259,8 @@ no evidence of that here.
 2. Review and merge this PR only after the PR checks pass.
 3. After merge, confirm the protected-branch push run's
    `Secret scanning (Gitleaks)` job passes with the scoped scan.
+4. Confirm the first push to a feature branch runs
+   `Secret scanning (feature branches)` and passes.
 
 ## 14. Known limitations
 

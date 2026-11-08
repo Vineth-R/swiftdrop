@@ -18,7 +18,8 @@ import (
 //   - PRs scan only base..head (with merge diffs) and never unrelated refs.
 //   - Protected branch/tag pushes scan the full history reachable from the
 //     pushed protected ref, not every ref fetched by the checkout.
-//   - Feature branch pushes scan only the pushed range.
+//   - Feature branch pushes scan only the pushed range, in the dedicated
+//     secret-scan-feature.yml workflow.
 //   - Missing or unresolved SHAs fail closed.
 func TestCISecretScanScopes(t *testing.T) {
 	workflow := readCIWorkflow(t)
@@ -33,12 +34,6 @@ func TestCISecretScanScopes(t *testing.T) {
 		`git cat-file -e "${PR_BASE_SHA}^{commit}"`,
 		`git cat-file -e "${PR_HEAD_SHA}^{commit}"`,
 		`--log-opts="${PR_BASE_SHA}..${PR_HEAD_SHA} -m"`,
-		"if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref != 'refs/heads/development' && github.ref != 'refs/heads/main'",
-		"PUSH_BEFORE_SHA: ${{ github.event.before }}",
-		"PUSH_AFTER_SHA: ${{ github.event.after }}",
-		`git cat-file -e "${PUSH_AFTER_SHA}^{commit}"`,
-		"git merge-base origin/development",
-		`--log-opts="${BASE_SHA}..${PUSH_AFTER_SHA} -m"`,
 	}
 	for _, want := range required {
 		if !strings.Contains(workflow, want) {
@@ -49,11 +44,52 @@ func TestCISecretScanScopes(t *testing.T) {
 	if strings.Contains(workflow, "github.event_name != 'pull_request'") {
 		t.Fatal("feature-branch pushes must not fall through to a full-history scan")
 	}
-	if count := strings.Count(workflow, "gitleaks git"); count != 3 {
-		t.Fatalf("workflow has %d gitleaks invocations, want 3 scoped invocations", count)
+	if strings.Contains(workflow, "github.ref_type == 'branch'") {
+		t.Fatal("feature-branch pushes belong to secret-scan-feature.yml, not ci.yml")
 	}
-	if count := strings.Count(workflow, "--log-opts="); count != 3 {
-		t.Fatalf("workflow has %d --log-opts scopes, want 3 (no unscoped scan)", count)
+	if count := strings.Count(workflow, "gitleaks git"); count != 2 {
+		t.Fatalf("ci.yml has %d gitleaks invocations, want 2 scoped invocations", count)
+	}
+	if count := strings.Count(workflow, "--log-opts="); count != 2 {
+		t.Fatalf("ci.yml has %d --log-opts scopes, want 2 (no unscoped scan)", count)
+	}
+
+	featurePath := filepath.Join(repositoryRoot(t), ".github/workflows/secret-scan-feature.yml")
+	featureWorkflowBytes, err := os.ReadFile(featurePath)
+	if err != nil {
+		t.Fatalf("read feature secret-scan workflow: %v", err)
+	}
+	featureWorkflow := string(featureWorkflowBytes)
+	featureRequired := []string{
+		"name: Secret scanning (feature branches)",
+		"branches-ignore:",
+		"- development",
+		"- main",
+		"PUSH_BEFORE_SHA: ${{ github.event.before }}",
+		"PUSH_AFTER_SHA: ${{ github.event.after }}",
+		`git cat-file -e "${PUSH_AFTER_SHA}^{commit}"`,
+		"git merge-base origin/development",
+		`git cat-file -e "${BASE_SHA}^{commit}"`,
+		`--log-opts="${BASE_SHA}..${PUSH_AFTER_SHA} -m"`,
+	}
+	for _, want := range featureRequired {
+		if !strings.Contains(featureWorkflow, want) {
+			t.Fatalf("feature secret-scan workflow is missing required fragment:\n%s", want)
+		}
+	}
+	if count := strings.Count(featureWorkflow, "gitleaks git"); count != 1 {
+		t.Fatalf("feature workflow has %d gitleaks invocations, want 1", count)
+	}
+	if count := strings.Count(featureWorkflow, "--log-opts="); count != 1 {
+		t.Fatalf("feature workflow has %d --log-opts scopes, want 1", count)
+	}
+	for _, pinned := range []string{
+		"GITLEAKS_VERSION: '8.30.1'",
+		"GITLEAKS_LINUX_X64_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'",
+	} {
+		if !strings.Contains(workflow, pinned) || !strings.Contains(featureWorkflow, pinned) {
+			t.Fatalf("both secret-scan workflows must pin %q", pinned)
+		}
 	}
 
 	config, err := os.ReadFile(filepath.Join(repositoryRoot(t), ".gitleaks.toml"))
