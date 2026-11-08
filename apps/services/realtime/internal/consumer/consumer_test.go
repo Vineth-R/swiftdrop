@@ -2,7 +2,6 @@ package consumer
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -36,9 +35,9 @@ func TestHandleBroadcastsOnlyPublicFields(t *testing.T) {
 	if u.TrackingNumber != "SDK7M2Q9XP4" || u.PreviousStatus != "CREATED" || u.Status != "PICKED_UP" {
 		t.Fatalf("unexpected update %+v", u)
 	}
-	out, _ := json.Marshal(u.Message())
+	out := string(u.Message())
 	for _, leak := range []string{"merchant", "customer", "secret"} {
-		if strings.Contains(string(out), leak) {
+		if strings.Contains(out, leak) {
 			t.Fatalf("message leaks %q: %s", leak, out)
 		}
 	}
