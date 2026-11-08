@@ -9,6 +9,7 @@ One specification per HTTP service:
 | Pricing      | `pricing.yaml`      | `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones`                                       |
 | Merchant     | `merchant.yaml`     | `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`                                                       |
 | Notification | `notification.yaml` | `/api/v1/admin/notification-logs`                                                                                        |
+| AI Assistant | `ai-assistant.yaml` | `/api/v1/ai/chat`                                                                                                        |
 | Realtime     | `realtime.yaml`     | `/ws`                                                                                                                    |
 
 The public base paths are the Nginx routes. Nginx strips the `/api/v1` prefix before forwarding, so service routers expose root paths such as `/auth/...`, `/parcels/...`, `/health`, and `/ready`. `/ws` is forwarded to the realtime service unchanged. See `docs/architecture.md`.
