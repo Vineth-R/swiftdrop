@@ -87,6 +87,10 @@ func newRouteCheckServer(t *testing.T, validPricing405 bool) *httptest.Server {
 			writeRouteError(w, http.StatusUnauthorized, "UNAUTHORIZED")
 		case "/api/v1/admin/merchants/probe":
 			writeRouteError(w, http.StatusForbidden, "FORBIDDEN")
+		case "/api/v1/ai/chat":
+			// The AI service itself rejects an empty message with 422, which
+			// proves the gateway reached the upstream.
+			writeRouteError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR")
 		default:
 			// All remaining probes are intentionally unimplemented routes.
 			writeRouteError(w, http.StatusNotFound, "NOT_FOUND")

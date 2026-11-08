@@ -22,6 +22,7 @@ Nginx :8080 (only published application port)
   |-- /api/v1/admin/zones       -> pricing :8083
   |-- /api/v1/merchants|merchant -> merchant :8084
   |-- /api/v1/admin/merchants   -> merchant :8084
+  |-- /api/v1/ai/chat           -> ai-assistant :8087
   |-- /ws                       -> realtime :8085
   |-- /internal                 -> 404 (never routed)
   |-- /healthz                  -> gateway health
@@ -39,6 +40,7 @@ PostgreSQL, RabbitMQ, and Mailpit are addressed through Compose service names. R
 - **Parcel** owns parcel lifecycle, status, tracking, reports, and courier delivery reads and writes. Customer creation, owner-scoped reads/history/PDF receipts, internal merchant creation/summary, anonymous public tracking, DISPATCHER/ADMIN daily and outcome reports, and COURIER delivery list/detail reads and transactional status updates are implemented. Creation atomically stores the accepted real pricing quote, initial history and PENDING outbox data; the M6 relay publishes versioned events. Courier status updates lock the parcel, verify the current assignment and state transition, and commit the status, history row and PENDING `parcel.status_changed` outbox event together before the relay publishes `parcel.status_changed.v1`. Proof uploads (6.4) and the remaining lifecycle writes remain planned.
 - **Pricing** owns delivery fee calculation and pricing configuration in a future phase. No formulas are implemented.
 - **Merchant** owns merchant accounts, integration settings, API client metadata, merchant order snapshots, status timelines, and administrative audit records. Parcel creation and pricing remain owned by their respective services.
+- **AI Assistant** owns the Gemini-backed conversational assistant. It validates chat requests, enforces optional JWT identity, retrieves approved embedded knowledge, and runs a bounded function-calling loop over exactly four read-only tools: pricing estimate, public tracking, owned parcel history and owned active deliveries. It never accepts identity or roles from the model, never exposes the Gemini key, and has no database access or write tools. Conversation history and rate limits are in-process and non-durable. See [`apps/services/ai-assistant/IMPLEMENTATION_CONTRACT.md`](../apps/services/ai-assistant/IMPLEMENTATION_CONTRACT.md) and [`docs/ai-assistant.md`](ai-assistant.md).
 - **Realtime** will own live tracking connections and subscriptions. It currently provides health endpoints and a structure for future WebSocket/SSE work.
 - **Notification worker** consumes the legacy `notification.requested.v1` work item and the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` domain events. It resolves customer contact through the identity internal endpoint and delivers the email channel through the shared SMTP mailer; merchant-owned parcel events are unsupported and dead-lettered. SMS has no provider yet and is a permanent failure. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`). The success log and processed-event writes share one transaction; delivery is at-least-once, not exactly-once. A context-aware background scheduler deletes processed-event rows older than 30 days at startup and every 24 hours by default; cleanup failures are logged and retried without stopping consumption, cleanup never modifies delivery logs, and graceful shutdown waits for the scheduler to stop. The worker also exposes an internal ADMIN-only read API on port `8086` for `GET /api/v1/admin/notification-logs`; it returns masked recipients and is reachable only through the gateway. The customer-owned domain-event path is implemented; `notification.requested.v1` remains legacy. Merchant-owned parcels have no approved recipient-contact lookup, so merchant-owned parcel notifications remain unsupported until an authorized mechanism is approved.
 - **Webhook worker** consumes `parcel.status_changed.v1` on its own durable queue and logs only. The target flow delivers the public merchant webhook projection; delivery, signing, and attempt logging are not implemented.
@@ -94,11 +96,12 @@ Nginx exposes API v1.1 path groups and strips the `/api/v1` prefix before forwar
 | `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports` | parcel                       |
 | `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`                                                       | merchant                     |
 | `/api/v1/admin/notification-logs`                                                                                        | notification-worker          |
+| `/api/v1/ai`                                                                                                             | ai-assistant                 |
 | `/ws`                                                                                                                    | realtime (WebSocket upgrade) |
 
 Gin services register root paths such as `/auth/...`, `/parcels/...`, `/health`, and `/ready`. For example, `/api/v1/parcels/123` becomes `/parcels/123` at the parcel service. This keeps service routers independent of the edge topology. Any new route must be updated in the Gin router, the OpenAPI specification, and the Nginx mapping together.
 
-`/internal/*` is never routed and returns a JSON `404`. `/api/v1/ai` is reserved for a future AI service and currently returns a JSON `404`. Only `/healthz` is public at the gateway; service `/health` and `/ready` are internal.
+`/internal/*` is never routed and returns a JSON `404`. `/api/v1/ai/chat` is forwarded to the AI assistant on internal port `8087`; the browser never reaches Gemini directly. Only `/healthz` is public at the gateway; service `/health` and `/ready` are internal.
 
 All HTTP services share the same edge-facing behavior:
 
@@ -124,6 +127,7 @@ HTTP services read:
 - `PORT`
 - optional `DATABASE_URL`; when set, services open the shared pgx pool and `/ready` reports `checks.database`. When unset, the service starts and `/ready` returns `503`.
 - Pricing and parcel also read `JWT_ACCESS_SECRET` and `COOKIE_NAME` for authenticated admin/dispatcher routes. Outside development a configured secret must be at least 32 random bytes and must not be a placeholder; an unset secret leaves public endpoints running but makes those routes fail closed with `503`.
+- The AI assistant reads `AI_*`, `GEMINI_API_KEY`, `JWT_ACCESS_SECRET`, `COOKIE_NAME`, `PRICING_BASE_URL`/`PRICING_TIMEOUT` and `PARCEL_BASE_URL`/`PARCEL_TIMEOUT`. It has no database. The Gemini key is injected only into that container and never reaches the browser or logs.
 
 Workers read:
 

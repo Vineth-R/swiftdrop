@@ -1,0 +1,288 @@
+openapi: 3.0.3
+info:
+  title: SwiftDrop AI Delivery Assistant API
+  version: 1.1.0
+  description: >-
+    Gemini-backed SwiftDrop Delivery Assistant. The service answers SwiftDrop
+    domain questions and calls exactly four approved read-only tools against the
+    Pricing and Parcel APIs. Authentication is optional; signed-in callers can
+    use private parcel tools with their own verified session. The model never
+    receives credentials, a user ID, a role, database access or arbitrary HTTP.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      operationId: aiAssistantHealth
+      summary: Process health
+      tags: [Internal operations]
+      security: []
+      responses:
+        '200':
+          description: The service process is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+              example: { status: ok }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      servers:
+        - url: http://ai-assistant:8087
+      x-internal: true
+  /ready:
+    get:
+      operationId: aiAssistantReady
+      summary: Service readiness
+      tags: [Internal operations]
+      security: []
+      description: >-
+        Readiness reports the process and the configured provider state. A
+        disabled or unconfigured provider does not fail readiness; chat requests
+        then return 503 AI_UNAVAILABLE.
+      responses:
+        '200':
+          description: The service can accept HTTP traffic.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, checks]
+                properties:
+                  status: { type: string, enum: [ready] }
+                  checks:
+                    type: object
+                    additionalProperties: false
+                    required: [provider]
+                    properties:
+                      provider:
+                        type: string
+                        enum: [ok, disabled, unconfigured]
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      servers:
+        - url: http://ai-assistant:8087
+      x-internal: true
+  /ai/chat:
+    post:
+      operationId: aiChat
+      summary: Ask the SwiftDrop Delivery Assistant
+      tags: [AI assistant]
+      description: >-
+        Public and rate limited to 15 requests per rolling minute per signed-in
+        user, or per client IP for anonymous callers. The message is required and
+        limited to 500 characters. conversationId is optional and binds follow-up
+        questions. Signed-in callers may trigger the private parcel tools; the
+        calls use the caller's own verified session. Anonymous callers receive a
+        safe sign-in message for private questions. Responses never include
+        provider internals, credentials or private parcel fields.
+      security:
+        - {}
+        - AccessCookie: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            example:
+              message: Where is my parcel?
+              conversationId: null
+      responses:
+        '200':
+          description: Assistant reply and the executed tool summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ChatData'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+          headers:
+            X-RateLimit-Remaining:
+              schema: { type: integer, minimum: 0 }
+        '400':
+          description: 'BAD_REQUEST: malformed JSON, unknown fields, wrong content type or multiple objects.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401':
+          description: 'UNAUTHENTICATED or TOKEN_EXPIRED: credentials were supplied but are not usable.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: 'CONVERSATION_NOT_FOUND: unknown, expired, or not owned by the caller.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '413':
+          description: 'PAYLOAD_TOO_LARGE: body exceeds 1 MiB.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: 'VALIDATION_ERROR: empty/whitespace or over-500-character message, or malformed conversation ID.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429':
+          description: 'RATE_LIMITED: wait Retry-After seconds.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+          headers:
+            Retry-After:
+              description: Seconds until a request can be admitted.
+              schema: { type: integer, minimum: 1 }
+            X-RateLimit-Remaining:
+              schema: { type: integer, enum: [0] }
+        '500':
+          description: 'INTERNAL_ERROR: safe internal failure.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '503':
+          description: 'AI_UNAVAILABLE: assistant disabled, provider unavailable/timeout, or empty model response.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+components:
+  securitySchemes:
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: sd_access
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ChatRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Trimmed message; whitespace-only is rejected.
+        conversationId:
+          type: string
+          nullable: true
+          pattern: ^cv[0-9a-f]{32}$
+          description: Optional existing conversation owned by the caller.
+    ChatData:
+      type: object
+      additionalProperties: false
+      required: [conversationId, reply, toolCalls]
+      properties:
+        conversationId:
+          type: string
+          pattern: ^cv[0-9a-f]{32}$
+        reply:
+          type: string
+        toolCalls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolCall'
+    ToolCall:
+      type: object
+      additionalProperties: false
+      required: [name, status]
+      properties:
+        name:
+          type: string
+          enum:
+            - calculate_delivery_fee
+            - get_public_parcel_status
+            - get_my_parcel_history
+            - get_my_active_deliveries
+        status:
+          type: string
+          enum: [OK, INVALID, DENIED, UNAVAILABLE]
+    SuccessMeta:
+      type: object
+      additionalProperties: false
+      required: [requestId, timestamp]
+      properties:
+        requestId: { type: string }
+        timestamp: { type: string, format: date-time }
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error, meta]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+        meta:
+          type: object
+          additionalProperties: false
+          required: [requestId]
+          properties:
+            requestId: { type: string }
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - BAD_REQUEST
+            - VALIDATION_ERROR
+            - UNAUTHENTICATED
+            - TOKEN_EXPIRED
+            - CONVERSATION_NOT_FOUND
+            - PAYLOAD_TOO_LARGE
+            - RATE_LIMITED
+            - AI_UNAVAILABLE
+            - SERVICE_UNAVAILABLE
+            - NOT_FOUND
+            - METHOD_NOT_ALLOWED
+            - INTERNAL_ERROR
+        message: { type: string }
+        details:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, issue]
+            properties:
+              field: { type: string }
+              issue: { type: string }
+  responses:
+    NotFound:
+      description: 'NOT_FOUND: route not found.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    MethodNotAllowed:
+      description: 'METHOD_NOT_ALLOWED: method not allowed for this route.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalServerError:
+      description: 'INTERNAL_ERROR: safe internal failure.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
