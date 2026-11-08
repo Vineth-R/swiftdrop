@@ -47,7 +47,7 @@ Add one `accesskit.Case` to `matrix` in `matrix_test.go`:
 
 ## Ownership cases
 
-`ownership_test.go` holds the three rules that need two accounts and a record: a customer cannot read another customer's parcel (404), a courier cannot update another courier's parcel (403), a merchant cannot see another merchant's order (404). They are skipped with the exact request and answer because the owning endpoints do not exist yet. When yours does, replace the skip with a real test: create the record as account A (`useStack(t).newCustomer(t)` gives a fresh account), repeat the request as account B, check the status and that the body shows nothing of the record.
+`TestCustomerParcelOwnership` creates a real parcel using two authenticated customers and the live pricing quote. It verifies owned list/detail/history/PDF reads and cross-customer 404 responses without parcel data. `TestCourierParcelOwnership` creates a parcel, assigns it to courier A through the real dispatch API, verifies courier A can move it to `PICKED_UP`, and verifies courier B gets `403 FORBIDDEN` on both route forms with no extra status-history or `parcel.status_changed` outbox row. Both tests retain their tagged parcel/history/outbox fixtures because history is append-only; use a disposable local stack. The merchant ownership case remains skipped with its exact request and expected response until that endpoint exists.
 
 ## Break a rule on purpose
 
@@ -63,4 +63,4 @@ The suite must fail when a rule is broken, or it proves nothing. Two checks do t
 ## Known gaps these tests report
 
 - The merchant service does not verify access tokens on `/merchants/*` and `/admin/merchants/*`. Every caller is refused, so the routes fail closed, but a merchant cannot use them and an admin cannot approve anyone. The matrix marks them `Pending`.
-- The parcel service has no parcel, dispatch or courier routes yet, so those rules are `Missing`.
+- Customer parcel, dispatch and courier delivery routes participate in the matrix and real ownership tests. The merchant route cases remain `Pending` or `Missing` until the merchant service verifies tokens and exposes orders.

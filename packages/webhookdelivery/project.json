@@ -1,0 +1,44 @@
+{
+  "name": "webhookdelivery",
+  "root": "packages/webhookdelivery",
+  "projectType": "library",
+  "sourceRoot": "packages/webhookdelivery",
+  "tags": ["go", "library", "webhook"],
+  "implicitDependencies": ["go-common"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "default",
+        "{workspaceRoot}/go.mod",
+        "{workspaceRoot}/go.sum",
+        "{workspaceRoot}/packages/go-common/**/*"
+      ],
+      "options": {
+        "command": "go build ./packages/webhookdelivery/..."
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "default",
+        "{workspaceRoot}/go.mod",
+        "{workspaceRoot}/go.sum",
+        "{workspaceRoot}/packages/go-common/**/*"
+      ],
+      "options": {
+        "command": "go test ./packages/webhookdelivery/..."
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "{workspaceRoot}/go.mod", "{workspaceRoot}/go.sum"],
+      "options": {
+        "command": "files=\"$(gofmt -l packages/webhookdelivery)\" && test -z \"$files\""
+      }
+    }
+  }
+}

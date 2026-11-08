@@ -142,7 +142,10 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      PRICING_BASE_URL: http://pricing:8083
+      PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
       IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
     depends_on:
       postgres:
         condition: service_healthy
@@ -175,6 +178,48 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  ai-assistant:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: ai-assistant
+    environment:
+      <<: *app-env
+      PORT: '8087'
+      HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
+      # Gemini is the only provider. The key is injected here, never in the web
+      # image or a NEXT_PUBLIC_ variable. Use AI_PROVIDER=mock for a local stack
+      # without a paid key.
+      AI_ENABLED: ${AI_ENABLED:-true}
+      AI_PROVIDER: ${AI_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gemini-3.5-flash}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.2}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-1024}
+      AI_REQUEST_TIMEOUT: ${AI_REQUEST_TIMEOUT:-15s}
+      AI_TOOL_TIMEOUT: ${AI_TOOL_TIMEOUT:-5s}
+      AI_TOTAL_TIMEOUT: ${AI_TOTAL_TIMEOUT:-25s}
+      AI_MAX_TOOL_ROUNDS: ${AI_MAX_TOOL_ROUNDS:-3}
+      AI_MAX_TOOL_CALLS: ${AI_MAX_TOOL_CALLS:-4}
+      AI_MAX_HISTORY_MESSAGES: ${AI_MAX_HISTORY_MESSAGES:-12}
+      AI_CONVERSATION_TTL: ${AI_CONVERSATION_TTL:-30m}
+      AI_CONVERSATION_MAX: ${AI_CONVERSATION_MAX:-10000}
+      AI_CONVERSATION_MAX_MESSAGES: ${AI_CONVERSATION_MAX_MESSAGES:-40}
+      AI_RATE_LIMIT: ${AI_RATE_LIMIT:-15}
+      AI_RATE_WINDOW: ${AI_RATE_WINDOW:-1m}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      PRICING_BASE_URL: http://pricing:8083
+      PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
+      PARCEL_BASE_URL: http://parcel:8082
+      PARCEL_TIMEOUT: ${PARCEL_TIMEOUT:-3s}
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8087/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    stop_grace_period: 40s
 
   merchant:
     build:
@@ -265,8 +310,8 @@ services:
         SERVICE: webhook-worker
     environment:
       <<: [*app-env, *rabbitmq-env]
-      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.delivery.requested.v1}
-      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-webhook.delivery.requested.v1}
+      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.parcel.status_changed.v1}
+      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-parcel.status_changed.v1}
     stop_grace_period: 35s
     depends_on:
       rabbitmq:
@@ -314,6 +359,9 @@ services:
         condition: service_healthy
         restart: true
       merchant:
+        condition: service_healthy
+        restart: true
+      ai-assistant:
         condition: service_healthy
         restart: true
       realtime:

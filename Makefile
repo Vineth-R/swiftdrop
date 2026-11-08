@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 
 COMPOSE ?= docker compose
-BUILD_SERVICES ?= identity parcel pricing merchant realtime notification-worker webhook-worker web
+BUILD_SERVICES ?= identity parcel pricing merchant realtime ai-assistant notification-worker webhook-worker web
 BUILD_FLAGS ?=
 
 .PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-down db-verify db-reset seed check-routes test test-db test-access coverage email-preview email-send-preview
@@ -159,7 +159,7 @@ test-db:
 	}
 	PARCEL_TEST_DATABASE_URL="$${PARCEL_TEST_DATABASE_URL:-$${TEST_DATABASE_URL}}" \
 	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" \
-	go test -race -count=1 -v -tags=integration,postgres -run '^(TestParcel|TestCourier)' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository ./apps/services/parcel/internal/http
+	go test -race -count=1 -v -tags=integration,postgres -run '^(TestParcel|TestCourier)' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository ./apps/services/parcel/internal/http ./apps/services/parcel/internal/courier
 
 check-routes:
 	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \

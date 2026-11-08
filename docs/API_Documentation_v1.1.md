@@ -1716,6 +1716,14 @@ status.
 
 Optional header: Idempotency-Key: <uuid> .
 
+Implemented replay semantics: the key is scoped to the authenticated customer.
+An identical retry returns the existing parcel with 201, including after a
+concurrent unique-index conflict; pricing is not required for an existing replay.
+Reusing a key for different sender/recipient, weight, size or description returns
+409 `IDEMPOTENCY_CONFLICT`. `expectedFee` is consent metadata and is excluded from
+the successful-replay comparison. A request rejected with `PRICE_CHANGED` has not
+created a parcel; retain the key and explicitly reconfirm the current fee.
+
 
 
 Request body:
@@ -1819,11 +1827,18 @@ Errors: 409 PRICE_CHANGED (response includes currentFee ), 422 VALIDATION_ERROR 
 
 422 ROUTE_NOT_SERVICEABLE , 503 SERVICE_UNAVAILABLE (pricing unreachable).
 
+`PRICE_CHANGED` uses the common error envelope with numeric
+`error.currentFee` (the current total in LKR). Unknown JSON fields or invalid
+decimal encodings return 400; semantic field violations return 422. Request
+bodies are limited to 1 MiB. Money and weight accept at most two decimal places.
+
 
 
 Side effects: inserts the parcel, the first status history row and an outbox event, then
 
-publishes parcel.created.v1 .
+queues `parcel.created` for M6's relay to publish as `parcel.created.v1`.
+The creation transaction is implemented; the merged M6 relay publishes after
+commit. A successful creation does not claim email delivery.
 
 
 
@@ -1842,6 +1857,11 @@ Purpose: Lists the signed-in customer's parcels (delivery history).
 Query: status , from and to (ISO dates), page , pageSize , sort (default
 
  createdAt:desc ).
+
+Implemented bounds: `page` is 1–100000, `pageSize` is 1–100 (default 20), and
+`sort` is `createdAt:asc` or `createdAt:desc`. Both date boundaries are inclusive
+UTC calendar dates. Tied creation timestamps use the parcel ID for stable order.
+The query always includes the authenticated customer's owner ID.
 
 
 
@@ -1953,11 +1973,19 @@ Response 200:
 
 
 
- courier is null until assigned. Dispatchers and admins also receive courier.id . Errors:
+ courier is null until assigned. Customers receive the assigned courier's fullName and
+
+phone; dispatchers and admins also receive courier.id . If the assigned courier user no
+
+longer exists, the parcel detail is still returned with courier null (the parcel is not
+
+made unavailable); a genuine Identity outage returns 503 SERVICE_UNAVAILABLE . Errors:
 
 404 (also returned when a customer asks for a parcel they do not own, so IDs cannot be
 
-probed).
+probed). State-changing parcel routes require Content-Type: application/json ; session
+
+cookies are HttpOnly and SameSite=Lax.
 
 
 
@@ -3796,7 +3824,7 @@ These webhook business retries are separate from shared RabbitMQ consumer retrie
 
 Queue names are deployment details. The currently implemented worker queues use legacy work-item names and are not yet migrated; do not treat this table as evidence that the target bindings are running. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
 
-Failure topology is derived by the shared consumer: retry exchange `<exchange>.retry`, retry queue `<queue>.retry`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The legacy name `swiftdrop.dlx` is not the implemented exchange. Messages are persistent, and consumers deduplicate by `event_id`.
+Failure topology is derived by the shared consumer: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. A retry is dead-lettered to its owning queue through the default exchange, so it cannot reach another worker bound to the same event. The legacy name `swiftdrop.dlx` is not the implemented exchange. Messages are persistent, and consumers deduplicate by `event_id`.
 
 ### 11.2 Envelope
 
@@ -4072,7 +4100,14 @@ Method and path                                  Caller to      Purpose
 
 
 
-The `GET /internal/parcels/{parcelId}/summary` entry is a target contract only. It is not implemented in the current parcel service and is not present in `contracts/openapi/parcel.yaml`; the notification and webhook targets must treat it as a required future dependency.
+Both internal Parcel endpoints are implemented and documented in
+`contracts/openapi/parcel.yaml`. They require `X-Internal-Token`, fail closed when
+it is not configured, and remain unreachable through the public gateway.
+The trusted Merchant caller must supply the verified merchant owner's identity
+user ID as `createdByUserId`. This completes the previously planned request
+contract: DB v1.1 requires `created_by_user_id` to identify the customer or
+merchant owner, and a merchant ID is not a user ID. No existing Merchant order
+caller was present when this field was added. M8 must send it when wiring orders.
 
  POST /internal/parcels request:
 
@@ -4082,6 +4117,8 @@ The `GET /internal/parcels/{parcelId}/summary` entry is a target contract only. 
 {
 
        "merchantId": "m1a2...",
+
+       "createdByUserId": "<merchant-owner-user-uuid>",
 
        "externalOrderId": "SZ-100245",
 
@@ -4112,6 +4149,13 @@ Response 201: { "data": { "parcelId": "...", "trackingNumber": "SDN4T8W2LC6",
 "status": "CREATED", "fee": { "currency": "LKR", "baseFee": 450.00,
 
 "weightCharge": 100.00, "sizeSurcharge": 0.00, "total": 550.00 } } } .
+
+The internal create route replays by `(merchantId, externalOrderId)`. A different
+delivery under the same pair returns 409 `IDEMPOTENCY_CONFLICT`; an identical
+delivery returns its original stored fee without repricing. The optional
+`idempotencyKey` is retained as supplied, while external order uniqueness is the
+database-enforced merchant replay boundary. Merchant approval and owner identity
+verification remain the authenticated Merchant service's responsibility.
 
 
 
