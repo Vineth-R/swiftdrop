@@ -551,3 +551,35 @@ This section records the supply-chain-preserving fix for the intermittent Syft r
 ### Outstanding blocker
 
 The actual post-push GitHub Actions Docker/SBOM result is authoritative. Do not merge PR #106 until the new run confirms the Docker/SBOM jobs, Trivy, Security gate and Required CI gate pass. No merge was performed.
+
+## 22. Syft retry verification and Trivy CVE follow-up — 2026-11-08
+
+This section records the results after the bounded-retry Syft installer was pushed.
+
+### Syft retry result
+
+- The new installer was exercised by the GitHub Actions Docker matrix.
+- Seven of eight Docker/SBOM jobs passed.
+- The `ai-assistant` job also installed Syft v1.56.0 successfully and generated its SBOM.
+- The remaining `ai-assistant` failure was not Syft: Trivy found one HIGH vulnerability in the built binary.
+
+### Trivy finding and fix
+
+- CVE: `CVE-2026-84445`
+- Library: `google.golang.org/grpc`
+- Installed: `v1.83.1`
+- Fixed stable version: `v1.83.2`
+- The AI service's Gemini SDK brings grpc in as an indirect dependency.
+- Upgraded `google.golang.org/grpc` from `v1.83.1` to `v1.83.2`.
+
+Validation after the upgrade:
+
+- `go build ./...` passed.
+- `go vet ./...` passed.
+- AI package tests passed.
+- `tests/scripts` workflow tests passed, including the Syft retry, checksum, version, and Gitleaks policy tests.
+- `govulncheck ./...` reports no vulnerabilities.
+
+### Outstanding blocker
+
+The post-upgrade GitHub Actions run is authoritative. Do not merge PR #106 until the Docker/SBOM jobs, Trivy, Security gate, Access tests, and Required CI gate pass. No merge was performed.
