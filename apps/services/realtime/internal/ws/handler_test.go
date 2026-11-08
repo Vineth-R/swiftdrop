@@ -2,6 +2,8 @@ package ws
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,8 +24,18 @@ import (
 const (
 	trackingNumber = "SDK7M2Q9XP4"
 	cookieName     = "sd_access"
-	secret         = "0123456789abcdef0123456789abcdef-test-secret"
 )
+
+// newTestSigningKey returns a fresh HS256 signing key for one test. It is
+// generated per test so no credential-like value is stored in the repository.
+func newTestSigningKey(t *testing.T) string {
+	t.Helper()
+	key := make([]byte, auth.MinSecretBytes)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("generate test signing key: %v", err)
+	}
+	return hex.EncodeToString(key)
+}
 
 type testServer struct {
 	*httptest.Server
@@ -34,7 +46,7 @@ type testServer struct {
 
 func newTestServer(t *testing.T, edit func(*Options)) *testServer {
 	t.Helper()
-	manager, err := auth.NewTokenManager(secret, time.Minute)
+	manager, err := auth.NewTokenManager(newTestSigningKey(t), time.Minute)
 	if err != nil {
 		t.Fatalf("NewTokenManager() = %v", err)
 	}
@@ -248,7 +260,7 @@ func TestWithoutAVerifierEveryoneIsAnonymous(t *testing.T) {
 }
 
 func TestTokenEndsTheConnection(t *testing.T) {
-	short, err := auth.NewTokenManager(secret, 2*time.Second)
+	short, err := auth.NewTokenManager(newTestSigningKey(t), 2*time.Second)
 	if err != nil {
 		t.Fatalf("NewTokenManager() = %v", err)
 	}
