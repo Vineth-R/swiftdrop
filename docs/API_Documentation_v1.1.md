@@ -3969,9 +3969,11 @@ fallback message asking the user to try again later).
 
 
 
-   get_public_parcel_status                        GET                           Public fields only
+   get_public_parcel_status                        GET                           Signed-in customer
 
-                                                   /tracking/{trackingNumber}
+                                                   /parcels/tracking/{            (own parcels) or
+
+                                                   trackingNumber}                DISPATCHER/ADMIN
 
 
 

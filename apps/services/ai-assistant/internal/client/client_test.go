@@ -205,11 +205,11 @@ func TestEstimateRejectsInvalidInputWithoutCall(t *testing.T) {
 
 func TestTrackingSanitizesUpstreamFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/tracking/SDK7M2Q9XP4" {
+		if r.URL.Path != "/parcels/tracking/SDK7M2Q9XP4" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
-		if got := r.Header.Get("Authorization"); got != "" {
-			t.Fatalf("public request leaked Authorization: %q", got)
+		if got := r.Header.Get("Authorization"); got != "Bearer token-a" {
+			t.Fatalf("tracking request did not forward the caller token: %q", got)
 		}
 		_, _ = io.WriteString(w, `{"data":{
 			"trackingNumber":"SDK7M2Q9XP4","status":"IN_TRANSIT",
@@ -227,7 +227,7 @@ func TestTrackingSanitizesUpstreamFields(t *testing.T) {
 		t.Fatalf("NewParcelClient: %v", err)
 	}
 
-	tracking, err := client.Tracking(context.Background(), "SDK7M2Q9XP4")
+	tracking, err := client.Tracking(context.Background(), "SDK7M2Q9XP4", "token-a")
 	if err != nil {
 		t.Fatalf("Tracking: %v", err)
 	}

@@ -131,8 +131,14 @@ func TestEndToEndTrackingStripsPrivateFields(t *testing.T) {
 	pricing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
 	defer pricing.Close()
 	parcel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/tracking/SDK7M2Q9XP4" {
+		if r.URL.Path != "/parcels/tracking/SDK7M2Q9XP4" {
+			t.Errorf("path = %q, want the ownership-scoped endpoint", r.URL.Path)
 			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer token-a" {
+			t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		_, _ = w.Write([]byte(`{"data":{
@@ -154,7 +160,10 @@ func TestEndToEndTrackingStripsPrivateFields(t *testing.T) {
 	)
 	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
 
-	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "Track SDK7M2Q9XP4", Caller: guestCaller()})
+	output, err := orchestrator.Chat(context.Background(), ChatInput{
+		Message: "Track SDK7M2Q9XP4",
+		Caller:  contract.CallerContext{UserID: "user-a", Role: "CUSTOMER", Authenticated: true, AccessToken: "token-a"},
+	})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -169,6 +178,77 @@ func TestEndToEndTrackingStripsPrivateFields(t *testing.T) {
 		if strings.Contains(text, secret) {
 			t.Fatalf("private field %q leaked to the model: %s", secret, text)
 		}
+	}
+}
+
+func TestEndToEndGuestTrackingIsDeniedBeforeUpstream(t *testing.T) {
+	var parcelCalls atomic.Int32
+	pricing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
+	defer pricing.Close()
+	parcel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parcelCalls.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer parcel.Close()
+
+	provider := mock.New(
+		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
+			Name: "get_public_parcel_status", Arguments: map[string]any{"trackingNumber": "SDK7M2Q9XP4"},
+		}}},
+		contract.GenerateResponse{Text: "Please sign in to track your parcel."},
+	)
+	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
+
+	output, err := orchestrator.Chat(context.Background(), ChatInput{Message: "Track SDK7M2Q9XP4", Caller: guestCaller()})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if output.ToolCalls[0].Status != "DENIED" {
+		t.Fatalf("toolCalls = %+v", output.ToolCalls)
+	}
+	if parcelCalls.Load() != 0 {
+		t.Fatalf("guest tracking reached the Parcel API %d times", parcelCalls.Load())
+	}
+}
+
+func TestEndToEndCrossCustomerTrackingIsSafeNotFound(t *testing.T) {
+	pricing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
+	defer pricing.Close()
+	parcel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/parcels/tracking/SDK7M2Q9XP4" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer token-a" {
+			t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"code":"NOT_FOUND","message":"tracking number not found for this account"}}`))
+	}))
+	defer parcel.Close()
+
+	provider := mock.New(
+		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
+			Name: "get_public_parcel_status", Arguments: map[string]any{"trackingNumber": "SDK7M2Q9XP4"},
+		}}},
+		contract.GenerateResponse{Text: "I could not find that tracking number for your account."},
+	)
+	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
+
+	output, err := orchestrator.Chat(context.Background(), ChatInput{
+		Message: "Track SDK7M2Q9XP4",
+		Caller:  contract.CallerContext{UserID: "user-a", Role: "CUSTOMER", Authenticated: true, AccessToken: "token-a"},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if output.ToolCalls[0].Status != "INVALID" {
+		t.Fatalf("toolCalls = %+v", output.ToolCalls)
+	}
+	response := findFunctionResponse(provider.Requests()[1], "get_public_parcel_status")
+	encoded, _ := json.Marshal(response)
+	text := strings.ToLower(string(encoded))
+	if strings.Contains(text, "customer-b") || strings.Contains(text, "exists") || strings.Contains(text, "another") {
+		t.Fatalf("cross-customer result disclosed parcel existence: %s", text)
 	}
 }
 

@@ -12,7 +12,7 @@ This knowledge base contains only information confirmed by the SwiftDrop reposit
 
 - SwiftDrop supports parcel delivery with pickup and drop-off locations.
 - Deliveries have a weight and a size category.
-- Customers can track a parcel with a tracking number.
+- Signed-in customers can look up their own parcel status with a tracking number. The public tracking page also accepts a tracking number.
 - Signed-in customers can view their own parcels and parcel status history.
 - Delivery fees are produced by the SwiftDrop pricing service.
 

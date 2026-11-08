@@ -36,7 +36,7 @@ The Go Docker build uses the existing generic `infra/docker/go.Dockerfile` with 
 Access: public, rate limited. Authentication is optional. Anonymous callers receive an HttpOnly, always-Secure `sd_ai_guest` session cookie (`gs` + 32 lowercase hex) that is bound to their conversations. A conversation ID alone never grants access. Local development must use localhost, 127.0.0.1 or HTTPS, which browsers treat as secure contexts for Secure cookies.
 
 - If a valid `Authorization: Bearer <token>` or `sd_access` cookie is present, the caller is authenticated; private tools run only when the verified role is CUSTOMER, DISPATCHER or ADMIN.
-- If no credentials are present, the caller is anonymous and only public tools may be used.
+- If no credentials are present, the caller is anonymous and only the public pricing tool may be used. All parcel tools, including tracking-number lookup, are denied before any upstream call.
 - If credentials are present but `JWT_ACCESS_SECRET` is not configured, the request fails closed with `503 SERVICE_UNAVAILABLE`; it is never downgraded to anonymous.
 - If credentials are present but invalid or expired, the request is rejected with `401 UNAUTHENTICATED` / `401 TOKEN_EXPIRED`. It is never silently downgraded to anonymous.
 
@@ -234,12 +234,12 @@ Argument validation is strict: required keys, exact types, enum membership, UUID
 
 ## 8. The four approved tools
 
-| Tool                       | Upstream call                                                                    | Access                      |
-| -------------------------- | -------------------------------------------------------------------------------- | --------------------------- |
-| `calculate_delivery_fee`   | `POST {PRICING}/pricing/estimate`                                                | Public                      |
-| `get_public_parcel_status` | `GET {PARCEL}/tracking/{trackingNumber}`                                         | Public                      |
-| `get_my_parcel_history`    | `GET {PARCEL}/parcels/{parcelId}/history`                                        | CUSTOMER, DISPATCHER, ADMIN |
-| `get_my_active_deliveries` | CUSTOMER: `GET {PARCEL}/parcels`; DISPATCHER/ADMIN: `GET {PARCEL}/admin/parcels` | CUSTOMER, DISPATCHER, ADMIN |
+| Tool                       | Upstream call                                                                    | Access                                     |
+| -------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------ |
+| `calculate_delivery_fee`   | `POST {PRICING}/pricing/estimate`                                                | Public                                     |
+| `get_public_parcel_status` | `GET {PARCEL}/parcels/tracking/{trackingNumber}`                                 | CUSTOMER own; DISPATCHER/ADMIN operational |
+| `get_my_parcel_history`    | `GET {PARCEL}/parcels/{parcelId}/history`                                        | CUSTOMER, DISPATCHER, ADMIN                |
+| `get_my_active_deliveries` | CUSTOMER: `GET {PARCEL}/parcels`; DISPATCHER/ADMIN: `GET {PARCEL}/admin/parcels` | CUSTOMER, DISPATCHER, ADMIN                |
 
 ### 8.1 `calculate_delivery_fee`
 
@@ -255,6 +255,8 @@ The client resolves `origin`/`destination` against the public `GET {PRICING}/zon
 ### 8.2 `get_public_parcel_status`
 
 Arguments: `trackingNumber` (string, required, `^SD[KN][A-Z0-9]{8}$`).
+
+Allowed roles: CUSTOMER (own parcels only), DISPATCHER and ADMIN (operational access). GUEST, MERCHANT and COURIER are denied before any HTTP call. The client forwards the caller's access token to `GET {PARCEL}/parcels/tracking/{trackingNumber}`; Parcel matches `customer_user_id` for customers and allows staff operationally. The assistant never calls the anonymous public tracking projection, and a tracking number is never treated as an identity credential. Another customer's tracking number and a nonexistent one return the same safe `INVALID` not-found result.
 
 Result allowlist: `trackingNumber`, `status`, `pickupCity`, `dropoffCity`, `lastUpdatedAt`, `timeline` (`status`, `at`). No names, addresses, phones, notes, proof, or internal IDs.
 
