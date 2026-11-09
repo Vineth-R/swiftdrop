@@ -49,8 +49,7 @@ export function createMerchantKey(name: string) {
 export function revokeMerchantKey(id: string) {
   return api(`/merchants/me/keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
-// The list fields are defined in the M8 brief. Order-detail fields are not yet
-// specified in OpenAPI; keep the detail UI on these agreed summary fields.
+// List contract: API documentation v1.1, section 8.17.
 export function listMerchantOrders(query: OrderQuery, signal?: AbortSignal) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: '20' });
   for (const [key, value] of Object.entries(query)) {

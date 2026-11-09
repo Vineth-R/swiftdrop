@@ -210,3 +210,23 @@ func validTransition(from, to MerchantStatus) bool {
 		return false
 	}
 }
+
+// ListMerchants returns a page of merchants for the administrator portal.
+func (r *Repository) ListMerchants(ctx context.Context, status string, page, pageSize int) ([]Merchant, int, error) {
+	if page < 1 { page = 1 }
+	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
+	offset := (page - 1) * pageSize
+	var total int
+	if err := r.db.QueryRow(ctx, `SELECT count(*) FROM merchant.merchants WHERE ($1 = '' OR status = $1)`, status).Scan(&total); err != nil { return nil, 0, fmt.Errorf("counting merchants: %w", err) }
+	rows, err := r.db.Query(ctx, `SELECT id, owner_user_id, business_name, business_reg_no, contact_email, contact_phone, pickup_address, pickup_zone_id, status, approved_by, approved_at, rejection_reason, suspension_reason, created_at, updated_at FROM merchant.merchants WHERE ($1 = '' OR status = $1) ORDER BY created_at DESC LIMIT $2 OFFSET $3`, status, pageSize, offset)
+	if err != nil { return nil, 0, fmt.Errorf("listing merchants: %w", err) }
+	defer rows.Close()
+	items := make([]Merchant, 0)
+	for rows.Next() {
+		var m Merchant
+		if err := rows.Scan(&m.ID, &m.OwnerUserID, &m.BusinessName, &m.BusinessRegNo, &m.ContactEmail, &m.ContactPhone, &m.PickupAddress, &m.PickupZoneID, &m.Status, &m.ApprovedBy, &m.ApprovedAt, &m.RejectionReason, &m.SuspensionReason, &m.CreatedAt, &m.UpdatedAt); err != nil { return nil, 0, fmt.Errorf("scanning merchant: %w", err) }
+		items = append(items, m)
+	}
+	if err := rows.Err(); err != nil { return nil, 0, fmt.Errorf("iterating merchants: %w", err) }
+	return items, total, nil
+}

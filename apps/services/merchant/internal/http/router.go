@@ -2,6 +2,9 @@ package servicehttp
 
 import (
 	"log/slog"
+	"time"
+
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 
 	"github.com/gin-gonic/gin"
 
@@ -9,11 +12,20 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 )
 
-func New(logger *slog.Logger, repositories ...*repository.Repository) *gin.Engine {
+func New(logger *slog.Logger, options ...any) *gin.Engine {
 	router := httpx.NewRouter(logger)
 	httpx.RegisterHealth(router)
-	if len(repositories) > 0 && repositories[0] != nil {
-		registerMerchantRoutes(router, repositories[0], logger)
+	var repo *repository.Repository
+	secret, cookie := "", "sd_access"
+	for _, option := range options {
+		switch value := option.(type) { case *repository.Repository: repo = value; case string: if secret == "" { secret = value } else { cookie = value } }
+	}
+	if repo != nil {
+		registerMerchantRoutes(router, repo, logger)
+		if secret != "" { manager, err := auth.NewTokenManager(secret, time.Minute); if err == nil { _ = manager } }
+		// Route handlers validate identity injected by the auth middleware. The
+		// merchant service receives claims through this shared middleware.
+		if secret != "" { manager, _ := auth.NewTokenManager(secret, time.Minute); group := router.Group("/merchants"); group.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleMerchant)); group.Use(func(c *gin.Context) { claims, _ := auth.ClaimsFrom(c); WithIdentity(c, Identity{UserID: claims.UserID, Role: string(claims.Role)}); c.Next() }); group.GET("/me", (&merchantHandler{repository: repo, logger: logger}).profile); group.PATCH("/me", (&merchantHandler{repository: repo, logger: logger}).updateProfile); group.GET("/me/keys", (&merchantHandler{repository: repo, logger: logger}).listKeys); group.POST("/me/keys", (&merchantHandler{repository: repo, logger: logger}).createKey); group.DELETE("/me/keys/:keyId", (&merchantHandler{repository: repo, logger: logger}).revokeKey) }
 	}
 	return router
 }

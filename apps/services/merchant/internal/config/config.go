@@ -11,6 +11,8 @@ type Config struct {
 	AppEnv      string
 	LogLevel    string
 	DatabaseURL string
+	AccessSecret string
+	CookieName string
 }
 
 func Load() (Config, error) {
@@ -38,6 +40,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		AppEnv:      appEnv,
 		LogLevel:    logLevel,
 		DatabaseURL: loader.String("DATABASE_URL", ""),
+		AccessSecret: loader.String("JWT_ACCESS_SECRET", ""),
+		CookieName: loader.String("COOKIE_NAME", "sd_access"),
 	}, nil
 }
 

@@ -21,6 +21,7 @@ export default function RegisterPage() {
         </Link>
         .
       </AuthHeading>
+      <p className="text-body-sm text-text-muted">Registering a business? <Link href="/merchant/register" className="text-interactive underline underline-offset-4">Create a merchant account</Link></p>
       <Suspense>
         <RegisterForm />
       </Suspense>

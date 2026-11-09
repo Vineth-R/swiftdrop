@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -45,13 +46,8 @@ type merchantHandler struct {
 
 func registerMerchantRoutes(router *gin.Engine, repo *repository.Repository, logger *slog.Logger) {
 	h := &merchantHandler{repository: repo, logger: logger}
-	merchants := router.Group("/merchants")
-	merchants.GET("/me", h.profile)
-	merchants.PATCH("/me", h.updateProfile)
-	merchants.GET("/me/keys", h.listKeys)
-	merchants.POST("/me/keys", h.createKey)
-	merchants.DELETE("/me/keys/:keyId", h.revokeKey)
 	admin := router.Group("/admin/merchants")
+	admin.GET("", h.adminList)
 	admin.GET("/:merchantId", h.adminDetail)
 	admin.POST("/:merchantId/approve", h.approve)
 	admin.POST("/:merchantId/reject", h.reject)
@@ -205,6 +201,19 @@ func validateProfileRequest(request profileRequest) []validation.Issue {
 	issues.RequiredExact("pickupAddress", request.PickupAddress)
 	issues.RequiredExact("pickupZoneId", request.PickupZoneID)
 	return issues.Issues()
+}
+
+func (h *merchantHandler) adminList(c *gin.Context) {
+	if !requireAdmin(c) { return }
+	page, pageSize := 1, 20
+	if value, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil && value > 0 { page = value }
+	if value, err := strconv.Atoi(c.DefaultQuery("pageSize", "20")); err == nil && value > 0 { pageSize = value }
+	status := strings.TrimSpace(c.Query("status"))
+	merchants, total, err := h.repository.ListMerchants(c.Request.Context(), status, page, pageSize)
+	if err != nil { h.handleRepositoryError(c, err); return }
+	data := make([]merchantDTO, 0, len(merchants))
+	for _, merchant := range merchants { data = append(data, merchantResponse(merchant)) }
+	httpx.Success(c, http.StatusOK, gin.H{"items": data, "pagination": gin.H{"page": page, "pageSize": pageSize, "totalItems": total, "totalPages": (total + pageSize - 1) / pageSize}})
 }
 
 func (h *merchantHandler) adminDetail(c *gin.Context) {
