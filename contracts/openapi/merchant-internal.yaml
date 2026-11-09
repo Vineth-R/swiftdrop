@@ -1,0 +1,254 @@
+openapi: 3.0.3
+info:
+  title: SwiftDrop Merchant internal API
+  version: 0.1.0
+  description: >-
+    Service-to-service endpoints of the Merchant service (API v1.1 section 13),
+    called by the webhook worker. They are **not public**: Nginx never routes
+    `/internal` and returns `404 NOT_FOUND` for it, so this specification is
+    separate from `merchant.yaml`. Callers on the Compose network use the base
+    URL `http://merchant:8084`.
+
+
+    Every call needs the shared secret in `X-Internal-Token` (the
+    `INTERNAL_TOKEN` environment variable, at least 16 characters in
+    development and 32 elsewhere) and a well-formed `X-Request-Id`. If the
+    Merchant service has no valid `INTERNAL_TOKEN` it refuses every call with
+    401 instead of allowing them. The token is checked first, then the request
+    id. The first endpoint is the only place a merchant's plain signing secret
+    leaves the Merchant service, so responses are never cached
+    (`Cache-Control: no-store`) and the secret must never be logged.
+servers:
+  - url: http://merchant:8084
+    description: Compose network only
+paths:
+  /internal/merchants/{merchantId}/webhook:
+    get:
+      operationId: merchantInternalWebhook
+      summary: Webhook URL and signing secret (API v1.1 section 13, called by the webhook worker)
+      description: >-
+        Returns the merchant's webhook configuration including the decrypted
+        signing secret. The worker signs each delivery with `signingSecret` and
+        skips the delivery when `isActive` is false or the event type is not in
+        `eventTypes`. Answers 503 when the service has no `WEBHOOK_SECRET_KEY`.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/MerchantId'
+      responses:
+        '200':
+          description: The webhook configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEnvelope'
+              example:
+                data:
+                  url: https://shopzone.lk/hooks/swiftdrop
+                  signingSecret: whsec_example_secret
+                  eventTypes: [parcel.status_changed]
+                  isActive: true
+                meta: { requestId: req_01HF-example, timestamp: '2026-11-04T09:30:00Z' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /internal/merchants/{merchantId}/webhook/attempts:
+    post:
+      operationId: merchantInternalRecordWebhookAttempt
+      summary: Record one webhook delivery attempt (API v1.1 section 13, called by the webhook worker)
+      description: >-
+        Records one delivery attempt so the merchant sees it in the delivery log
+        (API v1.1 section 8.15). The call is idempotent: the pair
+        (`eventId`, `attemptNumber`) is unique per webhook, so repeating the same
+        report writes nothing and answers 200 with `recorded: false`. A new
+        attempt answers 201 with `recorded: true`.
+
+
+        `parcelId` is required in addition to the fields of section 8.15 because
+        the attempt table stores it. A successful attempt must not carry
+        `nextRetryAt` or `deadLettered`; a dead-lettered attempt must not carry
+        `nextRetryAt`. `errorMessage` is safe text only (never a payload or a
+        secret) and is cut to 255 characters.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/MerchantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttemptRequest'
+            example:
+              eventId: e1a2b3c4-5c6d-4e7f-8a9b-0c1d2e3f4a5b
+              parcelId: e5a1b7c2-6d3f-4a8b-9c10-2d3e4f5a6b7c
+              trackingNumber: SDN4T8W2LC6
+              attemptNumber: 2
+              httpStatus: 503
+              success: false
+              errorMessage: upstream unavailable
+              nextRetryAt: '2026-11-04T12:35:00Z'
+              durationMs: 182
+      responses:
+        '200':
+          description: The attempt was already recorded; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttemptEnvelope'
+        '201':
+          description: The attempt was recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttemptEnvelope'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: The body is larger than 16 KiB (`PAYLOAD_TOO_LARGE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: A field is out of range or the combination is inconsistent (`VALIDATION_ERROR`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  parameters:
+    InternalToken:
+      name: X-Internal-Token
+      in: header
+      required: true
+      description: The shared secret from `INTERNAL_TOKEN`. Never log it.
+      schema: { type: string, minLength: 16 }
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: true
+      description: 1 to 128 characters from letters, digits and `- . _ :`.
+      schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    MerchantId:
+      name: merchantId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    WebhookEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [url, signingSecret, eventTypes, isActive]
+          properties:
+            url: { type: string, format: uri }
+            signingSecret:
+              type: string
+              description: The plain HMAC signing secret. Treat it like a password.
+            eventTypes:
+              type: array
+              items: { type: string, enum: [parcel.status_changed] }
+            isActive: { type: boolean }
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
+    AttemptRequest:
+      type: object
+      required: [eventId, parcelId, trackingNumber, attemptNumber, success]
+      properties:
+        eventId: { type: string, format: uuid }
+        parcelId: { type: string, format: uuid }
+        trackingNumber: { type: string, minLength: 1, maxLength: 20 }
+        attemptNumber: { type: integer, minimum: 1, maximum: 6 }
+        httpStatus:
+          type: integer
+          minimum: 100
+          maximum: 599
+          nullable: true
+          description: Omit or null when no response arrived (timeout, connection error).
+        success: { type: boolean }
+        errorMessage: { type: string, maxLength: 255 }
+        nextRetryAt: { type: string, format: date-time, nullable: true }
+        deadLettered: { type: boolean, default: false }
+        durationMs: { type: integer, minimum: 0, maximum: 600000, nullable: true }
+    AttemptEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [eventId, attemptNumber, recorded]
+          properties:
+            eventId: { type: string, format: uuid }
+            attemptNumber: { type: integer }
+            recorded:
+              type: boolean
+              description: True for a new attempt, false when it was already recorded.
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
+    SuccessMeta:
+      type: object
+      required: [requestId, timestamp]
+      properties:
+        requestId: { type: string }
+        timestamp: { type: string, format: date-time }
+    ErrorResponse:
+      type: object
+      required: [error, meta]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+        meta:
+          type: object
+          required: [requestId]
+          properties:
+            requestId: { type: string }
+  responses:
+    BadRequest:
+      description: '`X-Request-Id` is missing or malformed, or the JSON body is malformed (`BAD_REQUEST`). The request id is checked after the token.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: >-
+        `X-Internal-Token` is missing or wrong, or the Merchant service has no
+        valid `INTERNAL_TOKEN` of its own (`UNAUTHENTICATED`). Treat this as a
+        configuration fault, never as "not found".
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: >-
+        The merchant has no webhook (`WEBHOOK_NOT_CONFIGURED`), or the id is not
+        a UUID (`NOT_FOUND`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Unexpected failure (`INTERNAL_ERROR`). Safe to retry.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unavailable:
+      description: >-
+        The Merchant service has no `WEBHOOK_SECRET_KEY` or no database
+        (`SERVICE_UNAVAILABLE`). Retry later.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

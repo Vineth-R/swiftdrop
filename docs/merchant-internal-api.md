@@ -1,0 +1,62 @@
+# Merchant internal API
+
+Service-to-service endpoints of the Merchant service for the webhook worker
+(API v1.1 section 13). The machine-readable contract is
+[`contracts/openapi/merchant-internal.yaml`](../contracts/openapi/merchant-internal.yaml).
+
+| Method and path | Caller | Purpose |
+| --- | --- | --- |
+| `GET /internal/merchants/{merchantId}/webhook` | Webhook worker | Returns `url`, `signingSecret`, `eventTypes` and `isActive`. The only place the plain signing secret leaves the service. |
+| `POST /internal/merchants/{merchantId}/webhook/attempts` | Webhook worker | Records one delivery attempt for the merchant's delivery log (API 8.15). Idempotent. |
+
+## Access rules
+
+- Nginx never routes `/internal`, so only services on the Compose network can
+  reach these endpoints (`scripts/check-routes.sh` already proves the gateway
+  answers 404).
+- Every call needs `X-Internal-Token` (the shared `INTERNAL_TOKEN`) and a
+  well-formed `X-Request-Id`. The token is checked first, so a caller without it
+  learns nothing else.
+- Fail closed: without a valid `INTERNAL_TOKEN` every call answers 401; without
+  `WEBHOOK_SECRET_KEY` (or a database) a call with the right token answers 503.
+- In development `INTERNAL_TOKEN` must be at least 16 characters, otherwise the
+  endpoints stay closed. Outside development a set but weak token (placeholder,
+  under 32 bytes) stops the service at startup, the same rule as the other
+  services.
+- Responses carry `Cache-Control: no-store`. The signing secret is never logged.
+
+## Recording attempts
+
+`POST .../webhook/attempts` body:
+
+```json
+{
+  "eventId": "e1a2b3c4-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+  "parcelId": "e5a1b7c2-6d3f-4a8b-9c10-2d3e4f5a6b7c",
+  "trackingNumber": "SDN4T8W2LC6",
+  "attemptNumber": 2,
+  "httpStatus": 503,
+  "success": false,
+  "errorMessage": "upstream unavailable",
+  "nextRetryAt": "2026-11-04T12:35:00Z",
+  "deadLettered": false,
+  "durationMs": 182
+}
+```
+
+- `parcelId` is required beyond the fields of API 8.15, because the table stores
+  it (database design 6.5).
+- `(webhook, eventId, attemptNumber)` is unique. A repeated report answers
+  `200` with `recorded: false` and changes nothing; a new attempt answers `201`.
+- Rules: `attemptNumber` 1 to 6; `httpStatus` 100 to 599 or omitted on a timeout;
+  a successful attempt carries no `nextRetryAt` and is not dead lettered; a
+  dead-lettered attempt (attempt 6 failed) carries no `nextRetryAt`.
+- `errorMessage` is safe text only (never a payload or a secret) and is cut to
+  255 characters.
+
+## Configuration
+
+| Variable | Used for |
+| --- | --- |
+| `INTERNAL_TOKEN` | Guards both endpoints (shared with the other internal APIs). |
+| `WEBHOOK_SECRET_KEY` | Decrypts the stored signing secret (same key as the settings endpoints). |
