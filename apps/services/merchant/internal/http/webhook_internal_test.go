@@ -344,6 +344,40 @@ func TestInternalWebhookRecordSuccessAndDeadLetter(t *testing.T) {
 	}
 }
 
+func TestInternalWebhookRecordRequiresSuccessAndPreservesItsValue(t *testing.T) {
+	body := func(success string) string {
+		field := ""
+		if success != "" {
+			field = `,"success":` + success
+		}
+		return `{"eventId":"` + internalTestEvent + `","parcelId":"` + internalTestParcel + `",` +
+			`"trackingNumber":"SDK7M2Q9XP4","attemptNumber":1,"httpStatus":200` + field + `}`
+	}
+
+	t.Run("missing is rejected", func(t *testing.T) {
+		fixture := newInternalFixture(internalTestToken, true, true)
+		recorder := fixture.post(attemptsPath(), body(""))
+		if recorder.Code != http.StatusUnprocessableEntity || errorCodeOf(decodeBody(t, recorder)) != "VALIDATION_ERROR" {
+			t.Fatalf("status = %d body = %s, want 422 VALIDATION_ERROR", recorder.Code, recorder.Body.String())
+		}
+		if len(fixture.store.recorded) != 0 {
+			t.Fatal("a report without success was stored")
+		}
+	})
+
+	for _, value := range []string{"true", "false"} {
+		t.Run("explicit "+value+" is kept", func(t *testing.T) {
+			fixture := newInternalFixture(internalTestToken, true, true)
+			if recorder := fixture.post(attemptsPath(), body(value)); recorder.Code != http.StatusCreated {
+				t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+			}
+			if got := fixture.store.recorded[0].Success; got != (value == "true") {
+				t.Fatalf("stored success = %v, want %s", got, value)
+			}
+		})
+	}
+}
+
 func TestInternalWebhookRecordRejectsBadReports(t *testing.T) {
 	base := func(mutate func(m map[string]any)) string {
 		m := map[string]any{
@@ -361,6 +395,7 @@ func TestInternalWebhookRecordRejectsBadReports(t *testing.T) {
 		"tracking number too long":  base(func(m map[string]any) { m["trackingNumber"] = strings.Repeat("A", 21) }),
 		"attempt zero":              base(func(m map[string]any) { m["attemptNumber"] = 0 }),
 		"attempt seven":             base(func(m map[string]any) { m["attemptNumber"] = 7 }),
+		"missing success":           base(func(m map[string]any) { delete(m, "success") }),
 		"status below range":        base(func(m map[string]any) { m["httpStatus"] = 99 }),
 		"status above range":        base(func(m map[string]any) { m["httpStatus"] = 600 }),
 		"negative duration":         base(func(m map[string]any) { m["durationMs"] = -1 }),

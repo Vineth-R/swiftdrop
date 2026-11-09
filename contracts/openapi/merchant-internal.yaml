@@ -48,7 +48,11 @@ paths:
                   signingSecret: whsec_example_secret
                   eventTypes: [parcel.status_changed]
                   isActive: true
-                meta: { requestId: req_01HF-example, timestamp: '2026-11-04T09:30:00Z' }
+                meta:
+                  {
+                    requestId: req_01HF-example,
+                    timestamp: '2026-11-04T09:30:00Z',
+                  }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -67,8 +71,11 @@ paths:
 
 
         `parcelId` is required in addition to the fields of section 8.15 because
-        the attempt table stores it. A successful attempt must not carry
-        `nextRetryAt` or `deadLettered`; a dead-lettered attempt must not carry
+        the attempt table stores it. `success` is required. The delivery log's
+        `createdAt` is response-only: the Merchant service records it when the
+        attempt is stored, and it is not part of this report. A successful
+        attempt must not carry `nextRetryAt` or `deadLettered`; a dead-lettered
+        attempt must not carry
         `nextRetryAt`. `errorMessage` is safe text only (never a payload or a
         secret) and is cut to 255 characters.
       parameters:
@@ -127,14 +134,23 @@ components:
       name: X-Internal-Token
       in: header
       required: true
-      description: The shared secret from `INTERNAL_TOKEN`. Never log it.
-      schema: { type: string, minLength: 16 }
+      description: >-
+        The shared secret from `INTERNAL_TOKEN`. Never log it. At least 32
+        characters outside development; development accepts 16 or more. A
+        missing or weak value keeps the endpoint fail closed.
+      schema: { type: string, minLength: 32 }
     RequestId:
       name: X-Request-Id
       in: header
       required: true
       description: 1 to 128 characters from letters, digits and `- . _ :`.
-      schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+      schema:
+        {
+          type: string,
+          minLength: 1,
+          maxLength: 128,
+          pattern: '^[A-Za-z0-9._:-]+$',
+        }
     MerchantId:
       name: merchantId
       in: path
@@ -177,7 +193,8 @@ components:
         errorMessage: { type: string, maxLength: 255 }
         nextRetryAt: { type: string, format: date-time, nullable: true }
         deadLettered: { type: boolean, default: false }
-        durationMs: { type: integer, minimum: 0, maximum: 600000, nullable: true }
+        durationMs:
+          { type: integer, minimum: 0, maximum: 600000, nullable: true }
     AttemptEnvelope:
       type: object
       required: [data, meta]

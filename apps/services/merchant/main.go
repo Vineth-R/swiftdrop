@@ -71,9 +71,12 @@ func run() error {
 		if err := registerWebhooks(router, merchantRepo, config, logger); err != nil {
 			return err
 		}
-		if err := registerInternalWebhooks(router, merchantRepo, config, logger); err != nil {
-			return err
-		}
+	}
+	// The internal routes are always registered so a missing repository fails
+	// closed with 503 instead of looking like an unknown path. Authentication is
+	// still checked first.
+	if err := registerInternalWebhooks(router, merchantRepo, config, logger); err != nil {
+		return err
 	}
 
 	router.GET("/health", postgres.HealthHandler())

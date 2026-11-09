@@ -52,6 +52,7 @@ func TestRecordDeliveryAttemptStoresAndIsIdempotent(t *testing.T) {
 	retryAt := time.Date(2026, 11, 4, 12, 35, 0, 0, time.UTC)
 	first := attemptParams(t, merchantID, eventID, 1)
 	first.HTTPStatus, first.DurationMS, first.ErrorMessage, first.NextRetryAt = &status, &ms, &message, &retryAt
+	before := time.Now().UTC()
 
 	created, err := repo.RecordDeliveryAttempt(ctx, first)
 	if err != nil || !created {
@@ -95,6 +96,12 @@ func TestRecordDeliveryAttemptStoresAndIsIdempotent(t *testing.T) {
 	if failed.Success || failed.HTTPStatus == nil || *failed.HTTPStatus != 503 ||
 		failed.NextRetryAt == nil || !failed.NextRetryAt.Equal(retryAt) || failed.DeadLettered {
 		t.Fatalf("stored attempt 1 = %+v", failed)
+	}
+	// createdAt is response-only: the Merchant service records it when the
+	// attempt is stored, not the worker that reports the attempt.
+	if failed.CreatedAt.IsZero() || failed.CreatedAt.Before(before.Add(-time.Minute)) ||
+		failed.CreatedAt.After(time.Now().UTC().Add(time.Minute)) {
+		t.Fatalf("createdAt = %v, want the server recording time", failed.CreatedAt)
 	}
 }
 
