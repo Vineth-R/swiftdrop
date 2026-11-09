@@ -1,4 +1,4 @@
-import { ApiError, apiWithMeta, type ApiMeta } from './api';
+import { ApiError, api, apiWithMeta, type ApiMeta } from './api';
 import type { ParcelStatus } from './tokens';
 
 export type CompletedDeliveryStatus = 'DELIVERED' | 'FAILED';
@@ -20,6 +20,50 @@ export type CourierDelivery = {
 export type CourierDeliveryPage = {
   items: CourierDelivery[];
   pagination: NonNullable<ApiMeta['pagination']>;
+};
+
+export type CourierHistoryEntry = {
+  previousStatus: ParcelStatus | null;
+  status: ParcelStatus;
+  note: string | null;
+  failureReason: string | null;
+  actorRole: string | null;
+  changedAt: string;
+};
+
+export type CourierProof = {
+  recipientName: string | null;
+  note: string | null;
+  hasPhoto: boolean;
+  createdAt: string;
+};
+
+export type CourierDeliveryDetail = CourierDelivery & {
+  description: string | null;
+  sizeCategory: 'SMALL' | 'MEDIUM' | 'LARGE' | 'OVERSIZED';
+  senderName: string;
+  senderPhone: string;
+  history: CourierHistoryEntry[];
+  proof: CourierProof | null;
+};
+
+/** A status a courier may submit. CREATED is not a valid target. */
+export type CourierTargetStatus =
+  'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'FAILED';
+
+export type CourierStatusUpdate = {
+  status: CourierTargetStatus;
+  recipientName?: string;
+  failureReason?: string;
+  note?: string;
+};
+
+export type CourierStatusResult = {
+  parcelId: string;
+  trackingNumber: string;
+  previousStatus: ParcelStatus;
+  status: ParcelStatus;
+  updatedAt: string;
 };
 
 export async function listCourierDeliveries({
@@ -68,4 +112,28 @@ export async function listCourierDeliveries({
   }
 
   return { items: data, pagination };
+}
+
+/** Reads the authenticated courier's assignment-scoped delivery detail. */
+export function getCourierDelivery(parcelId: string, signal?: AbortSignal) {
+  return api<CourierDeliveryDetail>(
+    `/courier/deliveries/${encodeURIComponent(parcelId)}`,
+    { signal },
+  );
+}
+
+/** Saves one documented transition for the authenticated courier. */
+export function updateCourierDeliveryStatus(
+  parcelId: string,
+  update: CourierStatusUpdate,
+  signal?: AbortSignal,
+) {
+  return api<CourierStatusResult>(
+    `/courier/deliveries/${encodeURIComponent(parcelId)}/status`,
+    {
+      method: 'POST',
+      body: update,
+      signal,
+    },
+  );
 }
