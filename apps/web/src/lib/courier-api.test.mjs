@@ -67,6 +67,23 @@ test('sends the optional completed-status filter', async () => {
   );
 });
 
+test('accepts an empty page with zero totals', async () => {
+  const emptyPagination = {
+    page: 1,
+    pageSize: 20,
+    totalItems: 0,
+    totalPages: 0,
+  };
+  stubFetch(200, {
+    data: [],
+    meta: { requestId: 'req-1', pagination: emptyPagination },
+  });
+
+  const result = await listCourierDeliveries({ date: '2026-11-09', page: 1 });
+
+  assert.deepEqual(result, { items: [], pagination: emptyPagination });
+});
+
 const malformed = [
   [
     'data is not an array',
