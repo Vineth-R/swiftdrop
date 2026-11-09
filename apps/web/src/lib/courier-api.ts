@@ -47,8 +47,12 @@ export type CourierDeliveryDetail = CourierDelivery & {
   proof: CourierProof | null;
 };
 
+/** A status a courier may submit. CREATED is not a valid target. */
+export type CourierTargetStatus =
+  'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'FAILED';
+
 export type CourierStatusUpdate = {
-  status: ParcelStatus;
+  status: CourierTargetStatus;
   recipientName?: string;
   failureReason?: string;
   note?: string;

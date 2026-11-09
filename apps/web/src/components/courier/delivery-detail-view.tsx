@@ -8,8 +8,10 @@ import {
   getCourierDelivery,
   updateCourierDeliveryStatus,
   type CourierDeliveryDetail,
+  type CourierTargetStatus,
 } from '../../lib/courier-api';
 import { formatDateTime, formatKg } from '../../lib/format';
+import { sizeNames } from '../../lib/pricing-api';
 import { type FormRules, useForm } from '../../lib/use-form';
 import { useSession } from '../../lib/session';
 import { useCountdown } from '../../lib/use-countdown';
@@ -48,7 +50,7 @@ type Values = {
   note: string;
 };
 
-const transitions: Partial<Record<ParcelStatus, ParcelStatus[]>> = {
+const transitions: Partial<Record<ParcelStatus, CourierTargetStatus[]>> = {
   CREATED: ['PICKED_UP', 'FAILED'],
   PICKED_UP: ['IN_TRANSIT', 'FAILED'],
   IN_TRANSIT: ['OUT_FOR_DELIVERY', 'FAILED'],
@@ -187,6 +189,22 @@ function CourierDeliveryDetailContent({ parcelId }: { parcelId: string }) {
           </CardContent>
         </Card>
       </Section>
+      <Section
+        title="Update status"
+        description="Only the next valid delivery statuses are available."
+      >
+        <StatusUpdateForm
+          key={saved}
+          parcelId={delivery.id}
+          currentStatus={delivery.status}
+          isRefreshing={state.isRefreshing || Boolean(state.refreshError)}
+          onRefresh={() => setAttempt((count) => count + 1)}
+          onUpdated={() => {
+            setSaved((count) => count + 1);
+            setAttempt((count) => count + 1);
+          }}
+        />
+      </Section>
       <div className="grid min-w-0 gap-8 lg:grid-cols-2">
         <Section title="Sender and recipient">
           <KeyValueList
@@ -215,7 +233,7 @@ function CourierDeliveryDetailContent({ parcelId }: { parcelId: string }) {
                 value: formatKg(delivery.weightKg),
                 isMono: true,
               },
-              { label: 'Size', value: delivery.sizeCategory },
+              { label: 'Size', value: sizeNames[delivery.sizeCategory] },
               { label: 'Description', value: delivery.description },
             ]}
           />
@@ -256,22 +274,6 @@ function CourierDeliveryDetailContent({ parcelId }: { parcelId: string }) {
             No proof metadata is available for this delivery.
           </EmptyState>
         )}
-      </Section>
-      <Section
-        title="Update status"
-        description="Only the next valid delivery statuses are available."
-      >
-        <StatusUpdateForm
-          key={saved}
-          parcelId={delivery.id}
-          currentStatus={delivery.status}
-          isRefreshing={state.isRefreshing || Boolean(state.refreshError)}
-          onRefresh={() => setAttempt((count) => count + 1)}
-          onUpdated={() => {
-            setSaved((count) => count + 1);
-            setAttempt((count) => count + 1);
-          }}
-        />
       </Section>
     </>
   );
@@ -431,7 +433,7 @@ function StatusUpdateForm({
       document.getElementById(`courier-status-${first}`)?.focus();
       return;
     }
-    if (!choices.includes(form.values.status as ParcelStatus)) {
+    if (!choices.includes(form.values.status as CourierTargetStatus)) {
       form.setServerErrors({
         status: 'Choose a valid next status for this delivery.',
       });
@@ -446,7 +448,7 @@ function StatusUpdateForm({
       await updateCourierDeliveryStatus(
         parcelId,
         {
-          status: form.values.status as ParcelStatus,
+          status: form.values.status as CourierTargetStatus,
           recipientName:
             form.values.status === 'DELIVERED'
               ? form.values.recipientName.trim()
@@ -520,7 +522,7 @@ function StatusUpdateForm({
           label: statusLabel(status),
         }))}
         value={
-          choices.includes(form.values.status as ParcelStatus)
+          choices.includes(form.values.status as CourierTargetStatus)
             ? form.values.status
             : ''
         }

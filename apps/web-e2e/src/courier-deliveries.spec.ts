@@ -69,6 +69,18 @@ function pageOf(items: unknown[], page = 1, totalItems = items.length) {
   };
 }
 
+function colomboDate() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Colombo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const part = (name: string) =>
+    parts.find((item) => item.type === name)?.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
 test('shows assigned deliveries and opens their authorized detail', async ({
   page,
 }) => {
@@ -90,10 +102,12 @@ test('shows assigned deliveries and opens their authorized detail', async ({
       ),
     [`GET /courier/deliveries/${parcelId}`]: ok(detail),
   });
+  const dateBefore = colomboDate();
   await page.goto('/dashboard');
   await expect(
     page.getByRole('heading', { level: 1, name: 'Today' }),
   ).toBeVisible();
+  await expect(page.getByText('Your deliveries for today.')).toBeVisible();
   await expect(page.getByText(delivery.trackingNumber)).toBeVisible();
   await expect(
     page.getByText('OUT FOR DELIVERY', { exact: true }),
@@ -108,6 +122,13 @@ test('shows assigned deliveries and opens their authorized detail', async ({
       .filter((call) => call.key === listEndpoint)
       .map((call) => new URL(call.url).searchParams.get('page')),
   ).toContain('2');
+  const dateAfter = colomboDate();
+  const listDates = api.calls
+    .filter((call) => call.key === listEndpoint)
+    .map((call) => new URL(call.url).searchParams.get('date'));
+  expect(listDates.length).toBeGreaterThanOrEqual(2);
+  for (const value of listDates)
+    expect([dateBefore, dateAfter]).toContain(value);
   for (const width of [360, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     for (const control of [
@@ -135,6 +156,7 @@ test('shows assigned deliveries and opens their authorized detail', async ({
     page.getByRole('heading', { level: 1, name: delivery.trackingNumber }),
   ).toBeVisible();
   await expect(page.getByText('Kamal Silva')).toBeVisible();
+  await expect(page.getByText('Small', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('list', { name: 'Status history' }),
   ).toContainText('OUT FOR DELIVERY');
@@ -163,14 +185,20 @@ test('shows empty, loading and safe error states for Today', async ({
   await expect(page.getByText(delivery.trackingNumber)).toBeVisible();
 });
 
-test('shows an accessible loading state for Today', async ({ page }) => {
-  await signInAs(page, 'COURIER', {
-    [listEndpoint]: { ...pageOf([delivery]), delayMs: 1000 },
-  });
+test('shows accessible initial-loading and manual-refresh states', async ({
+  page,
+}) => {
+  let response: Reply = { ...pageOf([delivery]), delayMs: 1000 };
+  await signInAs(page, 'COURIER', { [listEndpoint]: () => response });
   await page.goto('/dashboard');
   await expect(
     page.getByRole('status').filter({ hasText: 'Loading assigned deliveries' }),
   ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Loading' })).toBeVisible();
+  await expect(page.getByText(delivery.trackingNumber)).toBeVisible();
+
+  response = { ...pageOf([delivery]), delayMs: 1000 };
+  await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('button', { name: 'Refreshing' })).toBeVisible();
 });
 

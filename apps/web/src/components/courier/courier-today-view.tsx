@@ -4,6 +4,7 @@ import { PackageOpen, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { ApiError } from '../../lib/api';
+import { todayInColombo } from '../../lib/colombo-date';
 import {
   listCourierDeliveries,
   type CourierDelivery,
@@ -42,18 +43,6 @@ type LoadState = { key: string } & (
   | { status: 'error'; error: ApiError }
 );
 
-function todayInColombo() {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Colombo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const part = (name: string) =>
-    parts.find((item) => item.type === name)?.value;
-  return `${part('year')}-${part('month')}-${part('day')}`;
-}
-
 export function CourierTodayView() {
   return (
     <RequireRole roles={['COURIER']} audience="couriers">
@@ -67,6 +56,7 @@ function CourierTodayContent() {
   const userId = session.status === 'authenticated' ? session.user.id : '';
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState(1);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [state, setState] = useState<LoadState>({ key: '', status: 'loading' });
   const requestKey = JSON.stringify([userId, page, attempt]);
 
@@ -80,8 +70,10 @@ function CourierTodayContent() {
       signal: controller.signal,
     })
       .then((deliveries) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          setHasLoaded(true);
           setState({ key: requestKey, status: 'ready', deliveries });
+        }
       })
       .catch((caught: unknown) => {
         if (controller.signal.aborted) return;
@@ -104,12 +96,16 @@ function CourierTodayContent() {
   const remaining = useCountdown(
     error?.code === 'RATE_LIMITED' ? (error.retryAfter ?? null) : null,
   );
+  const refresh = () => {
+    setHasLoaded(true);
+    setAttempt((count) => count + 1);
+  };
 
   return (
     <>
       <PageHeader
         title="Today"
-        description="Deliveries currently assigned to you."
+        description="Your deliveries for today."
         actions={
           !noPermission && (
             <Button
@@ -117,12 +113,12 @@ function CourierTodayContent() {
               variant="secondary"
               isLoading={isLoading}
               isDisabled={remaining > 0}
-              onClick={() => setAttempt((count) => count + 1)}
+              onClick={refresh}
               iconLeading={
                 <RefreshCw size={20} strokeWidth={1.5} aria-hidden="true" />
               }
             >
-              {isLoading ? 'Refreshing' : 'Refresh'}
+              {isLoading ? (hasLoaded ? 'Refreshing' : 'Loading') : 'Refresh'}
             </Button>
           )
         }
