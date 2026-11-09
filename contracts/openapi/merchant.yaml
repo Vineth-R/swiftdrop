@@ -344,7 +344,6 @@ components:
           minimum: 0
     WebhookSettingsRequest:
       type: object
-      additionalProperties: false
       required: [url]
       properties:
         url:
