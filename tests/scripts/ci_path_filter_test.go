@@ -13,6 +13,7 @@ import (
 const ciWorkflow = ".github/workflows/ci.yml"
 
 var goDockerServices = []string{
+	"ai-assistant",
 	"identity",
 	"merchant",
 	"notification-worker",

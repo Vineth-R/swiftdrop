@@ -132,3 +132,25 @@ func TestNginxNotificationLogRoute(t *testing.T) {
 		}
 	}
 }
+
+func TestNginxAIChatRouteIsExact(t *testing.T) {
+	text := configText(t)
+	chat := blockAfter(text, "location = /api/v1/ai/chat")
+	if chat == "" {
+		t.Fatal("missing exact AI chat location")
+	}
+	if !strings.Contains(chat, "rewrite ^/api/v1/(.*)$ /$1 break;") {
+		t.Fatalf("AI chat location does not strip the prefix:\n%s", chat)
+	}
+	if !strings.Contains(chat, "proxy_pass http://ai_assistant_upstream;") {
+		t.Fatalf("AI chat location does not reach the assistant upstream:\n%s", chat)
+	}
+
+	otherAI := blockAfter(text, "location ^~ /api/v1/ai/")
+	if otherAI == "" {
+		t.Fatal("missing AI catch-all location")
+	}
+	if !strings.Contains(otherAI, "return 404") {
+		t.Fatalf("AI health/other paths must not be public:\n%s", otherAI)
+	}
+}
