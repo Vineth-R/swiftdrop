@@ -187,6 +187,7 @@ services:
     environment:
       <<: *app-env
       PORT: '8084'
+      WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
     depends_on:
       postgres:

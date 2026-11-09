@@ -71,6 +71,122 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /merchants/me/webhook:
+    get:
+      summary: Get the webhook settings (8.12)
+      description: Returns the URL, subscribed event types and active state. The signing secret is never returned.
+      tags: [Merchant webhook]
+      responses:
+        "200":
+          description: Current webhook settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      url: { type: string, format: uri, example: "https://shopzone.lk/hooks/swiftdrop" }
+                      eventTypes: { type: array, items: { type: string, enum: [parcel.status_changed] } }
+                      isActive: { type: boolean }
+                      updatedAt: { type: string, format: date-time }
+        "404":
+          description: WEBHOOK_NOT_CONFIGURED. The merchant has not saved a webhook.
+    put:
+      summary: Create or replace the webhook settings (8.13)
+      description: >
+        Approved merchants only. The URL must be HTTPS and must not point to a private or loopback address.
+        A new signing secret is generated on the first save, or when rotateSecret is true, and is returned once
+        in signingSecret. It is stored encrypted and cannot be read again.
+      tags: [Merchant webhook]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri, maxLength: 500, example: "https://shopzone.lk/hooks/swiftdrop" }
+                eventTypes: { type: array, items: { type: string, enum: [parcel.status_changed] }, default: [parcel.status_changed] }
+                isActive: { type: boolean, default: true }
+                rotateSecret: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Saved. signingSecret appears only when newly generated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      url: { type: string }
+                      eventTypes: { type: array, items: { type: string } }
+                      isActive: { type: boolean }
+                      updatedAt: { type: string, format: date-time }
+                      signingSecret: { type: string, example: "whsec_3F9aQ1xK7LmP2vR8" }
+        "403":
+          description: MERCHANT_NOT_APPROVED.
+        "422":
+          description: VALIDATION_ERROR, or WEBHOOK_URL_NOT_ALLOWED when the URL is not HTTPS or points to a private address.
+  /merchants/me/webhook/test:
+    post:
+      summary: Send a sample event (8.14)
+      description: Sends a signed sample event to the configured URL. A failed delivery still returns 200 with delivered false; httpStatus is null on timeout or connection failure.
+      tags: [Merchant webhook]
+      responses:
+        "200":
+          description: Result of the test delivery.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      delivered: { type: boolean }
+                      httpStatus: { type: integer, nullable: true }
+                      durationMs: { type: integer }
+        "404":
+          description: WEBHOOK_NOT_CONFIGURED.
+  /merchants/me/webhook/deliveries:
+    get:
+      summary: Delivery attempt log (8.15)
+      description: Every delivery attempt, including retries and dead-letter status, newest first.
+      tags: [Merchant webhook]
+      parameters:
+        - { name: success, in: query, schema: { type: boolean } }
+        - { name: trackingNumber, in: query, schema: { type: string, maxLength: 20 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: One page of attempts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        eventId: { type: string }
+                        trackingNumber: { type: string }
+                        attemptNumber: { type: integer, minimum: 1, maximum: 6 }
+                        httpStatus: { type: integer, nullable: true }
+                        success: { type: boolean }
+                        nextRetryAt: { type: string, format: date-time, nullable: true }
+                        deadLettered: { type: boolean }
+                        createdAt: { type: string, format: date-time }
+        "422":
+          description: VALIDATION_ERROR (bad success, page or pageSize).
+
 
 components:
   schemas:
