@@ -467,12 +467,12 @@ func TestDeliveriesFiltersAndPaging(t *testing.T) {
 	}}
 
 	recorder, body := f.call(http.MethodGet,
-		"/merchants/me/webhook/deliveries?success=false&httpStatus=503&trackingNumber=SDK7M2Q9XP4&page=2&pageSize=20", "")
+		"/merchants/me/webhook/deliveries?success=false&trackingNumber=SDK7M2Q9XP4&page=2&pageSize=20", "")
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d %v", recorder.Code, body)
 	}
 	got := f.store.filter
-	if got.Success == nil || *got.Success || got.HTTPStatus == nil || *got.HTTPStatus != 503 ||
+	if got.Success == nil || *got.Success ||
 		got.TrackingNumber != "SDK7M2Q9XP4" || got.Limit != 20 || got.Offset != 20 {
 		t.Fatalf("filter = %+v", got)
 	}
@@ -493,7 +493,7 @@ func TestDeliveriesFiltersAndPaging(t *testing.T) {
 func TestDeliveriesDefaultsAndLimits(t *testing.T) {
 	f := newWebhookFixture("MERCHANT")
 	f.call(http.MethodGet, "/merchants/me/webhook/deliveries", "")
-	if got := f.store.filter; got.Success != nil || got.HTTPStatus != nil || got.Limit != 20 || got.Offset != 0 {
+	if got := f.store.filter; got.Success != nil || got.Limit != 20 || got.Offset != 0 {
 		t.Fatalf("defaults = %+v", got)
 	}
 	f.call(http.MethodGet, "/merchants/me/webhook/deliveries?pageSize=500", "")
@@ -545,7 +545,7 @@ func TestDeliveriesPaginationBoundaries(t *testing.T) {
 }
 
 func TestDeliveriesRejectsBadQuery(t *testing.T) {
-	for _, query := range []string{"success=maybe", "httpStatus=99", "httpStatus=600", "httpStatus=abc", "trackingNumber=" + strings.Repeat("A", 21)} {
+	for _, query := range []string{"success=maybe", "trackingNumber=" + strings.Repeat("A", 21)} {
 		f := newWebhookFixture("MERCHANT")
 		recorder, body := f.call(http.MethodGet, "/merchants/me/webhook/deliveries?"+query, "")
 		if recorder.Code != http.StatusUnprocessableEntity || webhookErrorCode(body) != "VALIDATION_ERROR" {

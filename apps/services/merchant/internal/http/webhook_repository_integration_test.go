@@ -277,6 +277,9 @@ func TestWebhookRepositoryListDeliveryAttempts(t *testing.T) {
 	if all[0].HTTPStatus == nil || *all[0].HTTPStatus != 500 || !all[0].DeadLettered {
 		t.Fatalf("first row = %+v", all[0])
 	}
+	if all[1].HTTPStatus == nil || *all[1].HTTPStatus != 503 || all[1].Success {
+		t.Fatalf("middle row = %+v", all[1])
+	}
 	if all[2].HTTPStatus == nil || *all[2].HTTPStatus != 200 || !all[2].Success {
 		t.Fatalf("last row = %+v", all[2])
 	}
@@ -297,14 +300,6 @@ func TestWebhookRepositoryListDeliveryAttempts(t *testing.T) {
 	}
 	if failedTotal != 2 || len(failedAttempts) != 2 {
 		t.Fatalf("failure filter = %d total %d, want 2", len(failedAttempts), failedTotal)
-	}
-
-	byStatus, statusTotal, err := repo.ListDeliveryAttempts(ctx, merchantID, repository.DeliveryFilter{HTTPStatus: &statusFail, Limit: 20})
-	if err != nil {
-		t.Fatalf("http status filter error: %v", err)
-	}
-	if statusTotal != 1 || len(byStatus) != 1 || byStatus[0].AttemptNumber != 2 {
-		t.Fatalf("http status filter = %+v total %d", byStatus, statusTotal)
 	}
 
 	byTracking, trackingTotal, err := repo.ListDeliveryAttempts(ctx, merchantID, repository.DeliveryFilter{TrackingNumber: "SDK7M2Q9XP2", Limit: 20})

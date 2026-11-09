@@ -46,8 +46,6 @@ const (
 	maxPage          = 10_000 // matches the notification-log list limit
 	maxPageSize      = 100
 	maxTrackingChars = 20
-	minHTTPStatus    = 100
-	maxHTTPStatus    = 599
 )
 
 // The small interfaces below let tests replace the database, the encryption
@@ -403,15 +401,6 @@ func (h *webhookHandler) deliveries(c *gin.Context) {
 	default:
 		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "success must be true or false")
 		return
-	}
-	if raw := c.Query("httpStatus"); raw != "" {
-		status, err := strconv.Atoi(raw)
-		if err != nil || status < minHTTPStatus || status > maxHTTPStatus {
-			httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR",
-				"httpStatus must be a number between "+strconv.Itoa(minHTTPStatus)+" and "+strconv.Itoa(maxHTTPStatus))
-			return
-		}
-		filter.HTTPStatus = &status
 	}
 	if len(filter.TrackingNumber) > maxTrackingChars {
 		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid tracking number")

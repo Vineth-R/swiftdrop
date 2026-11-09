@@ -224,14 +224,6 @@ paths:
           schema:
             type: boolean
           description: Filter by delivery success. Omit for both.
-        - name: httpStatus
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 100
-            maximum: 599
-          description: Filter by the recorded HTTP status. Omit for every status.
         - name: trackingNumber
           in: query
           required: false

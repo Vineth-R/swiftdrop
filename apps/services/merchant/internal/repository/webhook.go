@@ -175,7 +175,6 @@ RETURNING `+webhookColumns, p.MerchantID, p.URL, p.EventTypes, p.IsActive))
 // DeliveryFilter narrows the delivery log (API 8.15).
 type DeliveryFilter struct {
 	Success        *bool  // nil means both
-	HTTPStatus     *int   // nil means every status
 	TrackingNumber string // empty means all
 	Limit          int
 	Offset         int
@@ -195,15 +194,14 @@ type DeliveryAttempt struct {
 
 const deliveryWhere = ` WHERE merchant_id = $1::uuid
   AND ($2::boolean IS NULL OR success = $2::boolean)
-  AND ($3::text = '' OR tracking_number = $3::text)
-  AND ($4::integer IS NULL OR http_status = $4::integer)`
+  AND ($3::text = '' OR tracking_number = $3::text)`
 
 // ListDeliveryAttempts returns one page of the merchant's attempts (newest
 // first) and the total number of matching rows.
 func (r *Repository) ListDeliveryAttempts(ctx context.Context, merchantID string, f DeliveryFilter) ([]DeliveryAttempt, int, error) {
 	var total int
 	if err := r.db.QueryRow(ctx, `SELECT count(*) FROM `+attemptsTable+deliveryWhere,
-		merchantID, f.Success, f.TrackingNumber, f.HTTPStatus).Scan(&total); err != nil {
+		merchantID, f.Success, f.TrackingNumber).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count delivery attempts: %w", err)
 	}
 
@@ -211,7 +209,7 @@ func (r *Repository) ListDeliveryAttempts(ctx context.Context, merchantID string
        success, next_retry_at, dead_lettered, created_at
 FROM `+attemptsTable+deliveryWhere+`
 ORDER BY created_at DESC, attempt_number DESC
-LIMIT $5 OFFSET $6`, merchantID, f.Success, f.TrackingNumber, f.HTTPStatus, f.Limit, f.Offset)
+LIMIT $4 OFFSET $5`, merchantID, f.Success, f.TrackingNumber, f.Limit, f.Offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list delivery attempts: %w", err)
 	}
