@@ -67,6 +67,11 @@ func run() error {
 		logger.Warn("DATABASE_URL is not set; readiness will report database down")
 	}
 	router := servicehttp.New(logger, merchantRepo)
+	if merchantRepo != nil {
+		if err := registerWebhooks(router, merchantRepo, config, logger); err != nil {
+			return err
+		}
+	}
 
 	router.GET("/health", postgres.HealthHandler())
 	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))

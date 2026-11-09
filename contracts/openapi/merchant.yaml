@@ -1,21 +1,26 @@
 openapi: 3.0.3
 info:
   title: SwiftDrop Merchant API
-  version: 0.1.0
+  version: 0.2.0
   description: >-
-    Merchant account management, integration settings, and future API
-    credentials. This specification currently covers only the operational
-    health endpoints. Successful merchant responses use the API v1.1 success
-    envelope
+    Merchant account management, integration settings, and API credentials.
+    Successful merchant responses use the API v1.1 success envelope
     `{ "data": ..., "meta": { "requestId": "...", "timestamp": "..." } }`.
     Errors use the standard error envelope
     `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`.
     Error codes are the uppercase API v1.1 values, for example
-    `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`,
-    `MERCHANT_NOT_APPROVED`, `KEY_LIMIT_REACHED`, and
+    `VALIDATION_ERROR`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`,
+    `MERCHANT_NOT_APPROVED`, `KEY_LIMIT_REACHED`, `SERVICE_UNAVAILABLE`, and
     `INVALID_MERCHANT_STATE`. Unmatched routes return `404 NOT_FOUND`,
     disallowed methods return `405 METHOD_NOT_ALLOWED` with an `Allow` header,
     and unexpected failures return `500 INTERNAL_ERROR`.
+
+    The merchant webhook settings endpoints are session-authenticated. The
+    caller must present an HS256 access token (cookie or bearer) with the
+    `MERCHANT` role, and the merchant record is resolved from the verified
+    token subject through `owner_user_id`. The endpoints answer `503`
+    `SERVICE_UNAVAILABLE` when `JWT_ACCESS_SECRET` or `WEBHOOK_SECRET_KEY` is
+    not configured.
 servers:
   - url: /api/v1/merchants
   - url: /api/v1/merchant
@@ -71,8 +76,211 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /merchants/me/webhook:
+    get:
+      operationId: getMerchantWebhook
+      summary: Get the webhook settings (8.12)
+      description: >-
+        Returns the authenticated merchant's URL, subscribed event types and
+        active state. The signing secret is never returned. The merchant is
+        resolved from the verified access-token subject; a merchant ID is never
+        read from the request.
+      tags: [Merchant webhook]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current webhook settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebhookSettings'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WebhookNotConfigured'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      operationId: putMerchantWebhook
+      summary: Create or replace the webhook settings (8.13)
+      description: >-
+        Approved merchants only. The URL must use HTTPS and must not point to a
+        private, loopback or otherwise non-public address; the host is resolved
+        and checked again when the webhook is delivered. A new signing secret is
+        generated on the first save, or when `rotateSecret` is true, and is
+        returned exactly once in `signingSecret`. It is stored encrypted with
+        AES-256-GCM and cannot be read again.
 
+        Concurrent saves are serialised in PostgreSQL. If two requests race to
+        create the webhook, exactly one returns the new secret; the other keeps
+        that secret and omits `signingSecret`. Send `rotateSecret: true` to
+        obtain a new secret.
+      tags: [Merchant webhook]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookSettingsRequest'
+      responses:
+        '200':
+          description: >-
+            Saved. `signingSecret` is present only when the candidate secret was
+            actually persisted (creation or rotation).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebhookSettingsWithSecret'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 'FORBIDDEN (no merchant account) or MERCHANT_NOT_APPROVED.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 'VALIDATION_ERROR, or WEBHOOK_URL_NOT_ALLOWED when the URL is not HTTPS or points to a non-public address.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /merchants/me/webhook/test:
+    post:
+      operationId: testMerchantWebhook
+      summary: Send a sample event (8.14)
+      description: >-
+        Sends a signed sample `parcel.status_changed` event to the configured
+        URL. A failed delivery still returns 200 with `delivered: false`;
+        `httpStatus` is `null` on timeout or connection failure. Internal error
+        details are never returned.
+      tags: [Merchant webhook]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Result of the test delivery.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebhookTestResult'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WebhookNotConfigured'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /merchants/me/webhook/deliveries:
+    get:
+      operationId: listMerchantWebhookDeliveries
+      summary: Delivery attempt log (8.15)
+      description: >-
+        Every delivery attempt for the authenticated merchant, including
+        retries and dead-letter status, newest first. `page` is capped at 10000
+        and `pageSize` at 100; values outside the range are rejected with
+        `422 VALIDATION_ERROR` rather than reaching the database. Responses are
+        marked `Cache-Control: no-store`.
+      tags: [Merchant webhook]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: success
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Filter by delivery success. Omit for both.
+        - name: trackingNumber
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 20
+          description: Exact tracking-number match.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: One page of attempts.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookDeliveryAttempt'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
+  securitySchemes:
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: sd_access
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HS256 JWT
   schemas:
     HealthResponse:
       type: object
@@ -96,6 +304,151 @@ components:
           additionalProperties:
             type: string
             enum: [ok, down]
+    SuccessMeta:
+      type: object
+      additionalProperties: false
+      required: [requestId, timestamp]
+      properties:
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    Pagination:
+      type: object
+      additionalProperties: false
+      required: [page, pageSize, totalItems, totalPages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalItems:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    WebhookSettingsRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 500
+          description: Public HTTPS URL. Credentials, private addresses and loopback targets are rejected.
+          example: https://shopzone.lk/hooks/swiftdrop
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [parcel.status_changed]
+          default: [parcel.status_changed]
+        isActive:
+          type: boolean
+          default: true
+        rotateSecret:
+          type: boolean
+          default: false
+          description: Generate and persist a new signing secret before returning it.
+    WebhookSettings:
+      type: object
+      additionalProperties: false
+      required: [url, eventTypes, isActive, updatedAt]
+      properties:
+        url:
+          type: string
+          format: uri
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [parcel.status_changed]
+        isActive:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+    WebhookSettingsWithSecret:
+      type: object
+      additionalProperties: false
+      required: [url, eventTypes, isActive, updatedAt]
+      properties:
+        url:
+          type: string
+          format: uri
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [parcel.status_changed]
+        isActive:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+        signingSecret:
+          type: string
+          description: Returned only when the secret was created or rotated. It cannot be read again.
+          example: whsec_3F9aQ1xK7LmP2vR8
+    WebhookTestResult:
+      type: object
+      additionalProperties: false
+      required: [delivered, httpStatus, durationMs]
+      properties:
+        delivered:
+          type: boolean
+        httpStatus:
+          type: integer
+          nullable: true
+          description: The merchant endpoint's HTTP status, or null when no response arrived.
+        durationMs:
+          type: integer
+          minimum: 0
+    WebhookDeliveryAttempt:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          eventId,
+          trackingNumber,
+          attemptNumber,
+          httpStatus,
+          success,
+          nextRetryAt,
+          deadLettered,
+          createdAt,
+        ]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        trackingNumber:
+          type: string
+        attemptNumber:
+          type: integer
+          minimum: 1
+          maximum: 6
+        httpStatus:
+          type: integer
+          nullable: true
+        success:
+          type: boolean
+        nextRetryAt:
+          type: string
+          format: date-time
+          nullable: true
+        deadLettered:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -183,5 +536,65 @@ components:
             error:
               code: INTERNAL_ERROR
               message: internal server error
+            meta:
+              requestId: req_01
+    Unauthorized:
+      description: 'UNAUTHENTICATED or TOKEN_EXPIRED. The access token is missing, invalid or expired.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: UNAUTHENTICATED
+              message: authentication required
+            meta:
+              requestId: req_01
+    Forbidden:
+      description: 'FORBIDDEN when the caller is not a MERCHANT or has no merchant account.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: FORBIDDEN
+              message: not allowed
+            meta:
+              requestId: req_01
+    ValidationError:
+      description: 'VALIDATION_ERROR for malformed or out-of-range input.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: page and pageSize must be positive numbers
+            meta:
+              requestId: req_01
+    WebhookNotConfigured:
+      description: 'WEBHOOK_NOT_CONFIGURED. The merchant has not saved a webhook.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: WEBHOOK_NOT_CONFIGURED
+              message: no webhook is configured
+            meta:
+              requestId: req_01
+    ServiceUnavailable:
+      description: 'SERVICE_UNAVAILABLE. WEBHOOK_SECRET_KEY or JWT_ACCESS_SECRET is not configured, so the endpoints stay fail closed.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: SERVICE_UNAVAILABLE
+              message: webhook settings are not configured
             meta:
               requestId: req_01

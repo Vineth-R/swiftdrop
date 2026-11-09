@@ -7,10 +7,13 @@ import (
 )
 
 type Config struct {
-	Port        int
-	AppEnv      string
-	LogLevel    string
-	DatabaseURL string
+	Port             int
+	AppEnv           string
+	LogLevel         string
+	DatabaseURL      string
+	AccessSecret     string
+	CookieName       string
+	WebhookSecretKey string
 }
 
 func Load() (Config, error) {
@@ -33,11 +36,24 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	accessSecret, err := sharedconfig.LoadAccessSecret(loader, appEnv, false)
+	if err != nil {
+		return Config{}, err
+	}
+
+	webhookSecretKey, err := LoadWebhookSecretKey(loader)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		Port:        port,
-		AppEnv:      appEnv,
-		LogLevel:    logLevel,
-		DatabaseURL: loader.String("DATABASE_URL", ""),
+		Port:             port,
+		AppEnv:           appEnv,
+		LogLevel:         logLevel,
+		DatabaseURL:      loader.String("DATABASE_URL", ""),
+		AccessSecret:     accessSecret,
+		CookieName:       loader.String("COOKIE_NAME", "sd_access"),
+		WebhookSecretKey: webhookSecretKey,
 	}, nil
 }
 

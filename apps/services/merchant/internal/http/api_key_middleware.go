@@ -41,7 +41,9 @@ func MerchantAPIKey(repo *repository.Repository, logger *slog.Logger) gin.Handle
 			return
 		}
 		_ = repo.TouchAPIClient(c.Request.Context(), client.ID)
-		WithIdentity(c, Identity{MerchantID: client.MerchantID, Role: "MERCHANT"})
+		// An API key acts for the merchant owner, so identityFrom can accept the
+		// identity (it requires a non-empty UserID) without inventing a user.
+		WithIdentity(c, Identity{UserID: merchant.OwnerUserID, MerchantID: client.MerchantID, Role: "MERCHANT"})
 		c.Next()
 	}
 }

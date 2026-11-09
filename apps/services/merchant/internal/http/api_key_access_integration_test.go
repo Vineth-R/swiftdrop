@@ -100,6 +100,9 @@ func TestMerchantAPIKey_access(t *testing.T) {
 			if test.wantMerch != "" && merchantIDOf(body) != test.wantMerch {
 				t.Fatalf("merchant = %q, want %q", merchantIDOf(body), test.wantMerch)
 			}
+			if test.wantMerch != "" && userIDOf(body) == "" {
+				t.Fatalf("API-key identity has no user ID: %s", body)
+			}
 			if test.wantStatus != http.StatusOK && strings.Contains(string(body), "merchantId") {
 				t.Fatalf("a refused request still named a merchant: %s", body)
 			}
@@ -214,8 +217,13 @@ func newKeyAccessFixture(t *testing.T) (context.Context, *repository.Repository,
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := httpx.NewRouter(logger)
 	router.GET("/probe", MerchantAPIKey(repo, logger), func(c *gin.Context) {
-		identity, _ := identityFrom(c)
-		c.JSON(http.StatusOK, gin.H{"merchantId": identity.MerchantID, "role": identity.Role})
+		identity, ok := identityFrom(c)
+		if !ok {
+			// API-key identity must be complete: identityFrom requires a user ID.
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "incomplete identity"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"userId": identity.UserID, "merchantId": identity.MerchantID, "role": identity.Role})
 	})
 
 	probe := func(key string) (int, []byte) {
@@ -317,4 +325,12 @@ func merchantIDOf(body []byte) string {
 	}
 	_ = json.Unmarshal(body, &envelope)
 	return envelope.MerchantID
+}
+
+func userIDOf(body []byte) string {
+	var envelope struct {
+		UserID string `json:"userId"`
+	}
+	_ = json.Unmarshal(body, &envelope)
+	return envelope.UserID
 }
