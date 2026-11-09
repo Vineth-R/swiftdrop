@@ -9,7 +9,7 @@ import (
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/http"
 	merchantrepository "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/secretbox"
-	"github.com/Vineth-R/swiftdrop/packages/go-common/webhookdelivery"
+	"github.com/Vineth-R/swiftdrop/packages/webhookdelivery"
 )
 
 // registerWebhooks adds the webhook settings endpoints (API 8.12 to 8.15).

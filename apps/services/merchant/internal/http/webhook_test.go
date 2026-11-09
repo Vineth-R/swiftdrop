@@ -17,8 +17,8 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
-	"github.com/Vineth-R/swiftdrop/packages/go-common/webhookdelivery"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/webhookurl"
+	"github.com/Vineth-R/swiftdrop/packages/webhookdelivery"
 )
 
 // fakeStore keeps one webhook in memory.

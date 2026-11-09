@@ -16,13 +16,13 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/secretbox"
-	"github.com/Vineth-R/swiftdrop/packages/go-common/webhookdelivery"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/webhookurl"
+	"github.com/Vineth-R/swiftdrop/packages/webhookdelivery"
 )
 
 // This file implements the merchant webhook settings endpoints, API v1.1
 // sections 8.12 to 8.15. The database code is in repository/webhook.go and the
-// signed sending is in packages/go-common/webhookdelivery.
+// signed sending is in packages/webhookdelivery.
 
 // The small interfaces below let tests replace the database, the encryption
 // and the real HTTP sender. *repository.Repository, *secretbox.Box and
