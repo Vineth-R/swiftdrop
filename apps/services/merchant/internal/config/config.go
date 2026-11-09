@@ -11,6 +11,8 @@ type Config struct {
 	AppEnv           string
 	LogLevel         string
 	DatabaseURL      string
+	AccessSecret     string
+	CookieName       string
 	WebhookSecretKey string
 }
 
@@ -34,12 +36,24 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	accessSecret, err := sharedconfig.LoadAccessSecret(loader, appEnv, false)
+	if err != nil {
+		return Config{}, err
+	}
+
+	webhookSecretKey, err := LoadWebhookSecretKey(loader)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:             port,
 		AppEnv:           appEnv,
 		LogLevel:         logLevel,
 		DatabaseURL:      loader.String("DATABASE_URL", ""),
-		WebhookSecretKey: loader.String("WEBHOOK_SECRET_KEY", ""),
+		AccessSecret:     accessSecret,
+		CookieName:       loader.String("COOKIE_NAME", "sd_access"),
+		WebhookSecretKey: webhookSecretKey,
 	}, nil
 }
 

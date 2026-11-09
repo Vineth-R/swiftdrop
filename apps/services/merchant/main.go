@@ -68,7 +68,7 @@ func run() error {
 	}
 	router := servicehttp.New(logger, merchantRepo)
 	if merchantRepo != nil {
-		if err := registerWebhooks(router, merchantRepo, config.WebhookSecretKey, logger); err != nil {
+		if err := registerWebhooks(router, merchantRepo, config, logger); err != nil {
 			return err
 		}
 	}

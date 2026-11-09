@@ -83,17 +83,13 @@ func (r *Repository) CreateMerchant(ctx context.Context, params CreateMerchantPa
 	return nil
 }
 
-func (r *Repository) MerchantByID(ctx context.Context, merchantID string) (Merchant, error) {
+const merchantColumns = `id, owner_user_id, business_name, business_reg_no, contact_email,
+	contact_phone, pickup_address, pickup_zone_id, status, approved_by,
+	approved_at, rejection_reason, suspension_reason, created_at, updated_at`
+
+func scanMerchant(row pgx.Row) (Merchant, error) {
 	merchant := Merchant{}
-	err := r.db.QueryRow(
-		ctx,
-		`SELECT id, owner_user_id, business_name, business_reg_no, contact_email,
-			contact_phone, pickup_address, pickup_zone_id, status, approved_by,
-			approved_at, rejection_reason, suspension_reason, created_at, updated_at
-		 FROM merchant.merchants
-		 WHERE id = $1`,
-		merchantID,
-	).Scan(
+	err := row.Scan(
 		&merchant.ID,
 		&merchant.OwnerUserID,
 		&merchant.BusinessName,
@@ -116,8 +112,17 @@ func (r *Repository) MerchantByID(ctx context.Context, merchantID string) (Merch
 	if err != nil {
 		return Merchant{}, fmt.Errorf("querying merchant: %w", err)
 	}
-
 	return merchant, nil
+}
+
+func (r *Repository) MerchantByID(ctx context.Context, merchantID string) (Merchant, error) {
+	return scanMerchant(r.db.QueryRow(ctx, `SELECT `+merchantColumns+` FROM merchant.merchants WHERE id = $1`, merchantID))
+}
+
+// MerchantByOwnerUserID resolves the merchant owned by an authenticated user.
+// OwnerUserID is unique, so at most one merchant is returned.
+func (r *Repository) MerchantByOwnerUserID(ctx context.Context, ownerUserID string) (Merchant, error) {
+	return scanMerchant(r.db.QueryRow(ctx, `SELECT `+merchantColumns+` FROM merchant.merchants WHERE owner_user_id = $1`, ownerUserID))
 }
 
 // UpdateProfile changes only merchant-editable contact and pickup fields.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/http"
 	merchantrepository "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/secretbox"
@@ -14,20 +15,32 @@ import (
 
 // registerWebhooks adds the webhook settings endpoints (API 8.12 to 8.15).
 //
-// WEBHOOK_SECRET_KEY encrypts the signing secrets. When it is not set the
-// endpoints are simply not registered and a warning is logged, so a machine
-// without the key still starts. A key that is set but invalid stops the
-// service, because running with a wrong key would store unreadable secrets.
-func registerWebhooks(router *gin.Engine, repo *merchantrepository.Repository, hexKey string, logger *slog.Logger) error {
-	if hexKey == "" {
-		logger.Warn("WEBHOOK_SECRET_KEY is not set; webhook settings endpoints are disabled")
-		return nil
+// The routes are always registered so their fail-closed state is explicit:
+// without WEBHOOK_SECRET_KEY (no Box) or without JWT_ACCESS_SECRET they answer
+// 503 SERVICE_UNAVAILABLE. Config.Load has already rejected a present but
+// invalid WEBHOOK_SECRET_KEY, so the NewFromHex call below is a defensive
+// check rather than the primary validation.
+func registerWebhooks(router *gin.Engine, repo *merchantrepository.Repository, config serviceconfig.Config, logger *slog.Logger) error {
+	var box *secretbox.Box
+	if config.WebhookSecretKey == "" {
+		logger.Warn("WEBHOOK_SECRET_KEY is not set; webhook settings endpoints will answer 503")
+	} else {
+		parsed, err := secretbox.NewFromHex(config.WebhookSecretKey)
+		if err != nil {
+			return fmt.Errorf("invalid WEBHOOK_SECRET_KEY: %w", err)
+		}
+		box = parsed
 	}
-	box, err := secretbox.NewFromHex(hexKey)
-	if err != nil {
-		return fmt.Errorf("invalid WEBHOOK_SECRET_KEY: %w", err)
+	if config.AccessSecret == "" {
+		logger.Warn("JWT_ACCESS_SECRET is not set; webhook settings endpoints will answer 503")
 	}
-	servicehttp.RegisterWebhookRoutes(router, repo, box, webhookdelivery.NewSender(), logger)
-	logger.Info("webhook settings endpoints enabled")
-	return nil
+
+	return servicehttp.RegisterWebhookRoutes(router, servicehttp.WebhookConfig{
+		Repository:   repo,
+		Box:          box,
+		Sender:       webhookdelivery.NewSender(),
+		AccessSecret: config.AccessSecret,
+		CookieName:   config.CookieName,
+		Logger:       logger,
+	})
 }
