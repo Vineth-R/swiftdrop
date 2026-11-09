@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 
-import { DashboardPlaceholder } from '@/components/auth/dashboard-placeholder';
+import { CourierDashboard } from '@/components/courier/courier-dashboard';
 
 export const metadata: Metadata = { title: 'Dashboard — SwiftDrop' };
 
 export default function DashboardPage() {
-  return <DashboardPlaceholder />;
+  return <CourierDashboard />;
 }

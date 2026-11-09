@@ -95,8 +95,8 @@ export const navByRole: Record<Role, NavGroup[]> = {
       ],
     },
   ],
-  // The courier gets bottom tabs instead of a sidebar. "Today" points at the
-  // placeholder dashboard until the courier's own screen exists.
+  // The courier gets bottom tabs instead of a sidebar. "Today" opens the
+  // courier dashboard with the day's assigned deliveries.
   COURIER: [
     {
       items: [
