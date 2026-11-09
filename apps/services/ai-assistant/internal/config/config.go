@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 )
 
 const defaultModel = "gemini-3.5-flash"
+
+var cookieNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // Config is the complete ai-assistant runtime configuration.
 type Config struct {
@@ -23,6 +26,10 @@ type Config struct {
 
 	AccessSecret string
 	CookieName   string
+
+	GuestCookieName string
+	MaxConcurrent   int
+	FrontendOrigin  string
 
 	AIEnabled       bool
 	Provider        string
@@ -80,6 +87,32 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 
 	accessSecret, err := sharedconfig.LoadAccessSecret(loader, appEnv, false)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cookieName := loader.String("COOKIE_NAME", "sd_access")
+	if !cookieNamePattern.MatchString(cookieName) {
+		return Config{}, errors.New("COOKIE_NAME must be a valid cookie name")
+	}
+
+	guestCookieName := loader.String("AI_GUEST_COOKIE_NAME", "sd_ai_guest")
+	if !cookieNamePattern.MatchString(guestCookieName) {
+		return Config{}, errors.New("AI_GUEST_COOKIE_NAME must be a valid cookie name")
+	}
+	if guestCookieName == cookieName {
+		return Config{}, errors.New("AI_GUEST_COOKIE_NAME must differ from COOKIE_NAME")
+	}
+
+	maxConcurrent, err := loader.Int("AI_MAX_CONCURRENT", 3)
+	if err != nil {
+		return Config{}, err
+	}
+	if maxConcurrent < 1 || maxConcurrent > 20 {
+		return Config{}, errors.New("AI_MAX_CONCURRENT must be between 1 and 20")
+	}
+
+	frontendOrigin, err := serviceOrigin(loader.String("FRONTEND_BASE_URL", "http://localhost:8080"), "FRONTEND_BASE_URL")
 	if err != nil {
 		return Config{}, err
 	}
@@ -220,7 +253,10 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		LogLevel:                logLevel,
 		TrustedProxies:          proxies,
 		AccessSecret:            accessSecret,
-		CookieName:              loader.String("COOKIE_NAME", "sd_access"),
+		CookieName:              cookieName,
+		GuestCookieName:         guestCookieName,
+		MaxConcurrent:           maxConcurrent,
+		FrontendOrigin:          frontendOrigin,
 		AIEnabled:               enabled,
 		Provider:                provider,
 		GeminiAPIKey:            apiKey,

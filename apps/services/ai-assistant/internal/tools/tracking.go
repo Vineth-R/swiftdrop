@@ -18,9 +18,10 @@ type trackingTool struct {
 func (t *trackingTool) Definition() contract.ToolDeclaration {
 	return contract.ToolDeclaration{
 		Name: toolNamePublicParcelStatus,
-		Description: "Look up the public delivery status of a parcel by its SwiftDrop tracking number, for example SDK7M2Q9XP4. " +
-			"Ask the customer for the tracking number if it is missing. " +
-			"This is public information; never ask for or invent personal identity details.",
+		Description: "Look up the delivery status of a parcel by its SwiftDrop tracking number, for example SDK7M2Q9XP4. " +
+			"Only signed-in customers (their own parcels) and authorized delivery staff may use this tool. " +
+			"Guests must be asked to sign in; never treat a tracking number as proof of identity. " +
+			"Never invent or accept a user, customer or owner ID.",
 		Parameters: contract.Parameters{
 			Properties: map[string]contract.Parameter{
 				"trackingNumber": {
@@ -47,7 +48,11 @@ type trackingResult struct {
 	Timeline       []trackingEvent `json:"timeline"`
 }
 
-func (t *trackingTool) Execute(ctx context.Context, args map[string]any, _ contract.CallerContext) (contract.ToolResult, error) {
+func (t *trackingTool) Execute(ctx context.Context, args map[string]any, caller contract.CallerContext) (contract.ToolResult, error) {
+	if denial, ok := requireParcelAccess(caller, "Please sign in to track your parcel."); !ok {
+		return denial, nil
+	}
+
 	values, message := validateArguments(args, []argSpec{
 		{name: "trackingNumber", kind: argString, required: true, maxLen: 32},
 	})
@@ -60,7 +65,7 @@ func (t *trackingTool) Execute(ctx context.Context, args map[string]any, _ contr
 		return invalidResult("The tracking number format is not valid. SwiftDrop tracking numbers look like SDK7M2Q9XP4."), nil
 	}
 
-	tracking, err := t.parcel.Tracking(ctx, number)
+	tracking, err := t.parcel.Tracking(ctx, number, caller.AccessToken)
 	if err != nil {
 		return trackingFailure(err), nil
 	}

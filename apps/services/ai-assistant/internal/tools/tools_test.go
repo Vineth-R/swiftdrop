@@ -40,25 +40,32 @@ func (f *fakePricing) Estimate(_ context.Context, input client.EstimateInput) (c
 }
 
 type fakeParcel struct {
-	tracking         client.Tracking
-	trackingErr      error
-	trackingCalls    int
-	lastTracking     string
-	history          []client.HistoryItem
-	historyErr       error
-	historyCalls     int
-	lastParcelID     string
-	lastHistoryToken string
-	list             client.ParcelList
-	listErr          error
-	listCalls        int
-	lastStatus       string
-	lastListToken    string
+	tracking          client.Tracking
+	trackingErr       error
+	trackingCalls     int
+	lastTracking      string
+	lastTrackingToken string
+	history           []client.HistoryItem
+	historyErr        error
+	historyCalls      int
+	lastParcelID      string
+	lastHistoryToken  string
+	list              client.ParcelList
+	listErr           error
+	listCalls         int
+	lastStatus        string
+	lastListToken     string
+	adminList         client.AdminParcelList
+	adminErr          error
+	adminCalls        int
+	lastAdminStatus   string
+	lastAdminToken    string
 }
 
-func (f *fakeParcel) Tracking(_ context.Context, trackingNumber string) (client.Tracking, error) {
+func (f *fakeParcel) Tracking(_ context.Context, trackingNumber, accessToken string) (client.Tracking, error) {
 	f.trackingCalls++
 	f.lastTracking = trackingNumber
+	f.lastTrackingToken = accessToken
 	return f.tracking, f.trackingErr
 }
 
@@ -74,6 +81,13 @@ func (f *fakeParcel) List(_ context.Context, status, accessToken string) (client
 	f.lastStatus = status
 	f.lastListToken = accessToken
 	return f.list, f.listErr
+}
+
+func (f *fakeParcel) AdminParcels(_ context.Context, status, accessToken string) (client.AdminParcelList, error) {
+	f.adminCalls++
+	f.lastAdminStatus = status
+	f.lastAdminToken = accessToken
+	return f.adminList, f.adminErr
 }
 
 func newRegistry(t *testing.T, pricing tools.PricingClient, parcel tools.ParcelClient) *tools.Registry {
@@ -115,6 +129,7 @@ func decodeObject(t *testing.T, value any) map[string]json.RawMessage {
 func authenticated() contract.CallerContext {
 	return contract.CallerContext{
 		UserID:        testUserID,
+		Role:          "CUSTOMER",
 		Authenticated: true,
 		AccessToken:   testToken,
 	}
@@ -389,12 +404,12 @@ func TestTrackingHappyPath(t *testing.T) {
 	}}
 	registry := newRegistry(t, &fakePricing{}, parcel)
 
-	result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, contract.CallerContext{})
+	result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, authenticated())
 	if result.Status != contract.StatusOK {
 		t.Fatalf("expected OK, got %q (%s)", result.Status, result.Message)
 	}
-	if parcel.lastTracking != testTracking {
-		t.Fatalf("tracking number not forwarded: %q", parcel.lastTracking)
+	if parcel.lastTracking != testTracking || parcel.lastTrackingToken != testToken {
+		t.Fatalf("tracking request not forwarded with the caller token: number=%q token=%q", parcel.lastTracking, parcel.lastTrackingToken)
 	}
 
 	object := decodeObject(t, result.Data)
@@ -413,7 +428,7 @@ func TestTrackingInvalidFormat(t *testing.T) {
 	for _, number := range []string{"sdk7m2q9xp4", "BAD", "SDK7M2Q9XP"} {
 		parcel := &fakeParcel{}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": number}, contract.CallerContext{})
+		result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": number}, authenticated())
 		if result.Status != contract.StatusInvalid {
 			t.Fatalf("%q: expected INVALID, got %q", number, result.Status)
 		}
@@ -427,7 +442,7 @@ func TestTrackingErrors(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		parcel := &fakeParcel{trackingErr: &client.Error{Kind: client.KindNotFound, Status: 404, Code: "TRACKING_NOT_FOUND"}}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, contract.CallerContext{})
+		result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, authenticated())
 		if result.Status != contract.StatusInvalid || !strings.Contains(result.Message, "not found") {
 			t.Fatalf("expected INVALID not found, got %q (%s)", result.Status, result.Message)
 		}
@@ -436,7 +451,7 @@ func TestTrackingErrors(t *testing.T) {
 	t.Run("unavailable", func(t *testing.T) {
 		parcel := &fakeParcel{trackingErr: &client.Error{Kind: client.KindUnavailable, Status: 503}}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, contract.CallerContext{})
+		result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, authenticated())
 		if result.Status != contract.StatusUnavailable {
 			t.Fatalf("expected UNAVAILABLE, got %q", result.Status)
 		}
@@ -678,7 +693,7 @@ func TestDeliveriesUpstreamErrors(t *testing.T) {
 	})
 }
 
-func TestPublicToolsNeverForwardAccessToken(t *testing.T) {
+func TestTrackingForwardsCallerTokenWithoutLeakingIt(t *testing.T) {
 	parcel := &fakeParcel{tracking: client.Tracking{TrackingNumber: testTracking, Status: "CREATED"}}
 	registry := newRegistry(t, &fakePricing{}, parcel)
 
@@ -686,12 +701,151 @@ func TestPublicToolsNeverForwardAccessToken(t *testing.T) {
 	if result.Status != contract.StatusOK {
 		t.Fatalf("expected OK, got %q", result.Status)
 	}
-	if parcel.lastTracking != testTracking {
-		t.Fatalf("unexpected tracking call")
+	if parcel.lastTracking != testTracking || parcel.lastTrackingToken != testToken {
+		t.Fatalf("tracking call did not use the caller credentials: number=%q token=%q", parcel.lastTracking, parcel.lastTrackingToken)
 	}
 	if strings.Contains(marshal(t, result.Data), testToken) || strings.Contains(result.Message, testToken) {
-		t.Fatalf("access token leaked into public result")
+		t.Fatalf("access token leaked into the tool result")
+	}
+}
+
+func TestTrackingDeniesGuestsBeforeUpstream(t *testing.T) {
+	parcel := &fakeParcel{tracking: client.Tracking{TrackingNumber: testTracking, Status: "CREATED"}}
+	registry := newRegistry(t, &fakePricing{}, parcel)
+
+	result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, contract.CallerContext{})
+	if result.Status != contract.StatusDenied {
+		t.Fatalf("expected DENIED for a guest, got %q", result.Status)
+	}
+	if !strings.Contains(strings.ToLower(result.Message), "sign in") {
+		t.Fatalf("guest denial should explain sign-in: %q", result.Message)
+	}
+	if parcel.trackingCalls != 0 {
+		t.Fatalf("guest tracking reached upstream %d times", parcel.trackingCalls)
 	}
 }
 
 func stringPtr(value string) *string { return &value }
+
+func callerWithRole(role string) contract.CallerContext {
+	return contract.CallerContext{
+		UserID:        testUserID,
+		Role:          role,
+		Authenticated: true,
+		AccessToken:   testToken,
+	}
+}
+
+func TestPrivateToolRoleMatrix(t *testing.T) {
+	historyArgs := map[string]any{"parcelId": testParcelID}
+	cases := []struct {
+		role            string
+		allowed         bool
+		expectAdminList bool
+	}{
+		{role: "CUSTOMER", allowed: true},
+		{role: "DISPATCHER", allowed: true, expectAdminList: true},
+		{role: "ADMIN", allowed: true, expectAdminList: true},
+		{role: "MERCHANT", allowed: false},
+		{role: "COURIER", allowed: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.role, func(t *testing.T) {
+			parcel := &fakeParcel{
+				tracking: client.Tracking{TrackingNumber: testTracking, Status: "IN_TRANSIT"},
+				history:  []client.HistoryItem{{Status: "IN_TRANSIT", ChangedAt: "2026-11-01T00:00:00Z"}},
+				list: client.ParcelList{Items: []client.ParcelListItem{
+					{ID: testParcelID, TrackingNumber: testTracking, Status: "IN_TRANSIT"},
+				}},
+				adminList: client.AdminParcelList{Items: []client.AdminParcelListItem{
+					{ID: testParcelID, TrackingNumber: testTracking, Status: "IN_TRANSIT"},
+				}},
+			}
+			registry := newRegistry(t, &fakePricing{}, parcel)
+			caller := callerWithRole(testCase.role)
+
+			history := execute(t, registry, "get_my_parcel_history", historyArgs, caller)
+			deliveries := execute(t, registry, "get_my_active_deliveries", nil, caller)
+			tracking := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, caller)
+
+			if testCase.allowed {
+				if history.Status != contract.StatusOK || deliveries.Status != contract.StatusOK || tracking.Status != contract.StatusOK {
+					t.Fatalf("history=%q deliveries=%q tracking=%q", history.Status, deliveries.Status, tracking.Status)
+				}
+				if parcel.lastHistoryToken != testToken || parcel.lastTrackingToken != testToken {
+					t.Fatalf("history token = %q tracking token = %q", parcel.lastHistoryToken, parcel.lastTrackingToken)
+				}
+				if testCase.expectAdminList {
+					if parcel.adminCalls != 1 || parcel.listCalls != 0 {
+						t.Fatalf("operational calls admin=%d customer=%d", parcel.adminCalls, parcel.listCalls)
+					}
+				} else if parcel.listCalls != 1 || parcel.adminCalls != 0 {
+					t.Fatalf("customer calls list=%d admin=%d", parcel.listCalls, parcel.adminCalls)
+				}
+				return
+			}
+
+			if history.Status != contract.StatusDenied || deliveries.Status != contract.StatusDenied || tracking.Status != contract.StatusDenied {
+				t.Fatalf("expected DENIED, got history=%q deliveries=%q tracking=%q", history.Status, deliveries.Status, tracking.Status)
+			}
+			if parcel.historyCalls != 0 || parcel.listCalls != 0 || parcel.adminCalls != 0 || parcel.trackingCalls != 0 {
+				t.Fatalf("denied role reached upstream: history=%d list=%d admin=%d tracking=%d",
+					parcel.historyCalls, parcel.listCalls, parcel.adminCalls, parcel.trackingCalls)
+			}
+		})
+	}
+
+	t.Run("anonymous", func(t *testing.T) {
+		parcel := &fakeParcel{}
+		registry := newRegistry(t, &fakePricing{}, parcel)
+		history := execute(t, registry, "get_my_parcel_history", historyArgs, contract.CallerContext{})
+		deliveries := execute(t, registry, "get_my_active_deliveries", nil, contract.CallerContext{})
+		tracking := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, contract.CallerContext{})
+		if history.Status != contract.StatusDenied || deliveries.Status != contract.StatusDenied || tracking.Status != contract.StatusDenied {
+			t.Fatalf("expected DENIED")
+		}
+		if parcel.historyCalls != 0 || parcel.listCalls != 0 || parcel.adminCalls != 0 || parcel.trackingCalls != 0 {
+			t.Fatal("anonymous call reached upstream")
+		}
+	})
+}
+
+func TestOperationalDeliveriesAllowlistAndScope(t *testing.T) {
+	parcel := &fakeParcel{adminList: client.AdminParcelList{
+		Items: []client.AdminParcelListItem{
+			{
+				ID: testParcelID, TrackingNumber: testTracking, Status: "IN_TRANSIT",
+				PickupCity: "Colombo", DropoffCity: "Kandy", CreatedAt: "2026-11-01T00:00:00Z",
+			},
+			{
+				ID: "p2", TrackingNumber: "SDN12345678", Status: "DELIVERED",
+				PickupCity: "Galle", DropoffCity: "Colombo", CreatedAt: "2026-11-02T00:00:00Z",
+			},
+		},
+		Pagination: client.Pagination{TotalItems: 7},
+	}}
+	registry := newRegistry(t, &fakePricing{}, parcel)
+
+	result := execute(t, registry, "get_my_active_deliveries", map[string]any{"status": "IN_TRANSIT"}, callerWithRole("DISPATCHER"))
+	if result.Status != contract.StatusOK {
+		t.Fatalf("expected OK, got %q (%s)", result.Status, result.Message)
+	}
+	if parcel.lastAdminStatus != "IN_TRANSIT" || parcel.lastAdminToken != testToken {
+		t.Fatalf("unexpected operational forward: status=%q token=%q", parcel.lastAdminStatus, parcel.lastAdminToken)
+	}
+
+	encoded := marshal(t, result.Data)
+	for _, expected := range []string{
+		`"scope":"operations"`, `"count":2`, `"activeCount":1`, `"totalItems":7`,
+		`"trackingNumber":"` + testTracking + `"`, `"pickupCity":"Colombo"`,
+	} {
+		if !strings.Contains(encoded, expected) {
+			t.Fatalf("operational output missing %q: %s", expected, encoded)
+		}
+	}
+	for _, forbidden := range []string{"customerId", "merchantId", "recipientName", "phone", "address", testToken} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("operational output leaked %q: %s", forbidden, encoded)
+		}
+	}
+}

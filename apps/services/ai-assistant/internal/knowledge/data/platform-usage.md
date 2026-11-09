@@ -3,7 +3,7 @@
 ## What the assistant can do
 
 - Explain SwiftDrop services, tracking, pricing mechanics, parcel statuses and platform usage.
-- Look up public parcel status with a tracking number.
+- Look up a signed-in customer's own parcel status by tracking number.
 - Calculate a live delivery quote when pickup, drop-off, weight and size are known.
 - Read a signed-in customer's own parcel history and recent deliveries.
 
@@ -17,7 +17,7 @@
 
 ## Sign-in
 
-Public tracking and delivery quotes work without signing in. Parcel history and the customer's own delivery list require a signed-in customer session.
+Delivery quotes work without signing in. Parcel status lookups by tracking number, parcel history and the customer's own delivery list require a signed-in customer session. A signed-in customer can look up only their own tracking numbers. The separate public tracking page at `/track` still accepts a tracking number; the assistant does not use it for private parcel access.
 
 ## Missing details
 

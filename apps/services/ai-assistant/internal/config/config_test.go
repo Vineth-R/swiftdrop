@@ -51,6 +51,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ConversationTTL != 30*time.Minute {
 		t.Errorf("ConversationTTL = %v, want 30m", cfg.ConversationTTL)
 	}
+	if cfg.GuestCookieName != "sd_ai_guest" {
+		t.Errorf("GuestCookieName = %q, want sd_ai_guest", cfg.GuestCookieName)
+	}
+	if cfg.MaxConcurrent != 3 {
+		t.Errorf("MaxConcurrent = %d, want 3", cfg.MaxConcurrent)
+	}
+	if cfg.FrontendOrigin != "http://localhost:8080" {
+		t.Errorf("FrontendOrigin = %q", cfg.FrontendOrigin)
+	}
 }
 
 func TestLoadRejectsMissingAppEnv(t *testing.T) {
@@ -62,21 +71,24 @@ func TestLoadRejectsMissingAppEnv(t *testing.T) {
 
 func TestLoadRejectsBadValues(t *testing.T) {
 	cases := map[string]map[string]string{
-		"temperature":     {"APP_ENV": "development", "AI_TEMPERATURE": "3"},
-		"temperature NaN": {"APP_ENV": "development", "AI_TEMPERATURE": "NaN"},
-		"provider":        {"APP_ENV": "development", "AI_PROVIDER": "openai"},
-		"max tokens":      {"APP_ENV": "development", "AI_MAX_OUTPUT_TOKENS": "0"},
-		"tool rounds":     {"APP_ENV": "development", "AI_MAX_TOOL_ROUNDS": "9"},
-		"tool calls":      {"APP_ENV": "development", "AI_MAX_TOOL_CALLS": "0"},
-		"total timeout":   {"APP_ENV": "development", "AI_REQUEST_TIMEOUT": "10s", "AI_TOTAL_TIMEOUT": "5s"},
-		"history":         {"APP_ENV": "development", "AI_MAX_HISTORY_MESSAGES": "0"},
-		"history max":     {"APP_ENV": "development", "AI_MAX_HISTORY_MESSAGES": "20", "AI_CONVERSATION_MAX_MESSAGES": "10"},
-		"rate limit":      {"APP_ENV": "development", "AI_RATE_LIMIT": "0"},
-		"pricing URL":     {"APP_ENV": "development", "PRICING_BASE_URL": "ftp://pricing"},
-		"parcel path":     {"APP_ENV": "development", "PARCEL_BASE_URL": "http://parcel:8082/api"},
-		"bool":            {"APP_ENV": "development", "AI_ENABLED": "sometimes"},
-		"model spaces":    {"APP_ENV": "development", "AI_MODEL": "gemini 2.5"},
-		"internal path":   {"APP_ENV": "development", "PRICING_BASE_URL": "http://user:pass@pricing:8083"},
+		"temperature":            {"APP_ENV": "development", "AI_TEMPERATURE": "3"},
+		"temperature NaN":        {"APP_ENV": "development", "AI_TEMPERATURE": "NaN"},
+		"provider":               {"APP_ENV": "development", "AI_PROVIDER": "openai"},
+		"max tokens":             {"APP_ENV": "development", "AI_MAX_OUTPUT_TOKENS": "0"},
+		"tool rounds":            {"APP_ENV": "development", "AI_MAX_TOOL_ROUNDS": "9"},
+		"tool calls":             {"APP_ENV": "development", "AI_MAX_TOOL_CALLS": "0"},
+		"total timeout":          {"APP_ENV": "development", "AI_REQUEST_TIMEOUT": "10s", "AI_TOTAL_TIMEOUT": "5s"},
+		"history":                {"APP_ENV": "development", "AI_MAX_HISTORY_MESSAGES": "0"},
+		"history max":            {"APP_ENV": "development", "AI_MAX_HISTORY_MESSAGES": "20", "AI_CONVERSATION_MAX_MESSAGES": "10"},
+		"rate limit":             {"APP_ENV": "development", "AI_RATE_LIMIT": "0"},
+		"pricing URL":            {"APP_ENV": "development", "PRICING_BASE_URL": "ftp://pricing"},
+		"parcel path":            {"APP_ENV": "development", "PARCEL_BASE_URL": "http://parcel:8082/api"},
+		"bool":                   {"APP_ENV": "development", "AI_ENABLED": "sometimes"},
+		"model spaces":           {"APP_ENV": "development", "AI_MODEL": "gemini 2.5"},
+		"internal path":          {"APP_ENV": "development", "PRICING_BASE_URL": "http://user:pass@pricing:8083"},
+		"guest cookie":           {"APP_ENV": "development", "AI_GUEST_COOKIE_NAME": "bad name"},
+		"guest cookie collision": {"APP_ENV": "development", "AI_GUEST_COOKIE_NAME": "sd_access"},
+		"max concurrent":         {"APP_ENV": "development", "AI_MAX_CONCURRENT": "0"},
 	}
 
 	for name, values := range cases {

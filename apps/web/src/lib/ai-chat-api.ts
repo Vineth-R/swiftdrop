@@ -192,7 +192,7 @@ export function toolProgressLabel(call: ChatToolCall): string | null {
   if (!subject) return null;
   switch (call.status) {
     case 'DENIED':
-      return `Sign in to use ${subject}.`;
+      return `Sign in or use a customer account to use ${subject}.`;
     case 'UNAVAILABLE':
       return `${capitalise(subject)} is temporarily unavailable.`;
     case 'INVALID':

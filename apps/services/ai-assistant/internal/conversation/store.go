@@ -26,7 +26,10 @@ const (
 	RoleAssistant = "assistant"
 )
 
-var idPattern = regexp.MustCompile(`^cv[0-9a-f]{32}$`)
+var (
+	idPattern      = regexp.MustCompile(`^cv[0-9a-f]{32}$`)
+	guestIDPattern = regexp.MustCompile(`^gs[0-9a-f]{32}$`)
+)
 
 // Message is one persisted text turn.
 type Message struct {
@@ -40,9 +43,12 @@ type Conversation struct {
 	ID        string
 	OwnerID   string
 	Anonymous bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Messages  []Message
+	// GuestSessionID binds an anonymous conversation to one browser session.
+	// It is empty for authenticated conversations and is never exposed.
+	GuestSessionID string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Messages       []Message
 
 	// seq gives eviction a deterministic order even when two conversations
 	// share the same clock timestamp.
@@ -112,14 +118,30 @@ func ValidID(id string) bool {
 	return idPattern.MatchString(id)
 }
 
+// ValidGuestSessionID reports whether id has the server-generated guest
+// session format.
+func ValidGuestSessionID(id string) bool {
+	return guestIDPattern.MatchString(id)
+}
+
 // Create starts a new conversation. ownerID must be empty for anonymous
-// conversations and non-empty for authenticated ones.
-func (s *Store) Create(ownerID string, anonymous bool) (Conversation, error) {
-	if anonymous && ownerID != "" {
-		return Conversation{}, errors.New("anonymous conversation must not have an owner")
-	}
-	if !anonymous && strings.TrimSpace(ownerID) == "" {
-		return Conversation{}, errors.New("authenticated conversation requires an owner")
+// conversations and non-empty for authenticated ones. Anonymous conversations
+// require the server-generated guest session ID that owns them.
+func (s *Store) Create(ownerID, guestSessionID string, anonymous bool) (Conversation, error) {
+	if anonymous {
+		if ownerID != "" {
+			return Conversation{}, errors.New("anonymous conversation must not have an owner")
+		}
+		if !ValidGuestSessionID(guestSessionID) {
+			return Conversation{}, errors.New("anonymous conversation requires a valid guest session")
+		}
+	} else {
+		if strings.TrimSpace(ownerID) == "" {
+			return Conversation{}, errors.New("authenticated conversation requires an owner")
+		}
+		if guestSessionID != "" {
+			return Conversation{}, errors.New("authenticated conversation must not have a guest session")
+		}
 	}
 
 	s.mu.Lock()
@@ -135,13 +157,14 @@ func (s *Store) Create(ownerID string, anonymous bool) (Conversation, error) {
 
 	s.nextSeq++
 	item := &Conversation{
-		ID:        id,
-		OwnerID:   ownerID,
-		Anonymous: anonymous,
-		CreatedAt: now,
-		UpdatedAt: now,
-		Messages:  []Message{},
-		seq:       s.nextSeq,
+		ID:             id,
+		OwnerID:        ownerID,
+		Anonymous:      anonymous,
+		GuestSessionID: guestSessionID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		Messages:       []Message{},
+		seq:            s.nextSeq,
 	}
 	s.items[id] = item
 	return clone(*item), nil

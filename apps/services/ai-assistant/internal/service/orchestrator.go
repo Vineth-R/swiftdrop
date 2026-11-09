@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/ai-assistant/internal/contract"
 	"github.com/Vineth-R/swiftdrop/apps/services/ai-assistant/internal/conversation"
 	"github.com/Vineth-R/swiftdrop/apps/services/ai-assistant/internal/knowledge"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 )
 
 // MaxMessageCharacters is the API v1.1 message limit.
@@ -160,6 +163,17 @@ func (o *Orchestrator) Chat(ctx context.Context, input ChatInput) (ChatOutput, e
 		return ChatOutput{}, err
 	}
 
+	if category, blocked := DetectSecurityThreat(message, input.Caller.Role, input.Caller.Authenticated); blocked {
+		o.logger.WarnContext(ctx, "security guard triggered",
+			"request_id", requestid.FromContext(ctx),
+			"category", category,
+			"authenticated", input.Caller.Authenticated,
+		)
+		output := ChatOutput{ConversationID: item.ID, Reply: SecurityRefusal, ToolCalls: []ToolCallSummary{}}
+		o.persist(item.ID, message, SecurityRefusal)
+		return output, nil
+	}
+
 	if OutOfScope(message) {
 		output := ChatOutput{ConversationID: item.ID, Reply: ScopeRefusal, ToolCalls: []ToolCallSummary{}}
 		o.persist(item.ID, message, ScopeRefusal)
@@ -274,7 +288,14 @@ func (o *Orchestrator) Chat(ctx context.Context, input ChatInput) (ChatOutput, e
 
 func (o *Orchestrator) resolveConversation(input ChatInput) (conversation.Conversation, error) {
 	if input.ConversationID == "" {
-		item, err := o.conversations.Create(input.Caller.UserID, !input.Caller.Authenticated)
+		guestSessionID := ""
+		if !input.Caller.Authenticated {
+			if !conversation.ValidGuestSessionID(input.Caller.SessionID) {
+				return conversation.Conversation{}, errors.New("guest session is required for an anonymous conversation")
+			}
+			guestSessionID = input.Caller.SessionID
+		}
+		item, err := o.conversations.Create(input.Caller.UserID, guestSessionID, !input.Caller.Authenticated)
 		if err != nil {
 			return conversation.Conversation{}, fmt.Errorf("create conversation: %w", err)
 		}
@@ -299,10 +320,19 @@ func (o *Orchestrator) resolveConversation(input ChatInput) (conversation.Conver
 		}
 		return item, nil
 	}
-	if !item.Anonymous {
+	if !item.Anonymous ||
+		!conversation.ValidGuestSessionID(input.Caller.SessionID) ||
+		!sameGuestSession(item.GuestSessionID, input.Caller.SessionID) {
 		return conversation.Conversation{}, ErrConversationNotFound
 	}
 	return item, nil
+}
+
+func sameGuestSession(stored, presented string) bool {
+	if len(stored) != len(presented) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(stored), []byte(presented)) == 1
 }
 
 func (o *Orchestrator) generate(ctx context.Context, systemInstruction string, contents []contract.Content) (contract.GenerateResponse, error) {
@@ -374,6 +404,18 @@ func (o *Orchestrator) executeTool(ctx context.Context, call contract.FunctionCa
 	}
 	if result.Status == contract.StatusUnavailable && result.Message == "" {
 		result.Message = "That information is temporarily unavailable."
+	}
+
+	if isPrivilegedParcelLookup(call.Name, caller.Role) {
+		o.logger.InfoContext(ctx, "privileged parcel lookup",
+			"audit", true,
+			"request_id", requestid.FromContext(ctx),
+			"actor_id", caller.UserID,
+			"role", caller.Role,
+			"tool", call.Name,
+			"status", string(result.Status),
+			"occurred_at", o.now().UTC().Format(time.RFC3339),
+		)
 	}
 
 	o.logger.InfoContext(ctx, "ai tool execution",
@@ -476,4 +518,11 @@ func jsonValue(value any) any {
 		return nil
 	}
 	return decoded
+}
+
+func isPrivilegedParcelLookup(tool, role string) bool {
+	if role != string(auth.RoleDispatcher) && role != string(auth.RoleAdmin) {
+		return false
+	}
+	return tool == "get_public_parcel_status" || tool == "get_my_parcel_history" || tool == "get_my_active_deliveries"
 }

@@ -57,6 +57,62 @@ func TestLookupPublicProjection(t *testing.T) {
 		})
 	}
 }
+
+type recordingDB struct {
+	query string
+	args  []any
+	err   error
+}
+
+func (db *recordingDB) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
+	db.query = query
+	db.args = args
+	return fixtureRow{err: db.err}
+}
+
+func TestLookupAuthorizedScopesByOwner(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		user  string
+		staff bool
+	}{
+		{name: "customer", user: "customer-a"},
+		{name: "staff", user: "staff-1", staff: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := &recordingDB{}
+			result, err := NewRepository(db).LookupAuthorized(context.Background(), "SDK7M2Q9XP4", test.user, test.staff)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.TrackingNumber != "SDK7M2Q9XP4" {
+				t.Fatalf("result = %+v", result)
+			}
+			if !strings.Contains(db.query, "p.customer_user_id::text=$2") {
+				t.Fatalf("lookup is not ownership-scoped: %s", db.query)
+			}
+			if len(db.args) != 3 || db.args[0] != "SDK7M2Q9XP4" || db.args[1] != test.user || db.args[2] != test.staff {
+				t.Fatalf("args = %#v", db.args)
+			}
+		})
+	}
+}
+
+func TestLookupAuthorizedFailures(t *testing.T) {
+	if _, err := NewRepository(nil).LookupAuthorized(context.Background(), "SDK7M2Q9XP4", "customer-a", false); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("nil database = %v, want ErrUnavailable", err)
+	}
+	if _, err := NewRepository(&recordingDB{}).LookupAuthorized(context.Background(), "bad", "customer-a", false); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid number = %v, want ErrInvalid", err)
+	}
+	if _, err := NewRepository(&recordingDB{}).LookupAuthorized(context.Background(), "SDK7M2Q9XP4", "  ", false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty customer = %v, want ErrNotFound", err)
+	}
+	if _, err := NewRepository(&recordingDB{err: pgx.ErrNoRows}).LookupAuthorized(context.Background(), "SDK7M2Q9XP4", "other", false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("no row = %v, want ErrNotFound", err)
+	}
+}
+
 func TestLookupFailures(t *testing.T) {
 	for _, test := range []struct {
 		name, number string

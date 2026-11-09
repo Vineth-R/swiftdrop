@@ -83,6 +83,254 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     }
   });
 
+  test('a fresh conversation opens at the top with the welcome content visible', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await mockApi(page, {});
+    await page.goto('/track');
+    await openAssistant(page);
+
+    const log = panel(page).getByRole('log', { name: 'Conversation' });
+    await expect(
+      panel(page).getByRole('heading', {
+        level: 2,
+        name: 'SwiftDrop Delivery Assistant',
+      }),
+    ).toBeVisible();
+    await expect(log).toContainText(
+      "Hi! I'm your SwiftDrop Delivery Assistant.",
+    );
+    await expect(
+      log.getByRole('list', { name: 'Suggested questions' }),
+    ).toBeVisible();
+    await expect
+      .poll(() => log.evaluate((element) => element.scrollTop))
+      .toBe(0);
+  });
+
+  test('a new message follows the conversation to the latest entry', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const longReply = Array.from(
+      { length: 60 },
+      (_, index) => `Delivery update ${index + 1}.`,
+    ).join('\n\n');
+    await mockApi(page, { [CHAT]: reply(longReply) });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    const log = panel(page).getByRole('log', { name: 'Conversation' });
+    await expect
+      .poll(() => log.evaluate((element) => element.scrollTop))
+      .toBe(0);
+
+    await input(page).fill('Show me a long update.');
+    await input(page).press('Enter');
+    await expect(panel(page)).toContainText('Delivery update 60.');
+
+    const metrics = await log.evaluate((element) => ({
+      top: element.scrollTop,
+      max: element.scrollHeight - element.clientHeight,
+    }));
+    expect(metrics.max).toBeGreaterThan(0);
+    expect(metrics.top).toBeGreaterThan(0);
+    expect(metrics.max - metrics.top).toBeLessThanOrEqual(2);
+  });
+
+  test('reading older messages is not interrupted by a reply', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const longReply = Array.from(
+      { length: 60 },
+      (_, index) => `Delivery update ${index + 1}.`,
+    ).join('\n\n');
+    let call = 0;
+    await mockApi(page, {
+      [CHAT]: () => {
+        call += 1;
+        return call === 1
+          ? reply(longReply)
+          : { ...reply(longReply), delayMs: 800 };
+      },
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    const log = panel(page).getByRole('log', { name: 'Conversation' });
+    await input(page).fill('Show me a long update.');
+    await input(page).press('Enter');
+    await expect(panel(page)).toContainText('Delivery update 60.');
+
+    // A second turn scrolls down as usual, then the reader scrolls up while
+    // the reply is still in flight.
+    await input(page).fill('Show me another long update.');
+    await input(page).press('Enter');
+    await expect(panel(page)).toContainText('The assistant is typing');
+    const scrolled = await log.evaluate((element) => {
+      element.scrollTop = 0;
+      return element.scrollTop;
+    });
+    expect(scrolled).toBe(0);
+
+    await expect(panel(page).getByText('The assistant is typing')).toHaveCount(
+      0,
+    );
+    expect(
+      await log.evaluate((element) => element.scrollTop),
+    ).toBeLessThanOrEqual(4);
+  });
+
+  test('closing and reopening keeps the conversation and continues it', async ({
+    page,
+  }) => {
+    const { calls } = await mockApi(page, {
+      [CHAT]: reply('Here is a delivery update.'),
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    await input(page).fill('First question');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('First question')).toBeVisible();
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Close the assistant' }).click();
+    await expect(panel(page)).toHaveCount(0);
+
+    // Reopening is a view change only: it neither clears the conversation nor
+    // sends another request.
+    await openAssistant(page);
+    await expect(panel(page).getByText('First question')).toBeVisible();
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toBeVisible();
+    expect(calls.filter((call) => call.key === CHAT)).toHaveLength(1);
+
+    await input(page).fill('Second question');
+    await input(page).press('Enter');
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toHaveCount(2);
+
+    const chatCalls = calls.filter((call) => call.key === CHAT);
+    expect(chatCalls).toHaveLength(2);
+    expect(chatCalls[1].body).toEqual({
+      message: 'Second question',
+      conversationId: CONVERSATION_A,
+    });
+  });
+
+  test('reopening restores the previous scroll position', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const longReply = Array.from(
+      { length: 60 },
+      (_, index) => `Delivery update ${index + 1}.`,
+    ).join('\n\n');
+    await mockApi(page, { [CHAT]: reply(longReply) });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    const log = panel(page).getByRole('log', { name: 'Conversation' });
+    await input(page).fill('Show me a long update.');
+    await input(page).press('Enter');
+    await expect(panel(page)).toContainText('Delivery update 60.');
+    await expect
+      .poll(() => log.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+
+    await page.getByRole('button', { name: 'Close the assistant' }).click();
+    await expect(panel(page)).toHaveCount(0);
+    await openAssistant(page);
+
+    const reopened = panel(page).getByRole('log', { name: 'Conversation' });
+    await expect(reopened).toContainText('Delivery update 60.');
+    await expect
+      .poll(() => reopened.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+  });
+
+  test('navigating to another page while closed keeps the conversation', async ({
+    page,
+  }) => {
+    const { calls } = await mockApi(page, {
+      [CHAT]: reply('Here is a delivery update.'),
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+    await input(page).fill('First question');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('First question')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Close the assistant' }).click();
+    await expect(panel(page)).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'SwiftDrop home' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await openAssistant(page);
+
+    await expect(panel(page).getByText('First question')).toBeVisible();
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toBeVisible();
+
+    await input(page).fill('Second question');
+    await input(page).press('Enter');
+    await expect(
+      panel(page).getByText('Here is a delivery update.'),
+    ).toHaveCount(2);
+
+    const chatCalls = calls.filter((call) => call.key === CHAT);
+    expect(chatCalls[1].body).toEqual({
+      message: 'Second question',
+      conversationId: CONVERSATION_A,
+    });
+  });
+
+  test('a page reload starts a fresh conversation', async ({ page }) => {
+    await mockApi(page, { [CHAT]: reply('Here is a delivery update.') });
+    await page.goto('/track');
+    await openAssistant(page);
+    await input(page).fill('First question');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('First question')).toBeVisible();
+
+    await page.reload();
+    await openAssistant(page);
+
+    await expect(panel(page).getByText('First question')).toHaveCount(0);
+    await expect(panel(page)).toContainText(
+      "Hi! I'm your SwiftDrop Delivery Assistant.",
+    );
+  });
+
+  test('a new tab starts an independent conversation', async ({
+    page,
+    context,
+  }) => {
+    await mockApi(page, { [CHAT]: reply('First tab answer.') });
+    await page.goto('/track');
+    await openAssistant(page);
+    await input(page).fill('First tab question');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('First tab answer.')).toBeVisible();
+
+    const second = await context.newPage();
+    await mockApi(second, {});
+    await second.goto('/track');
+    await openAssistant(second);
+
+    await expect(panel(second).getByText('First tab question')).toHaveCount(0);
+    await expect(panel(second)).toContainText(
+      "Hi! I'm your SwiftDrop Delivery Assistant.",
+    );
+    await second.close();
+  });
+
   test('a suggested question sends a real message and renders the reply', async ({
     page,
   }) => {
@@ -134,10 +382,43 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     await input(page).fill('What is SwiftDrop?');
     await input(page).press('Enter');
 
+    await expect(input(page)).toHaveValue('');
+    await expect(panel(page).getByText('What is SwiftDrop?')).toHaveCount(1);
     await expect(panel(page)).toContainText('The assistant is typing');
     await expect(sendButton(page)).toBeDisabled();
     await expect(panel(page).getByText('Here is the answer.')).toBeVisible();
     await expect(panel(page)).not.toContainText('The assistant is typing');
+  });
+
+  test('double Enter sends one message and clears the composer once', async ({
+    page,
+  }) => {
+    const { calls } = await mockApi(page, {
+      [CHAT]: { ...reply('One answer.'), delayMs: 800 },
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    await input(page).fill('What is SwiftDrop?');
+    await input(page).press('Enter');
+    await input(page).press('Enter');
+
+    await expect(input(page)).toHaveValue('');
+    await expect(panel(page).getByText('What is SwiftDrop?')).toHaveCount(1);
+    await expect(panel(page).getByText('One answer.')).toBeVisible();
+    expect(calls.filter((call) => call.key === CHAT)).toHaveLength(1);
+  });
+
+  test('counts Unicode code points in the composer', async ({ page }) => {
+    await mockApi(page, {});
+    await page.goto('/track');
+    await openAssistant(page);
+
+    await input(page).fill('😀'.repeat(10));
+    await expect(panel(page)).toContainText('10/500');
+
+    await input(page).fill('😀'.repeat(600));
+    await expect(panel(page)).toContainText('500/500');
   });
 
   test('keeps the conversation ID across a follow-up', async ({ page }) => {
@@ -211,6 +492,23 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     await expect(page.locator('body')).not.toContainText(SERVER_WORDS);
   });
 
+  test('does not overwrite text typed while a failed request is in flight', async ({
+    page,
+  }) => {
+    await mockApi(page, {
+      [CHAT]: { ...fail(500, 'INTERNAL_ERROR'), delayMs: 800 },
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    await input(page).fill('Original question');
+    await input(page).press('Enter');
+    await expect(input(page)).toHaveValue('');
+    await input(page).fill('Typed while waiting');
+    await expect(panel(page)).toContainText('Something broke on our side');
+    await expect(input(page)).toHaveValue('Typed while waiting');
+  });
+
   test('a 503 shows the safe provider outage sentence', async ({ page }) => {
     await mockApi(page, { [CHAT]: fail(503, 'AI_UNAVAILABLE') });
     await page.goto('/track');
@@ -248,6 +546,8 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     await expect(
       panel(page).getByText('SwiftDrop is a parcel delivery platform.'),
     ).toBeVisible();
+    await expect(input(page)).toHaveValue('');
+    await expect(panel(page).getByText('What is SwiftDrop?')).toHaveCount(1);
 
     const chatCalls = calls.filter((call) => call.key === CHAT);
     expect(chatCalls).toHaveLength(2);
@@ -258,6 +558,83 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     await expect(
       panel(page).getByRole('button', { name: 'Try again' }),
     ).toHaveCount(0);
+  });
+
+  test('renders assistant Markdown safely', async ({ page }) => {
+    await mockApi(page, {
+      [CHAT]: reply(
+        [
+          'The delivery fee is **700 LKR**.',
+          '',
+          '- **Base fee:** 450 LKR',
+          '- **Total:** **700 LKR**',
+          '',
+          'Use `SDK7M2Q9XP4` for tracking.',
+        ].join('\n'),
+      ),
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    await input(page).fill('How much is delivery?');
+    await input(page).press('Enter');
+
+    const bubble = panel(page)
+      .locator('div.rounded-card')
+      .filter({ hasText: 'The delivery fee is' });
+    await expect(bubble.locator('strong').first()).toHaveText('700 LKR');
+    await expect(bubble.locator('ul > li')).toHaveCount(2);
+    await expect(bubble.locator('code')).toHaveText('SDK7M2Q9XP4');
+    await expect(panel(page)).not.toContainText('**');
+  });
+
+  test('malicious Markdown cannot execute HTML or unsafe links', async ({
+    page,
+  }) => {
+    await mockApi(page, {
+      [CHAT]: reply(
+        '<img src=x onerror="window.__xss=1"> [bad](javascript:alert(1))',
+      ),
+    });
+    await page.goto('/track');
+    await openAssistant(page);
+
+    await input(page).fill('Show me raw HTML.');
+    await input(page).press('Enter');
+
+    await expect(panel(page).getByText('We could not')).toHaveCount(0);
+    await expect(panel(page).locator('img')).toHaveCount(0);
+    await expect(panel(page).locator('a[href^="javascript:"]')).toHaveCount(0);
+    const executed = await page.evaluate('window.__xss');
+    expect(executed).toBeUndefined();
+  });
+
+  test('a customer starts a fresh conversation after guest chat', async ({
+    page,
+  }) => {
+    await mockApi(page, { [CHAT]: reply('Guest answer.') });
+    await page.goto('/track');
+    await openAssistant(page);
+    await input(page).fill('What is SwiftDrop?');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('Guest answer.')).toBeVisible();
+
+    const { calls } = await signInAs(page, 'CUSTOMER', {
+      [CHAT]: reply('Customer answer.', CONVERSATION_B),
+    });
+    await page.goto('/dashboard');
+    await openAssistant(page);
+
+    await expect(panel(page)).not.toContainText('Guest answer.');
+    await input(page).fill('Show my deliveries.');
+    await input(page).press('Enter');
+    await expect(panel(page).getByText('Customer answer.')).toBeVisible();
+
+    const chatCalls = calls.filter((call) => call.key === CHAT);
+    expect(chatCalls[0].body).toEqual({
+      message: 'Show my deliveries.',
+      conversationId: null,
+    });
   });
 
   test('the network failing says so without a server message', async ({
@@ -294,7 +671,7 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
       'Please sign in to see your own parcel history.',
     );
     await expect(panel(page)).toContainText(
-      'Sign in to use your parcel history.',
+      'Sign in or use a customer account to use your parcel history.',
     );
   });
 

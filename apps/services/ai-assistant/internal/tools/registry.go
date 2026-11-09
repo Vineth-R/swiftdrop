@@ -21,9 +21,10 @@ type PricingClient interface {
 // ParcelClient is the consumer-defined subset of the Parcel client the tools
 // need. Tests provide a fake implementation.
 type ParcelClient interface {
-	Tracking(ctx context.Context, trackingNumber string) (client.Tracking, error)
+	Tracking(ctx context.Context, trackingNumber, accessToken string) (client.Tracking, error)
 	History(ctx context.Context, parcelID, accessToken string) ([]client.HistoryItem, error)
 	List(ctx context.Context, status, accessToken string) (client.ParcelList, error)
+	AdminParcels(ctx context.Context, status, accessToken string) (client.AdminParcelList, error)
 }
 
 // Registry is the closed allowlist of approved tools. It implements

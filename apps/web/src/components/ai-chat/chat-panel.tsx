@@ -1,12 +1,15 @@
 'use client';
 
 import { Sparkles, X } from 'lucide-react';
+import Link from 'next/link';
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 
+import { useAiChatStore } from '../../lib/ai-chat-context';
 import { useAiChat } from '../../lib/use-ai-chat';
 import { Alert } from '../ui/alert';
 import { Button } from '../ui/button';
@@ -40,18 +43,72 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     failedMessage,
     send,
     retry,
+    retryToken,
     dismissError,
   } = useAiChat();
+  const store = useAiChatStore();
   const panelRef = useRef<HTMLDivElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const previousConversationState = useRef({
+    length: messages.length,
+    sending: isSending,
+  });
+  const stickToBottom = useRef(true);
+  const restoredPosition = useRef(false);
 
   useEffect(() => {
     panelRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
   }, []);
 
+  // The panel can be closed and reopened without touching the conversation.
+  // On the first mount of an existing conversation, put the reader back where
+  // they were before paint; a fresh conversation stays at the top. The ref
+  // makes this a once-per-mount step, so it never fights new messages
+  // (including React StrictMode's double effect invoke).
+  useLayoutEffect(() => {
+    if (restoredPosition.current) return;
+    restoredPosition.current = true;
+    const conversation = conversationRef.current;
+    if (!conversation) return;
+    conversation.scrollTop = messages.length === 0 ? 0 : store.getScrollTop();
+    const distance =
+      conversation.scrollHeight -
+      conversation.scrollTop -
+      conversation.clientHeight;
+    stickToBottom.current = distance <= 48;
+  }, [messages.length, store]);
+
+  // Only follow new messages after the first render. The initial welcome and
+  // suggested questions must stay at the top, and a reader who scrolled up is
+  // never pulled back to the bottom. Comparing with the previous values also
+  // keeps the mount-time effect (including React StrictMode's double invoke)
+  // from being mistaken for a conversation update.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages.length, isSending]);
+    const previous = previousConversationState.current;
+    const changed =
+      previous.length !== messages.length || previous.sending !== isSending;
+    previousConversationState.current = {
+      length: messages.length,
+      sending: isSending,
+    };
+    if (!changed || !stickToBottom.current) return;
+    const conversation = conversationRef.current;
+    if (conversation) {
+      conversation.scrollTo({ top: conversation.scrollHeight });
+      store.setScrollTop(conversation.scrollTop);
+    }
+  }, [messages.length, isSending, store]);
+
+  function handleConversationScroll() {
+    const conversation = conversationRef.current;
+    if (!conversation) return;
+    store.setScrollTop(conversation.scrollTop);
+    const distance =
+      conversation.scrollHeight -
+      conversation.scrollTop -
+      conversation.clientHeight;
+    stickToBottom.current = distance <= 48;
+  }
 
   useEffect(() => {
     if (!failure?.waitSeconds || failure.waitSeconds <= 0) return;
@@ -90,6 +147,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
   function sendMessage(message: string) {
     dismissError();
+    stickToBottom.current = true;
     send(message);
   }
 
@@ -127,10 +185,12 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       </header>
 
       <div
+        ref={conversationRef}
         role="log"
         aria-live="polite"
         aria-relevant="additions"
         aria-label="Conversation"
+        onScroll={handleConversationScroll}
         className="flex-1 overflow-y-auto px-4 py-4"
       >
         {messages.length === 0 ? (
@@ -140,6 +200,23 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               <p className="text-caption text-text-muted">
                 I answer questions about SwiftDrop. I cannot help with other
                 topics.
+              </p>
+              <p className="text-caption text-text-muted">
+                You can ask as a guest.{' '}
+                <Link
+                  href="/login"
+                  className="underline decoration-line underline-offset-2 hover:text-text"
+                >
+                  Sign in
+                </Link>{' '}
+                or{' '}
+                <Link
+                  href="/register"
+                  className="underline decoration-line underline-offset-2 hover:text-text"
+                >
+                  create an account
+                </Link>{' '}
+                to see your own deliveries.
               </p>
             </div>
             <SuggestedQuestions onSelect={sendMessage} isDisabled={isSending} />
@@ -157,7 +234,6 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
             {isSending && <TypingIndicator />}
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
       {failure && (
@@ -195,6 +271,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           onSend={sendMessage}
           isSending={isSending}
           failedMessage={failedMessage}
+          clearToken={retryToken}
           retryAfterSeconds={failure?.waitSeconds}
         />
       </div>

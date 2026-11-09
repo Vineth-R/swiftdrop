@@ -5,9 +5,14 @@ info:
   description: >-
     Gemini-backed SwiftDrop Delivery Assistant. The service answers SwiftDrop
     domain questions and calls exactly four approved read-only tools against the
-    Pricing and Parcel APIs. Authentication is optional; signed-in callers can
-    use private parcel tools with their own verified session. The model never
-    receives credentials, a user ID, a role, database access or arbitrary HTTP.
+    Pricing and Parcel APIs. Authentication is optional. Guests receive an
+    HttpOnly sd_ai_guest session bound to their conversations. CUSTOMER may use
+    the parcel tools for their own parcels, including their own tracking numbers;
+    DISPATCHER and ADMIN may use them for operational parcel access; GUEST,
+    MERCHANT and COURIER are denied all parcel tools. A tracking number is never
+    an authentication credential, and the assistant never calls the anonymous
+    public tracking projection. The model never receives credentials, a user ID,
+    a role, database access or arbitrary HTTP.
 servers:
   - url: /api/v1
 paths:
@@ -83,12 +88,18 @@ paths:
       tags: [AI assistant]
       description: >-
         Public and rate limited to 15 requests per rolling minute per signed-in
-        user, or per client IP for anonymous callers. The message is required and
-        limited to 500 characters. conversationId is optional and binds follow-up
-        questions. Signed-in callers may trigger the private parcel tools; the
-        calls use the caller's own verified session. Anonymous callers receive a
-        safe sign-in message for private questions. Responses never include
-        provider internals, credentials or private parcel fields.
+        user, or per client IP for anonymous callers, with AI_MAX_CONCURRENT
+        simultaneous turns per caller. The message is required and limited to
+        500 characters. conversationId is optional and binds follow-up questions.
+        Anonymous callers also receive an HttpOnly sd_ai_guest session cookie;
+        a guest must present that cookie and the conversation ID. CUSTOMER may
+        use the parcel tools for their own parcels, including ownership-scoped
+        tracking-number lookup; DISPATCHER and ADMIN may use them operationally;
+        GUEST, MERCHANT and COURIER are denied all parcel tools before any
+        upstream call. Responses never include provider
+        internals, credentials or private parcel fields. A deterministic guard
+        refuses confident explicit prompt/secret/cross-user extraction attempts
+        before the provider is called.
       security:
         - {}
         - AccessCookie: []
@@ -119,6 +130,17 @@ paths:
           headers:
             X-RateLimit-Remaining:
               schema: { type: integer, minimum: 0 }
+            Set-Cookie:
+              description: >-
+                For anonymous callers, the HttpOnly, always-Secure sd_ai_guest
+                session cookie (gs followed by 32 lowercase hex characters).
+                Authenticated responses clear it. The cookie is required,
+                together with the conversation ID, to continue a guest
+                conversation.
+              schema: { type: string }
+            Vary:
+              description: Cookie, because guest ownership depends on the session cookie.
+              schema: { type: string, enum: [Cookie] }
         '400':
           description: 'BAD_REQUEST: malformed JSON, unknown fields, wrong content type or multiple objects.'
           content:
@@ -129,8 +151,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '403':
+          description: 'FORBIDDEN: the browser Origin does not match FRONTEND_BASE_URL.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '404':
-          description: 'CONVERSATION_NOT_FOUND: unknown, expired, or not owned by the caller.'
+          description: 'CONVERSATION_NOT_FOUND: unknown, expired, owned by another user, or owned by another guest session.'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -145,7 +172,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '429':
-          description: 'RATE_LIMITED: wait Retry-After seconds.'
+          description: 'RATE_LIMITED: the rolling-window budget or the per-caller AI_MAX_CONCURRENT cap was exceeded. Wait Retry-After seconds.'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -252,6 +279,7 @@ components:
             - VALIDATION_ERROR
             - UNAUTHENTICATED
             - TOKEN_EXPIRED
+            - FORBIDDEN
             - CONVERSATION_NOT_FOUND
             - PAYLOAD_TOO_LARGE
             - RATE_LIMITED

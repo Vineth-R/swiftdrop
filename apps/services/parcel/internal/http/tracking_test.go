@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -12,12 +13,20 @@ import (
 	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
 
 type trackingFixture struct{ err error }
 
 func (s trackingFixture) Lookup(context.Context, string) (tracking.Result, error) {
 	return tracking.Result{TrackingNumber: "SDK7M2Q9XP4", Status: "CREATED", PickupCity: "Colombo", DropoffCity: "Kandy", LastUpdatedAt: time.Now().UTC(), Timeline: []tracking.Event{}}, s.err
+}
+
+func (s trackingFixture) LookupAuthorized(_ context.Context, number, _ string, _ bool) (tracking.Result, error) {
+	if s.err != nil {
+		return tracking.Result{}, s.err
+	}
+	return tracking.Result{TrackingNumber: number, Status: "CREATED", PickupCity: "Colombo", DropoffCity: "Kandy", LastUpdatedAt: time.Now().UTC(), Timeline: []tracking.Event{}}, nil
 }
 func TestPublicTrackingContract(t *testing.T) {
 	for _, test := range []struct {
@@ -96,9 +105,158 @@ func TestPublicTrackingResponseExposesOnlyPublicFields(t *testing.T) {
 type trackingEventFixture struct{}
 
 func (trackingEventFixture) Lookup(context.Context, string) (tracking.Result, error) {
+	return trackingEventResult(), nil
+}
+
+func (trackingEventFixture) LookupAuthorized(context.Context, string, string, bool) (tracking.Result, error) {
+	return trackingEventResult(), nil
+}
+
+func trackingEventResult() tracking.Result {
 	at := time.Now().UTC()
 	return tracking.Result{TrackingNumber: "SDK7M2Q9XP4", Status: "CREATED", PickupCity: "Colombo", DropoffCity: "Kandy", LastUpdatedAt: at,
-		Timeline: []tracking.Event{{Status: "CREATED", At: at}}}, nil
+		Timeline: []tracking.Event{{Status: "CREATED", At: at}}}
+}
+
+const ownedTrackingSecret = "parcel-owned-tracking-test-secret-32"
+
+type scopeTrackingFixture struct {
+	calls int
+	user  string
+	staff bool
+}
+
+func (s *scopeTrackingFixture) Lookup(context.Context, string) (tracking.Result, error) {
+	return tracking.Result{}, tracking.ErrNotFound
+}
+
+func (s *scopeTrackingFixture) LookupAuthorized(_ context.Context, number, user string, staff bool) (tracking.Result, error) {
+	s.calls++
+	s.user = user
+	s.staff = staff
+	if !staff && user != "customer-a" {
+		return tracking.Result{}, tracking.ErrNotFound
+	}
+	return tracking.Result{TrackingNumber: number, Status: "IN_TRANSIT", PickupCity: "Colombo", DropoffCity: "Kandy", LastUpdatedAt: time.Now().UTC(), Timeline: []tracking.Event{}}, nil
+}
+
+func trackingToken(t *testing.T, user string, role auth.Role) string {
+	t.Helper()
+	manager, err := auth.NewTokenManager(ownedTrackingSecret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := manager.Issue(user, role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func ownedTrackingRequest(t *testing.T, router http.Handler, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "/parcels/tracking/SDK7M2Q9XP4", nil)
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func TestOwnedTrackingEnforcesIdentityAndRoles(t *testing.T) {
+	store := &scopeTrackingFixture{}
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Tracking: store, AccessSecret: ownedTrackingSecret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		token      string
+		wantStatus int
+		wantUser   string
+		wantStaff  bool
+		wantCalls  int
+	}{
+		{name: "no credentials", wantStatus: http.StatusUnauthorized},
+		{name: "invalid token", token: "not-a-valid-token", wantStatus: http.StatusUnauthorized},
+		{name: "customer owner", token: trackingToken(t, "customer-a", auth.RoleCustomer), wantStatus: http.StatusOK, wantUser: "customer-a", wantCalls: 1},
+		{name: "another customer", token: trackingToken(t, "customer-b", auth.RoleCustomer), wantStatus: http.StatusNotFound, wantUser: "customer-b", wantCalls: 2},
+		{name: "dispatcher", token: trackingToken(t, "dispatcher-1", auth.RoleDispatcher), wantStatus: http.StatusOK, wantUser: "dispatcher-1", wantStaff: true, wantCalls: 3},
+		{name: "admin", token: trackingToken(t, "admin-1", auth.RoleAdmin), wantStatus: http.StatusOK, wantUser: "admin-1", wantStaff: true, wantCalls: 4},
+		{name: "merchant", token: trackingToken(t, "merchant-1", auth.RoleMerchant), wantStatus: http.StatusForbidden, wantCalls: 4},
+		{name: "courier", token: trackingToken(t, "courier-1", auth.RoleCourier), wantStatus: http.StatusForbidden, wantCalls: 4},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := ownedTrackingRequest(t, router, test.token)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", recorder.Code, test.wantStatus, recorder.Body.String())
+			}
+			if test.wantUser != "" && (store.user != test.wantUser || store.staff != test.wantStaff) {
+				t.Fatalf("lookup identity = %q staff=%v, want %q staff=%v", store.user, store.staff, test.wantUser, test.wantStaff)
+			}
+			if store.calls != test.wantCalls {
+				t.Fatalf("lookup calls = %d, want %d", store.calls, test.wantCalls)
+			}
+			if test.wantStatus == http.StatusNotFound && strings.Contains(recorder.Body.String(), "customer-a") {
+				t.Fatal("not-found response disclosed another customer")
+			}
+		})
+	}
+}
+
+func TestOwnedTrackingFailsClosedWithoutSecret(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Tracking: &scopeTrackingFixture{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := ownedTrackingRequest(t, router, "")
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", recorder.Code)
+	}
+}
+
+func TestOwnedTrackingRateLimit(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Tracking: &scopeTrackingFixture{}, AccessSecret: ownedTrackingSecret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := trackingToken(t, "customer-a", auth.RoleCustomer)
+	for index := 0; index < 31; index++ {
+		recorder := ownedTrackingRequest(t, router, token)
+		if index < 30 && recorder.Code != http.StatusOK {
+			t.Fatalf("request %d refused too soon: %d", index+1, recorder.Code)
+		}
+		if index == 30 && (recorder.Code != http.StatusTooManyRequests || recorder.Header().Get("Retry-After") == "") {
+			t.Fatalf("rate limit not enforced: %d %v", recorder.Code, recorder.Header())
+		}
+	}
+}
+
+func TestOwnedTrackingResponseExposesOnlyPublicFields(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Tracking: trackingEventFixture{}, AccessSecret: ownedTrackingSecret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := ownedTrackingRequest(t, router, trackingToken(t, "customer-a", auth.RoleCustomer))
+	if recorder.Code != http.StatusOK {
+		t.Fatal(recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	assertKeys(t, response.Data, "dropoffCity", "lastUpdatedAt", "pickupCity", "status", "timeline", "trackingNumber")
 }
 
 func assertKeys(t *testing.T, object map[string]json.RawMessage, want ...string) {
