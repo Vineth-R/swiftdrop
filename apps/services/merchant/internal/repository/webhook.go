@@ -217,7 +217,7 @@ LIMIT $5 OFFSET $6`, merchantID, f.Success, f.TrackingNumber, f.HTTPStatus, f.Li
 	}
 	defer rows.Close()
 
-	attempts := make([]DeliveryAttempt, 0, f.Limit)
+	attempts := make([]DeliveryAttempt, 0)
 	for rows.Next() {
 		var a DeliveryAttempt
 		if err := rows.Scan(&a.EventID, &a.TrackingNumber, &a.AttemptNumber, &a.HTTPStatus,

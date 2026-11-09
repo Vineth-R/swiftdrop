@@ -197,7 +197,7 @@ func dataOf(t *testing.T, body map[string]any) map[string]any {
 	return data
 }
 
-func errorCodeOf(body map[string]any) string {
+func webhookErrorCode(body map[string]any) string {
 	detail, _ := body["error"].(map[string]any)
 	code, _ := detail["code"].(string)
 	return code
@@ -212,7 +212,7 @@ func TestWebhookRoutesRequireAuthentication(t *testing.T) {
 		{http.MethodGet, "/merchants/me/webhook/deliveries"},
 	} {
 		recorder, body := f.callWithoutToken(route[0], route[1], `{}`)
-		if recorder.Code != http.StatusUnauthorized || errorCodeOf(body) != "UNAUTHENTICATED" {
+		if recorder.Code != http.StatusUnauthorized || webhookErrorCode(body) != "UNAUTHENTICATED" {
 			t.Errorf("%s %s = %d %v, want 401 UNAUTHENTICATED", route[0], route[1], recorder.Code, body)
 		}
 	}
@@ -230,7 +230,7 @@ func TestWebhookRoutesRequireMerchantRole(t *testing.T) {
 		{http.MethodGet, "/merchants/me/webhook/deliveries"},
 	} {
 		recorder, body := f.call(route[0], route[1], `{}`)
-		if recorder.Code != http.StatusForbidden || errorCodeOf(body) != "FORBIDDEN" {
+		if recorder.Code != http.StatusForbidden || webhookErrorCode(body) != "FORBIDDEN" {
 			t.Errorf("%s %s = %d %v, want 403 FORBIDDEN", route[0], route[1], recorder.Code, body)
 		}
 	}
@@ -243,7 +243,7 @@ func TestWebhookRoutesRejectUnprovisionedMerchant(t *testing.T) {
 	f := newWebhookFixture("MERCHANT")
 	f.store.merchantOK = false
 	recorder, body := f.call(http.MethodGet, "/merchants/me/webhook", "")
-	if recorder.Code != http.StatusForbidden || errorCodeOf(body) != "FORBIDDEN" {
+	if recorder.Code != http.StatusForbidden || webhookErrorCode(body) != "FORBIDDEN" {
 		t.Fatalf("got %d %v, want 403 FORBIDDEN", recorder.Code, body)
 	}
 }
@@ -257,7 +257,7 @@ func TestWebhookRoutesFailClosedWithoutAuthConfig(t *testing.T) {
 		{http.MethodGet, "/merchants/me/webhook/deliveries"},
 	} {
 		recorder, body := f.callWithoutToken(route[0], route[1], `{}`)
-		if recorder.Code != http.StatusServiceUnavailable || errorCodeOf(body) != "SERVICE_UNAVAILABLE" {
+		if recorder.Code != http.StatusServiceUnavailable || webhookErrorCode(body) != "SERVICE_UNAVAILABLE" {
 			t.Errorf("%s %s = %d %v, want 503 SERVICE_UNAVAILABLE", route[0], route[1], recorder.Code, body)
 		}
 	}
@@ -266,7 +266,7 @@ func TestWebhookRoutesFailClosedWithoutAuthConfig(t *testing.T) {
 func TestWebhookRoutesFailClosedWithoutSecretKey(t *testing.T) {
 	f := newWebhookFixtureWithOptions("MERCHANT", webhookTestSecret, nil)
 	recorder, body := f.call(http.MethodGet, "/merchants/me/webhook", "")
-	if recorder.Code != http.StatusServiceUnavailable || errorCodeOf(body) != "SERVICE_UNAVAILABLE" {
+	if recorder.Code != http.StatusServiceUnavailable || webhookErrorCode(body) != "SERVICE_UNAVAILABLE" {
 		t.Fatalf("got %d %v, want 503 SERVICE_UNAVAILABLE", recorder.Code, body)
 	}
 }
@@ -274,7 +274,7 @@ func TestWebhookRoutesFailClosedWithoutSecretKey(t *testing.T) {
 func TestGetWebhookNotConfigured(t *testing.T) {
 	f := newWebhookFixture("MERCHANT")
 	recorder, body := f.call(http.MethodGet, "/merchants/me/webhook", "")
-	if recorder.Code != http.StatusNotFound || errorCodeOf(body) != "WEBHOOK_NOT_CONFIGURED" {
+	if recorder.Code != http.StatusNotFound || webhookErrorCode(body) != "WEBHOOK_NOT_CONFIGURED" {
 		t.Fatalf("got %d %v", recorder.Code, body)
 	}
 }
@@ -347,7 +347,7 @@ func TestSaveRejectsUnapprovedMerchant(t *testing.T) {
 	f := newWebhookFixture("MERCHANT")
 	f.store.status = repository.MerchantStatus("PENDING")
 	recorder, body := f.call(http.MethodPut, "/merchants/me/webhook", `{"url":"https://shopzone.lk/a"}`)
-	if recorder.Code != http.StatusForbidden || errorCodeOf(body) != "MERCHANT_NOT_APPROVED" {
+	if recorder.Code != http.StatusForbidden || webhookErrorCode(body) != "MERCHANT_NOT_APPROVED" {
 		t.Fatalf("got %d %v", recorder.Code, body)
 	}
 	if len(f.store.saved) != 0 {
@@ -373,7 +373,7 @@ func TestSaveRejectsBadInput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newWebhookFixture("MERCHANT")
 			recorder, body := f.call(http.MethodPut, "/merchants/me/webhook", tc.body)
-			if recorder.Code != http.StatusUnprocessableEntity || errorCodeOf(body) != tc.code {
+			if recorder.Code != http.StatusUnprocessableEntity || webhookErrorCode(body) != tc.code {
 				t.Fatalf("got %d %v, want 422 %s", recorder.Code, body, tc.code)
 			}
 			if len(f.store.saved) != 0 {
@@ -451,7 +451,7 @@ func TestTestSendFailureIsStill200WithNullStatus(t *testing.T) {
 func TestTestSendNotConfigured(t *testing.T) {
 	f := newWebhookFixture("MERCHANT")
 	recorder, body := f.call(http.MethodPost, "/merchants/me/webhook/test", "")
-	if recorder.Code != http.StatusNotFound || errorCodeOf(body) != "WEBHOOK_NOT_CONFIGURED" {
+	if recorder.Code != http.StatusNotFound || webhookErrorCode(body) != "WEBHOOK_NOT_CONFIGURED" {
 		t.Fatalf("got %d %v", recorder.Code, body)
 	}
 }
@@ -529,8 +529,8 @@ func TestDeliveriesPaginationBoundaries(t *testing.T) {
 				t.Fatalf("status = %d %v, want %d", recorder.Code, body, tc.wantStatus)
 			}
 			if tc.wantStatus != http.StatusOK {
-				if errorCodeOf(body) != "VALIDATION_ERROR" {
-					t.Fatalf("error code = %q, want VALIDATION_ERROR", errorCodeOf(body))
+				if webhookErrorCode(body) != "VALIDATION_ERROR" {
+					t.Fatalf("error code = %q, want VALIDATION_ERROR", webhookErrorCode(body))
 				}
 				if f.store.filter.Offset != 0 || f.store.filter.Limit != 0 {
 					t.Fatalf("an invalid request reached the store: %+v", f.store.filter)
@@ -548,7 +548,7 @@ func TestDeliveriesRejectsBadQuery(t *testing.T) {
 	for _, query := range []string{"success=maybe", "httpStatus=99", "httpStatus=600", "httpStatus=abc", "trackingNumber=" + strings.Repeat("A", 21)} {
 		f := newWebhookFixture("MERCHANT")
 		recorder, body := f.call(http.MethodGet, "/merchants/me/webhook/deliveries?"+query, "")
-		if recorder.Code != http.StatusUnprocessableEntity || errorCodeOf(body) != "VALIDATION_ERROR" {
+		if recorder.Code != http.StatusUnprocessableEntity || webhookErrorCode(body) != "VALIDATION_ERROR" {
 			t.Errorf("%s: got %d %v", query, recorder.Code, body)
 		}
 	}
