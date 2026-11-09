@@ -75,14 +75,25 @@ existing staff authorization. For a customer, another customer's tracking number
 returns the same not-found result as a nonexistent one, so numbers cannot be
 enumerated.
 
-## Chat panel scrolling
+## Chat panel lifecycle and scrolling
 
-The panel's internal conversation container starts at the top on first open, so
-the header, welcome copy and suggested questions are fully visible. Automatic
-scrolling only happens after a conversation update and only while the reader is
-near the bottom (or has just sent a message); scrolling up to read older messages
-is never interrupted. Closing and reopening starts a fresh conversation at the
-top, and signing in or out discards the previous identity's panel state.
+The conversation lives in a page-session store mounted at the application root,
+not in the panel. Closing the panel only hides it: messages, the conversation
+ID, errors and in-flight state remain, and navigating between pages keeps the
+same conversation. Reopening restores the previous scroll position. A full page
+reload or a new browser tab starts a fresh conversation, and messages are never
+written to `localStorage`, `sessionStorage` or IndexedDB.
+
+The panel's internal conversation container starts at the top for a fresh
+conversation, so the header, welcome copy and suggested questions are fully
+visible. Automatic scrolling only happens after a conversation update and only
+while the reader is near the bottom (or has just sent a message); scrolling up
+to read older messages is never interrupted.
+
+Signing in, signing out, switching accounts or a session expiry aborts any
+in-flight turn and clears the previous identity's conversation before the next
+identity renders. The backend guest cookie and conversation ownership remain
+the authority; no frontend identity value is trusted or sent to the assistant.
 
 ## Local setup
 
@@ -211,10 +222,11 @@ docker compose config --quiet
 The E2E suite mocks `POST /api/v1/ai/chat`, so it never needs a Gemini key. It
 covers opening/closing, the welcome and suggestions, sending, immediate composer
 clearing, duplicate prevention, Unicode counting, the typing state, conversation
-continuity, 422/429/503, network failure, retry without duplication, anonymous
-and signed-in journeys, fresh conversation after identity change, Markdown
-formatting, XSS/unsafe links, conversation expiry, malformed responses, the
-phone/landscape layouts and keyboard focus.
+continuity across close/reopen and page navigation, refresh and new-tab
+isolation, scroll restoration, 422/429/503, network failure, retry without
+duplication, anonymous and signed-in journeys, fresh conversation after identity
+change, Markdown formatting, XSS/unsafe links, conversation expiry, malformed
+responses, the phone/landscape layouts and keyboard focus.
 
 A live-stack smoke test is optional and requires a configured provider:
 

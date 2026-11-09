@@ -4,10 +4,12 @@ import { Sparkles, X } from 'lucide-react';
 import Link from 'next/link';
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 
+import { useAiChatStore } from '../../lib/ai-chat-context';
 import { useAiChat } from '../../lib/use-ai-chat';
 import { Alert } from '../ui/alert';
 import { Button } from '../ui/button';
@@ -44,6 +46,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     retryToken,
     dismissError,
   } = useAiChat();
+  const store = useAiChatStore();
   const panelRef = useRef<HTMLDivElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const previousConversationState = useRef({
@@ -51,10 +54,29 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     sending: isSending,
   });
   const stickToBottom = useRef(true);
+  const restoredPosition = useRef(false);
 
   useEffect(() => {
     panelRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
   }, []);
+
+  // The panel can be closed and reopened without touching the conversation.
+  // On the first mount of an existing conversation, put the reader back where
+  // they were before paint; a fresh conversation stays at the top. The ref
+  // makes this a once-per-mount step, so it never fights new messages
+  // (including React StrictMode's double effect invoke).
+  useLayoutEffect(() => {
+    if (restoredPosition.current) return;
+    restoredPosition.current = true;
+    const conversation = conversationRef.current;
+    if (!conversation) return;
+    conversation.scrollTop = messages.length === 0 ? 0 : store.getScrollTop();
+    const distance =
+      conversation.scrollHeight -
+      conversation.scrollTop -
+      conversation.clientHeight;
+    stickToBottom.current = distance <= 48;
+  }, [messages.length, store]);
 
   // Only follow new messages after the first render. The initial welcome and
   // suggested questions must stay at the top, and a reader who scrolled up is
@@ -73,12 +95,14 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     const conversation = conversationRef.current;
     if (conversation) {
       conversation.scrollTo({ top: conversation.scrollHeight });
+      store.setScrollTop(conversation.scrollTop);
     }
-  }, [messages.length, isSending]);
+  }, [messages.length, isSending, store]);
 
   function handleConversationScroll() {
     const conversation = conversationRef.current;
     if (!conversation) return;
+    store.setScrollTop(conversation.scrollTop);
     const distance =
       conversation.scrollHeight -
       conversation.scrollTop -
