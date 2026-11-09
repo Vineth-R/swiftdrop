@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"strconv"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
@@ -14,6 +15,11 @@ type Config struct {
 	AccessSecret     string
 	CookieName       string
 	WebhookSecretKey string
+
+	// InternalToken guards the /internal endpoints. Empty keeps them closed:
+	// every call is refused. InternalTokenProblem says why it is empty.
+	InternalToken        string
+	InternalTokenProblem string
 }
 
 func Load() (Config, error) {
@@ -46,6 +52,14 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	// Same rule as the other services: in development a missing or short token
+	// closes the internal endpoints; elsewhere a token that is set but weak
+	// (placeholder, under 32 bytes) stops the service at startup.
+	internalToken, internalProblem := sharedconfig.LoadInternalToken(loader, appEnv)
+	if internalProblem != "" && appEnv != "development" && loader.String("INTERNAL_TOKEN", "") != "" {
+		return Config{}, errors.New(internalProblem)
+	}
+
 	return Config{
 		Port:             port,
 		AppEnv:           appEnv,
@@ -54,6 +68,9 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		AccessSecret:     accessSecret,
 		CookieName:       loader.String("COOKIE_NAME", "sd_access"),
 		WebhookSecretKey: webhookSecretKey,
+
+		InternalToken:        internalToken,
+		InternalTokenProblem: internalProblem,
 	}, nil
 }
 
