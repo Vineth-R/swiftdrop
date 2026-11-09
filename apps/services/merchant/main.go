@@ -71,6 +71,9 @@ func run() error {
 		if err := registerWebhooks(router, merchantRepo, config, logger); err != nil {
 			return err
 		}
+		if err := registerInternalWebhooks(router, merchantRepo, config, logger); err != nil {
+			return err
+		}
 	}
 
 	router.GET("/health", postgres.HealthHandler())
