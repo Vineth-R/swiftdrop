@@ -21,6 +21,7 @@ type TrackingStore interface {
 type Options struct {
 	Courier        CourierStore
 	CourierStatus  CourierStatusStore
+	CourierProof   CourierProofStore
 	Parcels        *parcels.Service
 	InternalToken  string
 	Tracking       TrackingStore

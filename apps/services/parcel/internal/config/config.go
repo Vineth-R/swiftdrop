@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -10,11 +11,22 @@ import (
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
 
+const (
+	// DefaultProofMaxPerParcel bounds repeated proof uploads while leaving room
+	// for legitimate retries after a failed or blurry photo capture.
+	DefaultProofMaxPerParcel = 20
+	// MaxProofMaxPerParcel rejects configuration that would make the per-parcel
+	// proof table or its files unbounded in practice.
+	MaxProofMaxPerParcel = 100
+)
+
 type Config struct {
 	Port                 int
 	AppEnv               string
 	LogLevel             string
 	DatabaseURL          string
+	ProofStorageDir      string
+	ProofMaxPerParcel    int
 	TrustedProxies       []string
 	AccessSecret         string
 	CookieName           string
@@ -90,12 +102,21 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 			return Config{}, err
 		}
 	}
+	proofMaxPerParcel, err := loader.Int("PROOF_MAX_PER_PARCEL", DefaultProofMaxPerParcel)
+	if err != nil {
+		return Config{}, err
+	}
+	if proofMaxPerParcel < 1 || proofMaxPerParcel > MaxProofMaxPerParcel {
+		return Config{}, fmt.Errorf("PROOF_MAX_PER_PARCEL must be between 1 and %d", MaxProofMaxPerParcel)
+	}
 
 	return Config{
 		Port:                 port,
 		AppEnv:               appEnv,
 		LogLevel:             logLevel,
 		DatabaseURL:          loader.String("DATABASE_URL", ""),
+		ProofStorageDir:      loader.String("PROOF_STORAGE_DIR", ""),
+		ProofMaxPerParcel:    proofMaxPerParcel,
 		TrustedProxies:       proxies,
 		AccessSecret:         accessSecret,
 		CookieName:           loader.String("COOKIE_NAME", "sd_access"),
