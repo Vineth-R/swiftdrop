@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
@@ -31,6 +32,17 @@ func (f *fakeInternalStore) CourierEligibility(_ context.Context, id string) (re
 	}
 	return repository.CourierEligibility{}, repository.ErrNotFound
 }
+
+func (f *fakeInternalStore) CreateInactiveMerchantOwner(context.Context, string, string, string, string) (repository.User, bool, error) {
+	return repository.User{}, false, nil
+}
+func (f *fakeInternalStore) ApplyMerchantLifecycleTransition(context.Context, string, string, int64, string, time.Time) (repository.MerchantLifecycleTransition, error) {
+	return repository.MerchantLifecycleTransition{}, nil
+}
+func (f *fakeInternalStore) SessionState(context.Context, string) (repository.SessionState, error) {
+	return repository.SessionState{}, nil
+}
+func (f *fakeInternalStore) DeletePendingMerchantOwner(context.Context, string) error { return nil }
 
 func (f *fakeInternalStore) UserContact(_ context.Context, id string) (repository.UserContact, error) {
 	f.calls++

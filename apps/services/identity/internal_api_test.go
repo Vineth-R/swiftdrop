@@ -21,7 +21,7 @@ func TestInternalRouterOptionRejectsInvalidTokenOutsideDevelopment(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("INTERNAL_TOKEN", test.token)
 
-			_, err := internalRouterOption(logger, nil, "production")
+			_, err := internalRouterOption(logger, nil, nil, "production")
 			if err == nil {
 				t.Fatal("internalRouterOption() should fail")
 			}

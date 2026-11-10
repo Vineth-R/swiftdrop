@@ -41,3 +41,8 @@ Health endpoints are not public except `/healthz` at the gateway. `/health` and 
 - `/ws` enables WebSocket upgrade headers, disables proxy buffering, and uses a long read timeout.
 - Local development uses plain HTTP. Production TLS should terminate at a load balancer or a separately managed Nginx configuration with real certificates. No certificates are committed to this repository.
 - Nginx resolves every upstream at startup. Start the full Compose stack; starting Nginx alone with missing upstreams is not supported.
+
+Registration routes `/api/v1/auth/verify-email` and
+`/api/v1/auth/resend-verification` use the existing `/api/v1/auth/` proxy.
+Merchant registration uses `/api/v1/merchants/`; admin listing uses the exact
+`/api/v1/admin/merchants` and prefix routes.

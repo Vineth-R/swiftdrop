@@ -334,6 +334,7 @@ func TestService_ChangePassword(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Register returned error: %v", err)
 		}
+		f.store.users[other.ID].EmailVerified = true
 		session, err := f.service.Login(ctx, LoginInput{Email: "kamal@example.com", Password: "Str0ngPass!"})
 		if err != nil {
 			t.Fatalf("Login returned error: %v", err)

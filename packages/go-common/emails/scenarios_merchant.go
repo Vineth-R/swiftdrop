@@ -92,12 +92,17 @@ func MerchantRejected(d MerchantDecisionData) Email {
 		Preheader: "We could not approve your application. Here is why.",
 		Eyebrow:   "Merchant application",
 		Heading:   "We could not approve your application",
-		Blocks: []Block{
-			Paragraph(greeting(d.OwnerName)),
-			Paragraph("Thank you for applying. After review, an administrator could not approve " + d.BusinessName + " at this time."),
-			Notice(ToneDanger, "Reason", d.Reason),
-			Paragraph("If you can put that right, or you think this is a mistake, reply to this email or write to SwiftDrop support and we will look at it again."),
-		},
+		Blocks: func() []Block {
+			blocks := []Block{
+				Paragraph(greeting(d.OwnerName)),
+				Paragraph("Thank you for applying. After review, an administrator could not approve " + d.BusinessName + " at this time."),
+			}
+			if d.Reason != "" {
+				blocks = append(blocks, Notice(ToneDanger, "Reason", d.Reason))
+			}
+			blocks = append(blocks, Paragraph("If you can put that right, or you think this is a mistake, reply to this email or write to SwiftDrop support and we will look at it again."))
+			return blocks
+		}(),
 		Reason: "You are receiving this because this email address was used to apply for a merchant account on SwiftDrop.",
 	}
 }

@@ -2577,3 +2577,28 @@ SMALL parcel from Colombo to Kandy.
   Should merchant_orders keep a copy of the                        Yes, so the dashboard list needs no per-row
 
   recipient name and fee?                                          call to Parcel Operations
+
+
+## Addendum: registration and merchant onboarding (implemented)
+
+`identity.email_verification_tokens` stores a SHA-256 token hash, expiry
+(default 30 minutes), request IP and used_at. A partial unique index allows one
+unused token per user; rows cascade with their user.
+
+`identity.users.session_version INTEGER NOT NULL DEFAULT 0` is the session
+authority epoch. It is included in access tokens as `sv` and increments exactly
+once for every newly applied merchant lifecycle transition.
+`identity.merchant_lifecycle_transitions` records transition_id, user_id,
+sequence, operation and applied_at, with a unique (user_id, sequence) and a
+primary key on transition_id.
+
+`merchant.merchants` gains business_address, a required non-blank
+business_reg_no for new rows (NOT VALID check), a unique normalized business
+registration index and lifecycle_sequence. rejection_reason is nullable and
+widened to 1,000 characters; the old "reason required for REJECTED" check is
+removed. Suspension still requires a reason.
+
+`merchant.merchant_registration_attempts` persists idempotent registration saga
+state. `merchant.merchant_status_transitions` records merchant-owned lifecycle
+transitions including the Identity transition ID, sequence, actor, optional
+merchant-facing rejection reason and synchronization status.

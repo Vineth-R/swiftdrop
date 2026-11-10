@@ -12,8 +12,6 @@ import (
 
 const (
 	anyID = "00000000-0000-4000-8000-000000000000"
-
-	merchantWiring = "the merchant service does not verify access tokens yet: it only learns who the caller is from the API-key middleware"
 )
 
 // matrix lists every endpoint with an access rule and the roles that may call
@@ -40,12 +38,13 @@ var matrix = []accesskit.Case{
 	// Notification
 	{Name: "GET /admin/notification-logs", Method: http.MethodGet, Path: "/api/v1/admin/notification-logs", Allowed: []auth.Role{auth.RoleAdmin}},
 
-	// Merchant: routes exist, but none verifies a token yet, so only the refusals are checked.
-	{Name: "GET /merchants/me", Method: http.MethodGet, Path: "/api/v1/merchants/me", Allowed: []auth.Role{auth.RoleMerchant}, Pending: merchantWiring},
-	{Name: "GET /merchants/me/keys", Method: http.MethodGet, Path: "/api/v1/merchants/me/keys", Allowed: []auth.Role{auth.RoleMerchant}, Pending: merchantWiring},
-	{Name: "POST /merchants/me/keys", Method: http.MethodPost, Path: "/api/v1/merchants/me/keys", Body: `{}`, Allowed: []auth.Role{auth.RoleMerchant}, Pending: merchantWiring},
-	{Name: "GET /admin/merchants/{id}", Method: http.MethodGet, Path: "/api/v1/admin/merchants/" + anyID, Allowed: []auth.Role{auth.RoleAdmin}, Pending: merchantWiring},
-	{Name: "POST /admin/merchants/{id}/approve", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/approve", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}, Pending: merchantWiring},
+	// Merchant session and administration routes.
+	{Name: "GET /merchants/me", Method: http.MethodGet, Path: "/api/v1/merchants/me", Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "GET /merchants/me/keys", Method: http.MethodGet, Path: "/api/v1/merchants/me/keys", Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "POST /merchants/me/keys", Method: http.MethodPost, Path: "/api/v1/merchants/me/keys", Body: `{}`, Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "GET /admin/merchants", Method: http.MethodGet, Path: "/api/v1/admin/merchants", Allowed: []auth.Role{auth.RoleAdmin}},
+	{Name: "GET /admin/merchants/{id}", Method: http.MethodGet, Path: "/api/v1/admin/merchants/" + anyID, Allowed: []auth.Role{auth.RoleAdmin}},
+	{Name: "POST /admin/merchants/{id}/approve", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/approve", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 
 	// Customer parcel and dispatcher operations. Courier lifecycle remains separate.
 	{Name: "POST /parcels", Method: http.MethodPost, Path: "/api/v1/parcels", Body: `{}`, Allowed: []auth.Role{auth.RoleCustomer}},

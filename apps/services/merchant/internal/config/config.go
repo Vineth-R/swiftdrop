@@ -2,7 +2,10 @@ package config
 
 import (
 	"errors"
+	"net/url"
 	"strconv"
+	"strings"
+	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
@@ -20,6 +23,13 @@ type Config struct {
 	// every call is refused. InternalTokenProblem says why it is empty.
 	InternalToken        string
 	InternalTokenProblem string
+
+	FrontendBaseURL string
+	SupportEmail    string
+	IdentityBaseURL string
+	IdentityTimeout time.Duration
+	PricingBaseURL  string
+	PricingTimeout  time.Duration
 }
 
 func Load() (Config, error) {
@@ -60,6 +70,33 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, errors.New(internalProblem)
 	}
 
+	frontend := strings.TrimRight(loader.String("FRONTEND_BASE_URL", "http://localhost:8080"), "/")
+	if !validHTTPOrigin(frontend) {
+		return Config{}, errors.New("FRONTEND_BASE_URL must be an absolute http or https URL")
+	}
+	identityURL := strings.TrimRight(loader.String("IDENTITY_BASE_URL", "http://identity:8081"), "/")
+	if !validHTTPOrigin(identityURL) {
+		return Config{}, errors.New("IDENTITY_BASE_URL must be an HTTP(S) service origin")
+	}
+	pricingURL := strings.TrimRight(loader.String("PRICING_BASE_URL", "http://pricing:8083"), "/")
+	if !validHTTPOrigin(pricingURL) {
+		return Config{}, errors.New("PRICING_BASE_URL must be an HTTP(S) service origin")
+	}
+	identityTimeout, err := loader.Duration("IDENTITY_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if identityTimeout < time.Millisecond {
+		return Config{}, errors.New("IDENTITY_TIMEOUT must be at least 1ms")
+	}
+	pricingTimeout, err := loader.Duration("PRICING_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if pricingTimeout < time.Millisecond {
+		return Config{}, errors.New("PRICING_TIMEOUT must be at least 1ms")
+	}
+
 	return Config{
 		Port:             port,
 		AppEnv:           appEnv,
@@ -71,7 +108,18 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 
 		InternalToken:        internalToken,
 		InternalTokenProblem: internalProblem,
+		FrontendBaseURL:      frontend,
+		SupportEmail:         loader.String("SUPPORT_EMAIL", ""),
+		IdentityBaseURL:      identityURL,
+		IdentityTimeout:      identityTimeout,
+		PricingBaseURL:       pricingURL,
+		PricingTimeout:       pricingTimeout,
 	}, nil
+}
+
+func validHTTPOrigin(value string) bool {
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
 func (c Config) Addr() string {

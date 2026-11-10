@@ -31,7 +31,7 @@ func webhookConfig(key, accessSecret string) serviceconfig.Config {
 
 func TestRegisterWebhooksWithoutKeyKeepsRoutesFailClosed(t *testing.T) {
 	router := gin.New()
-	if err := registerWebhooks(router, nil, webhookConfig("", testAccessKey), quietLogger()); err != nil {
+	if err := registerWebhooks(router, nil, nil, webhookConfig("", testAccessKey), quietLogger()); err != nil {
 		t.Fatalf("an unset key must not stop the service: %v", err)
 	}
 	if got := len(router.Routes()); got != 4 {
@@ -47,7 +47,7 @@ func TestRegisterWebhooksWithoutKeyKeepsRoutesFailClosed(t *testing.T) {
 
 func TestRegisterWebhooksWithoutAccessSecretKeepsRoutesFailClosed(t *testing.T) {
 	router := gin.New()
-	if err := registerWebhooks(router, nil, webhookConfig(testWebhookKey, ""), quietLogger()); err != nil {
+	if err := registerWebhooks(router, nil, nil, webhookConfig(testWebhookKey, ""), quietLogger()); err != nil {
 		t.Fatalf("an unset access secret must not stop the service: %v", err)
 	}
 	if got := len(router.Routes()); got != 4 {
@@ -63,7 +63,7 @@ func TestRegisterWebhooksWithoutAccessSecretKeepsRoutesFailClosed(t *testing.T) 
 
 func TestRegisterWebhooksRejectsInvalidKey(t *testing.T) {
 	for _, key := range []string{"not-hex", "abcd", strings.Repeat("zz", 32)} {
-		if err := registerWebhooks(gin.New(), nil, webhookConfig(key, testAccessKey), quietLogger()); err == nil {
+		if err := registerWebhooks(gin.New(), nil, nil, webhookConfig(key, testAccessKey), quietLogger()); err == nil {
 			t.Errorf("key %q was accepted", key)
 		}
 	}
@@ -71,7 +71,7 @@ func TestRegisterWebhooksRejectsInvalidKey(t *testing.T) {
 
 func TestRegisterWebhooksWithValidKeyAddsFourRoutes(t *testing.T) {
 	router := gin.New()
-	if err := registerWebhooks(router, nil, webhookConfig(testWebhookKey, testAccessKey), quietLogger()); err != nil {
+	if err := registerWebhooks(router, nil, nil, webhookConfig(testWebhookKey, testAccessKey), quietLogger()); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(router.Routes()); got != 4 {

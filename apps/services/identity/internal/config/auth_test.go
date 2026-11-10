@@ -25,17 +25,18 @@ func TestLoadAuthFrom_defaults(t *testing.T) {
 	}
 
 	want := Auth{
-		AccessSecret:          strongSecret,
-		AccessTokenTTL:        15 * time.Minute,
-		RefreshTokenTTL:       7 * 24 * time.Hour,
-		OAuthStateTTL:         10 * time.Minute,
-		PasswordResetTokenTTL: 30 * time.Minute,
-		AccessCookieName:      "sd_access",
-		RefreshCookieName:     "sd_refresh",
-		CookieSecure:          false,
-		CookieSameSite:        http.SameSiteLaxMode,
-		MaxFailedLogins:       5,
-		LockoutDuration:       15 * time.Minute,
+		AccessSecret:              strongSecret,
+		AccessTokenTTL:            15 * time.Minute,
+		RefreshTokenTTL:           7 * 24 * time.Hour,
+		OAuthStateTTL:             10 * time.Minute,
+		PasswordResetTokenTTL:     30 * time.Minute,
+		EmailVerificationTokenTTL: 30 * time.Minute,
+		AccessCookieName:          "sd_access",
+		RefreshCookieName:         "sd_refresh",
+		CookieSecure:              false,
+		CookieSameSite:            http.SameSiteLaxMode,
+		MaxFailedLogins:           5,
+		LockoutDuration:           15 * time.Minute,
 	}
 	if got != want {
 		t.Fatalf("LoadAuthFrom() = %+v, want %+v", got, want)

@@ -38,6 +38,17 @@ func (f *fakeInternalService) CourierEligibility(_ context.Context, id string) (
 	return f.eligibility, f.err
 }
 
+func (f *fakeInternalService) CreateMerchantOwner(context.Context, service.MerchantOwnerInput) (service.MerchantOwnerResult, error) {
+	return service.MerchantOwnerResult{}, f.err
+}
+func (f *fakeInternalService) ApplyMerchantLifecycle(context.Context, service.LifecycleInput) (service.LifecycleResult, error) {
+	return service.LifecycleResult{}, f.err
+}
+func (f *fakeInternalService) SessionState(context.Context, string) (service.SessionState, error) {
+	return service.SessionState{}, f.err
+}
+func (f *fakeInternalService) DeleteMerchantOwner(context.Context, string) error { return f.err }
+
 func (f *fakeInternalService) UserContact(_ context.Context, id string) (service.UserContact, error) {
 	f.calls++
 	f.gotID, f.method = id, "contact"
