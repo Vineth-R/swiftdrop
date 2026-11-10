@@ -38,6 +38,7 @@ Health endpoints are not public except `/healthz` at the gateway. `/health` and 
 - `X-Real-IP` and `X-Forwarded-For` are set from the observed client address. Pricing and Parcel accept `X-Real-IP` only from configured trusted proxy CIDRs (`HTTP_TRUSTED_PROXIES`), so caller-supplied forwarding headers cannot rotate the public rate-limit identity through this edge.
 - `/api/v1/auth/` uses the `swiftdrop_no_query` access-log format: it records the method, URI path, status and timing but never the query string. This keeps OAuth authorization codes and state values out of the gateway logs. Other routes keep the default combined log.
 - `/internal` is explicitly blocked so internal service-to-service APIs never reach browsers.
+- `/api/v1/courier/deliveries/{parcelId}/proof` has a route-scoped 6 MiB `client_max_body_size` so a 5 MiB photo plus multipart overhead reaches Parcel; the application still enforces its own 5 MiB photo limit. Oversized gateway requests return the shared JSON `PAYLOAD_TOO_LARGE` error instead of Nginx's HTML page.
 - `/ws` enables WebSocket upgrade headers, disables proxy buffering, and uses a long read timeout.
 - Local development uses plain HTTP. Production TLS should terminate at a load balancer or a separately managed Nginx configuration with real certificates. No certificates are committed to this repository.
 - Nginx resolves every upstream at startup. Start the full Compose stack; starting Nginx alone with missing upstreams is not supported.
