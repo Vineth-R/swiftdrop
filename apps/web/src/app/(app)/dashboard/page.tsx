@@ -1,14 +1,10 @@
 'use client';
 
 import { DashboardPlaceholder } from '@/components/auth/dashboard-placeholder';
-import { MerchantDashboardView } from '@/components/merchant/dashboard-view';
-import { useSession } from '@/lib/session';
 
-function DashboardContent() {
-  const { session } = useSession();
-  if (session.status === 'authenticated' && session.user.role === 'MERCHANT') {
-    return <MerchantDashboardView />;
-  }
+export const metadata: Metadata = { title: 'Dashboard — SwiftDrop' };
+
+export default function DashboardPage() {
   return <DashboardPlaceholder />;
 }
 
