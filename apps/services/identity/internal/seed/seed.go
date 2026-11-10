@@ -25,7 +25,7 @@ type Hasher interface {
 }
 
 // Run validates the configuration, hashes all passwords, resolves courier
-// zones, and inserts the five demo users in one transaction. The caller owns
+// zones, and inserts the six demo users in one transaction. The caller owns
 // the database connection; no transaction is committed unless every insert
 // succeeds.
 func Run(ctx context.Context, db DB, hasher Hasher, config Config) (repository.SeedResult, error) {
@@ -110,6 +110,21 @@ func Run(ctx context.Context, db DB, hasher Hasher, config Config) (repository.S
 	result, err := repo.SeedDemoUsers(ctx, seedUsers)
 	if err != nil {
 		return repository.SeedResult{}, err
+	}
+	// Keep the local merchant login usable by linking it to a merchant profile.
+	var merchantUserID, zoneID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM identity.users WHERE email = $1`, "seed.merchant@example.com").Scan(&merchantUserID); err != nil {
+		return repository.SeedResult{}, fmt.Errorf("find demo merchant user: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM pricing.zones WHERE code = 'CMB' AND is_active`).Scan(&zoneID); err != nil {
+		return repository.SeedResult{}, fmt.Errorf("find demo merchant zone: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO merchant.merchants
+			(owner_user_id, business_name, business_reg_no, contact_email, contact_phone, pickup_address, pickup_zone_id, status)
+		VALUES ($1, 'SwiftDrop Demo Store', 'SEED-MERCHANT-001', 'seed.merchant@example.com', '+94112345678', 'Demo Store, Colombo', $2::uuid, 'PENDING')
+		ON CONFLICT (owner_user_id) DO NOTHING`, merchantUserID, zoneID); err != nil {
+		return repository.SeedResult{}, fmt.Errorf("insert demo merchant profile: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return repository.SeedResult{}, fmt.Errorf("commit demo seed transaction: %w", err)

@@ -41,7 +41,7 @@ type Config struct {
 	Accounts []Account
 }
 
-// LoadConfig reads and validates the five demo accounts from the environment.
+// LoadConfig reads and validates the six demo accounts from the environment.
 // It normalizes emails with the identity service's registration rules.
 func LoadConfig(loader sharedconfig.Loader) (Config, error) {
 	adminEmail, err := requiredEmail(loader, "SEED_ADMIN_EMAIL")
@@ -122,6 +122,12 @@ func LoadConfig(loader sharedconfig.Loader) (Config, error) {
 			Password: customerPassword,
 			FullName: "Demo Customer",
 		},
+		{
+			Role:     auth.RoleMerchant,
+			Email:    "seed.merchant@example.com",
+			Password: "MerchantPass1!",
+			FullName: "Demo Merchant",
+		},
 	}}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
@@ -131,8 +137,8 @@ func LoadConfig(loader sharedconfig.Loader) (Config, error) {
 
 // Validate checks the complete seed configuration before any database work.
 func (c Config) Validate() error {
-	if len(c.Accounts) != 5 {
-		return errors.New("demo seed must contain exactly five accounts")
+	if len(c.Accounts) != 6 {
+		return errors.New("demo seed must contain exactly six accounts")
 	}
 
 	roleCounts := map[auth.Role]int{}
@@ -177,8 +183,9 @@ func (c Config) Validate() error {
 	if roleCounts[auth.RoleAdmin] != 1 ||
 		roleCounts[auth.RoleDispatcher] != 1 ||
 		roleCounts[auth.RoleCourier] != 2 ||
-		roleCounts[auth.RoleCustomer] != 1 {
-		return errors.New("demo seed must contain one ADMIN, one DISPATCHER, two COURIER and one CUSTOMER account")
+		roleCounts[auth.RoleCustomer] != 1 ||
+		roleCounts[auth.RoleMerchant] != 1 {
+		return errors.New("demo seed must contain one ADMIN, one DISPATCHER, two COURIER, one CUSTOMER and one MERCHANT account")
 	}
 	return nil
 }

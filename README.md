@@ -488,9 +488,9 @@ The identity service reads `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOG
 
 ### Demo seed
 
-`make seed` creates one ADMIN, one DISPATCHER, two COURIER accounts with valid courier profiles, and one CUSTOMER. It is a local development tool and never runs during service startup, Compose startup, or migrations. It seeds identity users only; merchants, API keys, parcels, orders, notifications and delivery logs are intentionally excluded until their dependencies are ready.
+`make seed` creates one ADMIN, one DISPATCHER, two COURIER accounts with valid courier profiles, one CUSTOMER, and an approved demo MERCHANT linked to its merchant profile. It is a local development tool and never runs during service startup, Compose startup, or migrations.
 
-The command reads process environment variables; it does not load `.env` automatically. Export `DATABASE_URL` and all ten values before running it:
+The command reads process environment variables; it does not load `.env` automatically. Export `DATABASE_URL` and the ten required values before running it. The demo merchant uses `seed.merchant@example.com` / `MerchantPass1!`:
 
 ```sh
 export DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/swiftdrop?sslmode=disable'

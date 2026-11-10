@@ -38,8 +38,8 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig returned error: %v", err)
 	}
-	if len(config.Accounts) != 5 {
-		t.Fatalf("accounts = %d, want 5", len(config.Accounts))
+	if len(config.Accounts) != 6 {
+		t.Fatalf("accounts = %d, want 6", len(config.Accounts))
 	}
 	if config.Accounts[0].Role != auth.RoleAdmin || config.Accounts[0].Email != "seed.admin@example.com" {
 		t.Fatalf("admin = %+v", config.Accounts[0])
@@ -55,6 +55,9 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if config.Accounts[4].Role != auth.RoleCustomer || config.Accounts[4].FullName != "Demo Customer" {
 		t.Fatalf("customer = %+v", config.Accounts[4])
+	}
+	if config.Accounts[5].Role != auth.RoleMerchant || config.Accounts[5].Email != "seed.merchant@example.com" {
+		t.Fatalf("merchant = %+v", config.Accounts[5])
 	}
 }
 
