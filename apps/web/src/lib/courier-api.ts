@@ -1,4 +1,4 @@
-import { ApiError, apiWithMeta, type ApiMeta } from './api';
+import { ApiError, api, apiWithMeta, type ApiMeta } from './api';
 import type { ParcelStatus } from './tokens';
 
 export type CompletedDeliveryStatus = 'DELIVERED' | 'FAILED';
@@ -21,6 +21,56 @@ export type CourierDeliveryPage = {
   items: CourierDelivery[];
   pagination: NonNullable<ApiMeta['pagination']>;
 };
+
+export type CourierHistory = {
+  previousStatus: string | null;
+  status: string;
+  note: string | null;
+  failureReason: string | null;
+  actorRole: string | null;
+  changedAt: string;
+};
+export type CourierProof = {
+  recipientName: string | null;
+  note: string | null;
+  hasPhoto: boolean;
+  createdAt: string;
+} | null;
+export type CourierDeliveryDetail = CourierDelivery & {
+  description: string | null;
+  sizeCategory: string;
+  senderName: string;
+  senderPhone: string;
+  history: CourierHistory[];
+  proof: CourierProof;
+};
+export type CourierStatusUpdate = {
+  status: ParcelStatus;
+  recipientName?: string;
+  failureReason?: string;
+  note?: string;
+};
+
+export function getCourierDelivery(id: string, signal?: AbortSignal) {
+  return api<CourierDeliveryDetail>(
+    `/courier/deliveries/${encodeURIComponent(id)}`,
+    { signal },
+  );
+}
+
+export function updateCourierDeliveryStatus(
+  id: string,
+  body: CourierStatusUpdate,
+) {
+  return api<{
+    status: ParcelStatus;
+    previousStatus: ParcelStatus;
+    updatedAt: string;
+  }>(`/courier/deliveries/${encodeURIComponent(id)}/status`, {
+    method: 'POST',
+    body,
+  });
+}
 
 export async function listCourierDeliveries({
   date,

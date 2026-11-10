@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 import { ApiError } from '../../lib/api';
 import {
@@ -44,7 +45,12 @@ const columns: DataTableColumn<CourierDelivery>[] = [
     header: 'Tracking number',
     isMono: true,
     cell: (delivery) => (
-      <span className="break-all text-body">{delivery.trackingNumber}</span>
+      <Link
+        href={`/history/${encodeURIComponent(delivery.id)}`}
+        className="break-all text-body text-interactive underline underline-offset-4"
+      >
+        {delivery.trackingNumber}
+      </Link>
     ),
   },
   {
