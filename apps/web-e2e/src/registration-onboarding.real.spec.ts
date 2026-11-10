@@ -124,7 +124,7 @@ async function waitForHealthy(service: string, timeoutMs = 60_000) {
           'inspect',
           '--format',
           '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}',
-          `swiftdrop-${service}-1`,
+          `${composeProject}-${service}-1`,
         ],
         { encoding: 'utf8' },
       ).trim();
