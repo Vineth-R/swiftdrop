@@ -171,6 +171,9 @@ Fixes applied during final QA:
   returns `TRANSITION_ID_CONFLICT`; an integration test covers it.
 - Identity ADMIN and courier current-access checks now compare the JWT `sv` claim
   with the current user session version and reject stale sessions.
+- The email catalog used a high-entropy sample verification token, which triggered
+  the feature-branch Gitleaks `generic-api-key` rule. Sample links now use a
+  clearly non-secret placeholder; the feature-branch secret scan passes.
 
 ## 11. Security and dependency audits
 
@@ -255,7 +258,9 @@ overrides live in `pnpm-workspace.yaml` for the pnpm 12 configuration format.
   - `58a5ea0` initial completion report
   - `99dfd9b` merge of latest development (`f03d31e`)
   - `3b85446` lifecycle idempotency hardening and Playwright/security fixes
-  - This report is committed separately on the same branch.
+  - `1ee4db2` non-secret sample verification tokens for secret scanning
+  - This report is committed separately on the same branch. The final PR head is
+    the branch head reported on PR #122.
 - Nothing was merged. The branch is pushed and a PR is opened into `development`
   for review; the PR is not merged.
 
