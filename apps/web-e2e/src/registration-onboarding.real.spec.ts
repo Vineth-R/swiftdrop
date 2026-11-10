@@ -72,27 +72,45 @@ async function apiLogin(
   email: string,
   password: string,
 ): Promise<SessionTokens> {
-  const response = await request.post('/api/v1/auth/login', {
-    headers: { 'X-Token-Mode': 'body' },
-    data: { email, password },
-  });
-  if (!response.ok()) {
-    throw new Error(`login for ${email} returned ${response.status()}`);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const response = await request.post('/api/v1/auth/login', {
+      headers: { 'X-Token-Mode': 'body' },
+      data: { email, password },
+    });
+    if (response.status() === 429) {
+      const retryAfter = Number(response.headers()['retry-after']);
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : 5000;
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(waitMs, 30_000)),
+      );
+      continue;
+    }
+    if (!response.ok()) {
+      throw new Error(`login for ${email} returned ${response.status()}`);
+    }
+    const body = (await response.json()) as {
+      data?: SessionTokens;
+    };
+    if (!body.data?.accessToken || !body.data?.refreshToken) {
+      throw new Error('login did not return tokens');
+    }
+    return body.data;
   }
-  const body = (await response.json()) as {
-    data?: SessionTokens;
-  };
-  if (!body.data?.accessToken || !body.data?.refreshToken) {
-    throw new Error('login did not return tokens');
-  }
-  return body.data;
+  throw new Error(`login for ${email} stayed rate limited`);
 }
+
+let cachedAdminAccess: string | null = null;
 
 async function adminToken(
   _page: Page,
   request: APIRequestContext,
 ): Promise<string> {
+  if (cachedAdminAccess) return cachedAdminAccess;
   const tokens = await apiLogin(request, adminEmail, adminPassword);
+  cachedAdminAccess = tokens.accessToken;
   return tokens.accessToken;
 }
 
@@ -119,6 +137,34 @@ async function waitForHealthy(service: string, timeoutMs = 60_000) {
   throw new Error(`timed out waiting for ${service} to become healthy`);
 }
 
+async function submitWithRateLimitRetry(
+  page: Page,
+  buttonName: string,
+  successText: string,
+) {
+  const button = page.getByRole('button', { name: buttonName });
+  const success = page.getByText(successText);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await button.click();
+    try {
+      await success.waitFor({ timeout: 8_000 });
+      return;
+    } catch {
+      const error = page.getByText(/could not|already|is invalid|is required/i);
+      if (
+        await error
+          .first()
+          .isVisible()
+          .catch(() => false)
+      ) {
+        throw new Error(`form failed: ${await error.first().innerText()}`);
+      }
+      await expect(button).toBeEnabled({ timeout: 75_000 });
+    }
+  }
+  throw new Error(`${buttonName} stayed rate limited`);
+}
+
 async function registerCustomer(page: Page, email: string) {
   await page.goto('/register/customer');
   await page.getByLabel('Full name').fill('Real Stack Customer');
@@ -126,8 +172,7 @@ async function registerCustomer(page: Page, email: string) {
   await page.getByLabel('Phone').fill('+94771234567');
   await page.locator('#register-password').fill('Str0ngPass!');
   await page.getByLabel('Confirm password').fill('Str0ngPass!');
-  await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page.getByText('Check your email')).toBeVisible();
+  await submitWithRateLimitRetry(page, 'Create account', 'Check your email');
 }
 
 async function registerMerchant(
@@ -149,8 +194,11 @@ async function registerMerchant(
     .getByLabel('Default pickup address')
     .fill('88 Galle Road, Colombo 03');
   await page.getByLabel('Default pickup zone').selectOption({ index: 1 });
-  await page.getByRole('button', { name: 'Submit application' }).click();
-  await expect(page.getByText('Application submitted')).toBeVisible();
+  await submitWithRateLimitRetry(
+    page,
+    'Submit application',
+    'Application submitted',
+  );
 }
 
 async function findMerchantID(

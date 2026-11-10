@@ -44,6 +44,13 @@ func TestMerchantLifecycleTransitionsAreIdempotentAndBumpVersion(t *testing.T) {
 	if _, err := repo.ApplyMerchantLifecycleTransition(ctx, user.ID, first, 2, "APPROVE", time.Now()); !errors.Is(err, ErrTransitionConflict) {
 		t.Fatalf("mismatched transition error = %v, want ErrTransitionConflict", err)
 	}
+	other, _, err := repo.CreateInactiveMerchantOwner(ctx, "other-owner@example.test", "hash", "Other Owner", "+94771234568")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ApplyMerchantLifecycleTransition(ctx, other.ID, first, 1, "APPROVE", time.Now()); !errors.Is(err, ErrTransitionConflict) {
+		t.Fatalf("transition reused for another user error = %v, want ErrTransitionConflict", err)
+	}
 	if _, err := repo.ApplyMerchantLifecycleTransition(ctx, user.ID, transitionID(), 1, "SUSPEND", time.Now()); !errors.Is(err, ErrTransitionStale) {
 		t.Fatalf("stale sequence error = %v, want ErrTransitionStale", err)
 	}

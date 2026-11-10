@@ -44,16 +44,17 @@ type CourierProfile struct {
 // AdminUser is the administrative view of a user (API v1.1 sections 2.10 to
 // 2.13): the account, its role name and the courier profile if there is one.
 type AdminUser struct {
-	ID          string
-	Email       string
-	FullName    string
-	Phone       *string
-	Role        auth.Role
-	IsActive    bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	LastLoginAt *time.Time
-	Courier     *CourierProfile
+	ID             string
+	Email          string
+	FullName       string
+	Phone          *string
+	Role           auth.Role
+	IsActive       bool
+	SessionVersion int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	LastLoginAt    *time.Time
+	Courier        *CourierProfile
 }
 
 // CourierProfileInput is the courier profile of a new staff account.
@@ -128,7 +129,7 @@ var sortColumns = map[string]string{
 }
 
 const adminUserSelect = `
-	SELECT u.id, u.email, u.full_name, u.phone, r.name, u.is_active,
+	SELECT u.id, u.email, u.full_name, u.phone, r.name, u.is_active, u.session_version,
 	       u.created_at, u.updated_at, u.last_login_at,
 	       cp.user_id::text, cp.vehicle_type, cp.vehicle_number, cp.home_zone_id::text, cp.is_available
 	FROM identity.users u
@@ -149,7 +150,7 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 		available *bool
 	)
 	if err := row.Scan(
-		&user.ID, &user.Email, &user.FullName, &user.Phone, &role, &user.IsActive,
+		&user.ID, &user.Email, &user.FullName, &user.Phone, &role, &user.IsActive, &user.SessionVersion,
 		&user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt,
 		&profileID, &profile.VehicleType, &profile.VehicleNumber, &profile.HomeZoneID, &available,
 	); err != nil {

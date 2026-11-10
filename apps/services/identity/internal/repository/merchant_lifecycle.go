@@ -145,14 +145,15 @@ func (r *Repository) ApplyMerchantLifecycleTransition(
 
 	var existingOperation string
 	var existingSequence int64
+	var existingUserID string
 	err = tx.QueryRow(ctx, `
-		SELECT operation, sequence
+		SELECT operation, sequence, user_id
 		FROM identity.merchant_lifecycle_transitions
 		WHERE transition_id = $1`,
 		transitionID,
-	).Scan(&existingOperation, &existingSequence)
+	).Scan(&existingOperation, &existingSequence, &existingUserID)
 	if err == nil {
-		if existingOperation != operation || existingSequence != sequence {
+		if existingOperation != operation || existingSequence != sequence || existingUserID != userID {
 			return MerchantLifecycleTransition{}, ErrTransitionConflict
 		}
 		if err := tx.Commit(ctx); err != nil {
