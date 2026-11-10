@@ -279,7 +279,7 @@ test('saves a valid status and refreshes the detail timeline', async ({
   await page.goto(`/deliveries/${parcelId}`);
   await page.getByLabel('Next status').selectOption('DELIVERED');
   await page.getByLabel('Recipient name').fill('Nimali Perera');
-  await page.getByLabel('Note').fill('Handed over');
+  await page.getByLabel('Note', { exact: true }).fill('Handed over');
   await page.getByRole('button', { name: 'Save status' }).click();
   await expect(page.getByText('Handed over')).toBeVisible();
   await expect(
@@ -564,4 +564,190 @@ test('keeps the courier detail usable at desktop width', async ({ page }) => {
   await expect(
     page.getByRole('heading', { level: 1, name: delivery.trackingNumber }),
   ).toBeVisible();
+});
+
+test('validates proof fields and previews a supported image', async ({
+  page,
+}) => {
+  const api = await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  await page.getByRole('button', { name: 'Upload proof' }).click();
+  await expect(
+    page.getByText('Add a photo, recipient name or delivery note.'),
+  ).toBeVisible();
+
+  const photo = page.getByLabel('Proof photo');
+  await photo.setInputFiles({
+    name: 'renamed.jpg',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('not an image'),
+  });
+  await expect(page.getByText('Choose a JPEG or PNG image.')).toBeVisible();
+  await expect(photo).toHaveValue('');
+
+  await photo.setInputFiles({
+    name: 'too-large.png',
+    mimeType: 'image/png',
+    buffer: Buffer.alloc(5 * 1024 * 1024 + 1),
+  });
+  await expect(page.getByText('Photo must be 5 MiB or smaller.')).toBeVisible();
+  await expect(photo).toHaveValue('');
+
+  await photo.setInputFiles({
+    name: 'doorstep.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('png preview'),
+  });
+  await expect(page.getByText('Selected: doorstep.png')).toBeVisible();
+  await expect(page.getByAltText('Selected proof preview')).toBeVisible();
+  expect(api.calls.filter((call) => call.key.endsWith('/proof'))).toHaveLength(
+    0,
+  );
+});
+
+test('uploads authenticated multipart proof and refreshes its metadata', async ({
+  page,
+}) => {
+  let uploaded = false;
+  const uploadRequest: { contentType: string | undefined; body: string } = {
+    contentType: undefined,
+    body: '',
+  };
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: () =>
+      ok(
+        uploaded
+          ? {
+              ...detail,
+              proof: {
+                recipientName: 'Nimali Perera',
+                note: 'Handed over safely',
+                hasPhoto: true,
+                createdAt: '2026-11-10T09:00:00Z',
+              },
+            }
+          : { ...detail, proof: null },
+      ),
+  });
+  await page.route(
+    `**/api/v1/courier/deliveries/${parcelId}/proof`,
+    async (route) => {
+      const request = route.request();
+      uploadRequest.contentType = request.headers()['content-type'];
+      uploadRequest.body = request.postDataBuffer()?.toString('utf8') ?? '';
+      uploaded = true;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            id: '00000000-0000-4000-8000-000000000201',
+            parcelId,
+            recipientName: 'Nimali Perera',
+            note: 'Handed over safely',
+            hasPhoto: true,
+            createdAt: '2026-11-10T09:00:00Z',
+          },
+          meta: { requestId: REQUEST_ID },
+        }),
+      });
+    },
+  );
+  await page.goto(`/deliveries/${parcelId}`);
+  await page.getByLabel('Proof photo').setInputFiles({
+    name: 'handover.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from('jpeg content'),
+  });
+  await page.getByLabel('Proof received by').fill('Nimali Perera');
+  await page.getByLabel('Delivery note').fill('Handed over safely');
+  await page.getByRole('button', { name: 'Upload proof' }).click();
+
+  await expect(
+    page.getByText('Delivery proof uploaded', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Handed over safely')).toBeVisible();
+  const contentType = uploadRequest.contentType ?? '';
+  const body = uploadRequest.body;
+  expect(contentType).toMatch(/^multipart\/form-data; boundary=/);
+  expect(contentType).not.toContain('application/json');
+  expect(body).toContain('name="photo"; filename="handover.jpg"');
+  expect(body).toContain('name="recipientName"');
+  expect(body).toContain('Nimali Perera');
+  expect(body).toContain('name="note"');
+  expect(body).toContain('Handed over safely');
+});
+
+test('retains proof input after failure, prevents duplicates and retries', async ({
+  page,
+}) => {
+  let attempts = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+  });
+  await page.route(
+    `**/api/v1/courier/deliveries/${parcelId}/proof`,
+    async (route) => {
+      attempts += 1;
+      if (attempts === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'SERVICE_UNAVAILABLE', message: SERVER_WORDS },
+            meta: { requestId: REQUEST_ID },
+          }),
+        });
+        return;
+      }
+      await gate;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            id: '00000000-0000-4000-8000-000000000202',
+            parcelId,
+            recipientName: null,
+            note: 'Retry this proof',
+            hasPhoto: false,
+            createdAt: '2026-11-10T09:05:00Z',
+          },
+          meta: { requestId: REQUEST_ID },
+        }),
+      });
+    },
+  );
+  await page.goto(`/deliveries/${parcelId}`);
+  await page.getByLabel('Delivery note').fill('Retry this proof');
+  await page.getByRole('button', { name: 'Upload proof' }).click();
+  await expect(
+    page.getByText('Proof uploads are temporarily unavailable'),
+  ).toBeVisible();
+  await expect(page.getByLabel('Delivery note')).toHaveValue(
+    'Retry this proof',
+  );
+
+  try {
+    await page.getByRole('button', { name: 'Upload proof' }).click();
+    const uploading = page.getByRole('button', { name: 'Uploading proof' });
+    await expect(uploading).toHaveAttribute('aria-disabled', 'true');
+    await uploading.evaluate((button) => {
+      button.click();
+      button.closest('form')?.requestSubmit();
+    });
+    expect(attempts).toBe(2);
+  } finally {
+    release();
+  }
+  await expect(
+    page.getByText('Delivery proof uploaded', { exact: true }),
+  ).toBeVisible();
+  expect(attempts).toBe(2);
 });

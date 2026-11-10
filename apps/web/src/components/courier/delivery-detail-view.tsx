@@ -32,6 +32,7 @@ import { Skeleton, SkeletonGroup } from '../ui/skeleton';
 import { StatusChip, statusLabel } from '../ui/status-chip';
 import { Textarea } from '../ui/textarea';
 import { Timeline, type TimelineItem } from '../ui/timeline';
+import { ProofUploadForm } from './proof-upload-form';
 
 type DetailState =
   | { status: 'loading' }
@@ -97,6 +98,7 @@ function CourierDeliveryDetailContent({ parcelId }: { parcelId: string }) {
   const { recheck } = useSession();
   const [attempt, setAttempt] = useState(0);
   const [saved, setSaved] = useState(0);
+  const [proofSaved, setProofSaved] = useState(0);
   const [state, setState] = useState<DetailState>({ status: 'loading' });
 
   useEffect(() => {
@@ -154,6 +156,11 @@ function CourierDeliveryDetailContent({ parcelId }: { parcelId: string }) {
       {saved > 0 && (
         <Alert tone="success" title="Delivery status saved">
           The status update has been recorded.
+        </Alert>
+      )}
+      {proofSaved > 0 && (
+        <Alert tone="success" title="Delivery proof uploaded">
+          The proof has been stored securely.
         </Alert>
       )}
       {state.isRefreshing && (
@@ -253,27 +260,37 @@ function CourierDeliveryDetailContent({ parcelId }: { parcelId: string }) {
         )}
       </Section>
       <Section title="Delivery proof">
-        {delivery.proof ? (
-          <KeyValueList
-            layout="inline"
-            items={[
-              { label: 'Recipient', value: delivery.proof.recipientName },
-              { label: 'Note', value: delivery.proof.note },
-              {
-                label: 'Photo attached',
-                value: delivery.proof.hasPhoto ? 'Yes' : 'No',
-              },
-              {
-                label: 'Recorded',
-                value: formatDateTime(delivery.proof.createdAt),
-              },
-            ]}
+        <div className="flex flex-col gap-6">
+          {delivery.proof ? (
+            <KeyValueList
+              layout="inline"
+              items={[
+                { label: 'Recipient', value: delivery.proof.recipientName },
+                { label: 'Note', value: delivery.proof.note },
+                {
+                  label: 'Photo attached',
+                  value: delivery.proof.hasPhoto ? 'Yes' : 'No',
+                },
+                {
+                  label: 'Recorded',
+                  value: formatDateTime(delivery.proof.createdAt),
+                },
+              ]}
+            />
+          ) : (
+            <EmptyState title="No delivery proof recorded">
+              Add a photo, recipient name or delivery note below.
+            </EmptyState>
+          )}
+          <ProofUploadForm
+            key={proofSaved}
+            parcelId={delivery.id}
+            onUploaded={() => {
+              setProofSaved((count) => count + 1);
+              setAttempt((count) => count + 1);
+            }}
           />
-        ) : (
-          <EmptyState title="No delivery proof recorded">
-            No proof metadata is available for this delivery.
-          </EmptyState>
-        )}
+        </div>
       </Section>
     </>
   );

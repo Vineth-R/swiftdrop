@@ -66,6 +66,17 @@ export type CourierStatusResult = {
   updatedAt: string;
 };
 
+export type CourierProofUpload = {
+  photo?: File;
+  recipientName?: string;
+  note?: string;
+};
+
+export type CourierProofResult = CourierProof & {
+  id: string;
+  parcelId: string;
+};
+
 export async function listCourierDeliveries({
   date,
   status,
@@ -135,5 +146,21 @@ export function updateCourierDeliveryStatus(
       body: update,
       signal,
     },
+  );
+}
+
+/** Stores proof for the authenticated courier's currently assigned parcel. */
+export function uploadCourierDeliveryProof(
+  parcelId: string,
+  proof: CourierProofUpload,
+  signal?: AbortSignal,
+) {
+  const form = new FormData();
+  if (proof.photo) form.append('photo', proof.photo);
+  if (proof.recipientName) form.append('recipientName', proof.recipientName);
+  if (proof.note) form.append('note', proof.note);
+  return api<CourierProofResult>(
+    `/courier/deliveries/${encodeURIComponent(parcelId)}/proof`,
+    { method: 'POST', body: form, signal },
   );
 }
