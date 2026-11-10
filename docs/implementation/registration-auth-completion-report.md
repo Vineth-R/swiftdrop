@@ -172,8 +172,10 @@ Fixes applied during final QA:
 - Identity ADMIN and courier current-access checks now compare the JWT `sv` claim
   with the current user session version and reject stale sessions.
 - The email catalog used a high-entropy sample verification token, which triggered
-  the feature-branch Gitleaks `generic-api-key` rule. Sample links now use a
-  clearly non-secret placeholder; the feature-branch secret scan passes.
+  the Gitleaks `generic-api-key` rule. Sample links now use a clearly non-secret
+  placeholder. Because the PR range includes the older commits, a narrow
+  `.gitleaksignore` entry suppresses only the two verified historical
+  fingerprints; the full Gitleaks and feature-branch scans pass.
 
 ## 11. Security and dependency audits
 
@@ -259,8 +261,12 @@ overrides live in `pnpm-workspace.yaml` for the pnpm 12 configuration format.
   - `99dfd9b` merge of latest development (`f03d31e`)
   - `3b85446` lifecycle idempotency hardening and Playwright/security fixes
   - `1ee4db2` non-secret sample verification tokens for secret scanning
+  - `db58272` final QA/security report update
+  - `5813fc6` narrow `.gitleaksignore` entry for the verified historical
+    sample-token false positive (the PR range includes older commits; no
+    history was rewritten or force-pushed)
   - This report is committed separately on the same branch. The final PR head is
-    the branch head reported on PR #122.
+    the last commit on PR #122; see the PR for the exact SHA.
 - Nothing was merged. The branch is pushed and a PR is opened into `development`
   for review; the PR is not merged.
 
