@@ -1211,9 +1211,14 @@ paths:
         valid JPEG or PNG no larger than exactly 5 MiB. Client file names and
         media headers are not trusted. Photos are stored in private Parcel-owned
         storage; the response never exposes a storage key or filesystem path.
-        Repeated uploads create distinct proof records. The parcel row is locked
-        while current assignment is checked, so reassignment cannot race an
-        authorized insert. Cache-Control no-store.
+        Repeated uploads create distinct proof records up to the configurable
+        per-parcel limit (default 20). The parcel row is locked while the current
+        assignment and proof count are checked, so neither reassignment nor a
+        concurrent upload can race an authorized insert. Requests are limited to
+        30 per minute per verified courier. The public gateway accepts up to
+        6 MiB so multipart overhead does not reject a 5 MiB photo; the
+        application still enforces the 5 MiB photo-content limit. Cache-Control
+        no-store.
       tags: [Courier]
       security:
         - AccessCookie: []
@@ -1252,8 +1257,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: PROOF_LIMIT_REACHED. The parcel already has the configured maximum number of proofs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '413':
-          description: PAYLOAD_TOO_LARGE. Photo exceeds exactly 5 MiB or the bounded multipart request size.
+          description: PAYLOAD_TOO_LARGE. Photo exceeds exactly 5 MiB, or the request exceeds the 6 MiB gateway body limit.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1264,6 +1274,16 @@ paths:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '422':
           description: VALIDATION_ERROR. No proof field is present, the multipart form is malformed, recipientName exceeds 150 characters or note exceeds 500 characters.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429':
+          description: RATE_LIMITED. More than 30 proof uploads in a minute for the verified courier.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+            X-RateLimit-Remaining:
+              schema: { type: integer, minimum: 0 }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }

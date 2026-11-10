@@ -70,7 +70,7 @@ func (s *LocalStorage) Save(ctx context.Context, data []byte, mimeType string) (
 	if mimeType == "image/png" {
 		extension = ".png"
 	} else if mimeType != "image/jpeg" {
-		return "", fmt.Errorf("%w: unsupported verified MIME type", ErrStorageUnavailable)
+		return "", fmt.Errorf("%w: unsupported verified MIME type", ErrUnsupportedPhotoType)
 	}
 	for range 4 {
 		var token [16]byte

@@ -58,7 +58,7 @@ func TestLocalStorageRejectsUnsafeInputs(t *testing.T) {
 			t.Fatalf("Delete(%q) error = %v", name, err)
 		}
 	}
-	if _, err := storage.Save(t.Context(), []byte("x"), "image/gif"); !errors.Is(err, ErrStorageUnavailable) {
+	if _, err := storage.Save(t.Context(), []byte("x"), "image/gif"); !errors.Is(err, ErrUnsupportedPhotoType) {
 		t.Fatalf("unsupported MIME error = %v", err)
 	}
 }

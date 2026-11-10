@@ -2,8 +2,9 @@
 
 Parcel implements customer creation, owned list/detail/history and PDF receipts,
 internal merchant creation and summaries, public tracking and delivery reports.
-M6 dispatch APIs, screens and the outbox relay are integrated. M7 courier status
-writes remain separate work. See
+M6 dispatch APIs, screens and the outbox relay are integrated. M7 courier reads,
+status updates and proof uploads are implemented here; the remaining courier
+workflow UI and end-to-end scenarios remain separate work. See
 [M5 verification](../../../docs/m5-complete-parcel-flow.md) for executed evidence
 and the older [M5.1 record](../../../docs/m5-parcel-database-verification.md) for
 the already merged schema/repository foundation.
@@ -13,15 +14,19 @@ the already merged schema/repository foundation.
 Gin registers these paths. Public calls add `/api/v1` through Nginx; internal
 routes require `X-Internal-Token` and are never forwarded by the public gateway.
 
-| Method | Service path                           | Access                            |
-| ------ | -------------------------------------- | --------------------------------- |
-| POST   | `/parcels`                             | CUSTOMER                          |
-| GET    | `/parcels`                             | CUSTOMER, own parcels             |
-| GET    | `/parcels/{parcelId}`                  | CUSTOMER owner, DISPATCHER, ADMIN |
-| GET    | `/parcels/{parcelId}/history`          | CUSTOMER owner, DISPATCHER, ADMIN |
-| GET    | `/parcels/{parcelId}/receipt`          | CUSTOMER owner, ADMIN             |
-| POST   | `/internal/parcels`                    | Trusted internal token            |
-| GET    | `/internal/parcels/{parcelId}/summary` | Trusted internal token            |
+| Method | Service path                            | Access                            |
+| ------ | --------------------------------------- | --------------------------------- |
+| POST   | `/parcels`                              | CUSTOMER                          |
+| GET    | `/parcels`                              | CUSTOMER, own parcels             |
+| GET    | `/parcels/{parcelId}`                   | CUSTOMER owner, DISPATCHER, ADMIN |
+| GET    | `/parcels/{parcelId}/history`           | CUSTOMER owner, DISPATCHER, ADMIN |
+| GET    | `/parcels/{parcelId}/receipt`           | CUSTOMER owner, ADMIN             |
+| POST   | `/internal/parcels`                     | Trusted internal token            |
+| GET    | `/internal/parcels/{parcelId}/summary`  | Trusted internal token            |
+| GET    | `/courier/deliveries`                   | COURIER                           |
+| GET    | `/courier/deliveries/{parcelId}`        | COURIER, current assignment       |
+| POST   | `/courier/deliveries/{parcelId}/status` | COURIER, current assignment       |
+| POST   | `/courier/deliveries/{parcelId}/proof`  | COURIER, current assignment       |
 
 Exact contracts live in [OpenAPI](../../../contracts/openapi/parcel.yaml) and API
 v1.1 sections 4/13. List filters: `status`, inclusive UTC `from`/`to`, `page`
@@ -93,17 +98,57 @@ and publishes `parcel.created.v1` using the outbox UUID as `event_id`; the store
 label/key remain `parcel.created`. A successful create does not claim email
 delivery. See the [event contract](../../../contracts/events/README.md).
 
+## Courier delivery proofs
+
+`POST /courier/deliveries/{parcelId}/proof` accepts
+`multipart/form-data` with optional `recipientName` (150 characters), `note`
+(500 characters) and `photo` (JPEG/PNG, exactly 5 MiB maximum). At least one
+field is required. The flow is:
+
+1. The courier group authenticates the access token and requires the COURIER role.
+2. The handler bounds the multipart body, rejects duplicate/unknown fields, and
+   reads the photo into memory up to the 5 MiB limit.
+3. The service validates image content, declared MIME type, dimensions and pixel
+   count; client file names are ignored.
+4. The service locks the parcel row, verifies `current_courier_id` and the
+   current assignment row, and counts existing proofs.
+5. The photo is written under a generated name with 0600 permissions in the
+   private `PROOF_STORAGE_DIR` (0700), then proof metadata is inserted and
+   committed in the same transaction. A post-commit rollback error cannot turn
+   a committed proof into a failure.
+6. The response returns metadata only; storage keys and filesystem paths never
+   appear in responses or the courier read APIs.
+
+Uploads are limited to 30 per minute per verified courier and to
+`PROOF_MAX_PER_PARCEL` proofs per parcel (default 20, range 1-100), enforced
+under the parcel row lock. Reaching the quota returns `409 PROOF_LIMIT_REACHED`;
+rate limiting returns `429 RATE_LIMITED`. The gateway allows 6 MiB so multipart
+overhead does not reject a 5 MiB photo, while the application still enforces the
+5 MiB photo-content limit and returns `413 PAYLOAD_TOO_LARGE` with the shared
+JSON error shape.
+
+Proof files are local to the Parcel service filesystem or its `parcel-proofs`
+volume. The implementation assumes one replica or shared persistent storage:
+multiple replicas with independent local volumes are unsafe because a proof row
+may reference a file that exists only on the replica that accepted the upload.
+Horizontal scaling requires shared object storage or an equivalent shared
+volume. Back up the volume together with PostgreSQL; a restore needs both the
+rows and the files. The service creates the directory 0700 and files 0600 as its
+non-root user, and startup fails if the configured directory cannot be opened.
+
 ## Configuration and screens
 
-| Variable            | Default                | Purpose                                             |
-| ------------------- | ---------------------- | --------------------------------------------------- |
-| `INTERNAL_TOKEN`    | unset, fail closed     | Internal and downstream authentication              |
-| `PRICING_BASE_URL`  | `http://pricing:8083`  | Real Pricing service origin                         |
-| `PRICING_TIMEOUT`   | `3s`                   | Pricing HTTP deadline                               |
-| `IDENTITY_BASE_URL` | `http://identity:8081` | Assigned courier contact                            |
-| `IDENTITY_TIMEOUT`  | `3s`                   | Identity HTTP deadline                              |
-| `RABBITMQ_URL`      | unset, relay disabled  | M6 publisher connection; shared safe URL validation |
-| `RABBITMQ_EXCHANGE` | `swiftdrop.events`     | Versioned event exchange used by the relay          |
+| Variable               | Default                | Purpose                                                                              |
+| ---------------------- | ---------------------- | ------------------------------------------------------------------------------------ |
+| `INTERNAL_TOKEN`       | unset, fail closed     | Internal and downstream authentication                                               |
+| `PRICING_BASE_URL`     | `http://pricing:8083`  | Real Pricing service origin                                                          |
+| `PRICING_TIMEOUT`      | `3s`                   | Pricing HTTP deadline                                                                |
+| `IDENTITY_BASE_URL`    | `http://identity:8081` | Assigned courier contact                                                             |
+| `IDENTITY_TIMEOUT`     | `3s`                   | Identity HTTP deadline                                                               |
+| `RABBITMQ_URL`         | unset, relay disabled  | M6 publisher connection; shared safe URL validation                                  |
+| `RABBITMQ_EXCHANGE`    | `swiftdrop.events`     | Versioned event exchange used by the relay                                           |
+| `PROOF_STORAGE_DIR`    | unset, uploads `503`   | Private delivery-proof directory; Compose uses `/home/app/proofs` on `parcel-proofs` |
+| `PROOF_MAX_PER_PARCEL` | `20`                   | Maximum proofs per parcel; allowed range 1-100                                       |
 
 Origins accept HTTP(S), without credentials, paths, queries or fragments. Clients
 reject redirects and propagate request IDs/cancellation. History and receipts use

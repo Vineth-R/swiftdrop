@@ -2,10 +2,14 @@ package httpx
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestRateLimiterSlidingWindow(t *testing.T) {
@@ -55,5 +59,34 @@ func TestRateLimiterConcurrentAndBounded(t *testing.T) {
 	}
 	if len(limiter.clients) != 4096 {
 		t.Fatalf("unbounded clients %d", len(limiter.clients))
+	}
+}
+
+func TestRateLimiterMiddlewareKeyed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	limiter := NewRateLimiter(1, time.Minute)
+	router := gin.New()
+	router.GET("/keyed", limiter.MiddlewareKeyed(func(c *gin.Context) string {
+		return c.GetHeader("X-Test-Key")
+	}), func(c *gin.Context) { c.Status(204) })
+
+	request := func(key string) int {
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/keyed", nil)
+		if key != "" {
+			req.Header.Set("X-Test-Key", key)
+		}
+		router.ServeHTTP(recorder, req)
+		return recorder.Code
+	}
+
+	if code := request("a"); code != 204 {
+		t.Fatalf("first keyed request = %d", code)
+	}
+	if code := request("a"); code != 429 {
+		t.Fatalf("second keyed request = %d", code)
+	}
+	if code := request("b"); code != 204 {
+		t.Fatalf("independent keyed request = %d", code)
 	}
 }

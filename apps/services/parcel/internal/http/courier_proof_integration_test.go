@@ -4,6 +4,9 @@ package servicehttp
 
 import (
 	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,7 +26,7 @@ func TestCourierProofHTTPDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = storage.Close() })
-	service := courier.NewProofService(database.Pool, storage)
+	service := courier.NewProofService(database.Pool, storage, 0)
 	router := proofRouter(t, service)
 
 	id := parceltest.UUID(t)
@@ -43,9 +46,9 @@ func TestCourierProofHTTPDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, contentType := proofForm(t, map[string]string{"recipientName": "Recipient"}, nil, "")
-	request := func(parcelID, userID string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/courier/deliveries/"+parcelID+"/proof", bytes.NewReader(body))
-		req.Header.Set("Content-Type", contentType)
+	request := func(parcelID, userID string, payload []byte, payloadType string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/courier/deliveries/"+parcelID+"/proof", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", payloadType)
 		manager, tokenErr := auth.NewTokenManager(reportTestSecret, time.Hour)
 		if tokenErr != nil {
 			t.Fatal(tokenErr)
@@ -60,17 +63,49 @@ func TestCourierProofHTTPDatabase(t *testing.T) {
 		return recorder
 	}
 
-	if recorder := request(id, courierTestID); recorder.Code != http.StatusCreated || !strings.Contains(recorder.Body.String(), `"hasPhoto":false`) {
+	if recorder := request(id, courierTestID, body, contentType); recorder.Code != http.StatusCreated || !strings.Contains(recorder.Body.String(), `"hasPhoto":false`) {
 		t.Fatalf("created response %d %s", recorder.Code, recorder.Body)
 	}
 	var count int
 	if err := database.Pool.QueryRow(t.Context(), `SELECT count(*) FROM parcel.delivery_proofs WHERE parcel_id=$1`, id).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("proof count=%d error=%v", count, err)
 	}
-	if recorder := request(id, parceltest.UUID(t)); recorder.Code != http.StatusForbidden {
+	if recorder := request(id, parceltest.UUID(t), body, contentType); recorder.Code != http.StatusForbidden {
 		t.Fatalf("foreign response %d %s", recorder.Code, recorder.Body)
 	}
-	if recorder := request(parceltest.UUID(t), courierTestID); recorder.Code != http.StatusNotFound {
+	if recorder := request(parceltest.UUID(t), courierTestID, body, contentType); recorder.Code != http.StatusNotFound {
 		t.Fatalf("missing response %d %s", recorder.Code, recorder.Body)
 	}
+
+	for _, tc := range []struct {
+		name              string
+		photo             []byte
+		declaredMediaType string
+	}{
+		{name: "declared MIME mismatch", photo: mustPNG(t), declaredMediaType: "image/jpeg"},
+		{name: "non-image renamed", photo: []byte("not an image"), declaredMediaType: "image/jpeg"},
+		{name: "empty photo", photo: []byte{}, declaredMediaType: "image/png"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, payloadType := proofForm(t, nil, tc.photo, tc.declaredMediaType)
+			recorder := request(id, courierTestID, payload, payloadType)
+			if recorder.Code != http.StatusUnsupportedMediaType || !strings.Contains(recorder.Body.String(), `"code":"UNSUPPORTED_MEDIA_TYPE"`) {
+				t.Fatalf("response %d %s", recorder.Code, recorder.Body)
+			}
+		})
+	}
+	if err := database.Pool.QueryRow(t.Context(), `SELECT count(*) FROM parcel.delivery_proofs WHERE parcel_id=$1`, id).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("rejected uploads changed proof count=%d error=%v", count, err)
+	}
+}
+
+func mustPNG(t *testing.T) []byte {
+	t.Helper()
+	var data bytes.Buffer
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.White)
+	if err := png.Encode(&data, img); err != nil {
+		t.Fatal(err)
+	}
+	return data.Bytes()
 }

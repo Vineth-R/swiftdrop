@@ -147,6 +147,7 @@ services:
       IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
       IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
       PROOF_STORAGE_DIR: ${PROOF_STORAGE_DIR:-/home/app/proofs}
+      PROOF_MAX_PER_PARCEL: ${PROOF_MAX_PER_PARCEL:-20}
     volumes:
       # /home/app is created and owned by the image's non-root app user. An
       # empty named volume inherits that ownership, so the service can create

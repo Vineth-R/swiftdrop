@@ -2,22 +2,25 @@ package courier
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	proofmedia "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof"
 )
 
+const DefaultProofMaxPerParcel = 20
+
 var (
-	ErrProofEmpty       = errors.New("delivery proof must contain at least one field")
-	ErrProofValidation  = errors.New("delivery proof validation failed")
-	ErrProofUnsupported = errors.New("delivery proof photo is unsupported")
+	ErrProofEmpty        = errors.New("delivery proof must contain at least one field")
+	ErrProofValidation   = errors.New("delivery proof validation failed")
+	ErrProofUnsupported  = errors.New("delivery proof photo is unsupported")
+	ErrProofLimitReached = errors.New("delivery proof limit reached for this parcel")
 )
 
 type ProofPhoto struct {
@@ -47,17 +50,27 @@ type ProofDB interface {
 }
 
 type ProofService struct {
-	db      ProofDB
-	storage proofmedia.Storage
+	db           ProofDB
+	storage      proofmedia.Storage
+	maxPerParcel int
 }
 
-func NewProofService(db ProofDB, storage proofmedia.Storage) *ProofService {
-	return &ProofService{db: db, storage: storage}
+func NewProofService(db ProofDB, storage proofmedia.Storage, maxPerParcel int) *ProofService {
+	if maxPerParcel < 1 {
+		maxPerParcel = DefaultProofMaxPerParcel
+	}
+	return &ProofService{db: db, storage: storage, maxPerParcel: maxPerParcel}
 }
 
 // CreateProof locks the parcel before checking both assignment representations.
 // Reassignments therefore cannot race an authorized proof insert. Repeated
-// proofs are allowed by API v1.1 and the existing one-to-many schema.
+// proofs are allowed up to the configured per-parcel limit.
+//
+// The photo is written and synced before the proof row commits, so a committed
+// row always references a durable file. That ordering holds the parcel lock
+// during the write; a temp-file/rename redesign could shorten the lock but
+// would introduce a crash window where a committed row references a file that
+// has not reached its final name. The safer ordering is kept deliberately.
 func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (result ProofResult, err error) {
 	if s == nil || s.db == nil || s.storage == nil {
 		return ProofResult{}, ErrUnavailable
@@ -100,12 +113,17 @@ func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (resul
 	if err != nil {
 		return ProofResult{}, fmt.Errorf("begin courier proof: %w", err)
 	}
+	committed := false
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if rollbackErr := tx.Rollback(cleanupCtx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-			err = errors.Join(err, fmt.Errorf("rollback courier proof: %w", rollbackErr))
+		rollbackErr := tx.Rollback(cleanupCtx)
+		if rollbackErr == nil || errors.Is(rollbackErr, pgx.ErrTxClosed) || committed {
+			return
 		}
+		// A committed proof is durable. A later rollback error must never turn a
+		// successful operation into a reported failure.
+		err = errors.Join(err, fmt.Errorf("rollback courier proof: %w", rollbackErr))
 	}()
 
 	var currentCourierID *string
@@ -128,11 +146,26 @@ func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (resul
 		return ProofResult{}, ErrInconsistentAssignment
 	}
 
+	// The parcel row lock serializes proof inserts for one parcel, so this count
+	// cannot be bypassed by concurrent uploads. Counting before storing the file
+	// also avoids writing a file that would be rejected by the quota.
+	var proofCount int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM parcel.delivery_proofs WHERE parcel_id=$1`, input.ParcelID).Scan(&proofCount); err != nil {
+		return ProofResult{}, fmt.Errorf("count courier proofs: %w", err)
+	}
+	if proofCount >= s.maxPerParcel {
+		return ProofResult{}, ErrProofLimitReached
+	}
+
 	var storageKey *string
 	cleanupFile := false
 	if input.Photo != nil {
 		key, saveErr := s.storage.Save(ctx, input.Photo.Data, metadata.MIMEType)
 		if saveErr != nil {
+			if errors.Is(saveErr, proofmedia.ErrUnsupportedPhotoType) {
+				return ProofResult{}, fmt.Errorf("%w: %v", ErrProofUnsupported, saveErr)
+			}
 			return ProofResult{}, fmt.Errorf("store courier proof photo: %w", saveErr)
 		}
 		storageKey = &key
@@ -181,17 +214,16 @@ func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (resul
 			return ProofResult{}, fmt.Errorf("commit courier proof: %w", err)
 		}
 	}
+	committed = true
 	cleanupFile = false
 	result.CreatedAt = result.CreatedAt.UTC()
 	return result, nil
 }
 
 func proofID() (string, error) {
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
+	id, err := uuid.NewRandom()
+	if err != nil {
 		return "", fmt.Errorf("generate courier proof ID: %w", err)
 	}
-	id[6] = (id[6] & 0x0f) | 0x40
-	id[8] = (id[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:]), nil
+	return id.String(), nil
 }

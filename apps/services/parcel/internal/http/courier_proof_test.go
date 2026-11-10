@@ -46,7 +46,12 @@ func proofRouter(t *testing.T, store CourierProofStore) *gin.Engine {
 
 func proofRequest(t *testing.T, router *gin.Engine, role auth.Role, body []byte, contentType string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/courier/deliveries/"+courierParcelID+"/proof", bytes.NewReader(body))
+	return proofRequestPath(t, router, role, "/courier/deliveries/"+courierParcelID+"/proof", body, contentType)
+}
+
+func proofRequestPath(t *testing.T, router *gin.Engine, role auth.Role, path string, body []byte, contentType string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", contentType)
 	if role != "" {
 		manager, err := auth.NewTokenManager(reportTestSecret, time.Hour)
@@ -100,6 +105,8 @@ func TestCourierProofAuthorizationAndSuccess(t *testing.T) {
 	}{
 		{name: "signed out", want: 401},
 		{name: "customer", role: auth.RoleCustomer, want: 403},
+		{name: "dispatcher", role: auth.RoleDispatcher, want: 403},
+		{name: "admin", role: auth.RoleAdmin, want: 403},
 		{name: "courier", role: auth.RoleCourier, want: 201},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -157,6 +164,8 @@ func TestCourierProofStoreErrors(t *testing.T) {
 		{name: "oversize", err: proofmedia.ErrPhotoTooLarge, want: 413, code: "PAYLOAD_TOO_LARGE"},
 		{name: "unsupported", err: courier.ErrProofUnsupported, want: 415, code: "UNSUPPORTED_MEDIA_TYPE"},
 		{name: "unavailable", err: courier.ErrUnavailable, want: 503, code: "SERVICE_UNAVAILABLE"},
+		{name: "limit", err: courier.ErrProofLimitReached, want: 409, code: "PROOF_LIMIT_REACHED"},
+		{name: "inconsistent assignment", err: courier.ErrInconsistentAssignment, want: 500, code: "INTERNAL_ERROR"},
 		{name: "database", err: errors.New("secret SQL path"), want: 500, code: "INTERNAL_ERROR"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,5 +175,114 @@ func TestCourierProofStoreErrors(t *testing.T) {
 				t.Fatalf("response %d %s", recorder.Code, recorder.Body)
 			}
 		})
+	}
+}
+
+type proofMultipartPart struct {
+	name, filename, contentType, value string
+}
+
+func rawProofForm(t *testing.T, parts []proofMultipartPart) ([]byte, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, part := range parts {
+		header := make(textproto.MIMEHeader)
+		disposition := `form-data; name="` + part.name + `"`
+		if part.filename != "" {
+			disposition += `; filename="` + part.filename + `"`
+		}
+		header.Set("Content-Disposition", disposition)
+		if part.contentType != "" {
+			header.Set("Content-Type", part.contentType)
+		}
+		section, err := writer.CreatePart(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := section.Write([]byte(part.value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return body.Bytes(), writer.FormDataContentType()
+}
+
+func TestCourierProofInvalidParcelID(t *testing.T) {
+	body, contentType := proofForm(t, map[string]string{"note": "At door"}, nil, "")
+	store := &courierProofFixture{}
+	recorder := proofRequestPath(t, proofRouter(t, store), auth.RoleCourier,
+		"/courier/deliveries/not-a-uuid/proof", body, contentType)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"code":"BAD_REQUEST"`) {
+		t.Fatalf("response %d %s", recorder.Code, recorder.Body)
+	}
+	if store.calls != 0 {
+		t.Fatal("invalid parcel reached proof store")
+	}
+}
+
+func TestCourierProofRejectsDuplicateAndUnknownFields(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		parts []proofMultipartPart
+	}{
+		{name: "duplicate note", parts: []proofMultipartPart{{name: "note", value: "one"}, {name: "note", value: "two"}}},
+		{name: "unknown field", parts: []proofMultipartPart{{name: "recipient", value: "Amali"}}},
+		{name: "text field with filename", parts: []proofMultipartPart{{name: "note", filename: "note.txt", value: "at door"}}},
+		{name: "photo without filename", parts: []proofMultipartPart{{name: "photo", contentType: "image/png", value: "x"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, contentType := rawProofForm(t, tc.parts)
+			store := &courierProofFixture{}
+			recorder := proofRequest(t, proofRouter(t, store), auth.RoleCourier, body, contentType)
+			if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), `"code":"VALIDATION_ERROR"`) {
+				t.Fatalf("response %d %s", recorder.Code, recorder.Body)
+			}
+			if store.calls != 0 {
+				t.Fatal("invalid multipart reached proof store")
+			}
+		})
+	}
+}
+
+func TestCourierProofExactPhotoLimitIsAccepted(t *testing.T) {
+	body, contentType := rawProofForm(t, []proofMultipartPart{{
+		name: "photo", filename: "large.png", contentType: "image/png", value: string(bytes.Repeat([]byte("x"), proofmedia.MaxPhotoBytes)),
+	}})
+	store := &courierProofFixture{}
+	recorder := proofRequest(t, proofRouter(t, store), auth.RoleCourier, body, contentType)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("response %d %s", recorder.Code, recorder.Body)
+	}
+	photoLength := 0
+	if store.input.Photo != nil {
+		photoLength = len(store.input.Photo.Data)
+	}
+	if store.calls != 1 || photoLength != proofmedia.MaxPhotoBytes {
+		t.Fatalf("store calls=%d photo length=%d", store.calls, photoLength)
+	}
+}
+
+func TestCourierProofRateLimitedPerCourier(t *testing.T) {
+	body, contentType := proofForm(t, map[string]string{"note": "At door"}, nil, "")
+	store := &courierProofFixture{}
+	router := proofRouter(t, store)
+	for index := 0; index < proofUploadsPerMinute; index++ {
+		recorder := proofRequest(t, router, auth.RoleCourier, body, contentType)
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("request %d response %d %s", index+1, recorder.Code, recorder.Body)
+		}
+	}
+	recorder := proofRequest(t, router, auth.RoleCourier, body, contentType)
+	if recorder.Code != http.StatusTooManyRequests || !strings.Contains(recorder.Body.String(), `"code":"RATE_LIMITED"`) {
+		t.Fatalf("limited response %d %s", recorder.Code, recorder.Body)
+	}
+	if recorder.Header().Get("Retry-After") == "" || recorder.Header().Get("X-RateLimit-Remaining") != "0" {
+		t.Fatalf("rate limit headers = %v", recorder.Header())
+	}
+	if store.calls != proofUploadsPerMinute {
+		t.Fatalf("store calls = %d", store.calls)
 	}
 }

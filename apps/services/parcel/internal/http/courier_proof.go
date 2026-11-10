@@ -9,27 +9,54 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/courier"
 	proofmedia "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
-const proofRequestBytes = proofmedia.MaxPhotoBytes + 64*1024
+const (
+	proofRequestBytes = proofmedia.MaxPhotoBytes + 64*1024
+	// A courier should never need more than a handful of proofs per minute.
+	// Thirty leaves room for retries and a multi-stop workflow while bounding
+	// storage and image-decoding abuse from a compromised courier account.
+	proofUploadsPerMinute = 30
+)
 
 type CourierProofStore interface {
 	CreateProof(context.Context, courier.ProofInput) (courier.ProofResult, error)
 }
 
+// unavailableProofStore keeps the route registered while failing closed when
+// proof storage is not configured.
+type unavailableProofStore struct{}
+
+func (unavailableProofStore) CreateProof(context.Context, courier.ProofInput) (courier.ProofResult, error) {
+	return courier.ProofResult{}, courier.ErrUnavailable
+}
+
 func registerCourierProof(group *gin.RouterGroup, store CourierProofStore, logger *slog.Logger) {
 	if store == nil {
-		store = courier.NewProofService(nil, nil)
+		store = unavailableProofStore{}
 	}
+	limiter := httpx.NewRateLimiter(proofUploadsPerMinute, time.Minute)
+	// The courier group runs authentication before this middleware, so the
+	// verified subject is available. The gateway replaces forwarding headers,
+	// making the token subject the correct abuse boundary.
+	rateLimit := limiter.MiddlewareKeyed(func(c *gin.Context) string {
+		claims, ok := auth.ClaimsFrom(c)
+		if !ok || claims.UserID == "" {
+			return ""
+		}
+		return "courier:" + strings.ToLower(claims.UserID)
+	})
 	upload := func(c *gin.Context) {
 		claims, ok := courierClaims(c)
 		if !ok {
@@ -61,6 +88,8 @@ func registerCourierProof(group *gin.RouterGroup, store CourierProofStore, logge
 			httpx.Error(c, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "photo must be a valid JPEG or PNG")
 		case errors.Is(err, courier.ErrProofEmpty), errors.Is(err, courier.ErrProofValidation):
 			httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "delivery proof fields are invalid")
+		case errors.Is(err, courier.ErrProofLimitReached):
+			httpx.Error(c, http.StatusConflict, "PROOF_LIMIT_REACHED", "delivery proof limit reached for this parcel")
 		case errors.Is(err, courier.ErrUnavailable):
 			httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "delivery proof uploads are unavailable")
 		default:
@@ -68,8 +97,8 @@ func registerCourierProof(group *gin.RouterGroup, store CourierProofStore, logge
 			httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "delivery proof could not be saved")
 		}
 	}
-	group.POST("/:parcelId/proof", upload)
-	group.POST("/:parcelId/proof/", upload)
+	group.POST("/:parcelId/proof", rateLimit, upload)
+	group.POST("/:parcelId/proof/", rateLimit, upload)
 }
 
 var (
@@ -129,7 +158,7 @@ func readProofForm(c *gin.Context) (courier.ProofInput, error) {
 			if readErr != nil {
 				return courier.ProofInput{}, classifyProofReadError(readErr)
 			}
-			if len(data) > 4096 || !utf8Valid(data) {
+			if len(data) > 4096 || !utf8.Valid(data) {
 				return courier.ProofInput{}, errProofBadMultipart
 			}
 			if name == "recipientName" {
@@ -140,10 +169,6 @@ func readProofForm(c *gin.Context) (courier.ProofInput, error) {
 		}
 	}
 	return input, nil
-}
-
-func utf8Valid(data []byte) bool {
-	return utf8.Valid(data)
 }
 
 func classifyProofReadError(err error) error {

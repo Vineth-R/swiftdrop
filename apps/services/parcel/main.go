@@ -134,7 +134,7 @@ func run() error {
 					logger.Warn("courier proof storage did not close cleanly")
 				}
 			}()
-			options.CourierProof = courier.NewProofService(database, proofStorage)
+			options.CourierProof = courier.NewProofService(database, proofStorage, config.ProofMaxPerParcel)
 		}
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)

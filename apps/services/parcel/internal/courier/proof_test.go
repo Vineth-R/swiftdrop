@@ -30,27 +30,38 @@ func (d *proofTestDB) QueryRow(context.Context, string, ...any) pgx.Row {
 
 type proofTestTx struct {
 	pgx.Tx
-	owner              *string
-	assignment         bool
-	lockErr, insertErr error
-	commitErr          error
-	createdAt          time.Time
-	commits, rollbacks int
+	owner                        *string
+	assignment                   bool
+	lockErr, insertErr, countErr error
+	commitErr, rollbackErr       error
+	proofCount                   int
+	createdAt                    time.Time
+	commits, rollbacks           int
 }
 
 func (t *proofTestTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	if strings.Contains(sql, "count(*)") {
+		return proofTestRow{kind: "count", count: t.proofCount, err: t.countErr}
+	}
 	if strings.Contains(sql, "FROM parcel.parcels") {
 		return proofTestRow{kind: "lock", owner: t.owner, exists: t.assignment, err: t.lockErr}
 	}
 	return proofTestRow{kind: "insert", createdAt: t.createdAt, err: t.insertErr}
 }
-func (t *proofTestTx) Commit(context.Context) error   { t.commits++; return t.commitErr }
-func (t *proofTestTx) Rollback(context.Context) error { t.rollbacks++; return pgx.ErrTxClosed }
+func (t *proofTestTx) Commit(context.Context) error { t.commits++; return t.commitErr }
+func (t *proofTestTx) Rollback(context.Context) error {
+	t.rollbacks++
+	if t.rollbackErr != nil {
+		return t.rollbackErr
+	}
+	return pgx.ErrTxClosed
+}
 
 type proofTestRow struct {
 	kind      string
 	owner     *string
 	exists    bool
+	count     int
 	createdAt time.Time
 	err       error
 }
@@ -63,6 +74,8 @@ func (r proofTestRow) Scan(dest ...any) error {
 	case "lock":
 		*dest[0].(**string) = r.owner
 		*dest[1].(*bool) = r.exists
+	case "count":
+		*dest[0].(*int) = r.count
 	case "insert":
 		*dest[0].(*time.Time) = r.createdAt
 	case "probe":
@@ -106,7 +119,7 @@ func proofServiceFixture(t *testing.T) (*ProofService, *proofTestTx, *proofTestS
 	owner := courierTestOwner
 	tx := &proofTestTx{owner: &owner, assignment: true, createdAt: time.Date(2026, 11, 10, 10, 0, 0, 0, time.FixedZone("test", 3600))}
 	storage := &proofTestStorage{key: strings.Repeat("a", 32) + ".png"}
-	return NewProofService(&proofTestDB{tx: tx}, storage), tx, storage
+	return NewProofService(&proofTestDB{tx: tx}, storage, 0), tx, storage
 }
 
 const courierTestOwner = "00000000-0000-4000-8000-000000000071"
@@ -167,7 +180,7 @@ func TestCreateProofAuthorizationBeforeStorage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tx := &proofTestTx{owner: tc.owner, assignment: tc.assignment, lockErr: tc.lockErr}
 			storage := &proofTestStorage{key: strings.Repeat("a", 32) + ".png"}
-			service := NewProofService(&proofTestDB{tx: tx}, storage)
+			service := NewProofService(&proofTestDB{tx: tx}, storage, 0)
 			_, err := service.CreateProof(t.Context(), ProofInput{ParcelID: proofTestParcel, CourierID: courierTestOwner, Note: "note"})
 			if !errors.Is(err, tc.want) || storage.saves != 0 || tx.commits != 0 {
 				t.Fatalf("error=%v saves=%d commits=%d", err, storage.saves, tx.commits)
@@ -193,7 +206,7 @@ func TestCreateProofCleansFileOnDefiniteFailure(t *testing.T) {
 			storage := &proofTestStorage{key: strings.Repeat("a", 32) + ".png"}
 			db := &proofTestDB{tx: tx, probeExists: false}
 			tc.set(tx, storage)
-			service := NewProofService(db, storage)
+			service := NewProofService(db, storage, 0)
 			_, err := service.CreateProof(t.Context(), ProofInput{ParcelID: proofTestParcel, CourierID: courierTestOwner,
 				Photo: &ProofPhoto{Data: validProofPNG(t), MIMEType: "image/png"}})
 			if err == nil {
@@ -214,10 +227,83 @@ func TestCreateProofResolvesCommittedResponseFailure(t *testing.T) {
 	owner := courierTestOwner
 	tx := &proofTestTx{owner: &owner, assignment: true, createdAt: time.Now(), commitErr: errors.New("connection lost")}
 	storage := &proofTestStorage{key: strings.Repeat("a", 32) + ".png"}
-	service := NewProofService(&proofTestDB{tx: tx, probeExists: true}, storage)
+	service := NewProofService(&proofTestDB{tx: tx, probeExists: true}, storage, 0)
 	result, err := service.CreateProof(t.Context(), ProofInput{ParcelID: proofTestParcel, CourierID: courierTestOwner,
 		Photo: &ProofPhoto{Data: validProofPNG(t), MIMEType: "image/png"}})
 	if err != nil || result.ID == "" || storage.deletes != 0 {
 		t.Fatalf("result=%+v error=%v deletes=%d", result, err, storage.deletes)
+	}
+}
+
+func TestCreateProofEnforcesParcelLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		limit      int
+		count      int
+		wantErr    error
+		wantSaves  int
+		wantCommit int
+	}{
+		{name: "below limit", limit: 2, count: 1, wantSaves: 1, wantCommit: 1},
+		{name: "at limit", limit: 2, count: 2, wantErr: ErrProofLimitReached},
+		{name: "above limit", limit: 2, count: 3, wantErr: ErrProofLimitReached},
+		{name: "default limit", limit: 0, count: DefaultProofMaxPerParcel - 1, wantSaves: 1, wantCommit: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			owner := courierTestOwner
+			tx := &proofTestTx{owner: &owner, assignment: true, createdAt: time.Now(), proofCount: tc.count}
+			storage := &proofTestStorage{key: strings.Repeat("a", 32) + ".png"}
+			service := NewProofService(&proofTestDB{tx: tx}, storage, tc.limit)
+			_, err := service.CreateProof(t.Context(), ProofInput{ParcelID: proofTestParcel, CourierID: courierTestOwner,
+				Photo: &ProofPhoto{Data: validProofPNG(t), MIMEType: "image/png"}})
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error=%v want=%v", err, tc.wantErr)
+			}
+			if storage.saves != tc.wantSaves || tx.commits != tc.wantCommit {
+				t.Fatalf("saves=%d commits=%d", storage.saves, tx.commits)
+			}
+		})
+	}
+}
+
+func TestCreateProofIgnoresRollbackErrorAfterCommit(t *testing.T) {
+	owner := courierTestOwner
+	tx := &proofTestTx{owner: &owner, assignment: true, createdAt: time.Now(),
+		rollbackErr: errors.New("rollback attempted after commit")}
+	storage := &proofTestStorage{key: strings.Repeat("a", 32) + ".png"}
+	service := NewProofService(&proofTestDB{tx: tx}, storage, 0)
+	result, err := service.CreateProof(t.Context(), ProofInput{ParcelID: proofTestParcel, CourierID: courierTestOwner, Note: "At door"})
+	if err != nil || result.ID == "" {
+		t.Fatalf("result=%+v error=%v", result, err)
+	}
+	if tx.commits != 1 || tx.rollbacks != 1 {
+		t.Fatalf("commits=%d rollbacks=%d", tx.commits, tx.rollbacks)
+	}
+}
+
+func TestCreateProofReportsCleanupFailureWithoutLeakingFile(t *testing.T) {
+	owner := courierTestOwner
+	tx := &proofTestTx{owner: &owner, assignment: true, createdAt: time.Now(), insertErr: errors.New("insert failed")}
+	storage := &proofTestStorage{key: strings.Repeat("a", 32) + ".png", deleteErr: errors.New("delete failed")}
+	service := NewProofService(&proofTestDB{tx: tx}, storage, 0)
+	_, err := service.CreateProof(t.Context(), ProofInput{ParcelID: proofTestParcel, CourierID: courierTestOwner,
+		Photo: &ProofPhoto{Data: validProofPNG(t), MIMEType: "image/png"}})
+	if err == nil || !strings.Contains(err.Error(), "clean up courier proof photo") {
+		t.Fatalf("error=%v", err)
+	}
+	if storage.deletes != 1 {
+		t.Fatalf("deletes=%d", storage.deletes)
+	}
+}
+
+func TestCreateProofMapsStorageMIMERejection(t *testing.T) {
+	owner := courierTestOwner
+	tx := &proofTestTx{owner: &owner, assignment: true, createdAt: time.Now()}
+	storage := &proofTestStorage{key: strings.Repeat("a", 32) + ".png", saveErr: proofmedia.ErrUnsupportedPhotoType}
+	service := NewProofService(&proofTestDB{tx: tx}, storage, 0)
+	_, err := service.CreateProof(t.Context(), ProofInput{ParcelID: proofTestParcel, CourierID: courierTestOwner,
+		Photo: &ProofPhoto{Data: validProofPNG(t), MIMEType: "image/png"}})
+	if !errors.Is(err, ErrProofUnsupported) || storage.deletes != 0 || tx.commits != 0 {
+		t.Fatalf("error=%v deletes=%d commits=%d", err, storage.deletes, tx.commits)
 	}
 }

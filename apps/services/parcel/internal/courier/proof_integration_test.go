@@ -57,7 +57,7 @@ func TestCourierProofDatabase(t *testing.T) {
 	for _, mimeType := range []string{"image/jpeg", "image/png"} {
 		t.Run(mimeType, func(t *testing.T) {
 			storage, directory := proofIntegrationStorage(t)
-			service := NewProofService(database.Pool, storage)
+			service := NewProofService(database.Pool, storage, 0)
 			id := insertStatusParcel(t, database.Pool, "OUT_FOR_DELIVERY", statusCourierID, false)
 			result, err := service.CreateProof(t.Context(), ProofInput{ParcelID: id, CourierID: statusCourierID,
 				RecipientName: " Recipient ", Note: " At door ",
@@ -89,7 +89,7 @@ func TestCourierProofDatabase(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			storage, _ := proofIntegrationStorage(t)
-			service := NewProofService(database.Pool, storage)
+			service := NewProofService(database.Pool, storage, 0)
 			id := insertStatusParcel(t, database.Pool, "OUT_FOR_DELIVERY", statusCourierID, false)
 			result, err := service.CreateProof(t.Context(), ProofInput{ParcelID: id, CourierID: statusCourierID,
 				RecipientName: tc.recipient, Note: tc.note})
@@ -105,7 +105,7 @@ func TestCourierProofDatabase(t *testing.T) {
 
 	t.Run("authorization and missing parcel write no files", func(t *testing.T) {
 		storage, directory := proofIntegrationStorage(t)
-		service := NewProofService(database.Pool, storage)
+		service := NewProofService(database.Pool, storage, 0)
 		id := insertStatusParcel(t, database.Pool, "OUT_FOR_DELIVERY", statusCourierID, false)
 		for _, input := range []ProofInput{
 			{ParcelID: id, CourierID: statusParcelID, Note: "foreign"},
@@ -123,7 +123,7 @@ func TestCourierProofDatabase(t *testing.T) {
 
 	t.Run("concurrent repeated uploads remain distinct", func(t *testing.T) {
 		storage, directory := proofIntegrationStorage(t)
-		service := NewProofService(database.Pool, storage)
+		service := NewProofService(database.Pool, storage, 0)
 		id := insertStatusParcel(t, database.Pool, "OUT_FOR_DELIVERY", statusCourierID, false)
 		start := make(chan struct{})
 		errorsCh := make(chan error, 2)
@@ -159,7 +159,7 @@ func TestCourierProofDatabase(t *testing.T) {
 
 	t.Run("database rejection removes stored file", func(t *testing.T) {
 		storage, directory := proofIntegrationStorage(t)
-		service := NewProofService(database.Pool, storage)
+		service := NewProofService(database.Pool, storage, 0)
 		id := insertStatusParcel(t, database.Pool, "OUT_FOR_DELIVERY", statusCourierID, false)
 		// Fixture-only DDL uses a generated UUID, never request data.
 		constraint := "ALTER TABLE parcel.delivery_proofs ADD CONSTRAINT m7_reject_proof CHECK (parcel_id <> '" + id + "'::uuid)"
@@ -177,6 +177,67 @@ func TestCourierProofDatabase(t *testing.T) {
 		entries, readErr := os.ReadDir(directory)
 		if readErr != nil || len(entries) != 0 {
 			t.Fatalf("orphan files=%v error=%v", entries, readErr)
+		}
+	})
+}
+
+func TestCourierProofParcelLimitDatabase(t *testing.T) {
+	database := parceltest.New(t)
+
+	t.Run("sequential limit", func(t *testing.T) {
+		storage, _ := proofIntegrationStorage(t)
+		service := NewProofService(database.Pool, storage, 2)
+		id := insertStatusParcel(t, database.Pool, "OUT_FOR_DELIVERY", statusCourierID, false)
+		for attempt := 1; attempt <= 2; attempt++ {
+			if _, err := service.CreateProof(t.Context(), ProofInput{ParcelID: id, CourierID: statusCourierID, Note: "At door"}); err != nil {
+				t.Fatalf("attempt %d: %v", attempt, err)
+			}
+		}
+		if _, err := service.CreateProof(t.Context(), ProofInput{ParcelID: id, CourierID: statusCourierID, Note: "At door"}); !errors.Is(err, ErrProofLimitReached) {
+			t.Fatalf("limit error = %v", err)
+		}
+		var count int
+		if err := database.Pool.QueryRow(t.Context(), `SELECT count(*) FROM parcel.delivery_proofs WHERE parcel_id=$1`, id).Scan(&count); err != nil || count != 2 {
+			t.Fatalf("proof count=%d error=%v", count, err)
+		}
+	})
+
+	t.Run("concurrent limit", func(t *testing.T) {
+		storage, _ := proofIntegrationStorage(t)
+		service := NewProofService(database.Pool, storage, 1)
+		id := insertStatusParcel(t, database.Pool, "OUT_FOR_DELIVERY", statusCourierID, false)
+		start := make(chan struct{})
+		results := make(chan error, 2)
+		var wait sync.WaitGroup
+		for range 2 {
+			wait.Add(1)
+			go func() {
+				defer wait.Done()
+				<-start
+				_, err := service.CreateProof(t.Context(), ProofInput{ParcelID: id, CourierID: statusCourierID, Note: "At door"})
+				results <- err
+			}()
+		}
+		close(start)
+		wait.Wait()
+		close(results)
+		var succeeded, limited int
+		for err := range results {
+			switch {
+			case err == nil:
+				succeeded++
+			case errors.Is(err, ErrProofLimitReached):
+				limited++
+			default:
+				t.Fatalf("unexpected error: %v", err)
+			}
+		}
+		if succeeded != 1 || limited != 1 {
+			t.Fatalf("succeeded=%d limited=%d", succeeded, limited)
+		}
+		var count int
+		if err := database.Pool.QueryRow(t.Context(), `SELECT count(*) FROM parcel.delivery_proofs WHERE parcel_id=$1`, id).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("proof count=%d error=%v", count, err)
 		}
 	})
 }
