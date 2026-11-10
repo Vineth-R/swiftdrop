@@ -19,6 +19,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/outbox"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/parcels"
+	proofmedia "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/reports"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
@@ -121,6 +122,20 @@ func run() error {
 		courierRepository := courier.NewRepository(database)
 		options.Courier = courierRepository
 		options.CourierStatus = courierRepository
+		if config.ProofStorageDir == "" {
+			logger.Warn("PROOF_STORAGE_DIR is not set; courier proof uploads will return 503")
+		} else {
+			proofStorage, storageErr := proofmedia.NewLocalStorage(config.ProofStorageDir)
+			if storageErr != nil {
+				return fmt.Errorf("configure courier proof storage: %w", storageErr)
+			}
+			defer func() {
+				if closeErr := proofStorage.Close(); closeErr != nil {
+					logger.Warn("courier proof storage did not close cleanly")
+				}
+			}()
+			options.CourierProof = courier.NewProofService(database, proofStorage)
+		}
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)
 		pricingClient := parcels.NewPricingClient(config.PricingBaseURL, config.InternalToken, &http.Client{

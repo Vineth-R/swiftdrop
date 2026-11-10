@@ -126,6 +126,28 @@ func TestLoadFromDefaults(t *testing.T) {
 	if config.CookieName != "sd_access" {
 		t.Fatalf("CookieName = %q, want sd_access", config.CookieName)
 	}
+	if config.ProofStorageDir != "" {
+		t.Fatalf("ProofStorageDir = %q, want empty", config.ProofStorageDir)
+	}
+}
+
+func TestLoadFromRetainsProofStorageDirectory(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_ENV":           "development",
+			"PROOF_STORAGE_DIR": `C:\private\swiftdrop-proofs`,
+		}
+		value, ok := values[key]
+		return value, ok
+	})
+
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ProofStorageDir != `C:\private\swiftdrop-proofs` {
+		t.Fatalf("ProofStorageDir = %q", config.ProofStorageDir)
+	}
 }
 
 func TestLoadFromRequiresExplicitAppEnv(t *testing.T) {

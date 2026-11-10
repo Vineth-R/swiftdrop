@@ -15,6 +15,7 @@ type Config struct {
 	AppEnv               string
 	LogLevel             string
 	DatabaseURL          string
+	ProofStorageDir      string
 	TrustedProxies       []string
 	AccessSecret         string
 	CookieName           string
@@ -96,6 +97,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		AppEnv:               appEnv,
 		LogLevel:             logLevel,
 		DatabaseURL:          loader.String("DATABASE_URL", ""),
+		ProofStorageDir:      loader.String("PROOF_STORAGE_DIR", ""),
 		TrustedProxies:       proxies,
 		AccessSecret:         accessSecret,
 		CookieName:           loader.String("COOKIE_NAME", "sd_access"),

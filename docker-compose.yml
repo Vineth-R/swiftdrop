@@ -146,6 +146,12 @@ services:
       PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
       IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
       IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
+      PROOF_STORAGE_DIR: ${PROOF_STORAGE_DIR:-/home/app/proofs}
+    volumes:
+      # /home/app is created and owned by the image's non-root app user. An
+      # empty named volume inherits that ownership, so the service can create
+      # its private proofs subdirectory without running as root.
+      - parcel-proofs:/home/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -386,3 +392,4 @@ services:
 volumes:
   postgres-data:
   rabbitmq-data:
+  parcel-proofs:
