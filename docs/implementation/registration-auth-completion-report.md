@@ -163,6 +163,14 @@ Fixes applied during final QA:
   with four workers. No timeout increase, test skip or assertion weakening.
 - The mocked suite was run against the production Next server (`CI=1`) to avoid
   dev-server restarts under parallel load.
+- CI integration fixes: the cross-service table inventory now expects the two
+  new Identity and Merchant tables (9 each), the baseline verifier expects 30
+  business tables, and the CI path-filter tests treat `realstack` as a separate
+  non-Docker job filter.
+- The real-stack health wait resolved the container name from
+  `COMPOSE_PROJECT_NAME` instead of a hard-coded `swiftdrop` name.
+- Added Identity handler/client tests to restore the required 60% coverage gate
+  (final 60.7%).
 - Real-stack tests now retry only on the documented login/registration 429 with
   `Retry-After`, cache the admin token for the suite, and exercise lifecycle
   approval/suspension through the API after the browser journeys.
@@ -205,6 +213,7 @@ Passed:
 - `go vet ./...`
 - `go test -race -count=1 ./...`
 - `go build ./...`
+- `scripts/coverage.sh` — identity 60.7% (gate 60%), pricing 72.3% (gate 70%)
 - PostgreSQL integration tests against disposable databases:
   - identity repository/seed
   - merchant HTTP/webhook/API-key/rejection-audit
@@ -236,8 +245,12 @@ Passed:
 
 Not run:
 
-- GitHub Actions CI was not executed from this environment; the workflow and
-  path filters were reviewed and `tests/scripts` passed.
+- GitHub Actions CI was executed on PR #122 and all required checks passed:
+  Go checks, frontend checks, mocked Playwright, real-stack Playwright, access
+  tests, PostgreSQL/RabbitMQ/identity/parcel integration jobs, notification
+  worker E2E, Docker builds, Gitleaks, CodeQL, security gate and the required
+  aggregate gate. Real-stack and access jobs each passed after the CI-specific
+  fixes above.
 - Mailpit delivery was verified through the real-stack tests rather than a
   separate manual inbox check.
 
@@ -265,8 +278,10 @@ overrides live in `pnpm-workspace.yaml` for the pnpm 12 configuration format.
   - `5813fc6` narrow `.gitleaksignore` entry for the verified historical
     sample-token false positive (the PR range includes older commits; no
     history was rewritten or force-pushed)
+  - `afe9082`, `9b72647`, `3910e6b`, `57282c7`, `35fcd62`, `db928f3` CI,
+    coverage, table-inventory and real-stack fixes
   - This report is committed separately on the same branch. The final PR head is
-    the last commit on PR #122; see the PR for the exact SHA.
+    the last commit on PR #122; see the final execution report for the exact SHA.
 - Nothing was merged. The branch is pushed and a PR is opened into `development`
   for review; the PR is not merged.
 
