@@ -37,7 +37,7 @@ func Catalog(site Site) []Entry {
 			Trigger: "Someone asks to reset a password (POST /auth/forgot-password).",
 			Email: PasswordReset(PasswordResetData{
 				Name: "Nimali Perera", ValidFor: "30 minutes",
-				Link: site.URL("/reset-password?token=Xk3pQ9vL2mTz7WcE5nRyB8aHdJfU4sGo1iNqZ6tVwKe"),
+				Link: site.URL("/reset-password?token=sample-token-not-a-secret"),
 			}),
 		},
 		{
@@ -52,7 +52,7 @@ func Catalog(site Site) []Entry {
 			Trigger: "A customer registers with email and password (POST /auth/register).",
 			Email: EmailVerification(EmailVerificationData{
 				Name: "Nimali Perera", ValidFor: "30 minutes",
-				Link:      site.URL("/verify-email?token=Xk3pQ9vL2mTz7WcE5nRyB8aHdJfU4sGo1iNqZ6tVwKe"),
+				Link:      site.URL("/verify-email?token=sample-token-not-a-secret"),
 				ResendURL: site.URL("/verify-email"),
 			}),
 		},
