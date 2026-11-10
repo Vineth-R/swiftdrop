@@ -2,7 +2,8 @@
 
 ## Scope and baseline
 
-- Baseline: local `development` at `f313ec3`.
+- Initial baseline: local `development` at `6652a44`.
+- Final integration: `origin/development` at `f03d31e` (M7 proof-upload merge), integrated with merge commit `99dfd9b`.
 - Worktree: isolated `feature/registration-email-verification-merchant-approval`.
 - The existing M7 proof-upload worktree is not modified by this milestone.
 

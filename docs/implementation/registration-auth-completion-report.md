@@ -68,8 +68,8 @@ PostgreSQL 16 Compose service.
 - Internal APIs create/resume an inactive merchant owner, apply idempotent
   lifecycle transitions, expose session state, and compensate failed
   registration.
-- Lifecycle transitions validate transition ID payload consistency and reject
-  stale sequences.
+- Lifecycle transitions validate transition ID, user ID, operation and sequence
+  payload consistency and reject stale sequences.
 
 ## 5. Merchant implementation
 
@@ -142,74 +142,124 @@ Docker Compose and Nginx routing.
 - Suspension revokes refresh tokens and bumps the session version.
 - Merchant business routes reject stale `sv`, inactive Identity users and
   non-approved merchants.
+- Identity ADMIN/courier current-access checks compare the JWT `sv` claim.
 - Password hashing, refresh rotation, lockout and existing session rules are
   unchanged.
 
-## 10. Tests executed and results
+## 10. Final integration and fixes
+
+`origin/development` advanced from `6652a44` to `f03d31e` (the M7 courier
+proof-upload merge) while this branch was in review. The branch was integrated
+with merge commit `99dfd9b`; AGENTS and README conflicts were resolved by
+keeping the latest development proof-upload/configuration text and adding the
+registration/merchant/session-version implementation notes. The original M7
+worktree was not modified.
+
+Fixes applied during final QA:
+
+- Playwright pagination flake root cause: `getByRole('button', { name: 'Next' })`
+  also matched Next.js Dev Tools' "Open Next.js Dev Tools" button. The reports
+  test now uses `exact: true`; `reports.spec.ts:170` passed 20/20 repeated runs
+  with four workers. No timeout increase, test skip or assertion weakening.
+- The mocked suite was run against the production Next server (`CI=1`) to avoid
+  dev-server restarts under parallel load.
+- Real-stack tests now retry only on the documented login/registration 429 with
+  `Retry-After`, cache the admin token for the suite, and exercise lifecycle
+  approval/suspension through the API after the browser journeys.
+- Identity lifecycle idempotency now compares the stored transition's `user_id`
+  as well as operation and sequence. Reusing a transition ID for another user
+  returns `TRANSITION_ID_CONFLICT`; an integration test covers it.
+- Identity ADMIN and courier current-access checks now compare the JWT `sv` claim
+  with the current user session version and reject stale sessions.
+
+## 11. Security and dependency audits
+
+`govulncheck ./...`:
+
+- The code is affected by **0** vulnerabilities.
+- 0 vulnerabilities in imported packages; 1 vulnerability exists in a required
+  module but is not reachable from this code.
+
+`pnpm audit` before correction: 19 vulnerabilities, all in development-only
+tooling (3 low, 10 moderate, 6 high); `pnpm audit --prod` reported **0**.
+Undici was pinned through Nx, and minimatch through ESLint tooling.
+
+Corrections in `pnpm-workspace.yaml`:
+
+- `undici: 7.30.1` (patched minor; used only by Nx).
+- `minimatch: 11.0.1` (patched major; lint, unit tests and build re-run
+  successfully).
+
+Final `pnpm audit`: **0 vulnerabilities**. `pnpm audit --prod`: **0**.
+
+## 12. Tests executed and results
 
 Passed:
 
-- `go test -race -count=1 ./...`
-- `go vet ./...`
-- `go build ./...`
 - `gofmt -l apps/services packages/go-common tests` (no output)
-- PostgreSQL integration tests against a disposable database created with a
-  temporary Compose port override:
-  - identity repository (including lifecycle/version idempotency)
-  - identity seed
-  - merchant HTTP/webhook/API-key integration
-  - merchant rejection-reason persistence/audit
+- `go vet ./...`
+- `go test -race -count=1 ./...`
+- `go build ./...`
+- PostgreSQL integration tests against disposable databases:
+  - identity repository/seed
+  - merchant HTTP/webhook/API-key/rejection-audit
   - `tests/integration/database`
-  - pricing HTTP integration
+  - pricing HTTP
   - notification idempotency and notification-log repositories
 - `docker compose config --quiet`
-- Sequential Docker image builds for every service; the first fully parallel
-  build failed with an out-of-memory Go compiler kill, and the sequential build
-  succeeded.
-- Full Compose stack reached healthy state and `make migrate` applied all
-  migrations.
-- `make test-access` passed, including the role matrix and session/ownership
+- Sequential Docker image builds; the initial fully parallel build hit a local
+  out-of-memory compiler kill, and sequential builds of identity, parcel, web
+  and the remaining services succeeded.
+- Full Compose stack reached healthy state; `make migrate` reported no pending
+  changes after the initial migration run.
+- `make test-access`: passed, including role matrix, ownership and session
   suites.
-- Real-stack Playwright against Compose + Mailpit: **4 passed**
+- Real-stack Playwright against Compose + Mailpit: **4 passed**:
   - customer register → verify email → login → dashboard
   - merchant pending → admin approval → approval email → merchant login → API keys
-  - rejection with and without a reason → correct email → login refused
+  - rejection with and without reason → correct email → login refused
   - approve → login → stop Identity → suspend (`identitySync: PENDING`) →
     restart Identity → reapprove → old token rejected → fresh login → API keys 200
+- `pnpm exec nx run-many -t lint test typecheck --projects=@org/web,@org/web-e2e`
 - `pnpm exec nx build @org/web`
-- `pnpm exec nx test @org/web` (87 tests)
-- `pnpm exec nx run-many -t lint typecheck --projects=@org/web,@org/web-e2e`
-- Mocked Playwright: a full run reached 601/602; the only failure was the
-  pre-existing `reports.spec.ts` pagination test under parallel load, which
-  passed when rerun alone. A later full rerun did not complete within the shell
-  timeout; no source change was made to that suite after the passing run.
+- Mocked Playwright (`CI=1`, Chromium): **602 passed, 0 failed, 0 skipped** in
+  2.7 minutes. The previously failing pagination test also passed 20/20 repeated
+  runs under four workers.
+- `govulncheck ./...`: no reachable vulnerabilities.
+- `pnpm audit`: 0 vulnerabilities.
+- `git diff --check`.
 
-Not run or incomplete:
+Not run:
 
-- `govulncheck` and `pnpm audit --prod --audit-level=high` were not run in this
-  session.
-- The CI real-stack job is defined but was not executed by GitHub Actions here.
-- The parallel image build failure is a local resource limit, not a code
-  failure.
+- GitHub Actions CI was not executed from this environment; the workflow and
+  path filters were reviewed and `tests/scripts` passed.
+- Mailpit delivery was verified through the real-stack tests rather than a
+  separate manual inbox check.
 
-## 11. CI
+## 13. CI
 
-Added a path-filtered `real-stack-e2e` job that builds images, starts a
-disposable Compose stack, applies migrations, creates the ADMIN fixture, runs the
-real-stack Playwright project, dumps logs on failure and tears down with
-`down -v`. The required gate treats the job as optional/skipped-or-success.
+The path-filtered `real-stack-e2e` job builds images, starts a disposable
+Compose stack, applies migrations, creates the ADMIN fixture, runs the real-stack
+Playwright project, dumps logs on failure and tears down with `down -v`. The
+required gate treats the job as optional/skipped-or-success. Dependency
+overrides live in `pnpm-workspace.yaml` for the pnpm 12 configuration format.
 
-## 12. Git
+## 14. Git
 
 - Branch: `feature/registration-email-verification-merchant-approval`
-- Implementation commits:
-  - `2f906f9` — identity verification, session version and lifecycle foundations
-  - `621d733` — registration, merchant approval, frontend, contracts, tests,
+- Base: `origin/development`
+- Commits:
+  - `2f906f9` identity verification, session version and lifecycle foundations
+  - `621d733` registration, merchant approval, frontend, contracts, tests,
     infrastructure and docs
-- This report is committed separately on the same branch.
-- Nothing was pushed, and no PR was opened or merged.
+  - `58a5ea0` initial completion report
+  - `99dfd9b` merge of latest development (`f03d31e`)
+  - `3b85446` lifecycle idempotency hardening and Playwright/security fixes
+  - This report is committed separately on the same branch.
+- Nothing was merged. The branch is pushed and a PR is opened into `development`
+  for review; the PR is not merged.
 
-## 13. Remaining limitations
+## 15. Remaining limitations
 
 - Account emails are background SMTP, not a durable outbox; failed emails are
   logged and may be resent manually. Decision emails may duplicate on a manual
@@ -228,5 +278,5 @@ real-stack Playwright project, dumps logs on failure and tears down with
 - Verification tokens are not garbage-collected.
 - Pre-existing seeded databases may need re-verification or reset for demo
   CUSTOMER logins.
-- The Docker parallel build memory requirement is high; CI/local builds may
-  need `COMPOSE_PARALLEL_LIMIT=1`.
+- Docker builds may need `COMPOSE_PARALLEL_LIMIT=1` on memory-constrained
+  machines.
