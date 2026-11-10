@@ -189,3 +189,36 @@ func AccountReactivated(d AccountStatusData) Email {
 		Reason: "You are receiving this because the status of this SwiftDrop account changed.",
 	}
 }
+
+// EmailVerificationData fills EmailVerification.
+type EmailVerificationData struct {
+	Name string
+	// Link is the absolute verification link with its single-use token.
+	Link string
+	// ValidFor is how long the link works, in words: "30 minutes".
+	ValidFor string
+	// ResendURL is the absolute link to the page where another email can be
+	// requested.
+	ResendURL string
+}
+
+// EmailVerification is sent after a customer registers. The account cannot be
+// used until the link is opened.
+func EmailVerification(d EmailVerificationData) Email {
+	return Email{
+		Subject:   "Verify your SwiftDrop account",
+		Preheader: "Confirm your email address to start using SwiftDrop.",
+		Eyebrow:   "Account verification",
+		Heading:   "Verify your email address",
+		Blocks: []Block{
+			Paragraph(greeting(d.Name)),
+			Paragraph("Welcome to SwiftDrop. Confirm this email address to activate your account and start sending parcels."),
+			Button("Verify my email", d.Link),
+			Notice(ToneInfo, "This link works once",
+				"It expires in "+d.ValidFor+". If you need another one, open the verification page and request a new email."),
+			Paragraph("If you did not create this account, you can ignore this email."),
+			Paragraph("Need another verification email? " + d.ResendURL),
+		},
+		Reason: "You are receiving this because this email address was used to create a SwiftDrop account.",
+	}
+}

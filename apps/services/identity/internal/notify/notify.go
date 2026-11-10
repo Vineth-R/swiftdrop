@@ -69,6 +69,16 @@ func New(sender mailer.Mailer, site emails.Site, logger *slog.Logger, opts ...Op
 // shutdown so an email is not lost.
 func (s *Sender) Wait() { s.pending.Wait() }
 
+// VerifyEmail implements service.Notifier.
+func (s *Sender) VerifyEmail(ctx context.Context, to service.Recipient, link string, validFor time.Duration) {
+	s.send(ctx, "email_verification", to, emails.EmailVerification(emails.EmailVerificationData{
+		Name:      to.FullName,
+		Link:      link,
+		ValidFor:  emails.FormatDuration(validFor),
+		ResendURL: s.site.URL("/verify-email"),
+	}))
+}
+
 // Welcome implements service.Notifier.
 func (s *Sender) Welcome(ctx context.Context, to service.Recipient) {
 	s.send(ctx, "welcome", to, emails.Welcome(emails.WelcomeData{

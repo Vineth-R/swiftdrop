@@ -7,6 +7,7 @@ import (
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/identity/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/identity/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/lockout"
+	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/merchantclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/service"
@@ -46,13 +47,19 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 	if err != nil {
 		return nil, nil, err
 	}
+	merchantClient, err := merchantclient.New(config.MerchantBaseURL, config.InternalToken, config.MerchantTimeout)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create merchant client: %w", err)
+	}
 	identity, err := service.New(repo, hasher, tokens, service.Config{
-		RefreshTTL: authConfig.RefreshTokenTTL,
+		RefreshTTL:           authConfig.RefreshTokenTTL,
+		EmailVerificationTTL: authConfig.EmailVerificationTokenTTL,
+		FrontendBaseURL:      mail.Site.BaseURL,
 		Lockout: lockout.Policy{
 			MaxFailures: authConfig.MaxFailedLogins,
 			Duration:    authConfig.LockoutDuration,
 		},
-	}, service.WithLogger(logger), service.WithNotifier(mail.Notifier))
+	}, service.WithLogger(logger), service.WithNotifier(mail.Notifier), service.WithMerchantApproval(merchantClient))
 	if err != nil {
 		return nil, nil, fmt.Errorf("create identity service: %w", err)
 	}
@@ -84,7 +91,7 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 		options = append(options, resetOption)
 	}
 
-	internalOption, err := internalRouterOption(logger, repo, appEnv)
+	internalOption, err := internalRouterOption(logger, repo, hasher, appEnv)
 	if err != nil {
 		return nil, nil, err
 	}

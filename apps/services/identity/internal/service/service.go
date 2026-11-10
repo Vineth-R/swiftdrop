@@ -20,6 +20,9 @@ import (
 // Store is the persistence the service needs. *repository.Repository satisfies it.
 type Store interface {
 	CreateUser(ctx context.Context, params repository.CreateUserParams) (repository.User, error)
+	CreateUserWithVerificationToken(ctx context.Context, params repository.CreateUserParams, token repository.NewEmailVerificationToken) (repository.User, error)
+	IssueEmailVerificationToken(ctx context.Context, token repository.NewEmailVerificationToken, now time.Time) error
+	ConsumeEmailVerificationToken(ctx context.Context, tokenHash string, now time.Time) (string, error)
 	UserByEmail(ctx context.Context, email string) (repository.User, error)
 	UserByID(ctx context.Context, userID string) (repository.User, error)
 	RecordSuccessfulLogin(ctx context.Context, userID string, now time.Time) error
@@ -40,13 +43,21 @@ type Hasher interface {
 
 // TokenIssuer signs access tokens. *auth.TokenManager satisfies it.
 type TokenIssuer interface {
-	Issue(userID string, role auth.Role) (string, auth.Claims, error)
+	IssueWithSession(userID string, role auth.Role, sessionVersion int) (string, auth.Claims, error)
+}
+
+// MerchantApprovalChecker reads the current merchant application status from
+// the Merchant service. Merchant logins fail closed when it is unavailable.
+type MerchantApprovalChecker interface {
+	Approval(ctx context.Context, userID string) (string, error)
 }
 
 // Config is the policy the service applies.
 type Config struct {
-	RefreshTTL time.Duration
-	Lockout    lockout.Policy
+	RefreshTTL           time.Duration
+	EmailVerificationTTL time.Duration
+	FrontendBaseURL      string
+	Lockout              lockout.Policy
 }
 
 // Option customises a Service.
@@ -72,6 +83,16 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+// WithMerchantApproval sets the merchant status checker used by merchant
+// login and refresh.
+func WithMerchantApproval(checker MerchantApprovalChecker) Option {
+	return func(s *Service) {
+		if checker != nil {
+			s.merchantApproval = checker
+		}
+	}
+}
+
 // Service implements the identity use cases.
 type Service struct {
 	store  Store
@@ -83,6 +104,10 @@ type Service struct {
 
 	// notifier sends account emails. It is never nil.
 	notifier Notifier
+
+	// merchantApproval checks merchant status during login and refresh.
+	// Without it merchant sessions fail closed.
+	merchantApproval MerchantApprovalChecker
 }
 
 // New returns a Service.
@@ -95,6 +120,9 @@ func New(store Store, hasher Hasher, tokens TokenIssuer, config Config, opts ...
 	}
 	if config.Lockout.MaxFailures < 1 || config.Lockout.Duration <= 0 {
 		return nil, errors.New("lockout policy needs a positive failure limit and duration")
+	}
+	if config.EmailVerificationTTL <= 0 {
+		config.EmailVerificationTTL = 30 * time.Minute
 	}
 
 	service := &Service{
@@ -119,12 +147,13 @@ func (s *Service) nowUTC() time.Time { return s.now().UTC() }
 
 // Account is the public view of a user.
 type Account struct {
-	ID        string
-	Email     string
-	FullName  string
-	Phone     string
-	Role      auth.Role
-	CreatedAt time.Time
+	ID            string
+	Email         string
+	FullName      string
+	Phone         string
+	Role          auth.Role
+	EmailVerified bool
+	CreatedAt     time.Time
 }
 
 // Session is the result of a successful login or refresh.
@@ -174,12 +203,21 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (Account, e
 		return Account{}, fmt.Errorf("register: %w", err)
 	}
 
-	user, err := s.store.CreateUser(ctx, repository.CreateUserParams{
+	token, err := newVerificationToken()
+	if err != nil {
+		return Account{}, fmt.Errorf("register: %w", err)
+	}
+	now := s.nowUTC()
+	user, err := s.store.CreateUserWithVerificationToken(ctx, repository.CreateUserParams{
 		Email:        email,
 		PasswordHash: hash,
 		FullName:     strings.TrimSpace(input.FullName),
 		Phone:        input.Phone,
 		Role:         auth.RoleCustomer,
+	}, repository.NewEmailVerificationToken{
+		UserID:    "",
+		TokenHash: hashVerificationToken(token),
+		ExpiresAt: now.Add(s.config.EmailVerificationTTL),
 	})
 	if errors.Is(err, repository.ErrEmailTaken) {
 		return Account{}, ErrEmailAlreadyExists
@@ -187,7 +225,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (Account, e
 	if err != nil {
 		return Account{}, fmt.Errorf("register: %w", err)
 	}
-	s.notifier.Welcome(ctx, recipientOf(user))
+	s.notifier.VerifyEmail(ctx, recipientOf(user), s.verificationLink(token), s.config.EmailVerificationTTL)
 	return accountOf(user), nil
 }
 
@@ -232,7 +270,23 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (Session, error) 
 	}
 
 	if !user.IsActive {
+		if user.Role == auth.RoleMerchant {
+			return Session{}, ErrMerchantAccountInactive
+		}
 		return Session{}, ErrAccountDisabled
+	}
+
+	if user.Role == auth.RoleMerchant {
+		approved, err := s.merchantApproved(ctx, user.ID)
+		if err != nil {
+			return Session{}, err
+		}
+		if !approved {
+			return Session{}, ErrMerchantAccountInactive
+		}
+	}
+	if user.Role == auth.RoleCustomer && !user.EmailVerified {
+		return Session{}, ErrEmailVerificationRequired
 	}
 
 	if err := s.store.RecordSuccessfulLogin(ctx, user.ID, now); err != nil {
@@ -296,6 +350,21 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (Session, err
 	if err != nil {
 		return Session{}, fmt.Errorf("refresh: %w", err)
 	}
+	if !user.IsActive {
+		return Session{}, ErrRefreshTokenInvalid
+	}
+	if user.Role == auth.RoleMerchant {
+		approved, err := s.merchantApproved(ctx, user.ID)
+		if err != nil {
+			return Session{}, err
+		}
+		if !approved {
+			return Session{}, ErrRefreshTokenInvalid
+		}
+	}
+	if user.Role == auth.RoleCustomer && !user.EmailVerified {
+		return Session{}, ErrRefreshTokenInvalid
+	}
 
 	session, err := s.sessionFor(user, refresh)
 	if err != nil {
@@ -346,7 +415,7 @@ func (s *Service) newRefreshRecord(userAgent string, ip netip.Addr, now time.Tim
 // sessionFor issues an access token for user and pairs it with the refresh
 // token that has already been stored.
 func (s *Service) sessionFor(user repository.User, refresh refreshRecord) (Session, error) {
-	accessToken, claims, err := s.tokens.Issue(user.ID, user.Role)
+	accessToken, claims, err := s.tokens.IssueWithSession(user.ID, user.Role, user.SessionVersion)
 	if err != nil {
 		return Session{}, err
 	}
@@ -363,11 +432,12 @@ func (s *Service) sessionFor(user repository.User, refresh refreshRecord) (Sessi
 
 func accountOf(user repository.User) Account {
 	account := Account{
-		ID:        user.ID,
-		Email:     user.Email,
-		FullName:  user.FullName,
-		Role:      user.Role,
-		CreatedAt: user.CreatedAt,
+		ID:            user.ID,
+		Email:         user.Email,
+		FullName:      user.FullName,
+		Role:          user.Role,
+		EmailVerified: user.EmailVerified,
+		CreatedAt:     user.CreatedAt,
 	}
 	if user.Phone != nil {
 		account.Phone = *user.Phone

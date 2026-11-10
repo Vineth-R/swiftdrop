@@ -48,6 +48,15 @@ func Catalog(site Site) []Entry {
 			}),
 		},
 		{
+			ID: "account-email-verification", Group: "Account", Title: "Email verification",
+			Trigger: "A customer registers with email and password (POST /auth/register).",
+			Email: EmailVerification(EmailVerificationData{
+				Name: "Nimali Perera", ValidFor: "30 minutes",
+				Link:      site.URL("/verify-email?token=Xk3pQ9vL2mTz7WcE5nRyB8aHdJfU4sGo1iNqZ6tVwKe"),
+				ResendURL: site.URL("/verify-email"),
+			}),
+		},
+		{
 			ID: "account-welcome", Group: "Account", Title: "Welcome",
 			Trigger: "A customer creates an account, by email or with Google.",
 			Email:   Welcome(WelcomeData{Name: "Nimali Perera", AppURL: site.URL("/dashboard")}),

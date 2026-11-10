@@ -86,6 +86,14 @@ func registerProfileRoutes(router *gin.Engine, routes ProfileRoutes, logger *slo
 	me.PUT("/password", limitByUser(passwordLimiter), handlers.changePassword)
 }
 
+func requireSessionVersion(c *gin.Context, claims auth.Claims, version int) bool {
+	if claims.SessionVersion != version {
+		httpx.Error(c, http.StatusUnauthorized, "SESSION_REVOKED", "this session is no longer valid")
+		return false
+	}
+	return true
+}
+
 // get handles GET /users/me (API v1.1 section 2.7).
 func (h *profileHandlers) get(c *gin.Context) {
 	claims, ok := auth.ClaimsFrom(c)
@@ -106,6 +114,9 @@ func (h *profileHandlers) get(c *gin.Context) {
 			"request_id", requestid.FromGin(c), "path", c.FullPath(), "error", err.Error())
 		httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 	default:
+		if !requireSessionVersion(c, claims, profile.SessionVersion) {
+			return
+		}
 		httpx.Success(c, http.StatusOK, profileResponse(profile))
 	}
 }
@@ -131,6 +142,9 @@ func (h *profileHandlers) update(c *gin.Context) {
 		h.fail(c, err)
 		return
 	}
+	if !requireSessionVersion(c, claims, profile.SessionVersion) {
+		return
+	}
 	httpx.Success(c, http.StatusOK, profileResponse(profile))
 }
 
@@ -148,7 +162,15 @@ func (h *profileHandlers) changePassword(c *gin.Context) {
 		return
 	}
 
-	err := h.service.ChangePassword(c.Request.Context(), claims.UserID, service.ChangePasswordInput{
+	profile, err := h.service.Profile(c.Request.Context(), claims.UserID)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	if !requireSessionVersion(c, claims, profile.SessionVersion) {
+		return
+	}
+	err = h.service.ChangePassword(c.Request.Context(), claims.UserID, service.ChangePasswordInput{
 		CurrentPassword: request.CurrentPassword,
 		NewPassword:     request.NewPassword,
 	})

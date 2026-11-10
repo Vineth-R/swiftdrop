@@ -33,6 +33,8 @@ type AuthService interface {
 	Login(ctx context.Context, input service.LoginInput) (service.Session, error)
 	Refresh(ctx context.Context, input service.RefreshInput) (service.Session, error)
 	Logout(ctx context.Context, userID, refreshToken string) error
+	VerifyEmail(ctx context.Context, token string) error
+	ResendVerification(ctx context.Context, email string, ip netip.Addr) error
 }
 
 // AuthRoutes carries what the auth endpoints need.
@@ -65,12 +67,13 @@ type refreshRequest struct {
 }
 
 type accountResponse struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	FullName  string    `json:"fullName"`
-	Phone     string    `json:"phone,omitempty"`
-	Role      auth.Role `json:"role"`
-	CreatedAt string    `json:"createdAt,omitempty"`
+	ID            string    `json:"id"`
+	Email         string    `json:"email"`
+	FullName      string    `json:"fullName"`
+	Phone         string    `json:"phone,omitempty"`
+	Role          auth.Role `json:"role"`
+	EmailVerified bool      `json:"emailVerified"`
+	CreatedAt     string    `json:"createdAt,omitempty"`
 }
 
 type sessionResponse struct {
@@ -89,6 +92,59 @@ func registerAuthRoutes(router *gin.Engine, routes AuthRoutes, logger *slog.Logg
 	group.POST("/login", limitByClient(limiter), handlers.login)
 	group.POST("/refresh", handlers.refresh)
 	group.POST("/logout", auth.Authenticate(routes.Verifier, routes.Cookies.AccessName), handlers.logout)
+
+	verifyLimiter := newRateLimiter(verificationAttemptsPerMinute, time.Minute, nil)
+	resendLimiter := newRateLimiter(verificationAttemptsPerMinute, time.Minute, nil)
+	resendEmailLimiter := newRateLimiter(verificationAttemptsPerMinute, time.Minute, nil)
+	group.POST("/verify-email", limitByClient(verifyLimiter), handlers.verifyEmail)
+	group.POST("/resend-verification", limitByClient(resendLimiter), handlers.resendVerification(resendEmailLimiter))
+}
+
+const (
+	verificationAttemptsPerMinute = 5
+	verifyEmailMessage            = "Your email has been verified. You can now sign in to SwiftDrop."
+	resendVerificationMessage     = "If an account needs verification, a new verification email will be sent."
+)
+
+type verifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
+type resendVerificationRequest struct {
+	Email string `json:"email"`
+}
+
+func (h *authHandlers) verifyEmail(c *gin.Context) {
+	var request verifyEmailRequest
+	if !bindJSON(c, &request) {
+		return
+	}
+	if err := h.service.VerifyEmail(c.Request.Context(), request.Token); err != nil {
+		h.fail(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, messageResponse{Message: verifyEmailMessage})
+}
+
+func (h *authHandlers) resendVerification(emailLimiter *rateLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request resendVerificationRequest
+		if !bindJSON(c, &request) {
+			return
+		}
+		email := strings.ToLower(strings.TrimSpace(request.Email))
+		if email != "" {
+			if allowed, _, resetIn := emailLimiter.allow(email); !allowed {
+				rejectRateLimited(c, resetIn)
+				return
+			}
+		}
+		if err := h.service.ResendVerification(c.Request.Context(), request.Email, clientAddress(c)); err != nil {
+			h.fail(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusAccepted, messageResponse{Message: resendVerificationMessage})
+	}
 }
 
 // noStore keeps tokens out of browser and proxy caches.
@@ -217,6 +273,14 @@ func (h *authHandlers) fail(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusConflict, "EMAIL_ALREADY_EXISTS", "an account with this email already exists")
 	case errors.Is(err, service.ErrInvalidCredentials):
 		httpx.Error(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid email or password")
+	case errors.Is(err, service.ErrEmailVerificationRequired):
+		httpx.Error(c, http.StatusForbidden, "EMAIL_VERIFICATION_REQUIRED", "verify your email address before signing in")
+	case errors.Is(err, service.ErrVerificationTokenInvalid):
+		httpx.Error(c, http.StatusBadRequest, "INVALID_OR_EXPIRED_VERIFICATION_TOKEN", "the verification link is invalid or has expired")
+	case errors.Is(err, service.ErrMerchantAccountInactive):
+		httpx.Error(c, http.StatusForbidden, "MERCHANT_ACCOUNT_INACTIVE", "this merchant account is not active")
+	case errors.Is(err, service.ErrServiceUnavailable):
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "a required service is unavailable, try again later")
 	case errors.Is(err, service.ErrAccountDisabled):
 		httpx.Error(c, http.StatusForbidden, "ACCOUNT_DISABLED", "this account has been disabled")
 	case errors.Is(err, service.ErrAccountLocked):
@@ -270,11 +334,12 @@ func clientAddress(c *gin.Context) netip.Addr {
 
 func accountBody(account service.Account) accountResponse {
 	body := accountResponse{
-		ID:       account.ID,
-		Email:    account.Email,
-		FullName: account.FullName,
-		Phone:    account.Phone,
-		Role:     account.Role,
+		ID:            account.ID,
+		Email:         account.Email,
+		FullName:      account.FullName,
+		Phone:         account.Phone,
+		Role:          account.Role,
+		EmailVerified: account.EmailVerified,
 	}
 	if !account.CreatedAt.IsZero() {
 		body.CreatedAt = account.CreatedAt.UTC().Format(time.RFC3339)
