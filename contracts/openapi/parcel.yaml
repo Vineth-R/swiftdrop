@@ -1215,10 +1215,10 @@ paths:
         per-parcel limit (default 20). The parcel row is locked while the current
         assignment and proof count are checked, so neither reassignment nor a
         concurrent upload can race an authorized insert. Requests are limited to
-        30 per minute per verified courier. The public gateway accepts up to
-        6 MiB so multipart overhead does not reject a 5 MiB photo; the
-        application still enforces the 5 MiB photo-content limit. Cache-Control
-        no-store.
+        30 per minute per verified courier, and this route extends its own body
+        read deadline to 60 seconds. The public gateway accepts up to 6 MiB so
+        multipart overhead does not reject a 5 MiB photo; the application still
+        enforces the 5 MiB photo-content limit. Cache-Control no-store.
       tags: [Courier]
       security:
         - AccessCookie: []

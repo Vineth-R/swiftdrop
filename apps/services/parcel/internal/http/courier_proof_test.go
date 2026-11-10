@@ -286,3 +286,40 @@ func TestCourierProofRateLimitedPerCourier(t *testing.T) {
 		t.Fatalf("store calls = %d", store.calls)
 	}
 }
+
+type proofDeadlineWriter struct {
+	*httptest.ResponseRecorder
+	deadline time.Time
+	called   bool
+}
+
+func (w *proofDeadlineWriter) SetReadDeadline(deadline time.Time) error {
+	w.deadline = deadline
+	w.called = true
+	return nil
+}
+
+func TestCourierProofExtendsReadDeadline(t *testing.T) {
+	store := &courierProofFixture{}
+	router := proofRouter(t, store)
+	body, contentType := proofForm(t, map[string]string{"note": "At door"}, nil, "")
+	req := httptest.NewRequest(http.MethodPost, "/courier/deliveries/"+courierParcelID+"/proof", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	manager, err := auth.NewTokenManager(reportTestSecret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := manager.Issue(courierTestID, auth.RoleCourier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: "sd_access", Value: token})
+	writer := &proofDeadlineWriter{ResponseRecorder: httptest.NewRecorder()}
+	router.ServeHTTP(writer, req)
+	if writer.Code != http.StatusCreated {
+		t.Fatalf("response %d %s", writer.Code, writer.Body)
+	}
+	if !writer.called || time.Until(writer.deadline) < proofUploadReadTimeout-time.Minute {
+		t.Fatalf("read deadline called=%v remaining=%v", writer.called, time.Until(writer.deadline))
+	}
+}

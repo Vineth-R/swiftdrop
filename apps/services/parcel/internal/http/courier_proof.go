@@ -28,6 +28,10 @@ const (
 	// Thirty leaves room for retries and a multi-stop workflow while bounding
 	// storage and image-decoding abuse from a compromised courier account.
 	proofUploadsPerMinute = 30
+	// The server-wide ReadTimeout is 15s. A 5 MiB mobile upload can legitimately
+	// take longer, so this route extends only its own body read deadline. The
+	// gateway buffers the body first, but native clients still benefit.
+	proofUploadReadTimeout = 60 * time.Second
 )
 
 type CourierProofStore interface {
@@ -58,6 +62,9 @@ func registerCourierProof(group *gin.RouterGroup, store CourierProofStore, logge
 		return "courier:" + strings.ToLower(claims.UserID)
 	})
 	upload := func(c *gin.Context) {
+		// SetReadDeadline fails on writers that cannot expose the connection;
+		// keep the server-wide deadline as the safe fallback in that case.
+		_ = http.NewResponseController(c.Writer).SetReadDeadline(time.Now().Add(proofUploadReadTimeout))
 		claims, ok := courierClaims(c)
 		if !ok {
 			return

@@ -119,9 +119,11 @@ field is required. The flow is:
 6. The response returns metadata only; storage keys and filesystem paths never
    appear in responses or the courier read APIs.
 
-Uploads are limited to 30 per minute per verified courier and to
-`PROOF_MAX_PER_PARCEL` proofs per parcel (default 20, range 1-100), enforced
-under the parcel row lock. Reaching the quota returns `409 PROOF_LIMIT_REACHED`;
+The proof route extends that request's connection read deadline to 60 seconds so
+a 5 MiB upload from a slow mobile link is not cut off by the server-wide 15
+second `ReadTimeout`; other routes keep the shorter global limit. Uploads are
+limited to 30 per minute per verified courier and to `PROOF_MAX_PER_PARCEL`
+proofs per parcel (default 20, range 1-100), enforced under the parcel row lock. Reaching the quota returns `409 PROOF_LIMIT_REACHED`;
 rate limiting returns `429 RATE_LIMITED`. The gateway allows 6 MiB so multipart
 overhead does not reject a 5 MiB photo, while the application still enforces the
 5 MiB photo-content limit and returns `413 PAYLOAD_TOO_LARGE` with the shared
