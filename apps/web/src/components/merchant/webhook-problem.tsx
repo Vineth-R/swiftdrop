@@ -46,10 +46,9 @@ export function useWebhookProblem() {
         // The session gate is already sending the person to log in.
       } else if (error.code === 'ACCOUNT_DEACTIVATED') {
         recheck();
-      } else if (
-        error.code === 'FORBIDDEN' ||
-        error.code === 'MERCHANT_NOT_APPROVED'
-      ) {
+      } else if (error.code === 'MERCHANT_NOT_APPROVED') {
+        setProblem({ kind: 'not-approved' });
+      } else if (error.code === 'FORBIDDEN') {
         setProblem({ kind: 'not-approved' });
       } else if (error.code === 'NOT_FOUND') {
         setProblem({ kind: 'not-configured' });
@@ -80,6 +79,19 @@ function RateLimited({
   return <RateLimitedAlert alertRef={alertRef} remaining={remaining} />;
 }
 
+/** The same notice for a panel that has no other state yet. */
+export function WebhookNotApproved({
+  alertRef,
+}: {
+  alertRef?: Ref<HTMLDivElement>;
+}) {
+  return (
+    <Alert ref={alertRef} tone="warning" title="Webhook is not available yet">
+      Webhook settings open once an administrator approves your business.
+    </Alert>
+  );
+}
+
 /** Shows a Problem. Our own words only: nothing the server said is printed. */
 export function WebhookProblem({
   problem,
@@ -100,15 +112,7 @@ export function WebhookProblem({
         />
       );
     case 'not-approved':
-      return (
-        <Alert
-          ref={alertRef}
-          tone="warning"
-          title="Webhook is not available yet"
-        >
-          Webhook settings open once an administrator approves your business.
-        </Alert>
-      );
+      return <WebhookNotApproved alertRef={alertRef} />;
     case 'not-configured':
       return (
         <Alert ref={alertRef} tone="info" title="Save your webhook first">

@@ -106,12 +106,7 @@ const columns: DataTableColumn<WebhookDeliveryAttempt>[] = [
 
 type Load =
   | { status: 'loading' }
-  | {
-      status: 'ready';
-      rows: WebhookDeliveryAttempt[];
-      totalPages: number;
-      totalItems: number;
-    }
+  | { status: 'ready'; rows: WebhookDeliveryAttempt[] }
   | { status: 'error'; isNetwork: boolean };
 
 /** Every delivery attempt, newest first, with filters for outcome and tracking number. */
@@ -119,20 +114,22 @@ export function WebhookDeliveries() {
   const [draft, setDraft] = useState<Omit<DeliveryQuery, 'page'>>(noFilters);
   const [query, setQuery] = useState<DeliveryQuery>({ page: 1, ...noFilters });
   const [load, setLoad] = useState<Load>({ status: 'loading' });
+  // Kept apart from the rows so pagination stays visible, with its buttons
+  // disabled, while the next page loads instead of disappearing under a click.
+  const [pages, setPages] = useState({ totalPages: 1, totalItems: 0 });
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoad({ status: 'loading' });
     listWebhookDeliveries(query, PAGE_SIZE, controller.signal)
-      .then(({ data, meta }) =>
-        setLoad({
-          status: 'ready',
-          rows: data,
+      .then(({ data, meta }) => {
+        setPages({
           totalPages: meta.pagination?.totalPages ?? 1,
           totalItems: meta.pagination?.totalItems ?? data.length,
-        }),
-      )
+        });
+        setLoad({ status: 'ready', rows: data });
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setLoad({
@@ -240,14 +237,16 @@ export function WebhookDeliveries() {
               </EmptyState>
             }
           />
-          {load.status === 'ready' && (
-            <TablePagination
-              page={query.page}
-              totalPages={load.totalPages}
-              totalItems={load.totalItems}
-              onPageChange={(page) => setQuery({ ...query, page })}
-            />
-          )}
+          <TablePagination
+            page={query.page}
+            totalPages={pages.totalPages}
+            totalItems={pages.totalItems}
+            isLoading={load.status === 'loading'}
+            onPageChange={(page) => {
+              if (load.status === 'loading' || page === query.page) return;
+              setQuery({ ...query, page });
+            }}
+          />
         </>
       )}
     </div>

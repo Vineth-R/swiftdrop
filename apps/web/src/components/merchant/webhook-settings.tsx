@@ -17,7 +17,11 @@ import { Button } from '../ui/button';
 import { Checkbox, CheckboxGroup } from '../ui/checkbox';
 import { TextField } from '../ui/field';
 import { Skeleton, SkeletonGroup } from '../ui/skeleton';
-import { WebhookProblem, useWebhookProblem } from './webhook-problem';
+import {
+  WebhookNotApproved,
+  WebhookProblem,
+  useWebhookProblem,
+} from './webhook-problem';
 import { WebhookTestEvent } from './webhook-test-event';
 
 type Values = { url: string };
@@ -27,6 +31,8 @@ const rules: FormRules<Values> = { url: (v) => validateWebhookUrl(v.url) };
 
 const URL_REFUSED =
   'SwiftDrop cannot send to this address. Use a public https:// address, not localhost or a private network.';
+
+const VALIDATION_FAILED_MESSAGE = 'Check the webhook settings and try again.';
 
 const eventOptions = [
   {
@@ -134,7 +140,14 @@ function WebhookForm({ initial }: { initial: Settings | null }) {
       setIsDone(true);
     } catch (error) {
       if (error instanceof ApiError && error.code === 'VALIDATION_FAILED') {
-        form.setServerErrors({ url: URL_REFUSED });
+        // Only a refused address gets the address message. Any other 422
+        // keeps a neutral message instead of blaming the URL.
+        const isUrlRefused =
+          error.apiCode === 'WEBHOOK_URL_NOT_ALLOWED' ||
+          error.issues.some((issue) => issue.field === 'url');
+        form.setServerErrors({
+          url: isUrlRefused ? URL_REFUSED : VALIDATION_FAILED_MESSAGE,
+        });
       } else {
         fail(error);
       }
@@ -244,6 +257,7 @@ function WebhookForm({ initial }: { initial: Settings | null }) {
 type Load =
   | { status: 'loading' }
   | { status: 'ready'; settings: Settings | null }
+  | { status: 'not-approved' }
   | { status: 'error' };
 
 /** Loads the saved settings, then shows the form. A 404 means none are saved yet. */
@@ -260,6 +274,11 @@ export function WebhookSettings() {
         if (controller.signal.aborted) return;
         if (error instanceof ApiError && error.code === 'NOT_FOUND') {
           setLoad({ status: 'ready', settings: null });
+        } else if (
+          error instanceof ApiError &&
+          (error.code === 'MERCHANT_NOT_APPROVED' || error.code === 'FORBIDDEN')
+        ) {
+          setLoad({ status: 'not-approved' });
         } else {
           setLoad({ status: 'error' });
         }
@@ -278,6 +297,9 @@ export function WebhookSettings() {
         <Skeleton className="h-10 w-1/3" />
       </SkeletonGroup>
     );
+  }
+  if (load.status === 'not-approved') {
+    return <WebhookNotApproved />;
   }
   if (load.status === 'error') {
     return (
