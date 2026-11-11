@@ -68,7 +68,15 @@ export async function mockApi(
     const request = route.request();
     const path = new URL(request.url()).pathname.replace('/api/v1', '');
     const key = `${request.method()} ${path}`;
-    const body = request.postData() ? request.postDataJSON() : undefined;
+    const rawBody = request.postData();
+    let body: unknown;
+    if (rawBody) {
+      try {
+        body = request.postDataJSON();
+      } catch {
+        body = rawBody;
+      }
+    }
     calls.push({ key, body, url: request.url() });
 
     const handler = handlers[key] ?? fail(404, 'NOT_FOUND');

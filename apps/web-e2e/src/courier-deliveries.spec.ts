@@ -171,7 +171,7 @@ test('shows empty, loading and safe error states for Today', async ({
   await page.goto('/dashboard');
   await expect(
     page.getByRole('heading', { name: 'No assigned deliveries' }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
 
   response = fail(500, 'INTERNAL_ERROR');
   await page.getByRole('button', { name: 'Refresh' }).click();
@@ -188,16 +188,18 @@ test('shows empty, loading and safe error states for Today', async ({
 test('shows accessible initial-loading and manual-refresh states', async ({
   page,
 }) => {
-  let response: Reply = { ...pageOf([delivery]), delayMs: 1000 };
+  let response: Reply = { ...pageOf([delivery]), delayMs: 3000 };
   await signInAs(page, 'COURIER', { [listEndpoint]: () => response });
   await page.goto('/dashboard');
   await expect(
     page.getByRole('status').filter({ hasText: 'Loading assigned deliveries' }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Loading' })).toBeVisible();
-  await expect(page.getByText(delivery.trackingNumber)).toBeVisible();
+  await expect(page.getByText(delivery.trackingNumber)).toBeVisible({
+    timeout: 15_000,
+  });
 
-  response = { ...pageOf([delivery]), delayMs: 1000 };
+  response = { ...pageOf([delivery]), delayMs: 3000 };
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('button', { name: 'Refreshing' })).toBeVisible();
 });
@@ -219,7 +221,8 @@ for (const role of ['CUSTOMER', 'MERCHANT', 'DISPATCHER', 'ADMIN'] as Role[]) {
     await page.goto('/dashboard');
     if (role === 'DISPATCHER') {
       // A dispatcher has no dashboard: their home is the unassigned list.
-      await expect(page).toHaveURL(/\/unassigned$/);
+      // The client-side redirect waits for the page to compile in dev.
+      await expect(page).toHaveURL(/\/unassigned$/, { timeout: 15_000 });
     } else {
       await expect(
         page.getByRole('heading', { level: 1, name: 'Dashboard', exact: true }),
@@ -783,4 +786,149 @@ test('opens a short-lived proof photo when the delivery has one', async ({
   await page.getByRole('button', { name: 'View proof photo' }).click();
   const popup = await popupPromise;
   await popup.waitForURL('https://storage.example/proof.jpg');
+});
+
+test('handles a proof rate limit with a countdown and re-enables upload', async ({
+  page,
+}) => {
+  let attempts = 0;
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+    [`POST /courier/deliveries/${parcelId}/proof`]: () => {
+      attempts += 1;
+      return attempts === 1
+        ? fail(429, 'RATE_LIMITED', { headers: { 'Retry-After': '1' } })
+        : ok(
+            {
+              id: '00000000-0000-4000-8000-000000000203',
+              parcelId,
+              recipientName: null,
+              note: 'Rate limited proof',
+              hasPhoto: false,
+              createdAt: '2026-11-10T09:10:00Z',
+            },
+            201,
+          );
+    },
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  const note = page.getByLabel('Delivery note');
+  const upload = page.getByRole('button', { name: 'Upload proof' });
+  await note.fill('Rate limited proof');
+  await upload.click();
+
+  await expect(
+    page.getByText('Too many attempts from this device'),
+  ).toBeVisible();
+  await expect(page.getByText(/\d+ seconds/)).toBeVisible();
+  await expect(upload).toBeDisabled();
+  await expect(note).toHaveValue('Rate limited proof');
+  await expect(page.getByText('You can try again now.')).toBeVisible({
+    timeout: 5000,
+  });
+  await expect(upload).toBeEnabled();
+
+  await upload.click();
+  await expect(
+    page.getByText('Delivery proof uploaded', { exact: true }),
+  ).toBeVisible();
+  expect(attempts).toBe(2);
+});
+
+test('a reached proof quota stops further uploads', async ({ page }) => {
+  let attempts = 0;
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+    [`POST /courier/deliveries/${parcelId}/proof`]: () => {
+      attempts += 1;
+      return fail(409, 'PROOF_LIMIT_REACHED');
+    },
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  const note = page.getByLabel('Delivery note');
+  const upload = page.getByRole('button', { name: 'Upload proof' });
+  await note.fill('Quota proof');
+  await upload.click();
+
+  await expect(
+    page.getByText('This parcel has reached its proof limit'),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Another proof cannot be uploaded/),
+  ).toBeVisible();
+  await expect(page.getByText('Proof could not be uploaded')).toHaveCount(0);
+  await expect(upload).toBeDisabled();
+  await expect(note).toBeDisabled();
+  await expect(note).toHaveValue('Quota proof');
+  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
+
+  await upload.evaluate((button) => button.closest('form')?.requestSubmit());
+  expect(attempts).toBe(1);
+});
+
+test('offers only the next allowed delivery status', async ({ page }) => {
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+
+  await expect(page.getByLabel('Next status').locator('option')).toHaveText([
+    'Choose a status',
+    'DELIVERED',
+    'FAILED',
+  ]);
+});
+
+test('surfaces documented proof upload failures and keeps the draft', async ({
+  page,
+}) => {
+  let reply = fail(413, 'PAYLOAD_TOO_LARGE');
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+    [`POST /courier/deliveries/${parcelId}/proof`]: () => reply,
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  const note = page.getByLabel('Delivery note');
+  const upload = page.getByRole('button', { name: 'Upload proof' });
+  await note.fill('Keep this draft');
+  await upload.click();
+  await expect(page.getByText('Photo is too large')).toBeVisible();
+  await expect(note).toHaveValue('Keep this draft');
+
+  reply = fail(415, 'UNSUPPORTED_MEDIA_TYPE');
+  await upload.click();
+  await expect(page.getByText('Photo format is not supported')).toBeVisible();
+
+  reply = fail(422, 'PROOF_DETAILS_INVALID');
+  await upload.click();
+  await expect(page.getByText('Proof details need review')).toBeVisible();
+
+  reply = fail(403, 'FORBIDDEN');
+  await upload.click();
+  await expect(
+    page.getByText('You no longer have access to this delivery'),
+  ).toBeVisible();
+  await expect(upload).toBeDisabled();
+  await expect(note).toHaveValue('Keep this draft');
+  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
+});
+
+test('an expired session during proof upload shows the session-ended dialog', async ({
+  page,
+}) => {
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+    [`POST /courier/deliveries/${parcelId}/proof`]: fail(
+      401,
+      'UNAUTHENTICATED',
+    ),
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  await page.getByLabel('Delivery note').fill('Session proof');
+  await page.getByRole('button', { name: 'Upload proof' }).click();
+
+  await expect(
+    page.getByRole('dialog', { name: 'Your session ended' }),
+  ).toBeVisible();
+  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
 });
