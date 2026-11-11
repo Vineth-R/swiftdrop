@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { expect, test } from '@playwright/test';
 
-import { apiLogin, credentialsFor } from './support/real-stack';
+import { apiLogin, credentialsForRun } from './support/real-stack';
 
 type Zone = { id: string; name: string };
 type Contact = {
@@ -31,11 +31,15 @@ test('a parcel the customer creates shows on the public tracking page', async ({
   page,
   request,
 }) => {
-  const credentials = credentialsFor('CUSTOMER');
+  const credentials = credentialsForRun('CUSTOMER');
   test.skip(!credentials, 'set the REAL_STACK_CUSTOMER_* variables');
   if (!credentials) return;
 
-  const token = await apiLogin(request, credentials);
+  const token = await apiLogin(
+    request,
+    credentials.email,
+    credentials.password,
+  );
   const auth = { Authorization: `Bearer ${token}` };
 
   const zonesResponse = await request.get('/api/v1/zones');

@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-import { credentialsFor, type SeededAccount } from './support/real-stack';
+import {
+  credentialsFor,
+  credentialsForRun,
+  isCI,
+  type SeededAccount,
+} from './support/real-stack';
 
 /**
  * Real stack: every seeded demo user can sign in and reaches their own home.
@@ -26,11 +31,19 @@ test.describe('seeded users on the real stack', () => {
   // Logins share a rate limit, so one retry covers a brief 429.
   test.describe.configure({ retries: 1 });
 
+  test('every demo account is available to the run', () => {
+    test.skip(!isCI, 'only enforced in CI');
+    const missing = accounts
+      .map(({ account }) => account)
+      .filter((account) => !credentialsFor(account));
+    expect(missing).toEqual([]);
+  });
+
   for (const { account, label, home } of accounts) {
     test(`the ${label} signs in and reaches their home page`, async ({
       page,
     }) => {
-      const credentials = credentialsFor(account);
+      const credentials = credentialsForRun(account);
       test.skip(
         !credentials,
         `set REAL_STACK_${account}_EMAIL and REAL_STACK_${account}_PASSWORD`,
@@ -50,7 +63,7 @@ test.describe('seeded users on the real stack', () => {
   }
 
   test('a wrong password does not sign anyone in', async ({ page }) => {
-    const credentials = credentialsFor('CUSTOMER');
+    const credentials = credentialsForRun('CUSTOMER');
     test.skip(!credentials, 'set the REAL_STACK_CUSTOMER_* variables');
     if (!credentials) return;
 
