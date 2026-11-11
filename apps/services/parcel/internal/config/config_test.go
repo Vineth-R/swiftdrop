@@ -126,6 +126,123 @@ func TestLoadFromDefaults(t *testing.T) {
 	if config.CookieName != "sd_access" {
 		t.Fatalf("CookieName = %q, want sd_access", config.CookieName)
 	}
+	if config.ProofStorageDir != "" {
+		t.Fatalf("ProofStorageDir = %q, want empty", config.ProofStorageDir)
+	}
+	if config.ProofMaxPerParcel != DefaultProofMaxPerParcel {
+		t.Fatalf("ProofMaxPerParcel = %d, want %d", config.ProofMaxPerParcel, DefaultProofMaxPerParcel)
+	}
+	if config.ProofMaxSizeBytes != 5<<20 {
+		t.Fatalf("ProofMaxSizeBytes = %d, want %d", config.ProofMaxSizeBytes, 5<<20)
+	}
+	if config.Storage.Enabled() {
+		t.Fatal("expected object storage to be disabled")
+	}
+}
+
+func TestLoadFromRetainsProofStorageDirectory(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_ENV":           "development",
+			"PROOF_STORAGE_DIR": `C:\private\swiftdrop-proofs`,
+		}
+		value, ok := values[key]
+		return value, ok
+	})
+
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ProofStorageDir != `C:\private\swiftdrop-proofs` {
+		t.Fatalf("ProofStorageDir = %q", config.ProofStorageDir)
+	}
+}
+
+func TestLoadFromValidatesProofMaxPerParcel(t *testing.T) {
+	for _, tc := range []struct {
+		name, value string
+		want        int
+		wantErr     bool
+	}{
+		{name: "default", want: DefaultProofMaxPerParcel},
+		{name: "configured", value: "1", want: 1},
+		{name: "maximum", value: "100", want: 100},
+		{name: "zero", value: "0", wantErr: true},
+		{name: "negative", value: "-1", wantErr: true},
+		{name: "too large", value: "101", wantErr: true},
+		{name: "not a number", value: "twenty", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				switch key {
+				case "APP_ENV":
+					return "development", true
+				case "PROOF_MAX_PER_PARCEL":
+					return tc.value, tc.value != ""
+				default:
+					return "", false
+				}
+			})
+			config, err := LoadFrom(loader)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("PROOF_MAX_PER_PARCEL=%q accepted", tc.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config.ProofMaxPerParcel != tc.want {
+				t.Fatalf("ProofMaxPerParcel = %d, want %d", config.ProofMaxPerParcel, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadFromProofMaxSizeAndStorage(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_ENV":                         "development",
+			"PROOF_MAX_SIZE_BYTES":            "1048576",
+			"STORAGE_PROVIDER":                "neon",
+			"STORAGE_ENDPOINT":                "https://branch.storage.c-9.us-east-2.aws.neon.tech",
+			"STORAGE_REGION":                  "us-east-2",
+			"STORAGE_BUCKET":                  "delivery-proofs",
+			"STORAGE_ACCESS_KEY_ID":           "nak_live_test",
+			"STORAGE_SECRET_ACCESS_KEY":       "nsk_live_test",
+			"STORAGE_USE_PATH_STYLE":          "true",
+			"PROOF_PRESIGNED_URL_TTL_SECONDS": "120",
+		}
+		value, ok := values[key]
+		return value, ok
+	})
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ProofMaxSizeBytes != 1048576 {
+		t.Fatalf("ProofMaxSizeBytes = %d", config.ProofMaxSizeBytes)
+	}
+	if !config.Storage.Enabled() || config.Storage.Provider != "neon" || config.Storage.PresignTTL.Seconds() != 120 {
+		t.Fatalf("storage = %+v", config.Storage)
+	}
+}
+
+func TestLoadFromRejectsProofMaxSizeAboveContract(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		if key == "APP_ENV" {
+			return "development", true
+		}
+		if key == "PROOF_MAX_SIZE_BYTES" {
+			return "5242881", true
+		}
+		return "", false
+	})
+	if _, err := LoadFrom(loader); err == nil {
+		t.Fatal("PROOF_MAX_SIZE_BYTES above the database limit was accepted")
+	}
 }
 
 func TestLoadFromRequiresExplicitAppEnv(t *testing.T) {

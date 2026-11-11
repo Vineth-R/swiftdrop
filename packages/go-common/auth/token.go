@@ -33,15 +33,17 @@ var (
 // Claims is the verified content of an access token: sub, role, jti, iat and
 // exp (API v1.1 section 1.2).
 type Claims struct {
-	UserID    string
-	Role      Role
-	TokenID   string
-	IssuedAt  time.Time
-	ExpiresAt time.Time
+	UserID         string
+	Role           Role
+	TokenID        string
+	SessionVersion int
+	IssuedAt       time.Time
+	ExpiresAt      time.Time
 }
 
 type jwtClaims struct {
-	Role string `json:"role"`
+	Role           string `json:"role"`
+	SessionVersion int    `json:"sv"`
 	jwt.RegisteredClaims
 }
 
@@ -101,8 +103,16 @@ func (m *TokenManager) TTL() time.Duration {
 	return m.ttl
 }
 
-// Issue signs an access token for userID and role.
+// Issue signs an access token for userID and role with session version 0. It is
+// kept for callers that do not use session versioning; identity login paths use
+// IssueWithSession.
 func (m *TokenManager) Issue(userID string, role Role) (string, Claims, error) {
+	return m.IssueWithSession(userID, role, 0)
+}
+
+// IssueWithSession signs an access token carrying the current session version.
+// A stale version is rejected by services that enforce session state.
+func (m *TokenManager) IssueWithSession(userID string, role Role, sessionVersion int) (string, Claims, error) {
 	if userID == "" {
 		return "", Claims{}, errors.New("user id is required")
 	}
@@ -117,15 +127,17 @@ func (m *TokenManager) Issue(userID string, role Role) (string, Claims, error) {
 
 	issuedAt := m.now().UTC().Truncate(time.Second)
 	claims := Claims{
-		UserID:    userID,
-		Role:      role,
-		TokenID:   tokenID,
-		IssuedAt:  issuedAt,
-		ExpiresAt: issuedAt.Add(m.ttl),
+		UserID:         userID,
+		Role:           role,
+		TokenID:        tokenID,
+		SessionVersion: sessionVersion,
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(m.ttl),
 	}
 
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwtClaims{
-		Role: string(role),
+		Role:           string(role),
+		SessionVersion: sessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    Issuer,
 			Subject:   userID,
@@ -167,11 +179,12 @@ func (m *TokenManager) Verify(token string) (Claims, error) {
 	}
 
 	return Claims{
-		UserID:    parsed.Subject,
-		Role:      role,
-		TokenID:   parsed.ID,
-		IssuedAt:  parsed.IssuedAt.UTC(),
-		ExpiresAt: parsed.ExpiresAt.UTC(),
+		UserID:         parsed.Subject,
+		Role:           role,
+		TokenID:        parsed.ID,
+		SessionVersion: parsed.SessionVersion,
+		IssuedAt:       parsed.IssuedAt.UTC(),
+		ExpiresAt:      parsed.ExpiresAt.UTC(),
 	}, nil
 }
 

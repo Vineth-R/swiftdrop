@@ -29,14 +29,28 @@ export type RegisterInput = {
   password: string;
 };
 
-export function register(input: RegisterInput): Promise<User> {
-  return api<User>('/auth/register', {
+export type RegisteredAccount = User & { emailVerified?: boolean };
+
+/** Creates a customer account. It never signs the person in. */
+export function register(input: RegisterInput): Promise<RegisteredAccount> {
+  return api<RegisteredAccount>('/auth/register', {
     method: 'POST',
     body: {
       ...input,
       fullName: input.fullName.trim(),
       email: input.email.trim(),
     },
+  });
+}
+
+export function verifyEmail(token: string): Promise<void> {
+  return api('/auth/verify-email', { method: 'POST', body: { token } });
+}
+
+export function resendVerification(email: string): Promise<void> {
+  return api('/auth/resend-verification', {
+    method: 'POST',
+    body: { email: email.trim() },
   });
 }
 

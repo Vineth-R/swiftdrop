@@ -19,16 +19,19 @@ type TrackingStore interface {
 	LookupAuthorized(context.Context, string, string, bool) (tracking.Result, error)
 }
 type Options struct {
-	Courier        CourierStore
-	CourierStatus  CourierStatusStore
-	Parcels        *parcels.Service
-	InternalToken  string
-	Tracking       TrackingStore
-	Reports        ReportStore
-	Dispatch       DispatchService
-	TrustedProxies []string
-	AccessSecret   string
-	CookieName     string
+	Courier           CourierStore
+	CourierStatus     CourierStatusStore
+	CourierProof      CourierProofStore
+	CourierProofPhoto ProofPhotoStore
+	ProofMaxSizeBytes int
+	Parcels           *parcels.Service
+	InternalToken     string
+	Tracking          TrackingStore
+	Reports           ReportStore
+	Dispatch          DispatchService
+	TrustedProxies    []string
+	AccessSecret      string
+	CookieName        string
 }
 
 func registerTracking(router *gin.Engine, logger *slog.Logger, options Options) {

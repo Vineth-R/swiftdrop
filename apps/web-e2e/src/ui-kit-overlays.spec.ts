@@ -39,11 +39,13 @@ test.describe('Modal', () => {
   test('without a marked element the close button gets focus', async ({
     page,
   }) => {
-    await page.getByRole('button', { name: 'Open must-answer dialog' }).click();
+    await page
+      .getByRole('button', { name: 'Open session-expired dialog' })
+      .click();
     // The must-answer dialog has no close button, so the first button is its action.
     await expect(
-      dialog(page, 'Your session has ended').getByRole('button', {
-        name: 'Log in again',
+      dialog(page, 'Your session ended').getByRole('button', {
+        name: 'Log in',
       }),
     ).toBeFocused();
   });
@@ -145,8 +147,10 @@ test.describe('Modal', () => {
   test('a must-answer dialog ignores Escape and a click outside, and has no close button', async ({
     page,
   }) => {
-    await page.getByRole('button', { name: 'Open must-answer dialog' }).click();
-    const box = dialog(page, 'Your session has ended');
+    await page
+      .getByRole('button', { name: 'Open session-expired dialog' })
+      .click();
+    const box = dialog(page, 'Your session ended');
     await expect(box.getByRole('button', { name: 'Close' })).toHaveCount(0);
 
     await page.keyboard.press('Escape');
@@ -154,7 +158,7 @@ test.describe('Modal', () => {
     await page.mouse.click(4, 4);
     await expect(box).toBeVisible();
 
-    await box.getByRole('button', { name: 'Log in again' }).click();
+    await box.getByRole('button', { name: 'Log in' }).click();
     await expect(box).toBeHidden();
   });
 

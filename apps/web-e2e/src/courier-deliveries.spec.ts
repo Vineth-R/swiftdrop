@@ -217,9 +217,14 @@ for (const role of ['CUSTOMER', 'MERCHANT', 'DISPATCHER', 'ADMIN'] as Role[]) {
       ),
     ).toBe(false);
     await page.goto('/dashboard');
-    await expect(
-      page.getByRole('heading', { level: 1, name: 'Dashboard', exact: true }),
-    ).toBeVisible();
+    if (role === 'DISPATCHER') {
+      // A dispatcher has no dashboard: their home is the unassigned list.
+      await expect(page).toHaveURL(/\/unassigned$/);
+    } else {
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Dashboard', exact: true }),
+      ).toBeVisible();
+    }
     expect(api.calls.some((call) => call.key === listEndpoint)).toBe(false);
   });
 }
@@ -750,4 +755,32 @@ test('retains proof input after failure, prevents duplicates and retries', async
     page.getByText('Delivery proof uploaded', { exact: true }),
   ).toBeVisible();
   expect(attempts).toBe(2);
+});
+
+test('opens a short-lived proof photo when the delivery has one', async ({
+  page,
+  context,
+}) => {
+  const withPhoto = {
+    ...detail,
+    status: 'DELIVERED',
+    proof: { ...detail.proof, hasPhoto: true },
+  };
+  await context.route('https://storage.example/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/jpeg', body: 'photo' }),
+  );
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(withPhoto),
+    [`GET /parcels/${parcelId}/proof/photo`]: ok({
+      url: 'https://storage.example/proof.jpg',
+      expiresAt: '2026-11-05T11:00:00Z',
+      mimeType: 'image/jpeg',
+      stream: false,
+    }),
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'View proof photo' }).click();
+  const popup = await popupPromise;
+  await popup.waitForURL('https://storage.example/proof.jpg');
 });

@@ -12,6 +12,9 @@ import (
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/onboarding"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/pricingclient"
 	merchantrepository "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
@@ -48,10 +51,11 @@ func run() error {
 	var database *postgres.Pool
 	var pinger postgres.Pinger
 	var merchantRepo *merchantrepository.Repository
-	if config.DatabaseURL != "" {
-		databaseConfig := postgres.DefaultConfig()
-		databaseConfig.URL = config.DatabaseURL
-
+	databaseConfig, configErr := postgres.LoadConfigFromURL(config.DatabaseURL)
+	if configErr != nil {
+		return fmt.Errorf("configure database: %w", configErr)
+	}
+	if databaseConfig.Configured() {
 		database, err = postgres.Open(ctx, databaseConfig)
 		if err != nil {
 			return fmt.Errorf("connect database: %w", err)
@@ -66,9 +70,34 @@ func run() error {
 	} else {
 		logger.Warn("DATABASE_URL is not set; readiness will report database down")
 	}
-	router := servicehttp.New(logger, merchantRepo)
+	mail, err := setUpEmail(config, logger)
+	if err != nil {
+		return err
+	}
+	defer mail.Wait()
+	identityClient, err := identityclient.New(config.IdentityBaseURL, config.InternalToken, config.IdentityTimeout)
+	if err != nil {
+		return fmt.Errorf("create identity client: %w", err)
+	}
+	pricingClient, err := pricingclient.New(config.PricingBaseURL, config.InternalToken, config.PricingTimeout)
+	if err != nil {
+		return fmt.Errorf("create pricing client: %w", err)
+	}
+	var onboardingService *onboarding.Service
 	if merchantRepo != nil {
-		if err := registerWebhooks(router, merchantRepo, config, logger); err != nil {
+		onboardingService, err = onboarding.New(merchantRepo, identityClient, pricingClient, mail.Notifier, logger)
+		if err != nil {
+			return fmt.Errorf("create onboarding service: %w", err)
+		}
+	}
+	router := servicehttp.New(logger)
+	servicehttp.Mount(router, servicehttp.Options{
+		Repository: merchantRepo, Onboarding: onboardingService, Identity: identityClient,
+		AccessSecret: config.AccessSecret, CookieName: config.CookieName,
+		InternalToken: config.InternalToken, Logger: logger,
+	})
+	if merchantRepo != nil {
+		if err := registerWebhooks(router, merchantRepo, identityClient, config, logger); err != nil {
 			return err
 		}
 	}

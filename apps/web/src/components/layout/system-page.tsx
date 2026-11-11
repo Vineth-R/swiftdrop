@@ -13,6 +13,11 @@ type SystemPageProps = {
   actions?: ReactNode;
   /** The API's request ID. Pass it for a fault on our side only. */
   reference?: string;
+  /**
+   * 1 for a real page, which is the page's one heading. A style-guide demo sits
+   * under the guide's own h1, so it passes 2.
+   */
+  headingLevel?: 1 | 2;
 };
 
 /**
@@ -26,13 +31,15 @@ export function SystemPage({
   children,
   actions,
   reference,
+  headingLevel = 1,
 }: SystemPageProps) {
+  const Heading = headingLevel === 2 ? 'h2' : 'h1';
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 py-10">
       <RouteLine state="idle" />
       <div className="flex flex-col gap-2">
         <span className="text-overline uppercase text-text-faint">{label}</span>
-        <h1 className="font-display text-h2 md:text-h1">{title}</h1>
+        <Heading className="font-display text-h2 md:text-h1">{title}</Heading>
         <p className="text-body text-text-muted">{children}</p>
       </div>
       {actions && (

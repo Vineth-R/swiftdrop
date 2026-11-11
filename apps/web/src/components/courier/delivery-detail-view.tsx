@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError } from '../../lib/api';
 import {
   getCourierDelivery,
+  getCourierProofPhoto,
   updateCourierDeliveryStatus,
   type CourierDeliveryDetail,
   type CourierTargetStatus,
@@ -20,6 +21,7 @@ import { RateLimitedAlert, ServerFaultAlert } from '../auth/form-alerts';
 import { PageHeader } from '../layout/page-header';
 import { RequireRole } from '../layout/require-role';
 import { Section } from '../layout/section';
+import { ProofPhotoButton } from '../proof-photo-button';
 import { SystemPage } from '../layout/system-page';
 import { Alert } from '../ui/alert';
 import { Button, ButtonLink } from '../ui/button';
@@ -262,21 +264,30 @@ function CourierDeliveryDetailContent({ parcelId }: { parcelId: string }) {
       <Section title="Delivery proof">
         <div className="flex flex-col gap-6">
           {delivery.proof ? (
-            <KeyValueList
-              layout="inline"
-              items={[
-                { label: 'Recipient', value: delivery.proof.recipientName },
-                { label: 'Note', value: delivery.proof.note },
-                {
-                  label: 'Photo attached',
-                  value: delivery.proof.hasPhoto ? 'Yes' : 'No',
-                },
-                {
-                  label: 'Recorded',
-                  value: formatDateTime(delivery.proof.createdAt),
-                },
-              ]}
-            />
+            <>
+              <KeyValueList
+                layout="inline"
+                items={[
+                  { label: 'Recipient', value: delivery.proof.recipientName },
+                  { label: 'Note', value: delivery.proof.note },
+                  {
+                    label: 'Photo attached',
+                    value: delivery.proof.hasPhoto ? 'Yes' : 'No',
+                  },
+                  {
+                    label: 'Recorded',
+                    value: formatDateTime(delivery.proof.createdAt),
+                  },
+                ]}
+              />
+              {delivery.proof.hasPhoto && (
+                <div className="mt-4">
+                  <ProofPhotoButton
+                    load={(signal) => getCourierProofPhoto(delivery.id, signal)}
+                  />
+                </div>
+              )}
+            </>
           ) : (
             <EmptyState title="No delivery proof recorded">
               Add a photo, recipient name or delivery note below.

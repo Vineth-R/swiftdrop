@@ -14,32 +14,36 @@ import (
 // service (API v1.1 sections 1.2 and 2.1 to 2.4). It is loaded separately from
 // Config so the authentication settings stay in one place.
 type Auth struct {
-	AccessSecret          string
-	AccessTokenTTL        time.Duration
-	RefreshTokenTTL       time.Duration
-	OAuthStateTTL         time.Duration
-	PasswordResetTokenTTL time.Duration
-	AccessCookieName      string
-	RefreshCookieName     string
-	CookieSecure          bool
-	CookieSameSite        http.SameSite
-	MaxFailedLogins       int
-	LockoutDuration       time.Duration
+	AccessSecret              string
+	AccessTokenTTL            time.Duration
+	RefreshTokenTTL           time.Duration
+	OAuthStateTTL             time.Duration
+	PasswordResetTokenTTL     time.Duration
+	EmailVerificationTokenTTL time.Duration
+	AccessCookieName          string
+	RefreshCookieName         string
+	CookieSecure              bool
+	CookieSameSite            http.SameSite
+	MaxFailedLogins           int
+	LockoutDuration           time.Duration
 }
 
 const (
-	defaultAccessTokenTTL        = 15 * time.Minute
-	defaultRefreshTokenTTL       = 7 * 24 * time.Hour
-	defaultOAuthStateTTL         = 10 * time.Minute
-	defaultPasswordResetTokenTTL = 30 * time.Minute
+	defaultAccessTokenTTL            = 15 * time.Minute
+	defaultRefreshTokenTTL           = 7 * 24 * time.Hour
+	defaultOAuthStateTTL             = 10 * time.Minute
+	defaultPasswordResetTokenTTL     = 30 * time.Minute
+	defaultEmailVerificationTokenTTL = 30 * time.Minute
 
-	maxAccessTokenTTL        = 24 * time.Hour
-	maxRefreshTokenTTL       = 365 * 24 * time.Hour
-	minOAuthStateTTL         = time.Minute
-	maxOAuthStateTTL         = time.Hour
-	minPasswordResetTokenTTL = 5 * time.Minute
-	maxPasswordResetTokenTTL = 24 * time.Hour
-	maxLockoutDuration       = 24 * time.Hour
+	maxAccessTokenTTL            = 24 * time.Hour
+	maxRefreshTokenTTL           = 365 * 24 * time.Hour
+	minOAuthStateTTL             = time.Minute
+	maxOAuthStateTTL             = time.Hour
+	minPasswordResetTokenTTL     = 5 * time.Minute
+	maxPasswordResetTokenTTL     = 24 * time.Hour
+	minEmailVerificationTokenTTL = 5 * time.Minute
+	maxEmailVerificationTokenTTL = 24 * time.Hour
+	maxLockoutDuration           = 24 * time.Hour
 )
 
 // LoadAuth reads the authentication settings from the process environment.
@@ -88,6 +92,13 @@ func LoadAuthFrom(loader sharedconfig.Loader, appEnv string) (Auth, error) {
 	if err := validateTTL("PASSWORD_RESET_TOKEN_TTL", passwordResetTTL, minPasswordResetTokenTTL, maxPasswordResetTokenTTL); err != nil {
 		return Auth{}, err
 	}
+	emailVerificationTTL, err := loader.Duration("EMAIL_VERIFICATION_TOKEN_TTL", defaultEmailVerificationTokenTTL)
+	if err != nil {
+		return Auth{}, err
+	}
+	if err := validateTTL("EMAIL_VERIFICATION_TOKEN_TTL", emailVerificationTTL, minEmailVerificationTokenTTL, maxEmailVerificationTokenTTL); err != nil {
+		return Auth{}, err
+	}
 
 	accessCookie := loader.String("COOKIE_NAME", "sd_access")
 	refreshCookie := loader.String("COOKIE_REFRESH_NAME", "sd_refresh")
@@ -129,17 +140,18 @@ func LoadAuthFrom(loader sharedconfig.Loader, appEnv string) (Auth, error) {
 	}
 
 	return Auth{
-		AccessSecret:          secret,
-		AccessTokenTTL:        accessTTL,
-		RefreshTokenTTL:       refreshTTL,
-		OAuthStateTTL:         oauthStateTTL,
-		PasswordResetTokenTTL: passwordResetTTL,
-		AccessCookieName:      accessCookie,
-		RefreshCookieName:     refreshCookie,
-		CookieSecure:          secure,
-		CookieSameSite:        sameSite,
-		MaxFailedLogins:       maxFailures,
-		LockoutDuration:       lockoutDuration,
+		AccessSecret:              secret,
+		AccessTokenTTL:            accessTTL,
+		RefreshTokenTTL:           refreshTTL,
+		OAuthStateTTL:             oauthStateTTL,
+		PasswordResetTokenTTL:     passwordResetTTL,
+		EmailVerificationTokenTTL: emailVerificationTTL,
+		AccessCookieName:          accessCookie,
+		RefreshCookieName:         refreshCookie,
+		CookieSecure:              secure,
+		CookieSameSite:            sameSite,
+		MaxFailedLogins:           maxFailures,
+		LockoutDuration:           lockoutDuration,
 	}, nil
 }
 

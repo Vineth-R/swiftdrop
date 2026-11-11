@@ -23,8 +23,8 @@ func render(t *testing.T, e Email) mailer.Message {
 
 func TestCatalog_everyEmailRendersAndTheMailerAcceptsIt(t *testing.T) {
 	entries := Catalog(testSite)
-	if len(entries) != 18 {
-		t.Fatalf("the catalog has %d emails, want 18: add a new scenario to Catalog so it is previewed and tested", len(entries))
+	if len(entries) != 19 {
+		t.Fatalf("the catalog has %d emails, want 19: add a new scenario to Catalog so it is previewed and tested", len(entries))
 	}
 
 	ids, subjects := map[string]bool{}, map[string]bool{}

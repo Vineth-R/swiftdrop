@@ -8,8 +8,14 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-var ErrNotFound = errors.New("merchant resource not found")
-var ErrInvalidState = errors.New("invalid merchant state transition")
+var (
+	ErrNotFound                  = errors.New("merchant resource not found")
+	ErrInvalidState              = errors.New("invalid merchant state transition")
+	ErrDuplicateApplication      = errors.New("a merchant application already exists for this email")
+	ErrDuplicateBusiness         = errors.New("a merchant already uses this business registration number")
+	ErrInvalidRegistrationNumber = errors.New("a valid business registration number is required")
+	ErrRegistrationConflict      = errors.New("merchant registration conflicts with an existing record")
+)
 
 // Repository owns all SQL access to the merchant schema.
 type Repository struct {

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/service"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
@@ -23,9 +24,12 @@ const (
 )
 
 type fakeInternalService struct {
-	eligibility service.CourierEligibility
-	contact     service.UserContact
-	err         error
+	eligibility  service.CourierEligibility
+	contact      service.UserContact
+	owner        service.MerchantOwnerResult
+	lifecycle    service.LifecycleResult
+	sessionState service.SessionState
+	err          error
 
 	calls  int
 	gotID  string
@@ -37,6 +41,17 @@ func (f *fakeInternalService) CourierEligibility(_ context.Context, id string) (
 	f.gotID, f.method = id, "eligibility"
 	return f.eligibility, f.err
 }
+
+func (f *fakeInternalService) CreateMerchantOwner(context.Context, service.MerchantOwnerInput) (service.MerchantOwnerResult, error) {
+	return f.owner, f.err
+}
+func (f *fakeInternalService) ApplyMerchantLifecycle(context.Context, service.LifecycleInput) (service.LifecycleResult, error) {
+	return f.lifecycle, f.err
+}
+func (f *fakeInternalService) SessionState(context.Context, string) (service.SessionState, error) {
+	return f.sessionState, f.err
+}
+func (f *fakeInternalService) DeleteMerchantOwner(context.Context, string) error { return f.err }
 
 func (f *fakeInternalService) UserContact(_ context.Context, id string) (service.UserContact, error) {
 	f.calls++
@@ -66,6 +81,25 @@ func (h *internalHarness) get(path string, headers ...string) *httptest.Response
 	for i := 0; i+1 < len(headers); i += 2 {
 		request.Header.Set(headers[i], headers[i+1])
 	}
+	recorder := httptest.NewRecorder()
+	h.handler.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func (h *internalHarness) post(path, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(internalTokenHeader, testInternalToken)
+	request.Header.Set("X-Request-Id", testRequestID)
+	recorder := httptest.NewRecorder()
+	h.handler.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func (h *internalHarness) delete(path string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodDelete, path, nil)
+	request.Header.Set(internalTokenHeader, testInternalToken)
+	request.Header.Set("X-Request-Id", testRequestID)
 	recorder := httptest.NewRecorder()
 	h.handler.ServeHTTP(recorder, request)
 	return recorder
@@ -372,4 +406,98 @@ func TestRouter_withoutInternalHasNoInternalRoutes(t *testing.T) {
 			t.Fatalf("%s status = %d, want 404", path, recorder.Code)
 		}
 	}
+}
+
+func TestInternal_merchantOwnerLifecycleSessionAndDelete(t *testing.T) {
+	h := newInternalHarness(testInternalToken)
+	h.service.owner = service.MerchantOwnerResult{UserID: "user-1", Created: true}
+	response := h.post("/internal/merchant-owners", `{"email":"owner@example.com","password":"Str0ngPass!","fullName":"Owner Name","phone":"+94771234567"}`)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create owner status = %d (%s)", response.Code, response.Body)
+	}
+
+	h.service.lifecycle = service.LifecycleResult{
+		UserID: "user-1", TransitionID: "3f1c7a52-0000-4000-8000-000000000010",
+		Sequence: 1, Operation: "APPROVE", SessionVersion: 2, IsActive: true,
+	}
+	response = h.post("/internal/merchant-owners/user-1/lifecycle", `{"transitionId":"3f1c7a52-0000-4000-8000-000000000010","sequence":1,"operation":"APPROVE"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("lifecycle status = %d (%s)", response.Code, response.Body)
+	}
+	if !strings.Contains(response.Body.String(), `"sessionVersion":2`) {
+		t.Fatalf("lifecycle body = %s", response.Body)
+	}
+
+	h.service.sessionState = service.SessionState{Role: auth.RoleMerchant, IsActive: true, SessionVersion: 2}
+	response = h.authorised("/internal/users/user-1/session-state")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"sessionVersion":2`) {
+		t.Fatalf("session state = %d (%s)", response.Code, response.Body)
+	}
+
+	response = h.delete("/internal/merchant-owners/user-1")
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d (%s)", response.Code, response.Body)
+	}
+
+	h.service.err = service.ErrUserNotFound
+	if response := h.authorised("/internal/users/user-1/session-state"); response.Code != http.StatusNotFound {
+		t.Fatalf("missing session state = %d, want 404", response.Code)
+	}
+}
+
+// A refusal the caller can act on is a 409 with its own code, not a 500: the
+// contract in contracts/openapi/identity-internal.yaml says so.
+func TestInternal_merchantOwnerRefusalsAreConflictsAndNotFound(t *testing.T) {
+	lifecycleBody := `{"transitionId":"3f1c7a52-0000-4000-8000-000000000010","sequence":1,"operation":"APPROVE"}`
+	tests := []struct {
+		name   string
+		err    error
+		call   func(h *internalHarness) *httptest.ResponseRecorder
+		status int
+		code   string
+	}{
+		{"removing an owner that cannot be removed", repository.ErrOwnerNotEligible,
+			func(h *internalHarness) *httptest.ResponseRecorder {
+				return h.delete("/internal/merchant-owners/user-1")
+			},
+			http.StatusConflict, "OWNER_NOT_ELIGIBLE"},
+		{"a lifecycle transition for a user who is not a merchant", repository.ErrNotMerchantOwner,
+			func(h *internalHarness) *httptest.ResponseRecorder {
+				return h.post("/internal/merchant-owners/user-1/lifecycle", lifecycleBody)
+			},
+			http.StatusConflict, "NOT_A_MERCHANT_OWNER"},
+		{"a lifecycle transition for an unknown user", service.ErrUserNotFound,
+			func(h *internalHarness) *httptest.ResponseRecorder {
+				return h.post("/internal/merchant-owners/user-1/lifecycle", lifecycleBody)
+			},
+			http.StatusNotFound, "NOT_FOUND"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h := newInternalHarness(testInternalToken)
+			h.service.err = test.err
+
+			response := test.call(h)
+
+			if response.Code != test.status || internalErrorCode(t, response) != test.code {
+				t.Fatalf("status = %d code = %s (%s), want %d %s", response.Code, internalErrorCode(t, response), response.Body, test.status, test.code)
+			}
+			if strings.Contains(h.logs.String(), "internal request failed") {
+				t.Fatalf("a refusal the caller can act on was logged as a failure:\n%s", h.logs)
+			}
+		})
+	}
+}
+
+func internalErrorCode(t *testing.T, response *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not an error envelope: %v (%s)", err, response.Body.String())
+	}
+	return body.Error.Code
 }

@@ -16,7 +16,7 @@ export type IconButtonVariant = Extract<
 >;
 
 const sizes = {
-  sm: 'size-9',
+  sm: 'size-9 pointer-coarse:size-11',
   // 44px, the smallest comfortable target. Use lg (48px) on courier screens.
   md: 'size-11',
   lg: 'size-12',

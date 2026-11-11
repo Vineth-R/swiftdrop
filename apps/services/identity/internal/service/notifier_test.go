@@ -40,6 +40,10 @@ func (r *recordingNotifier) all() []accountEmail {
 	return append([]accountEmail(nil), r.emails...)
 }
 
+func (r *recordingNotifier) VerifyEmail(_ context.Context, to Recipient, link string, validFor time.Duration) {
+	r.add(accountEmail{kind: "verify-email", to: to})
+}
+
 func (r *recordingNotifier) Welcome(_ context.Context, to Recipient) {
 	r.add(accountEmail{kind: "welcome", to: to})
 }
@@ -68,13 +72,13 @@ func kinds(emails []accountEmail) []string {
 	return out
 }
 
-func TestNotifier_welcomesANewCustomer(t *testing.T) {
+func TestNotifier_sendsEmailVerificationAfterRegistration(t *testing.T) {
 	f := newFixture(t)
 	account := f.register(t)
 
 	sent := f.notes.all()
-	if len(sent) != 1 || sent[0].kind != "welcome" {
-		t.Fatalf("emails = %v, want one welcome", kinds(sent))
+	if len(sent) != 1 || sent[0].kind != "verify-email" {
+		t.Fatalf("emails = %v, want one verification email", kinds(sent))
 	}
 	if sent[0].to != (Recipient{UserID: account.ID, Email: "nimal@example.com", FullName: "Nimal Perera"}) {
 		t.Fatalf("recipient = %+v", sent[0].to)

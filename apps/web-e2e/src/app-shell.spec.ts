@@ -10,7 +10,7 @@ test.use({ colorScheme: 'light' });
 test.describe('navigation by role', () => {
   const sidebarLabels: Record<Exclude<Role, 'COURIER'>, string[]> = {
     CUSTOMER: ['Dashboard', 'New delivery', 'My parcels', 'Profile'],
-    MERCHANT: ['Dashboard', 'Orders', 'API keys', 'Webhook', 'Profile'],
+    MERCHANT: ['Dashboard', 'API keys', 'Business', 'Profile'],
     DISPATCHER: ['Unassigned', 'Workload', 'All parcels', 'Reports'],
     ADMIN: [
       'Unassigned',
@@ -115,7 +115,7 @@ test.describe('the sidebar', () => {
     await expect(aside).toHaveCSS('width', '72px');
     // In the rail the labels stay for screen readers.
     await expect(
-      sidebar(page).getByRole('link', { name: 'Orders' }),
+      sidebar(page).getByRole('link', { name: 'API keys' }),
     ).toHaveCount(1);
 
     await page.reload();

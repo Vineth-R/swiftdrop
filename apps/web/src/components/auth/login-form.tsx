@@ -13,8 +13,12 @@ import {
 
 import { ApiError } from '@/lib/api';
 import { classifyApiError, type ApiProblem } from '@/lib/api-problem';
-import { googleLoginUrl } from '@/lib/auth-api';
+import { googleLoginUrl, resendVerification } from '@/lib/auth-api';
 import { DEFAULT_AUTH_ROUTE } from '@/lib/constants';
+import {
+  merchantStandingFromIssues,
+  type MerchantStanding,
+} from '@/lib/merchant-standing';
 import { homeFor } from '@/lib/nav';
 import { safeNext } from '@/lib/redirect';
 import { useSession } from '@/lib/session';
@@ -31,9 +35,16 @@ import { TextField } from '@/components/ui/field';
 import { PasswordField } from '@/components/ui/password-field';
 import { ApiProblemAlerts } from './api-problem-alerts';
 import { GoogleButton, OrDivider } from './google-button';
+import { MerchantStatusAlert } from './merchant-status-alert';
 
 type Banner =
-  { kind: 'invalid' } | { kind: 'locked' } | { kind: 'oauth' } | ApiProblem;
+  | { kind: 'invalid' }
+  | { kind: 'locked' }
+  | { kind: 'oauth' }
+  | { kind: 'verification' }
+  | { kind: 'merchant-inactive'; standing?: MerchantStanding }
+  | { kind: 'verified' }
+  | ApiProblem;
 
 const rules: FormRules<{ email: string; password: string }> = {
   email: (v) => validateEmail(v.email),
@@ -48,8 +59,13 @@ export function LoginForm() {
 
   const form = useForm({ email: '', password: '' }, rules);
   const [banner, setBanner] = useState<Banner | null>(
-    params.get('error') === 'oauth_failed' ? { kind: 'oauth' } : null,
+    params.get('error') === 'oauth_failed'
+      ? { kind: 'oauth' }
+      : params.get('verified') === '1'
+        ? { kind: 'verified' }
+        : null,
   );
+  const [resent, setResent] = useState(false);
   const [isDeactivated, setIsDeactivated] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const alertRef = useRef<HTMLDivElement>(null);
@@ -70,6 +86,15 @@ export function LoginForm() {
     const movedToAlert =
       alertRef.current !== null && event.relatedTarget === alertRef.current;
     if (!movedToAlert) form.blur(field);
+  }
+
+  async function resend() {
+    try {
+      await resendVerification(form.values.email);
+      setResent(true);
+    } catch {
+      setResent(false);
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -109,6 +134,15 @@ export function LoginForm() {
           return;
         case 'ACCOUNT_DEACTIVATED':
           setIsDeactivated(true);
+          return;
+        case 'EMAIL_VERIFICATION_REQUIRED':
+          setBanner({ kind: 'verification' });
+          return;
+        case 'MERCHANT_ACCOUNT_INACTIVE':
+          setBanner({
+            kind: 'merchant-inactive',
+            standing: merchantStandingFromIssues(error.issues),
+          });
           return;
       }
     }
@@ -156,6 +190,9 @@ export function LoginForm() {
           banner={banner}
           alertRef={alertRef}
           remaining={remaining}
+          email={form.values.email}
+          resent={resent}
+          onResend={resend}
         />
       )}
 
@@ -220,12 +257,69 @@ function LoginBanner({
   banner,
   alertRef,
   remaining,
+  email,
+  resent,
+  onResend,
 }: {
   banner: Banner;
   alertRef: React.Ref<HTMLDivElement>;
   remaining: number;
+  email: string;
+  resent: boolean;
+  onResend: () => void;
 }) {
   switch (banner.kind) {
+    case 'verified':
+      return (
+        <Alert
+          ref={alertRef}
+          tone="success"
+          title="Your email has been verified"
+        >
+          You can now sign in to SwiftDrop.
+        </Alert>
+      );
+    case 'verification':
+      return (
+        <Alert ref={alertRef} tone="warning" title="Verify your email first">
+          <p>
+            We sent a verification link when you registered. Open it before
+            signing in.
+          </p>
+          <div className="mt-3">
+            {resent ? (
+              <p>
+                If that address needs verification, a new link is on its way.
+              </p>
+            ) : (
+              <Button
+                variant="secondary"
+                onClick={onResend}
+                isDisabled={!email.trim()}
+              >
+                Send another verification email
+              </Button>
+            )}
+          </div>
+        </Alert>
+      );
+    case 'merchant-inactive':
+      if (banner.standing) {
+        return (
+          <MerchantStatusAlert standing={banner.standing} alertRef={alertRef} />
+        );
+      }
+      return (
+        <Alert
+          ref={alertRef}
+          tone="warning"
+          title="Merchant account not active"
+        >
+          Merchant accounts can sign in only after an administrator approves the
+          application. Check the decision email, or contact support if you need
+          help.
+        </Alert>
+      );
     case 'invalid':
       return (
         <Alert

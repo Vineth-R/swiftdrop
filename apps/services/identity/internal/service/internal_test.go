@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
@@ -19,6 +20,9 @@ type fakeInternalStore struct {
 	contacts    map[string]repository.UserContact
 	err         error
 	calls       int
+
+	// lifecycleErr is what ApplyMerchantLifecycleTransition returns.
+	lifecycleErr error
 }
 
 func (f *fakeInternalStore) CourierEligibility(_ context.Context, id string) (repository.CourierEligibility, error) {
@@ -31,6 +35,17 @@ func (f *fakeInternalStore) CourierEligibility(_ context.Context, id string) (re
 	}
 	return repository.CourierEligibility{}, repository.ErrNotFound
 }
+
+func (f *fakeInternalStore) CreateInactiveMerchantOwner(context.Context, string, string, string, string) (repository.User, bool, error) {
+	return repository.User{}, false, nil
+}
+func (f *fakeInternalStore) ApplyMerchantLifecycleTransition(context.Context, string, string, int64, string, time.Time) (repository.MerchantLifecycleTransition, error) {
+	return repository.MerchantLifecycleTransition{}, f.lifecycleErr
+}
+func (f *fakeInternalStore) SessionState(context.Context, string) (repository.SessionState, error) {
+	return repository.SessionState{}, nil
+}
+func (f *fakeInternalStore) DeletePendingMerchantOwner(context.Context, string) error { return nil }
 
 func (f *fakeInternalStore) UserContact(_ context.Context, id string) (repository.UserContact, error) {
 	f.calls++
@@ -151,5 +166,21 @@ func TestInternalAPI_storeFailureIsNotReportedAsNotFound(t *testing.T) {
 	}
 	if _, err := api.UserContact(context.Background(), knownID); !errors.Is(err, errStore) || errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("UserContact() error = %v, want the store error", err)
+	}
+}
+
+func TestInternalAPI_ApplyMerchantLifecycleReportsAnUnknownUserAsNotFound(t *testing.T) {
+	api, store := newInternalFixture(t)
+	input := LifecycleInput{UserID: unknownID, TransitionID: knownID, Sequence: 1, Operation: "APPROVE"}
+
+	store.lifecycleErr = repository.ErrNotFound
+	if _, err := api.ApplyMerchantLifecycle(context.Background(), input); !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("unknown user error = %v, want ErrUserNotFound", err)
+	}
+
+	// A user who is not a merchant is a different refusal and is passed on as it is.
+	store.lifecycleErr = repository.ErrNotMerchantOwner
+	if _, err := api.ApplyMerchantLifecycle(context.Background(), input); !errors.Is(err, repository.ErrNotMerchantOwner) || errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("non-merchant error = %v, want repository.ErrNotMerchantOwner", err)
 	}
 }

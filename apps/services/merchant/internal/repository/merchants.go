@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/businessreg"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -21,32 +22,35 @@ const (
 )
 
 type Merchant struct {
-	ID               string
-	OwnerUserID      string
-	BusinessName     string
-	BusinessRegNo    *string
-	ContactEmail     string
-	ContactPhone     string
-	PickupAddress    string
-	PickupZoneID     string
-	Status           MerchantStatus
-	ApprovedBy       *string
-	ApprovedAt       *time.Time
-	RejectionReason  *string
-	SuspensionReason *string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                string
+	OwnerUserID       string
+	BusinessName      string
+	BusinessRegNo     *string
+	BusinessAddress   *string
+	ContactEmail      string
+	ContactPhone      string
+	PickupAddress     string
+	PickupZoneID      string
+	Status            MerchantStatus
+	ApprovedBy        *string
+	ApprovedAt        *time.Time
+	LifecycleSequence int64
+	RejectionReason   *string
+	SuspensionReason  *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type CreateMerchantParams struct {
-	ID            string
-	OwnerUserID   string
-	BusinessName  string
-	BusinessRegNo string
-	ContactEmail  string
-	ContactPhone  string
-	PickupAddress string
-	PickupZoneID  string
+	ID              string
+	OwnerUserID     string
+	BusinessName    string
+	BusinessRegNo   string
+	BusinessAddress string
+	ContactEmail    string
+	ContactPhone    string
+	PickupAddress   string
+	PickupZoneID    string
 }
 
 type ProfileUpdate struct {
@@ -57,20 +61,21 @@ type ProfileUpdate struct {
 }
 
 func (r *Repository) CreateMerchant(ctx context.Context, params CreateMerchantParams) error {
-	var businessRegNo any = params.BusinessRegNo
-	if strings.TrimSpace(params.BusinessRegNo) == "" {
-		businessRegNo = nil
+	businessRegNo, err := businessreg.NormalizeValid(params.BusinessRegNo)
+	if err != nil {
+		return ErrInvalidRegistrationNumber
 	}
-	_, err := r.db.Exec(
+	_, err = r.db.Exec(
 		ctx,
 		`INSERT INTO merchant.merchants (
-			id, owner_user_id, business_name, business_reg_no, contact_email,
+			id, owner_user_id, business_name, business_reg_no, business_address, contact_email,
 			contact_phone, pickup_address, pickup_zone_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		params.ID,
 		params.OwnerUserID,
 		params.BusinessName,
 		businessRegNo,
+		nullable(params.BusinessAddress),
 		params.ContactEmail,
 		params.ContactPhone,
 		params.PickupAddress,
@@ -83,28 +88,18 @@ func (r *Repository) CreateMerchant(ctx context.Context, params CreateMerchantPa
 	return nil
 }
 
-const merchantColumns = `id, owner_user_id, business_name, business_reg_no, contact_email,
+const merchantColumns = `id, owner_user_id, business_name, business_reg_no, business_address, contact_email,
 	contact_phone, pickup_address, pickup_zone_id, status, approved_by,
-	approved_at, rejection_reason, suspension_reason, created_at, updated_at`
+	approved_at, lifecycle_sequence, rejection_reason, suspension_reason, created_at, updated_at`
 
 func scanMerchant(row pgx.Row) (Merchant, error) {
 	merchant := Merchant{}
 	err := row.Scan(
-		&merchant.ID,
-		&merchant.OwnerUserID,
-		&merchant.BusinessName,
-		&merchant.BusinessRegNo,
-		&merchant.ContactEmail,
-		&merchant.ContactPhone,
-		&merchant.PickupAddress,
-		&merchant.PickupZoneID,
-		&merchant.Status,
-		&merchant.ApprovedBy,
-		&merchant.ApprovedAt,
-		&merchant.RejectionReason,
-		&merchant.SuspensionReason,
-		&merchant.CreatedAt,
-		&merchant.UpdatedAt,
+		&merchant.ID, &merchant.OwnerUserID, &merchant.BusinessName, &merchant.BusinessRegNo,
+		&merchant.BusinessAddress, &merchant.ContactEmail, &merchant.ContactPhone,
+		&merchant.PickupAddress, &merchant.PickupZoneID, &merchant.Status,
+		&merchant.ApprovedBy, &merchant.ApprovedAt, &merchant.LifecycleSequence,
+		&merchant.RejectionReason, &merchant.SuspensionReason, &merchant.CreatedAt, &merchant.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Merchant{}, ErrNotFound
@@ -115,12 +110,18 @@ func scanMerchant(row pgx.Row) (Merchant, error) {
 	return merchant, nil
 }
 
+func nullable(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return strings.TrimSpace(value)
+}
+
 func (r *Repository) MerchantByID(ctx context.Context, merchantID string) (Merchant, error) {
 	return scanMerchant(r.db.QueryRow(ctx, `SELECT `+merchantColumns+` FROM merchant.merchants WHERE id = $1`, merchantID))
 }
 
 // MerchantByOwnerUserID resolves the merchant owned by an authenticated user.
-// OwnerUserID is unique, so at most one merchant is returned.
 func (r *Repository) MerchantByOwnerUserID(ctx context.Context, ownerUserID string) (Merchant, error) {
 	return scanMerchant(r.db.QueryRow(ctx, `SELECT `+merchantColumns+` FROM merchant.merchants WHERE owner_user_id = $1`, ownerUserID))
 }

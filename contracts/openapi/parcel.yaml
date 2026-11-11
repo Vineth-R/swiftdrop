@@ -595,6 +595,70 @@ paths:
         '422': { $ref: '#/components/responses/ParcelValidation' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/proof/photo':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: getParcelProofPhotoURL
+      summary: Get a short-lived delivery proof photo URL
+      tags: [Customer parcels, Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: |
+        CUSTOMER owner, currently assigned COURIER, DISPATCHER or ADMIN. Returns
+        the latest proof that has a photo. S3-compatible providers return a
+        short-lived presigned URL; local development returns `stream: true` and
+        a relative content URL that re-checks the same authorization. No public
+        or permanent URL is ever returned. Cache-Control no-store.
+      responses:
+        '200':
+          description: Short-lived proof photo target.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/ProofPhotoURL' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400': { $ref: '#/components/responses/ParcelValidation' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/proof/photo/content':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: streamParcelProofPhoto
+      summary: Stream a delivery proof photo for local storage
+      tags: [Customer parcels, Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: |
+        Same authorization as the URL endpoint. Used when the configured provider
+        cannot presign (local filesystem). The bytes are read through the Parcel
+        service and never served from a public path. Cache-Control no-store.
+      responses:
+        '200':
+          description: Proof photo bytes.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              example: no-store
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
   /internal/parcels:
     servers: [{ url: 'http://parcel:8082' }]
     post:
@@ -1200,6 +1264,95 @@ paths:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/CourierUnavailable' }
+  '/courier/deliveries/{parcelId}/proof':
+    post:
+      operationId: createCourierDeliveryProof
+      summary: Upload proof for an assigned delivery (API v1.1 section 6.4)
+      description: |
+        COURIER only. The parcel must currently belong to the authenticated
+        courier. At least one of photo, recipientName or note must be present.
+        Photos are verified from their decoded content and must be a non-empty,
+        valid JPEG or PNG no larger than exactly 5 MiB. Client file names and
+        media headers are not trusted. Photos are stored in private Parcel-owned
+        storage; the response never exposes a storage key or filesystem path.
+        Repeated uploads create distinct proof records up to the configurable
+        per-parcel limit (default 20). The parcel row is locked while the current
+        assignment and proof count are checked, so neither reassignment nor a
+        concurrent upload can race an authorized insert. Requests are limited to
+        30 per minute per verified courier, and this route extends its own body
+        read deadline to 60 seconds. The public gateway accepts up to 6 MiB so
+        multipart overhead does not reject a 5 MiB photo; the application still
+        enforces the 5 MiB photo-content limit. Cache-Control no-store.
+      tags: [Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: parcelId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CourierProofUpload'
+      responses:
+        '201':
+          description: Delivery proof stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/CourierProofResult' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400':
+          description: BAD_REQUEST. Invalid parcel UUID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401': { $ref: '#/components/responses/CourierUnauthenticated' }
+        '403': { $ref: '#/components/responses/CourierForbidden' }
+        '404':
+          description: PARCEL_NOT_FOUND.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: PROOF_LIMIT_REACHED. The parcel already has the configured maximum number of proofs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '413':
+          description: PAYLOAD_TOO_LARGE. Photo exceeds exactly 5 MiB, or the request exceeds the 6 MiB gateway body limit.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '415':
+          description: UNSUPPORTED_MEDIA_TYPE. Request is not multipart/form-data, or photo content is not a valid JPEG or PNG.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: VALIDATION_ERROR. No proof field is present, the multipart form is malformed, recipientName exceeds 150 characters or note exceeds 500 characters.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429':
+          description: RATE_LIMITED. More than 30 proof uploads in a minute for the verified courier.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+            X-RateLimit-Remaining:
+              schema: { type: integer, minimum: 0 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/CourierUnavailable' }
 components:
   parameters:
     ParcelID:
@@ -1745,6 +1898,47 @@ components:
           type: string
           enum: [PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
         updatedAt: { type: string, format: date-time }
+    ProofPhotoURL:
+      type: object
+      additionalProperties: false
+      required: [url, expiresAt, mimeType, stream]
+      properties:
+        url: { type: string }
+        expiresAt: { type: string, format: date-time }
+        mimeType: { type: string, enum: [image/jpeg, image/png] }
+        stream:
+          type: boolean
+          description: True when the URL points at the authorized Parcel content route.
+    CourierProofUpload:
+      type: object
+      additionalProperties: false
+      description: At least one property must be present.
+      properties:
+        photo:
+          type: string
+          format: binary
+          description: Valid JPEG or PNG content, maximum exactly 5 MiB (5,242,880 bytes).
+        recipientName:
+          type: string
+          maxLength: 150
+        note:
+          type: string
+          maxLength: 500
+      anyOf:
+        - required: [photo]
+        - required: [recipientName]
+        - required: [note]
+    CourierProofResult:
+      type: object
+      additionalProperties: false
+      required: [id, parcelId, recipientName, note, hasPhoto, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        parcelId: { type: string, format: uuid }
+        recipientName: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+        hasPhoto: { type: boolean }
+        createdAt: { type: string, format: date-time }
     CourierDelivery:
       type: object
       required:

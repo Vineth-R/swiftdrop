@@ -25,8 +25,20 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 }
 
 func (l *RateLimiter) Middleware() gin.HandlerFunc {
+	return l.MiddlewareKeyed(func(c *gin.Context) string { return c.ClientIP() })
+}
+
+// MiddlewareKeyed lets an authenticated route limit by trusted identity instead
+// of the shared gateway address. The key function must return a non-empty value;
+// an empty key falls back to the client IP so a missing claim cannot bypass the
+// limiter.
+func (l *RateLimiter) MiddlewareKeyed(key func(*gin.Context) string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		remaining, retry := l.allow(c.ClientIP())
+		client := key(c)
+		if client == "" {
+			client = c.ClientIP()
+		}
+		remaining, retry := l.allow(client)
 		c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
 		if retry > 0 {
 			c.Header("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))

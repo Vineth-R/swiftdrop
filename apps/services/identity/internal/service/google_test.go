@@ -549,6 +549,8 @@ func TestGoogleAuth_CompleteGoogleLogin_linksExistingEmailAccount(t *testing.T) 
 	existing := f.store.addUser("nimal@example.com", true, "LOCAL")
 	existing.Role = auth.RoleMerchant
 	existing.PasswordHash = stringPtr("attacker-chosen-hash")
+	// A merchant signs in only with a current approval, whichever way they sign in.
+	f.service.merchantApproval = approvalChecker{status: "APPROVED"}
 
 	result, err := f.callback(f.begin(t, ""))
 	if err != nil {
@@ -651,6 +653,53 @@ func TestGoogleAuth_CompleteGoogleLogin_disabledAccount(t *testing.T) {
 		}
 		if len(f.store.tokens) != 0 {
 			t.Fatal("a disabled account was given a session")
+		}
+	})
+}
+
+func TestGoogleAuth_CompleteGoogleLogin_merchantNeedsCurrentApproval(t *testing.T) {
+	merchant := func(t *testing.T) *googleFixture {
+		t.Helper()
+		f := newGoogleFixture(t)
+		owner := f.store.addUser("nimal@example.com", true, "GOOGLE")
+		owner.Role = auth.RoleMerchant
+		f.store.subs["google-sub-1"] = owner.ID
+		return f
+	}
+
+	t.Run("a suspended merchant gets no session", func(t *testing.T) {
+		f := merchant(t)
+		f.service.merchantApproval = approvalChecker{status: "SUSPENDED", reason: "Repeated complaints."}
+
+		if _, err := f.callback(f.begin(t, "")); !errors.Is(err, ErrMerchantAccountInactive) {
+			t.Fatalf("error = %v, want ErrMerchantAccountInactive", err)
+		}
+		if len(f.store.tokens) != 0 {
+			t.Fatal("a suspended merchant was given a session")
+		}
+	})
+
+	t.Run("an unreachable merchant service fails closed", func(t *testing.T) {
+		f := merchant(t)
+		f.service.merchantApproval = approvalChecker{err: errors.New("down")}
+
+		if _, err := f.callback(f.begin(t, "")); !errors.Is(err, ErrServiceUnavailable) {
+			t.Fatalf("error = %v, want ErrServiceUnavailable", err)
+		}
+		if len(f.store.tokens) != 0 {
+			t.Fatal("a session was issued while approval could not be checked")
+		}
+	})
+
+	t.Run("an approved merchant signs in", func(t *testing.T) {
+		f := merchant(t)
+		f.service.merchantApproval = approvalChecker{status: "APPROVED"}
+
+		if _, err := f.callback(f.begin(t, "")); err != nil {
+			t.Fatalf("approved merchant error = %v", err)
+		}
+		if len(f.store.tokens) != 1 {
+			t.Fatalf("refresh tokens = %d, want 1", len(f.store.tokens))
 		}
 	})
 }

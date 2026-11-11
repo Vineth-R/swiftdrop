@@ -131,7 +131,10 @@ func TestParcelServiceMigrationCompatibility(t *testing.T) {
 	database.MigrateAll(t)
 	database.MigrateAll(t)
 	expectedTables := map[string]int{
-		"identity": 7, "pricing": 5, "parcel": 5, "merchant": 7, "notification": 2,
+		"identity": 9, "pricing": 5, "parcel": 5, "merchant": 9, "notification": 2,
+	}
+	expectedVersions := map[string]int{
+		"identity": 6, "pricing": 2, "parcel": 6, "merchant": 9, "notification": 2,
 	}
 	for service, expected := range expectedTables {
 		t.Run(service, func(t *testing.T) {
@@ -153,8 +156,8 @@ func TestParcelServiceMigrationCompatibility(t *testing.T) {
 			); err != nil {
 				t.Fatalf("inspect service migration state: %v", err)
 			}
-			if version < 2 || dirty {
-				t.Fatalf("%s migration state = %d dirty=%v, want applied baseline and clean", service, version, dirty)
+			if version != expectedVersions[service] || dirty {
+				t.Fatalf("%s migration state = %d dirty=%v, want version %d clean", service, version, dirty, expectedVersions[service])
 			}
 			t.Logf("%s: %d business tables, clean migration version %d", service, tables, version)
 		})

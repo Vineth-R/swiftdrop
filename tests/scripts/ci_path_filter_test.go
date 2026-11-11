@@ -235,9 +235,9 @@ func TestCIPathFiltersKeepAccessOutOfTheDockerMatrix(t *testing.T) {
 	}
 
 	for name, patterns := range filters {
-		// access and notificationflow are separate non-Docker filters. Only
-		// the service filters feed the Docker build matrix.
-		if name == "access" || name == "notificationflow" {
+		// access, notificationflow and realstack are separate non-Docker
+		// filters. Only the service filters feed the Docker build matrix.
+		if name == "access" || name == "notificationflow" || name == "realstack" {
 			continue
 		}
 		for _, pattern := range patterns {
@@ -245,6 +245,37 @@ func TestCIPathFiltersKeepAccessOutOfTheDockerMatrix(t *testing.T) {
 				t.Fatalf("Docker service filter %q must not include access-only path %q", name, pattern)
 			}
 		}
+	}
+}
+
+func TestCIPathFiltersRouteRealStackChanges(t *testing.T) {
+	filters := loadCIPathFilters(t)
+	if _, ok := filters["realstack"]; !ok {
+		t.Fatal("workflow has no realstack path filter")
+	}
+	tests := []struct {
+		name    string
+		changed []string
+		want    bool
+	}{
+		{"merchant source", []string{"apps/services/merchant/internal/onboarding/service.go"}, true},
+		{"identity source", []string{"apps/services/identity/internal/http/auth.go"}, true},
+		{"web source", []string{"apps/web/src/components/auth/verify-email.tsx"}, true},
+		{"e2e source", []string{"apps/web-e2e/src/registration-onboarding.real.spec.ts"}, true},
+		{"identity migration", []string{"migrations/identity/000004_email_verification.up.sql"}, true},
+		{"merchant migration", []string{"migrations/merchant/000007_registration_onboarding.up.sql"}, true},
+		{"compose", []string{"docker-compose.yml"}, true},
+		{"shared package", []string{"packages/go-common/auth/token.go"}, true},
+		{"readme only", []string{"README.md"}, false},
+		{"parcel source", []string{"apps/services/parcel/internal/http/parcels.go"}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			matched := filters.matched(test.changed)
+			if got := matched["realstack"]; got != test.want {
+				t.Fatalf("realstack filter matched = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 
@@ -335,6 +366,9 @@ func TestRequiredGateRejectsFailedOrCancelledDockerAndAccessJobs(t *testing.T) {
 		"ACCESS_RESULT":           "success",
 		"SECURITY_GATE_RESULT":    "success",
 		"NOTIFICATIONFLOW_RESULT": "success",
+		"MIGRATIONS_RESULT":       "success",
+		"STORAGE_RESULT":          "success",
+		"POOLED_RESULT":           "success",
 	}
 
 	tests := []struct {
@@ -355,6 +389,9 @@ func TestRequiredGateRejectsFailedOrCancelledDockerAndAccessJobs(t *testing.T) {
 		{name: "notificationflow skipped", result: "NOTIFICATIONFLOW_RESULT", value: "skipped"},
 		{name: "notificationflow failure", result: "NOTIFICATIONFLOW_RESULT", value: "failure", wantErr: true},
 		{name: "notificationflow cancelled", result: "NOTIFICATIONFLOW_RESULT", value: "cancelled", wantErr: true},
+		{name: "migrations failure", result: "MIGRATIONS_RESULT", value: "failure", wantErr: true},
+		{name: "storage failure", result: "STORAGE_RESULT", value: "failure", wantErr: true},
+		{name: "pooled failure", result: "POOLED_RESULT", value: "failure", wantErr: true},
 	}
 
 	for _, test := range tests {
@@ -541,7 +578,7 @@ func globExpression(pattern string) *regexp.Regexp {
 func dockerServices(matched map[string]bool) []string {
 	services := []string{}
 	for name, changed := range matched {
-		if changed && name != "access" && name != "notificationflow" {
+		if changed && name != "access" && name != "notificationflow" && name != "realstack" {
 			services = append(services, name)
 		}
 	}

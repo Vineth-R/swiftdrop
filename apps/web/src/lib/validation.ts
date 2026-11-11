@@ -62,6 +62,47 @@ export function validateInternationalPhone(value: string): string | undefined {
     : 'Enter the full number with its country code, for example +44 20 7123 4567.';
 }
 
+/** Runs a validator only when something was typed, for a field that is optional. */
+export function validateIfFilled(
+  value: string,
+  validator: (value: string) => string | undefined,
+): string | undefined {
+  return value.trim() ? validator(value) : undefined;
+}
+
+export function validateBusinessName(value: string): string | undefined {
+  const length = [...value.trim()].length;
+  return length >= 2 && length <= 150
+    ? undefined
+    : 'Enter between 2 and 150 characters.';
+}
+
+/**
+ * The company registration number, as the merchant API accepts it: 3 to 50
+ * characters of letters, digits, spaces, hyphens, slashes and dots, with at
+ * least one digit. Spaces and case do not matter.
+ */
+export function validateRegistrationNumber(value: string): string | undefined {
+  const text = value.trim().replace(/\s+/g, ' ');
+  const length = [...text].length;
+  const isValid =
+    length >= 3 &&
+    length <= 50 &&
+    /^[\p{L}\p{N} ./-]+$/u.test(text) &&
+    /\p{N}/u.test(text);
+  return isValid
+    ? undefined
+    : 'Enter 3 to 50 characters with at least one digit, for example PV 123456.';
+}
+
+/** A business or pickup address. */
+export function validateAddress(value: string): string | undefined {
+  const length = [...value.trim()].length;
+  return length >= 5 && length <= 255
+    ? undefined
+    : 'Enter between 5 and 255 characters.';
+}
+
 export function validateNewPassword(value: string): string | undefined {
   return checkPassword(value).isValid
     ? undefined
@@ -129,6 +170,15 @@ const serverMessages: Record<string, string> = {
   'courierProfile.vehicleType': 'Use 30 characters or fewer.',
   'courierProfile.vehicleNumber': 'Use 20 characters or fewer.',
   'courierProfile.homeZoneId': 'Choose a zone from the list.',
+  // Merchant registration (API 8.1) names its business fields with a prefix.
+  'business.name': 'Enter between 2 and 150 characters.',
+  'business.registrationNumber':
+    'Enter 3 to 50 characters with at least one digit, for example PV 123456.',
+  'business.contactEmail': 'Enter a complete email address.',
+  'business.contactPhone': 'Enter a full number, for example 71 234 5678.',
+  'business.businessAddress': 'Enter between 5 and 255 characters.',
+  'business.pickupAddress': 'Enter between 5 and 255 characters.',
+  'business.pickupZoneId': 'Choose an active pickup zone.',
 };
 
 export function serverFieldMessage(field: string): string | undefined {

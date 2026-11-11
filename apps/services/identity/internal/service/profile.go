@@ -16,13 +16,14 @@ import (
 // Profile is the signed-in user's own view of their account (API v1.1
 // section 2.7). Phone is empty when the account has none.
 type Profile struct {
-	ID           string
-	Email        string
-	FullName     string
-	Phone        string
-	Role         auth.Role
-	AuthProvider string
-	CreatedAt    time.Time
+	ID             string
+	Email          string
+	FullName       string
+	Phone          string
+	Role           auth.Role
+	AuthProvider   string
+	SessionVersion int
+	CreatedAt      time.Time
 }
 
 // Profile returns the account of userID, which the caller takes from a verified
@@ -169,12 +170,13 @@ func (s *Service) activeUser(ctx context.Context, userID, op string) (repository
 
 func profileOf(user repository.User) Profile {
 	profile := Profile{
-		ID:           user.ID,
-		Email:        user.Email,
-		FullName:     user.FullName,
-		Role:         user.Role,
-		AuthProvider: user.AuthProvider,
-		CreatedAt:    user.CreatedAt.UTC(),
+		ID:             user.ID,
+		Email:          user.Email,
+		FullName:       user.FullName,
+		Role:           user.Role,
+		AuthProvider:   user.AuthProvider,
+		SessionVersion: user.SessionVersion,
+		CreatedAt:      user.CreatedAt.UTC(),
 	}
 	if user.Phone != nil {
 		profile.Phone = *user.Phone

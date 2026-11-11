@@ -609,6 +609,22 @@ Errors: 409 EMAIL_ALREADY_EXISTS , 422 VALIDATION_ERROR , 429.
 
 Access: Public.
 
+Unverified CUSTOMER accounts receive 403 EMAIL_VERIFICATION_REQUIRED and no
+cookies. Inactive MERCHANT accounts, or merchants whose application is not
+APPROVED, receive 403 MERCHANT_ACCOUNT_INACTIVE. Identity checks the Merchant
+service status during merchant login and refresh; if it is unavailable the login
+fails closed with 503. Access tokens carry an `sv` session version that must
+match the current Identity session version.
+
+403 MERCHANT_ACCOUNT_INACTIVE is answered only after the correct password. Its
+`error.details` then say where the application stands, as `field` and `issue`
+pairs: `status` (PENDING, REJECTED or SUSPENDED), `reason` (the administrator's
+text, left out when there is none) and `supportEmail` (left out when none is
+configured). The sign-in screen shows them to the owner. There are no details
+when an administrator switched the account off, or when the status could not be
+read for an already inactive account. Google sign-in applies the same approval
+check as this endpoint.
+
 
 
 Purpose: Authenticates a user with email and password and starts the session using
@@ -1301,6 +1317,37 @@ End-to-end reset flow
 
 
 
+
+
+2.18 POST /auth/verify-email
+
+Access: Public.
+
+Purpose: Consumes a single-use email verification token for a CUSTOMER account.
+Only its SHA-256 hash is persisted. Unknown, expired and already-used tokens
+return the same 400 response. The account is marked verified and the token is
+consumed in one transaction.
+
+Request body: { "token": "verification-token" }
+
+Response 200: { "data": { "message": "Your email has been verified. You can now sign in to SwiftDrop." }, "meta": { "requestId": "req_20" } }
+
+Errors: 400 INVALID_OR_EXPIRED_VERIFICATION_TOKEN, 415, 429.
+
+2.19 POST /auth/resend-verification
+
+Access: Public.
+
+Purpose: Requests another verification email. The reply is always 202 for a
+well-formed email so account existence is not revealed. Only an active,
+unverified LOCAL CUSTOMER receives a new token; issuing one invalidates any
+previous unused token. Rate limited per IP and per normalized email.
+
+Request body: { "email": "nimal@example.com" }
+
+Response 202: { "data": { "message": "If an account needs verification, a new verification email will be sent." }, "meta": { "requestId": "req_21" } }
+
+Errors: 422, 429.
 
 ## 3. Pricing and Zones Service
 
@@ -2788,7 +2835,10 @@ Purpose: Registers a merchant business and its owner account. The merchant stays
 
 PENDING until an administrator approves it.
 
-
+`business.registrationNumber` is required. It must be 3-50 letters, digits,
+spaces, hyphens, slashes or dots, with at least one digit. The stored value is
+trimmed, whitespace-collapsed and upper-cased. Missing, null, empty and
+whitespace-only values are rejected with `422 VALIDATION_ERROR`.
 
 Request body:
 
@@ -3031,6 +3081,34 @@ Response 200: { "data": { "id": "m1a2...", "status": "SUSPENDED" } } . Errors:
 
 
 
+
+Merchant registration (8.1) creates an inactive Identity account and a PENDING
+application. No session is issued. Only an ADMIN approval applies a lifecycle
+transition, increments the Identity session version and activates the account.
+Pending, rejected and suspended merchants cannot obtain sessions.
+
+8.6 to 8.8 lifecycle rules:
+
+- Every actual approval, rejection, suspension and reapproval is a new lifecycle
+  transition with a unique transition ID and per-merchant sequence.
+- Identity increments session_version for every newly applied transition, even
+  when is_active already equals the target. Retries of the same transition do
+  not increment it again.
+- A reused transition ID with a different payload returns 409
+  TRANSITION_ID_CONFLICT. A stale sequence returns 409 STALE_TRANSITION.
+- Suspension commits SUSPENDED immediately, then deactivates Identity and
+  revokes refresh tokens. If Identity is unavailable the response reports
+  identitySync PENDING and the merchant stays blocked.
+- Rejection reason is optional, nullable and limited to 1,000 characters. Empty
+  or whitespace-only values are stored as NULL. The rejection email omits the
+  reason when none is provided. Suspension still requires a reason.
+- The administrator's list (8.4) and detail (8.5) carry `identitySync: "PENDING"`
+  for a REJECTED or SUSPENDED merchant whose status has not yet reached Identity,
+  and leave it out otherwise. Repeating the reject or suspend call retries the
+  sync with the same transition. A retry does not email the merchant again, and
+  one that finds the sync already applied answers `alreadyDone: true`.
+- `/merchant/pending` is a public informational page and never shows merchant
+  details or rejection reasons.
 
 8.9 GET /merchants/me/keys
 
@@ -4101,6 +4179,27 @@ Method and path                                  Caller to      Purpose
 
 
 
+
+Merchant onboarding adds these internal endpoints. They are specified in
+`contracts/openapi/identity-internal.yaml` and
+`contracts/openapi/merchant-internal.yaml`, and described in
+`docs/identity-internal-api.md` section 1a.
+
+- `POST /internal/merchant-owners` (Merchant to Identity): creates or resumes an
+  inactive MERCHANT account. 201 when created, 200 when resumed with the same
+  password.
+- `POST /internal/merchant-owners/{userId}/lifecycle` (Merchant to Identity):
+  applies one APPROVE, REJECT or SUSPEND exactly once. 409 TRANSITION_ID_CONFLICT,
+  STALE_TRANSITION or NOT_A_MERCHANT_OWNER.
+- `DELETE /internal/merchant-owners/{userId}` (Merchant to Identity): takes back
+  a failed registration. 409 OWNER_NOT_ELIGIBLE for any account that is not an
+  inactive, unverified MERCHANT with no session and no transition.
+- `GET /internal/users/{userId}/session-state` (Merchant to Identity): returns
+  `role`, `isActive` and `sessionVersion`.
+- `GET /internal/merchants/owners/{userId}/approval` (Identity to Merchant):
+  returns `merchantId` and `status`, and for a REJECTED or SUSPENDED merchant the
+  administrator's `reason`. Identity shows the reason to the owner after a
+  correct password and does not log it.
 
 Both internal Parcel endpoints are implemented and documented in
 `contracts/openapi/parcel.yaml`. They require `X-Internal-Token`, fail closed when
