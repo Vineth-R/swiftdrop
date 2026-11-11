@@ -360,7 +360,7 @@ jobs:
       - name: Run database integration tests
         run: |
           set -euo pipefail
-          go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/... | tee database.log
+          go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/... ./apps/services/merchant/internal/repository/... | tee database.log
 
           if grep -q -- '--- SKIP' database.log; then
             echo "::error::PostgreSQL integration tests were skipped; the database must be reachable."
@@ -376,6 +376,9 @@ jobs:
             echo "::error::Parcel PostgreSQL integration tests were skipped; the database and migrate CLI must be available."
             exit 1
           fi
+
+      - name: Enforce merchant service coverage
+        run: make coverage-merchant
 
   eventflow:
     name: Event flow E2E (PostgreSQL + RabbitMQ)
@@ -602,7 +605,7 @@ jobs:
               identity) expected=6 ;;
               pricing) expected=2 ;;
               parcel) expected=6 ;;
-              merchant) expected=9 ;;
+              merchant) expected=10 ;;
               notification) expected=2 ;;
               *) echo "::error::unexpected migration service ${service}"; exit 1 ;;
             esac

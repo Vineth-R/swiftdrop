@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var ErrKeyLimit = errors.New("merchant API key limit reached")
@@ -55,6 +57,10 @@ func (r *Repository) CreateAPIClient(ctx context.Context, params CreateAPIClient
 		return ErrKeyLimit
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO merchant.merchant_api_clients (id, merchant_id, name, key_prefix, lookup_id, key_hash) VALUES ($1, $2, $3, $4, $5, $6)`, params.ID, params.MerchantID, params.Name, params.KeyPrefix, params.LookupID, params.KeyHash); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23514" && strings.Contains(pgErr.Message, "KEY_LIMIT_REACHED") {
+			return ErrKeyLimit
+		}
 		return fmt.Errorf("create API key: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

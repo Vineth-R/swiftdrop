@@ -204,3 +204,42 @@ func TestRequireRoles_withoutAuthenticateFailsClosed(t *testing.T) {
 		t.Fatalf("error code = %q, want INTERNAL_ERROR", got)
 	}
 }
+
+func TestAuthenticateRequestSetsClaimsWithoutAdvancing(t *testing.T) {
+	manager := newTestManager(t, time.Now())
+	token, _, err := manager.Issue("user-1", RoleMerchant)
+	if err != nil {
+		t.Fatalf("Issue returned error: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	context.Request.Header.Set("Authorization", "Bearer "+token)
+
+	if !AuthenticateRequest(context, manager, testCookie) {
+		t.Fatalf("AuthenticateRequest rejected a valid token: %s", recorder.Body.String())
+	}
+	claims, ok := ClaimsFrom(context)
+	if !ok || claims.UserID != "user-1" || claims.Role != RoleMerchant {
+		t.Fatalf("claims = %+v, ok=%v", claims, ok)
+	}
+}
+
+func TestAuthenticateRequestWritesTheError(t *testing.T) {
+	manager := newTestManager(t, time.Now())
+	for _, header := range []string{"", "Bearer not-a-token", "Basic abc"} {
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		context.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		if header != "" {
+			context.Request.Header.Set("Authorization", header)
+		}
+		if AuthenticateRequest(context, manager, testCookie) {
+			t.Fatalf("AuthenticateRequest accepted %q", header)
+		}
+		if recorder.Code != http.StatusUnauthorized || recorder.Body.Len() == 0 {
+			t.Fatalf("header %q wrote status %d body %q", header, recorder.Code, recorder.Body.String())
+		}
+	}
+}

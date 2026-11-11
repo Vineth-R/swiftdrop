@@ -56,12 +56,16 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 		notification string
 		webhook      string
 		realtime     string
+		merchantSync string
 	}{
 		notification: "eventflow." + runID + ".notification",
 		webhook:      "eventflow." + runID + ".webhook",
 		realtime:     "eventflow." + runID + ".realtime",
+		merchantSync: "eventflow." + runID + ".merchant-sync",
 	}
-	t.Cleanup(func() { deleteTopology(t, rabbitURL, exchange, queues.notification, queues.webhook, queues.realtime) })
+	t.Cleanup(func() {
+		deleteTopology(t, rabbitURL, exchange, queues.notification, queues.webhook, queues.realtime, queues.merchantSync)
+	})
 
 	courierRepo := parcelevents.NewCourierRepository(pool)
 	customerID := newUUID(t, pool)
@@ -112,11 +116,16 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 
 	broadcaster := &recordingBroadcaster{}
 	realtime := realtimeevents.NewConsumer(broadcaster)
+	merchantSync, err := merchantevents.NewSyncHandler(pool, logger)
+	if err != nil {
+		t.Fatalf("merchant sync handler: %v", err)
+	}
 
 	startConsumer(t, ctx, rabbitURL, exchange, queues.notification, notification, logger)
 	startConsumer(t, ctx, rabbitURL, exchange, queues.webhook, webhook, logger)
 	startConsumer(t, ctx, rabbitURL, exchange, queues.realtime, realtime, logger)
-	for _, queue := range []string{queues.notification, queues.webhook, queues.realtime} {
+	startConsumer(t, ctx, rabbitURL, exchange, queues.merchantSync, merchantSync, logger)
+	for _, queue := range []string{queues.notification, queues.webhook, queues.realtime, queues.merchantSync} {
 		waitForConsumer(t, rabbitURL, queue)
 	}
 
@@ -128,6 +137,7 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 		t.Fatalf("customer status update: %v", err)
 	}
 	merchantParcel, merchantTracking := insertParcel(t, pool, merchantID, true)
+	insertMerchantOrder(t, pool, merchantID, merchantParcel, merchantTracking)
 	if _, err := courierRepo.UpdateStatus(ctx, parcelevents.StatusInput{
 		ParcelID: merchantParcel, CourierID: courierIDFor(t, pool, merchantParcel), Status: parcelevents.StatusPickedUp,
 	}); err != nil {
@@ -222,12 +232,33 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 		t.Errorf("realtime trackings = %v", trackings)
 	}
 
-	// Duplicate delivery is idempotent: the merchant event does not send twice.
-	body, err := json.Marshal(merchantEnvelope)
-	if err != nil {
-		t.Fatalf("marshal duplicate envelope: %v", err)
+	// Merchant integration: the real merchant.sync handler updates the order
+	// snapshot and timeline exactly once.
+	waitUntil(t, eventWaitTimeout, "merchant order status synchronization", func() error {
+		status := scalar(t, pool, "SELECT last_known_status FROM merchant.merchant_orders WHERE parcel_id='"+merchantParcel+"'")
+		if status != "PICKED_UP" {
+			return fmt.Errorf("merchant order status = %q", status)
+		}
+		return nil
+	})
+	if got := scalar(t, pool, "SELECT count(*) FROM merchant.merchant_order_status_events WHERE event_id='"+merchantEnvelope.ID+"'"); got != "1" {
+		t.Errorf("merchant status events = %s, want 1", got)
 	}
-	if err := notification.Handle(ctx, messaging.Message{Body: body}); err != nil {
+	beforeTimeline := scalar(t, pool, "SELECT count(*) FROM merchant.merchant_order_status_events WHERE order_id=(SELECT id FROM merchant.merchant_orders WHERE parcel_id='"+merchantParcel+"')")
+	merchantBody, err := json.Marshal(merchantEnvelope)
+	if err != nil {
+		t.Fatalf("marshal merchant envelope: %v", err)
+	}
+	if err := merchantSync.Handle(ctx, messaging.Message{Body: merchantBody}); err != nil {
+		t.Fatalf("duplicate merchant sync: %v", err)
+	}
+	afterTimeline := scalar(t, pool, "SELECT count(*) FROM merchant.merchant_order_status_events WHERE order_id=(SELECT id FROM merchant.merchant_orders WHERE parcel_id='"+merchantParcel+"')")
+	if afterTimeline != beforeTimeline {
+		t.Errorf("merchant timeline grew on duplicate: %s -> %s", beforeTimeline, afterTimeline)
+	}
+
+	// Duplicate delivery is idempotent: the merchant event does not send twice.
+	if err := notification.Handle(ctx, messaging.Message{Body: merchantBody}); err != nil {
 		t.Fatalf("duplicate merchant notification: %v", err)
 	}
 	if got := mail.recipients()[merchantEmail]; got != 1 {
@@ -297,6 +328,19 @@ func insertMerchant(t *testing.T, pool *postgres.Pool, merchantID, contactEmail 
 		merchantID, ownerID, "Event Flow Merchant", "EF-"+merchantID[:8], contactEmail, zoneID)
 	if err != nil {
 		t.Fatalf("insert merchant: %v", err)
+	}
+}
+
+func insertMerchantOrder(t *testing.T, pool *postgres.Pool, merchantID, parcelID, tracking string) {
+	t.Helper()
+	_, err := pool.Exec(t.Context(), `INSERT INTO merchant.merchant_orders (
+		merchant_id, external_order_id, request_hash, parcel_id, tracking_number, recipient_name,
+		dropoff_city, weight_kg, size_category, fee_amount, fee_breakdown, last_known_status, last_status_at
+	) VALUES ($1,$2,$3,$4,$5,'Recipient','Kandy',2,'SMALL',550,
+		'{"base_fee":450,"weight_charge":100,"size_surcharge":0}','CREATED',now() - interval '1 minute')`,
+		merchantID, "EVENTFLOW-"+parcelID[:8], randomHex(32), parcelID, tracking)
+	if err != nil {
+		t.Fatalf("insert merchant order: %v", err)
 	}
 }
 

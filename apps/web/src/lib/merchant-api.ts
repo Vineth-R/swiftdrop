@@ -69,6 +69,8 @@ export type OrderQuery = {
   to?: string;
   externalOrderId?: string;
   page: number;
+  pageSize?: number;
+  sort?: string;
 };
 
 export function getMerchant(signal?: AbortSignal) {
@@ -166,19 +168,58 @@ export function revokeMerchantKey(id: string) {
 export function listMerchantOrders(query: OrderQuery, signal?: AbortSignal) {
   const params = new URLSearchParams({
     page: String(query.page),
-    pageSize: '20',
+    pageSize: String(query.pageSize ?? 20),
   });
   for (const [key, value] of Object.entries(query)) {
-    if (value && key !== 'page') params.set(key, String(value));
+    if (value && key !== 'page' && key !== 'pageSize') {
+      params.set(key, String(value));
+    }
   }
   return apiWithMeta<MerchantOrder[]>(`/merchant/orders?${params}`, { signal });
+}
+
+export type MerchantOrderOverview = {
+  total: number;
+  inProgress: number;
+  delivered: number;
+  failed: number;
+  recent: MerchantOrder[];
+};
+
+/**
+ * The dashboard needs four totals and a short recent list. The API has no
+ * separate summary endpoint, so this reads the list pagination totals instead
+ * of inventing a route or hardcoding numbers.
+ */
+export async function getMerchantOrderOverview(
+  signal?: AbortSignal,
+): Promise<MerchantOrderOverview> {
+  const [all, delivered, failed, recent] = await Promise.all([
+    listMerchantOrders({ page: 1, pageSize: 1 }, signal),
+    listMerchantOrders({ page: 1, pageSize: 1, status: 'DELIVERED' }, signal),
+    listMerchantOrders({ page: 1, pageSize: 1, status: 'FAILED' }, signal),
+    listMerchantOrders(
+      { page: 1, pageSize: 5, sort: 'createdAt:desc' },
+      signal,
+    ),
+  ]);
+  const total = all.meta.pagination?.totalItems ?? all.data.length;
+  const deliveredCount = delivered.meta.pagination?.totalItems ?? 0;
+  const failedCount = failed.meta.pagination?.totalItems ?? 0;
+  return {
+    total,
+    delivered: deliveredCount,
+    failed: failedCount,
+    inProgress: Math.max(0, total - deliveredCount - failedCount),
+    recent: recent.data,
+  };
 }
 
 /** API documentation v1.1, section 8.18; timeline follows section 4.6. */
 export type MerchantOrderDetail = MerchantOrder & {
   weightKg: number;
   sizeCategory: string;
-  description?: string;
+  description?: string | null;
   fee: {
     currency: string;
     baseFee: number;

@@ -1,5 +1,7 @@
 # Merchant Integration diagrams
 
+Status: the order API, snapshot persistence, Parcel integration and status synchronization described here are implemented in the merchant service. API 8.16 is API-key-only.
+
 ## Figure 2 — Merchant use cases
 
 ```mermaid

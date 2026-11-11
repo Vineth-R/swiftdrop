@@ -44,6 +44,7 @@ var migrationFiles = []string{
 	"migrations/merchant/000007_registration_onboarding.up.sql",
 	"migrations/merchant/000008_business_reg_no_optional.up.sql",
 	"migrations/merchant/000009_restore_business_reg_no_required.up.sql",
+	"migrations/merchant/000010_merchant_order_snapshots.up.sql",
 }
 
 // newIsolatedDatabase creates a uniquely named database on TEST_DATABASE_URL,

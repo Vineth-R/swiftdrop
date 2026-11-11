@@ -212,7 +212,7 @@ What this suite does **not** prove:
 - It does not implement or validate the parcel producer, transactional outbox, outbox relay, or parcel status-change API. The domain events are published by the test, not by a parcel service.
 - It does not prove the complete M1.8c flow: no real parcel status change causes the event.
 - Merchant-owned parcel notifications use the real approved-merchant contact lookup, but the suite does not prove merchant onboarding, approval, or suspension flows; it seeds the merchant status directly.
-- Webhook delivery, realtime delivery, and merchant order synchronization are out of scope. `merchant.sync.queue` is not implemented.
+- Webhook delivery, realtime delivery, and merchant order synchronization are out of scope for this notification-only suite; the event-flow suite covers webhook and realtime, and the Merchant service owns `merchant.sync.queue`.
 - It does not prove exactly-once delivery. The worker is at-least-once: a crash after SMTP acceptance and before the database commit, or two concurrent workers, can still produce a duplicate email. Sequential redelivery after successful processing is deduplicated.
 - Retry exhaustion is not observable by the handler, so a notification log can remain `PENDING` after the message is dead-lettered.
 - Invalid and unapproved-merchant events remain in the dead-letter queue. The test peeks with `ack_requeue_true` and searches for its unique event ID; it does not purge the shared queue.
@@ -222,7 +222,7 @@ Isolation and cleanup: every run uses fresh UUIDs and unique recipients. The sui
 
 ## Event flow end-to-end (eventflow)
 
-`tests/integration/eventflow` (tag `integration`) proves the event chain with real infrastructure and in-process real handlers. It creates an isolated PostgreSQL database with the parcel, notification and merchant migrations, writes a real courier status transaction and PENDING outbox row, runs the real outbox relay and AMQP publisher to RabbitMQ, and processes the published `parcel.status_changed.v1` with the real notification, webhook and realtime handlers. Merchant notifications use the real merchant internal lookup and client, and webhook delivery uses a real HTTP receiver.
+`tests/integration/eventflow` (tag `integration`) proves the event chain with real infrastructure and in-process real handlers. It creates an isolated PostgreSQL database with the parcel, notification and merchant migrations, writes a real courier status transaction and PENDING outbox row, runs the real outbox relay and AMQP publisher to RabbitMQ, and processes the published `parcel.status_changed.v1` with the real notification, webhook, realtime and merchant-sync handlers. Merchant notifications use the real merchant internal lookup and client, the merchant order snapshot/timeline is updated exactly once, and webhook delivery uses a real HTTP receiver.
 
 It requires both PostgreSQL and RabbitMQ:
 
@@ -232,7 +232,7 @@ RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
   go test -race -count=1 -tags=integration ./tests/integration/eventflow/...
 ```
 
-CI runs this as the `eventflow` job and fails if any test is skipped. Each run uses a uniquely named database and uniquely named exchange/queues, and cleanup removes only the resources it created. The suite covers the committed outbox → relay → broker → consumer chain; it does not prove multi-replica fan-out or that the merchant asynchronous sync consumer exists. `merchant.sync.queue` is not implemented.
+CI runs this as the `eventflow` job and fails if any test is skipped. Each run uses a uniquely named database and uniquely named exchange/queues, and cleanup removes only the resources it created. The suite covers the committed outbox → relay → broker → consumer chain; it does not prove multi-replica fan-out. The Merchant service consumes `merchant.sync.queue` separately.
 
 ## Demo-user seed
 
@@ -288,11 +288,11 @@ Broker-backed tests are guarded by the `integration` build tag, so `go test ./..
 
 The API v1.1 section 11 audit found mismatches and missing implementations. **RabbitMQ integration compliance is not established by the M7 database or validator results, or by the generic broker scenarios below.** Follow-up ownership is recorded from the team task sheet; this documentation does not create tickets or imply the owners have completed the work.
 
-| Follow-up                                                                                                                                                                                                    | Responsible owners                                                                        |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| Remaining merchant asynchronous synchronization: implement `merchant.sync.queue` with the documented versioned binding. The realtime consumer and the notification/webhook parcel consumers are implemented. | M8 for merchant integration, coordinating topology with M1.                               |
-| Parcel event producers and outbox relay are implemented; keep the single-instance claim/lock strategy documented before running the relay with more than one instance.                                       | M5 for parcel-created publication, M7 for parcel-status publication, M6 for outbox relay. |
-| Webhook delivery, signing, attempt recording, and the six-attempt business retry schedule are implemented; keep the business retries separate from the shared consumer retry loop.                           | M9 for webhook behavior; M1 for shared retry/topology support.                            |
+| Follow-up                                                                                                                                                                          | Responsible owners                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Merchant asynchronous synchronization is implemented on `merchant.sync.queue`; keep the newest-event-wins and duplicate-event tests current.                                       | M8 for merchant integration, coordinating topology with M1.                               |
+| Parcel event producers and outbox relay are implemented; keep the single-instance claim/lock strategy documented before running the relay with more than one instance.             | M5 for parcel-created publication, M7 for parcel-status publication, M6 for outbox relay. |
+| Webhook delivery, signing, attempt recording, and the six-attempt business retry schedule are implemented; keep the business retries separate from the shared consumer retry loop. | M9 for webhook behavior; M1 for shared retry/topology support.                            |
 
 API v1.1 section 10.3 requires six webhook attempts with the schedule exactly: **now, 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours**. The later delays are after the previous failure. After the sixth failure, the worker dead-letters and records the attempt. The webhook worker implements this schedule through RabbitMQ delay queues without reusing the shared consumer retry loop. D6.1 documents the approved contract in [contracts/events/README.md](../../contracts/events/README.md).
 

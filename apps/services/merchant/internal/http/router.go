@@ -7,6 +7,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/onboarding"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 )
@@ -16,6 +17,7 @@ type Options struct {
 	Repository    *repository.Repository
 	Onboarding    *onboarding.Service
 	Identity      *identityclient.Client
+	Orders        *orders.Service
 	AccessSecret  string
 	CookieName    string
 	InternalToken string

@@ -156,8 +156,9 @@ Outbox storage uses `parcel.created` for both label/key and the versioned schema
 data object, with exactly one owner and no phone/address/email. M6's relay must
 wrap the data using the outbox UUID as event ID and publish `parcel.created.v1`.
 It must not copy the stored legacy routing key. No relay or historical migration
-was changed. The current M1 consumer supports customer-owned domain events;
-merchant-owned notification events remain unsupported by that consumer.
+was changed. The M1 consumer supports customer-owned and merchant-owned domain
+events; merchant-owned events resolve the approved merchant contact through the
+Merchant internal API.
 
 Receipts bundle five OFL-licensed Noto fonts and use pure-Go shaping for Latin,
 Sinhala, Tamil, Arabic and Hebrew, including combining marks and bidi text.

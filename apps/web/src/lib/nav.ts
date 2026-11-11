@@ -86,6 +86,7 @@ export const navByRole: Record<Role, NavGroup[]> = {
     {
       items: [
         { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+        { label: 'Orders', href: '/merchant/orders', icon: Package },
         { label: 'API keys', href: '/api-keys', icon: KeyRound },
         { label: 'Business', href: '/merchant/profile', icon: Store },
         { label: 'Profile', href: '/profile', icon: User },
