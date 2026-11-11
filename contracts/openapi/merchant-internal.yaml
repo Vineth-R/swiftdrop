@@ -136,6 +136,11 @@ paths:
         Returns the merchant status for an owner user ID. Identity uses it to
         prevent pending, rejected or suspended merchants from obtaining or
         renewing sessions even if Identity deactivation failed.
+
+
+        For a REJECTED or SUSPENDED merchant it also returns the administrator's
+        `reason` (left out when there is none). Identity shows it to the owner
+        after a correct password and does not log it.
       parameters:
         - name: userId
           in: path
@@ -157,6 +162,11 @@ paths:
                         {
                           type: string,
                           enum: [PENDING, APPROVED, REJECTED, SUSPENDED],
+                        }
+                      reason:
+                        {
+                          type: string,
+                          description: The administrator's text for a REJECTED or SUSPENDED merchant. Absent otherwise.,
                         }
         '404': { description: No merchant owns this user. }
 

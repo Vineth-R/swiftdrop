@@ -420,7 +420,17 @@ func (h *merchantHandler) internalApproval(c *gin.Context) {
 		h.internalError(c, "merchant_approval_lookup", "merchant status could not be read", err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"merchantId": merchant.ID, "status": merchant.Status})
+	body := gin.H{"merchantId": merchant.ID, "status": merchant.Status}
+	// Identity shows the owner why a login was refused, but only after the
+	// correct password. The reason is the administrator's own text for that
+	// owner, the same text the decision email carries.
+	switch {
+	case merchant.Status == repository.MerchantStatusRejected && merchant.RejectionReason != nil:
+		body["reason"] = *merchant.RejectionReason
+	case merchant.Status == repository.MerchantStatusSuspended && merchant.SuspensionReason != nil:
+		body["reason"] = *merchant.SuspensionReason
+	}
+	httpx.Success(c, http.StatusOK, body)
 }
 
 func (h *merchantHandler) onboardingError(c *gin.Context, err error) {

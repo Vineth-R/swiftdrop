@@ -89,3 +89,40 @@ func hashRefreshForTest(t *testing.T, repo *Repository, userID string) (string, 
 	}
 	return hash, hash
 }
+
+// The refusals are named errors so the internal API can answer 409, not 500.
+func TestMerchantOwnerRefusalsAreNamedErrors(t *testing.T) {
+	repo, pool := newTestRepository(t)
+	ctx := context.Background()
+	unknown := "3f1c7a52-0000-4000-8000-0000000000ff"
+
+	customer := createTestUser(t, repo, "customer@example.test")
+	if _, err := repo.ApplyMerchantLifecycleTransition(ctx, customer.ID, transitionID(), 1, "APPROVE", time.Now()); !errors.Is(err, ErrNotMerchantOwner) {
+		t.Fatalf("lifecycle for a customer error = %v, want ErrNotMerchantOwner", err)
+	}
+	if err := repo.DeletePendingMerchantOwner(ctx, customer.ID); !errors.Is(err, ErrOwnerNotEligible) {
+		t.Fatalf("removing a customer error = %v, want ErrOwnerNotEligible", err)
+	}
+
+	owner, _, err := repo.CreateInactiveMerchantOwner(ctx, "refusal-owner@example.test", "hash", "Owner", "+94771234567")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ApplyMerchantLifecycleTransition(ctx, owner.ID, transitionID(), 1, "APPROVE", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeletePendingMerchantOwner(ctx, owner.ID); !errors.Is(err, ErrOwnerNotEligible) {
+		t.Fatalf("removing an approved owner error = %v, want ErrOwnerNotEligible", err)
+	}
+
+	if _, err := repo.ApplyMerchantLifecycleTransition(ctx, unknown, transitionID(), 1, "APPROVE", time.Now()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("lifecycle for an unknown user error = %v, want ErrNotFound", err)
+	}
+	if err := repo.DeletePendingMerchantOwner(ctx, unknown); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("removing an unknown user error = %v, want ErrNotFound", err)
+	}
+	var stillThere int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM identity.users WHERE id IN ($1, $2)`, customer.ID, owner.ID).Scan(&stillThere); err != nil || stillThere != 2 {
+		t.Fatalf("accounts left = %d (%v), want 2: a refused removal must delete nothing", stillThere, err)
+	}
+}

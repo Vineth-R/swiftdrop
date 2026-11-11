@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/service"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
@@ -442,4 +443,61 @@ func TestInternal_merchantOwnerLifecycleSessionAndDelete(t *testing.T) {
 	if response := h.authorised("/internal/users/user-1/session-state"); response.Code != http.StatusNotFound {
 		t.Fatalf("missing session state = %d, want 404", response.Code)
 	}
+}
+
+// A refusal the caller can act on is a 409 with its own code, not a 500: the
+// contract in contracts/openapi/identity-internal.yaml says so.
+func TestInternal_merchantOwnerRefusalsAreConflictsAndNotFound(t *testing.T) {
+	lifecycleBody := `{"transitionId":"3f1c7a52-0000-4000-8000-000000000010","sequence":1,"operation":"APPROVE"}`
+	tests := []struct {
+		name   string
+		err    error
+		call   func(h *internalHarness) *httptest.ResponseRecorder
+		status int
+		code   string
+	}{
+		{"removing an owner that cannot be removed", repository.ErrOwnerNotEligible,
+			func(h *internalHarness) *httptest.ResponseRecorder {
+				return h.delete("/internal/merchant-owners/user-1")
+			},
+			http.StatusConflict, "OWNER_NOT_ELIGIBLE"},
+		{"a lifecycle transition for a user who is not a merchant", repository.ErrNotMerchantOwner,
+			func(h *internalHarness) *httptest.ResponseRecorder {
+				return h.post("/internal/merchant-owners/user-1/lifecycle", lifecycleBody)
+			},
+			http.StatusConflict, "NOT_A_MERCHANT_OWNER"},
+		{"a lifecycle transition for an unknown user", service.ErrUserNotFound,
+			func(h *internalHarness) *httptest.ResponseRecorder {
+				return h.post("/internal/merchant-owners/user-1/lifecycle", lifecycleBody)
+			},
+			http.StatusNotFound, "NOT_FOUND"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h := newInternalHarness(testInternalToken)
+			h.service.err = test.err
+
+			response := test.call(h)
+
+			if response.Code != test.status || internalErrorCode(t, response) != test.code {
+				t.Fatalf("status = %d code = %s (%s), want %d %s", response.Code, internalErrorCode(t, response), response.Body, test.status, test.code)
+			}
+			if strings.Contains(h.logs.String(), "internal request failed") {
+				t.Fatalf("a refusal the caller can act on was logged as a failure:\n%s", h.logs)
+			}
+		})
+	}
+}
+
+func internalErrorCode(t *testing.T, response *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not an error envelope: %v (%s)", err, response.Body.String())
+	}
+	return body.Error.Code
 }

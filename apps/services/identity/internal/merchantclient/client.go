@@ -27,6 +27,9 @@ type Client struct {
 type approvalResponse struct {
 	Data struct {
 		Status string `json:"status"`
+		// Reason is the administrator's text for a REJECTED or SUSPENDED
+		// application. It is empty for the other statuses.
+		Reason string `json:"reason"`
 	} `json:"data"`
 }
 
@@ -42,27 +45,31 @@ func New(baseURL, token string, timeout time.Duration) (*Client, error) {
 	return &Client{baseURL: trimmed, token: strings.TrimSpace(token), http: &http.Client{Timeout: timeout}}, nil
 }
 
-func (c *Client) Approval(ctx context.Context, userID string) (string, error) {
+// Approval returns the merchant status of an owner and, for a REJECTED or
+// SUSPENDED application, the administrator's reason. An owner with no merchant
+// record has an empty status. The reason is personal to the owner: the caller
+// shows it only after a correct password and never logs it.
+func (c *Client) Approval(ctx context.Context, userID string) (status, reason string, err error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/internal/merchants/owners/"+url.PathEscape(userID)+"/approval", nil)
 	if err != nil {
-		return "", ErrUnavailable
+		return "", "", ErrUnavailable
 	}
 	request.Header.Set("X-Internal-Token", c.token)
 	request.Header.Set(requestid.Header, requestid.New())
 	response, err := c.http.Do(request)
 	if err != nil {
-		return "", ErrUnavailable
+		return "", "", ErrUnavailable
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
-		return "", nil
+		return "", "", nil
 	}
 	if response.StatusCode != http.StatusOK {
-		return "", ErrUnavailable
+		return "", "", ErrUnavailable
 	}
 	var body approvalResponse
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
-		return "", fmt.Errorf("decode merchant approval: %w", ErrUnavailable)
+		return "", "", fmt.Errorf("decode merchant approval: %w", ErrUnavailable)
 	}
-	return body.Data.Status, nil
+	return body.Data.Status, body.Data.Reason, nil
 }

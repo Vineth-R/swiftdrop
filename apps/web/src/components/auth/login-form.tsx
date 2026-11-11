@@ -15,6 +15,10 @@ import { ApiError } from '@/lib/api';
 import { classifyApiError, type ApiProblem } from '@/lib/api-problem';
 import { googleLoginUrl, resendVerification } from '@/lib/auth-api';
 import { DEFAULT_AUTH_ROUTE } from '@/lib/constants';
+import {
+  merchantStandingFromIssues,
+  type MerchantStanding,
+} from '@/lib/merchant-standing';
 import { homeFor } from '@/lib/nav';
 import { safeNext } from '@/lib/redirect';
 import { useSession } from '@/lib/session';
@@ -31,13 +35,14 @@ import { TextField } from '@/components/ui/field';
 import { PasswordField } from '@/components/ui/password-field';
 import { ApiProblemAlerts } from './api-problem-alerts';
 import { GoogleButton, OrDivider } from './google-button';
+import { MerchantStatusAlert } from './merchant-status-alert';
 
 type Banner =
   | { kind: 'invalid' }
   | { kind: 'locked' }
   | { kind: 'oauth' }
   | { kind: 'verification' }
-  | { kind: 'merchant-inactive' }
+  | { kind: 'merchant-inactive'; standing?: MerchantStanding }
   | { kind: 'verified' }
   | ApiProblem;
 
@@ -134,7 +139,10 @@ export function LoginForm() {
           setBanner({ kind: 'verification' });
           return;
         case 'MERCHANT_ACCOUNT_INACTIVE':
-          setBanner({ kind: 'merchant-inactive' });
+          setBanner({
+            kind: 'merchant-inactive',
+            standing: merchantStandingFromIssues(error.issues),
+          });
           return;
       }
     }
@@ -296,6 +304,11 @@ function LoginBanner({
         </Alert>
       );
     case 'merchant-inactive':
+      if (banner.standing) {
+        return (
+          <MerchantStatusAlert standing={banner.standing} alertRef={alertRef} />
+        );
+      }
       return (
         <Alert
           ref={alertRef}

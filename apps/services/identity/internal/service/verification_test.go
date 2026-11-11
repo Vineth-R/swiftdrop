@@ -12,11 +12,81 @@ import (
 
 type approvalChecker struct {
 	status string
+	reason string
 	err    error
 }
 
-func (c approvalChecker) Approval(context.Context, string) (string, error) {
-	return c.status, c.err
+func (c approvalChecker) Approval(context.Context, string) (string, string, error) {
+	return c.status, c.reason, c.err
+}
+
+func TestService_MerchantLoginRefusalCarriesTheDecision(t *testing.T) {
+	const support = "support@swiftdrop.example"
+	tests := []struct {
+		name       string
+		active     bool
+		checker    approvalChecker
+		wantDetail bool
+		wantStatus string
+		wantReason string
+	}{
+		{"pending application", true, approvalChecker{status: "PENDING"}, true, "PENDING", ""},
+		{"rejected with a reason", true, approvalChecker{status: "REJECTED", reason: "The registration number could not be verified."}, true, "REJECTED", "The registration number could not be verified."},
+		{"rejected without a reason", true, approvalChecker{status: "REJECTED"}, true, "REJECTED", ""},
+		{"suspended with a reason", true, approvalChecker{status: "SUSPENDED", reason: "Repeated delivery complaints."}, true, "SUSPENDED", "Repeated delivery complaints."},
+		// A rejected owner's Identity account is inactive from the start.
+		{"inactive and rejected", false, approvalChecker{status: "REJECTED", reason: "Duplicate business."}, true, "REJECTED", "Duplicate business."},
+		// The lookup only adds detail, so an outage is still the plain refusal.
+		{"inactive and the merchant service is down", false, approvalChecker{err: errors.New("down")}, false, "", ""},
+		// An account switched off by an administrator is not a merchant decision.
+		{"inactive but approved", false, approvalChecker{status: "APPROVED"}, false, "", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.service.config.SupportEmail = support
+			account := f.register(t)
+			user := f.store.users[account.ID]
+			user.Role = "MERCHANT"
+			user.IsActive = test.active
+			f.service.merchantApproval = test.checker
+
+			_, err := f.login("Str0ngPass!")
+
+			if !errors.Is(err, ErrMerchantAccountInactive) {
+				t.Fatalf("error = %v, want ErrMerchantAccountInactive", err)
+			}
+			var inactive *MerchantInactiveError
+			if got := errors.As(err, &inactive); got != test.wantDetail {
+				t.Fatalf("carries details = %v, want %v (error %#v)", got, test.wantDetail, err)
+			}
+			if !test.wantDetail {
+				return
+			}
+			if inactive.Status != test.wantStatus || inactive.Reason != test.wantReason || inactive.SupportEmail != support {
+				t.Fatalf("details = %+v, want status %q reason %q support %q", *inactive, test.wantStatus, test.wantReason, support)
+			}
+		})
+	}
+}
+
+func TestService_MerchantLoginShowsNothingBeforeTheCorrectPassword(t *testing.T) {
+	f := newFixture(t)
+	account := f.register(t)
+	user := f.store.users[account.ID]
+	user.Role = "MERCHANT"
+	user.IsActive = false
+	f.service.merchantApproval = approvalChecker{status: "REJECTED", reason: "Private note for the owner."}
+
+	_, err := f.login("Wr0ngPassword!")
+
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("wrong password error = %v, want ErrInvalidCredentials", err)
+	}
+	var inactive *MerchantInactiveError
+	if errors.As(err, &inactive) {
+		t.Fatal("a wrong password was told the merchant's status and reason")
+	}
 }
 
 func TestService_RegisterSendsVerificationAndDoesNotIssueSession(t *testing.T) {

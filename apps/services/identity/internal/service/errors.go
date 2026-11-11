@@ -46,6 +46,23 @@ var (
 	ErrServiceUnavailable = errors.New("service unavailable")
 )
 
+// MerchantInactiveError is ErrMerchantAccountInactive with what the owner may
+// be told about it. It is returned only after the correct password, so the
+// status and the administrator's reason are not exposed to guessers. Reason is
+// empty when the administrator gave none; SupportEmail is empty when no support
+// address is configured.
+type MerchantInactiveError struct {
+	Status       string
+	Reason       string
+	SupportEmail string
+}
+
+func (e *MerchantInactiveError) Error() string { return ErrMerchantAccountInactive.Error() }
+
+// Is makes errors.Is(err, ErrMerchantAccountInactive) true, so callers that do
+// not need the details keep working.
+func (e *MerchantInactiveError) Is(target error) bool { return target == ErrMerchantAccountInactive }
+
 // Issue describes one invalid field. It is the shared validation issue so
 // services and HTTP helpers use one shape.
 type Issue = validation.Issue

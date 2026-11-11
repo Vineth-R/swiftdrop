@@ -125,6 +125,15 @@ paths:
         a merchant whose application is not APPROVED is refused with 403
         `MERCHANT_ACCOUNT_INACTIVE`. If the Merchant service cannot be reached,
         merchant login fails closed with 503.
+
+
+        `MERCHANT_ACCOUNT_INACTIVE` is answered only after the correct password.
+        Its `error.details` then say where the application stands, as
+        `field`/`issue` pairs: `status` (`PENDING`, `REJECTED` or `SUSPENDED`),
+        `reason` (the administrator's text, left out when there is none) and
+        `supportEmail` (left out when none is configured). There are no details
+        when the account was switched off by an administrator, or when the status
+        could not be read for an inactive account.
       parameters:
         - $ref: '#/components/parameters/TokenMode'
       requestBody:
@@ -154,7 +163,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: The account was deactivated (`ACCOUNT_DISABLED`).
+          description: >-
+            `ACCOUNT_DISABLED` (the account was deactivated),
+            `EMAIL_VERIFICATION_REQUIRED` (a CUSTOMER has not verified the email)
+            or `MERCHANT_ACCOUNT_INACTIVE` (see the operation description for its
+            `error.details`).
           content:
             application/json:
               schema:
@@ -165,11 +178,6 @@ paths:
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
           $ref: '#/components/responses/ValidationError'
-        '403':
-          description: 'EMAIL_VERIFICATION_REQUIRED or MERCHANT_ACCOUNT_INACTIVE.'
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '503':
           description: 'SERVICE_UNAVAILABLE when merchant status cannot be checked.'
           content:

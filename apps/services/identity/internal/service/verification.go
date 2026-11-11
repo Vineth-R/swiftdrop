@@ -77,15 +77,47 @@ func (s *Service) ResendVerification(ctx context.Context, email string, ip netip
 	return nil
 }
 
-func (s *Service) merchantApproved(ctx context.Context, userID string) (bool, error) {
+// merchantStanding reads the merchant status of an owner and the
+// administrator's reason. It fails closed with ErrServiceUnavailable.
+func (s *Service) merchantStanding(ctx context.Context, userID string) (status, reason string, err error) {
 	if s.merchantApproval == nil {
-		return false, ErrServiceUnavailable
+		return "", "", ErrServiceUnavailable
 	}
-	status, err := s.merchantApproval.Approval(ctx, userID)
+	status, reason, err = s.merchantApproval.Approval(ctx, userID)
 	if err != nil {
-		return false, ErrServiceUnavailable
+		return "", "", ErrServiceUnavailable
+	}
+	return status, reason, nil
+}
+
+func (s *Service) merchantApproved(ctx context.Context, userID string) (bool, error) {
+	status, _, err := s.merchantStanding(ctx, userID)
+	if err != nil {
+		return false, err
 	}
 	return status == "APPROVED", nil
+}
+
+// inactiveMerchantError is the refusal for a merchant owner who is not
+// approved. A PENDING, REJECTED or SUSPENDED application carries its details so
+// the owner can see where it stands; any other state is the plain refusal.
+func (s *Service) inactiveMerchantError(status, reason string) error {
+	switch status {
+	case "PENDING", "REJECTED", "SUSPENDED":
+		return &MerchantInactiveError{Status: status, Reason: reason, SupportEmail: s.config.SupportEmail}
+	}
+	return ErrMerchantAccountInactive
+}
+
+// inactiveMerchantLogin refuses an owner whose Identity account is already
+// inactive. The lookup only adds detail, so when the Merchant service cannot be
+// reached the owner still gets the plain refusal rather than a 503.
+func (s *Service) inactiveMerchantLogin(ctx context.Context, userID string) error {
+	status, reason, err := s.merchantStanding(ctx, userID)
+	if err != nil {
+		return ErrMerchantAccountInactive
+	}
+	return s.inactiveMerchantError(status, reason)
 }
 
 func (s *Service) verificationLink(token string) string {
