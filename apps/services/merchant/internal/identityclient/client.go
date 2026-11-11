@@ -117,6 +117,15 @@ func (c *Client) SessionState(ctx context.Context, userID string) (SessionState,
 	return state, err
 }
 
+// outboundRequestID forwards the inbound request ID when one is on the context
+// and generates a fresh one only for a call with no inbound request.
+func outboundRequestID(ctx context.Context) string {
+	if id := requestid.FromContext(ctx); id != "" {
+		return id
+	}
+	return requestid.New()
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body, target any) error {
 	var payload []byte
 	var err error
@@ -134,7 +143,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, target any) 
 		request.Header.Set("Content-Type", "application/json")
 	}
 	request.Header.Set("X-Internal-Token", c.token)
-	request.Header.Set(requestid.Header, requestid.New())
+	request.Header.Set(requestid.Header, outboundRequestID(ctx))
 	response, err := c.http.Do(request)
 	if err != nil {
 		return ErrUnavailable

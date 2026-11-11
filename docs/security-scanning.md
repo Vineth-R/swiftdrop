@@ -1,24 +1,25 @@
 # Security scanning
 
 This document describes the SEC-04 automated security controls. It reflects the
-implementation in `.github/workflows/ci.yml` and `.github/workflows/codeql.yml`.
+implementation in `.github/workflows/ci.yml`. There is no separate
+`.github/workflows/codeql.yml`; CodeQL runs as the `sast` job in `ci.yml`.
 A control is not considered enabled unless the workflow configuration is present
 and the corresponding job runs in CI.
 
 ## Scanners and thresholds
 
-| Control                 | Tool                           | Version                   | Runs on                                                | Fails on                                 |
-| ----------------------- | ------------------------------ | ------------------------- | ------------------------------------------------------ | ---------------------------------------- |
-| Go vulnerabilities      | `govulncheck`                  | `v1.9.0`                  | PRs and pushes to `development`/`main`                 | Reachable (symbol-level) vulnerabilities |
-| Production dependencies | `pnpm audit`                   | pnpm `12.15.0`, Node 24   | PRs and pushes to `development`/`main`                 | High or critical **production** findings |
-| Secrets                 | Gitleaks                       | `v8.30.1`                 | PRs and pushes to `development`/`main`                 | Any configured secret rule match         |
-| Container images        | Trivy                          | `v0.76.1`                 | Every image built by the changed-service Docker matrix | High or critical image findings          |
-| SBOM                    | Syft via `anchore/sbom-action` | `v1.56.0`                 | Every image built by the changed-service Docker matrix | SBOM generation failure                  |
-| SAST                    | CodeQL                         | `github/codeql-action@v4` | PRs and pushes to `development`/`main`                 | CodeQL analysis/upload failure           |
+| Control                 | Tool                                 | Version                   | Runs on                                                | Fails on                                 |
+| ----------------------- | ------------------------------------ | ------------------------- | ------------------------------------------------------ | ---------------------------------------- |
+| Go vulnerabilities      | `govulncheck`                        | `v1.9.0`                  | PRs and pushes to `development`/`main`                 | Reachable (symbol-level) vulnerabilities |
+| Production dependencies | `pnpm audit`                         | pnpm `12.15.0`, Node 24   | PRs and pushes to `development`/`main`                 | High or critical **production** findings |
+| Secrets                 | Gitleaks                             | `v8.30.1`                 | PRs and pushes to `development`/`main`                 | Any configured secret rule match         |
+| Container images        | Trivy                                | `v0.76.1`                 | Every image built by the changed-service Docker matrix | High or critical image findings          |
+| SBOM                    | Syft (via `scripts/install-syft.sh`) | `v1.56.0`                 | Every image built by the changed-service Docker matrix | SBOM generation failure                  |
+| SAST                    | CodeQL                               | `github/codeql-action@v4` | PRs and pushes to `development`/`main`                 | CodeQL analysis/upload failure           |
 
-The existing `Required CI gate` remains the single required check. It now
-depends on a `Security gate` job that aggregates the Go, frontend, secret,
-SAST, and container security results. The security jobs do not use
+The required checks are `Required CI gate` and `Security gate`. `Required CI
+gate` also depends on the `security-gate` job, which aggregates the Go, frontend,
+secret, SAST, and container security results. The security jobs do not use
 `continue-on-error`, blanket severity suppression, or silent exclusions.
 
 ## Go vulnerability scan

@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: >-
     Service-to-service endpoints of the Merchant service (API v1.1 section 13),
-    called by the webhook worker. They are **not public**: Nginx never routes
+    called by the webhook worker and the notification worker. They are **not public**: Nginx never routes
     `/internal` and returns `404 NOT_FOUND` for it, so this specification is
     separate from `merchant.yaml`. Callers on the Compose network use the base
     URL `http://merchant:8084`.
@@ -128,6 +128,45 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /internal/merchants/{merchantId}/contact:
+    get:
+      operationId: merchantInternalContact
+      summary: Merchant recipient contact for parcel notifications
+      description: >-
+        Returns the merchant's business name, owner user ID and approved contact
+        email so the notification worker can deliver merchant-owned parcel
+        updates without reading another service's database. The recipient is
+        `contactEmail`; phone is never returned. A merchant that is PENDING,
+        SUSPENDED or REJECTED is reported with its real status and the caller
+        applies its own safe policy. Responses are never cached.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/MerchantId'
+      responses:
+        '200':
+          description: The merchant's notification contact and status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantContactEnvelope'
+              example:
+                data:
+                  merchantId: 4f1c7a52-0000-4000-8000-000000000002
+                  ownerUserId: 5f1c7a52-0000-4000-8000-000000000003
+                  businessName: ShopZone
+                  contactEmail: ops@shopzone.lk
+                  status: APPROVED
+                meta:
+                  {
+                    requestId: req_01HF-example,
+                    timestamp: '2026-11-11T09:30:00Z',
+                  }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /internal/merchants/owners/{userId}/approval:
     get:
       operationId: merchantInternalOwnerApproval
@@ -237,6 +276,23 @@ components:
         deadLettered: { type: boolean, default: false }
         durationMs:
           { type: integer, minimum: 0, maximum: 600000, nullable: true }
+    MerchantContactEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required:
+            [merchantId, ownerUserId, businessName, contactEmail, status]
+          properties:
+            merchantId: { type: string, format: uuid }
+            ownerUserId: { type: string, format: uuid }
+            businessName: { type: string }
+            contactEmail: { type: string, format: email }
+            status:
+              { type: string, enum: [PENDING, APPROVED, REJECTED, SUSPENDED] }
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
     AttemptEnvelope:
       type: object
       required: [data, meta]

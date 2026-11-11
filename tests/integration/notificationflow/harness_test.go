@@ -51,6 +51,7 @@ type harness struct {
 	queue                   string
 	routingKey              string
 	identityURL             string
+	merchantURL             string
 	parcelCreatedQueue      string
 	parcelCreatedRoutingKey string
 	parcelStatusQueue       string
@@ -81,6 +82,7 @@ func newHarness(t *testing.T) *harness {
 		queue:                   envOr("NOTIFICATIONFLOW_QUEUE", "notification.requested.v1"),
 		routingKey:              strings.TrimSpace(os.Getenv("NOTIFICATIONFLOW_ROUTING_KEY")),
 		identityURL:             strings.TrimRight(envOr("NOTIFICATIONFLOW_IDENTITY_URL", "http://127.0.0.1:18081"), "/"),
+		merchantURL:             strings.TrimRight(envOr("NOTIFICATIONFLOW_MERCHANT_URL", "http://127.0.0.1:18084"), "/"),
 		parcelCreatedQueue:      envOr("NOTIFICATIONFLOW_PARCEL_CREATED_QUEUE", "notification.parcel.created.v1"),
 		parcelCreatedRoutingKey: envOr("NOTIFICATIONFLOW_PARCEL_CREATED_ROUTING_KEY", "parcel.created.v1"),
 		parcelStatusQueue:       envOr("NOTIFICATIONFLOW_PARCEL_STATUS_QUEUE", "notification.parcel.status_changed.v1"),
@@ -144,6 +146,7 @@ func (h *harness) waitReady() error {
 		{"notification worker parcel-created queue consumer", 60 * time.Second, func() error { return h.pingQueue(h.parcelCreatedQueue) }},
 		{"notification worker parcel-status queue consumer", 60 * time.Second, func() error { return h.pingQueue(h.parcelStatusQueue) }},
 		{"identity", 60 * time.Second, h.pingIdentity},
+		{"merchant", 60 * time.Second, h.pingMerchant},
 		{"Mailpit", 30 * time.Second, h.pingMailpit},
 		{"PostgreSQL", 30 * time.Second, h.pingDatabase},
 		{"notification tables", 30 * time.Second, h.pingTables},
@@ -204,6 +207,48 @@ func (h *harness) pingIdentity() error {
 		return fmt.Errorf("identity /ready returned %d", response.StatusCode)
 	}
 	return nil
+}
+
+func (h *harness) pingMerchant() error {
+	response, err := h.httpClient.Get(h.merchantURL + "/ready")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("merchant /ready returned %d", response.StatusCode)
+	}
+	return nil
+}
+
+// createMerchant inserts a deterministic merchant-owned parcel recipient. The
+// notification worker resolves it through the real Merchant internal API, so
+// this fixture only writes the merchant schema row the API is expected to own.
+func (h *harness) createMerchant(t *testing.T, status, email string) string {
+	t.Helper()
+	merchantID := h.newUUID(t)
+	ownerID := h.newUUID(t)
+	zoneID := h.newUUID(t)
+	businessName := "Notification Flow Merchant " + merchantID[:8]
+	suspension := "null"
+	if status == "SUSPENDED" {
+		suspension = sqlLiteral("Automated notification flow fixture")
+	}
+	approvedBy, approvedAt := "null", "null"
+	if status == "APPROVED" {
+		approvedBy = sqlLiteral(ownerID)
+		approvedAt = "now()"
+	}
+	statement := "INSERT INTO merchant.merchants (id, owner_user_id, business_name, business_reg_no, contact_email, contact_phone, pickup_address, pickup_zone_id, status, suspension_reason, approved_by, approved_at) VALUES (" +
+		sqlLiteral(merchantID) + ", " + sqlLiteral(ownerID) + ", " + sqlLiteral(businessName) + ", " +
+		sqlLiteral("NF-"+merchantID[:8]) + ", " + sqlLiteral(email) + ", " +
+		sqlLiteral("+94771234567") + ", " + sqlLiteral("12 Galle Road") + ", " +
+		sqlLiteral(zoneID) + ", " + sqlLiteral(status) + ", " + suspension + ", " + approvedBy + ", " + approvedAt + ")"
+	if _, err := h.query(statement); err != nil {
+		t.Fatalf("insert merchant fixture: %v", err)
+	}
+	h.trackRecipient(email)
+	return merchantID
 }
 
 func (h *harness) pingMailpit() error {

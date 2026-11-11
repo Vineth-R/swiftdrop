@@ -145,7 +145,7 @@ func run() error {
 		IdleTimeout:       60 * time.Second,
 	})
 
-	logger.Info("starting http service", "address", config.Addr(), "environment", config.AppEnv)
+	logger.Info("starting http service", "listen_addr", config.Addr(), "environment", config.AppEnv)
 	runSync := config.SyncEnabled() && merchantRepo != nil
 	switch {
 	case !config.SyncEnabled():

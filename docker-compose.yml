@@ -371,6 +371,8 @@ services:
       NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL: ${NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL:-24h}
       IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
       IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
+      MERCHANT_BASE_URL: ${MERCHANT_BASE_URL:-http://merchant:8084}
+      MERCHANT_TIMEOUT: ${MERCHANT_TIMEOUT:-3s}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
     stop_grace_period: 35s
@@ -378,6 +380,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      merchant:
         condition: service_healthy
     healthcheck:
       test:

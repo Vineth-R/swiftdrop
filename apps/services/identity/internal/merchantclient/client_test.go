@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 )
 
 func TestApprovalReadsStatusAndFailsClosed(t *testing.T) {
@@ -66,6 +68,50 @@ func TestApprovalMapsServerFailureToUnavailable(t *testing.T) {
 	}
 	if _, _, err := client.Approval(context.Background(), "user-1"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Approval error = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestApprovalPropagatesInboundRequestID(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get(requestid.Header)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"status":"APPROVED"}}`))
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, "token", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := requestid.WithContext(context.Background(), "inbound-request-id")
+	if _, _, err := client.Approval(ctx, "user-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got != "inbound-request-id" {
+		t.Fatalf("X-Request-Id = %q, want the inbound request ID", got)
+	}
+}
+
+func TestApprovalGeneratesRequestIDWithoutInbound(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get(requestid.Header)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"status":"APPROVED"}}`))
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, "token", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.Approval(context.Background(), "user-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !requestid.Valid(got) {
+		t.Fatalf("X-Request-Id = %q, want a generated valid ID", got)
 	}
 }
 

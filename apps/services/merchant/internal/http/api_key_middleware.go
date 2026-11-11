@@ -87,7 +87,7 @@ func writeAPIKeyError(c *gin.Context, logger *slog.Logger, operation string, err
 			"request_id", requestid.FromGin(c),
 			"path", c.FullPath(),
 			"operation", operation,
-			"error", err.Error(),
+			"error_class", errorClass(err),
 		)
 	}
 	httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")

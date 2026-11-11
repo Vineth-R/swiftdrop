@@ -226,10 +226,12 @@ func TestParcelDomainEventDuplicateDoesNotSendSecondEmail(t *testing.T) {
 	}
 }
 
-func TestParcelDomainEventMerchantOwnedIsDeadLettered(t *testing.T) {
+func TestParcelDomainEventMerchantOwnedSendsToApprovedContact(t *testing.T) {
 	h := newHarness(t)
 	requireStack(t, h)
 
+	email := "merchant-" + h.runID(t) + "@example.test"
+	merchantID := h.createMerchant(t, "APPROVED", email)
 	eventID := h.newUUID(t)
 	parcelID := h.newUUID(t)
 	tracking := "SDN" + strings.ToUpper(h.runID(t)[:8])
@@ -237,11 +239,44 @@ func TestParcelDomainEventMerchantOwnedIsDeadLettered(t *testing.T) {
 
 	data := domainCreatedData("", parcelID, tracking)
 	delete(data, "customer_user_id")
-	data["merchant_id"] = h.newUUID(t)
+	data["merchant_id"] = merchantID
 	body := domainEnvelope(t, eventID, "parcel.created.v1", data)
 	publishDomain(t, h, eventID, body, h.parcelCreatedRoutingKey)
 
-	deadLetter := waitForDeadLetter(t, h, h.parcelCreatedQueue, eventID, 20*time.Second)
+	messages := h.waitForMailpitSubject(t, email, tracking, 1, 30*time.Second)
+	if len(messages) != 1 {
+		t.Fatalf("got %d merchant emails, want 1", len(messages))
+	}
+	message, err := h.mailpitMessage(messages[0].ID)
+	if err != nil {
+		t.Fatalf("read email: %v", err)
+	}
+	for _, want := range []string{"Tracking number: " + tracking, "Current status: Created"} {
+		if !strings.Contains(message.Text, want) {
+			t.Errorf("email text does not contain %q:\n%s", want, message.Text)
+		}
+	}
+	assertNotificationState(t, h, eventID, email, tracking)
+}
+
+func TestParcelDomainEventMerchantOwnedSuspendedIsDeadLettered(t *testing.T) {
+	h := newHarness(t)
+	requireStack(t, h)
+
+	email := "suspended-" + h.runID(t) + "@example.test"
+	merchantID := h.createMerchant(t, "SUSPENDED", email)
+	eventID := h.newUUID(t)
+	parcelID := h.newUUID(t)
+	tracking := "SDN" + strings.ToUpper(h.runID(t)[:8])
+	h.trackEvent(eventID)
+
+	data := domainStatusData("", parcelID, tracking, "CREATED", "PICKED_UP", "")
+	delete(data, "customer_user_id")
+	data["merchant_id"] = merchantID
+	body := domainEnvelope(t, eventID, "parcel.status_changed.v1", data)
+	publishDomain(t, h, eventID, body, h.parcelStatusRoutingKey)
+
+	deadLetter := waitForDeadLetter(t, h, h.parcelStatusQueue, eventID, 20*time.Second)
 	reason, _ := deadLetter.Properties.Headers["x-swiftdrop-failure-reason"].(string)
 	if reason != "permanent" {
 		t.Errorf("failure reason = %q, want permanent", reason)

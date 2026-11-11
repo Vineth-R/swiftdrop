@@ -2,3 +2,6 @@ services:
   identity:
     ports:
       - '127.0.0.1:${NOTIFICATIONFLOW_IDENTITY_PORT:-18081}:8081'
+  merchant:
+    ports:
+      - '127.0.0.1:${NOTIFICATIONFLOW_MERCHANT_PORT:-18084}:8084'

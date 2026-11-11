@@ -21,9 +21,9 @@ Each event file follows `<event_name>.schema.json` and uses JSON Schema draft 20
 | Layer                     | Contract                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Database outbox storage   | Unversioned labels `parcel.created`, `parcel.assigned`, and `parcel.status_changed` with the exact stored routing keys below. The database rejects `.v1` labels and mixed pairs; parcel `000005_outbox_event_types` reasserts the contract. The stored `routing_key` is a legacy/internal value and is not the published routing key. Creation and M6 dispatch writers plus the M6 relay are implemented. |
-| Published RabbitMQ events | Versioned event names with the same versioned routing key. This is the canonical bus contract. Creation outbox data is implemented; bus publication is not.                                                                                                                                                                                                                                               |
+| Published RabbitMQ events | Versioned event names with the same versioned routing key. This is the canonical bus contract. Creation and dispatch outbox data are implemented and the relay publishes committed versioned events.                                                                                                                                                                                                      |
 | Internal envelope         | `packages/go-common/messaging.Envelope`: snake_case metadata and a nested object in `data`. Envelope validation is implemented.                                                                                                                                                                                                                                                                           |
-| Public merchant webhook   | The API v1.1 camelCase projection with public `eventType: parcel.status_changed` and `schemaVersion: 1`. Delivery and signing are not implemented.                                                                                                                                                                                                                                                        |
+| Public merchant webhook   | The API v1.1 camelCase projection with public `eventType: parcel.status_changed` and `schemaVersion: 1`. The webhook worker delivers, signs, records attempts, and applies the business retry schedule.                                                                                                                                                                                                   |
 | Legacy work items         | `notification.requested.v1` has a consumer but no producer. `webhook.delivery.requested.v1` is retired: the webhook worker now consumes `parcel.status_changed.v1` on its own queue. Neither is a target domain-event contract.                                                                                                                                                                           |
 
 Do not use the database `routing_key` column directly as a RabbitMQ routing key. The relay owns the storage-to-bus mapping.
@@ -86,8 +86,9 @@ The relay must validate the storage label, build the canonical envelope, and pub
 
 The Parcel creation writer inserts `parcel.created` with aggregate metadata and
 the canonical event's `data` object in the same transaction as the parcel and
-initial history. The merged M6 relay publishes committed events with confirms
-and bounded retries.
+initial history. The M6 relay publishes committed events with confirms and
+bounded retries, and the M7 courier status writer inserts the `parcel.status_changed`
+outbox row in the status transaction.
 The relay must preserve this committed boundary and needs a documented claim/lock
 strategy before it can safely run with more than one instance.
 
@@ -143,12 +144,13 @@ Domain event payloads must not contain phone numbers, email addresses, physical 
 
 Customer and internal merchant creation now produce the `parcel.created` outbox
 data described above. The notification consumer is implemented for customer-owned
-published events. M6 relay publication and assignment producers are implemented;
-M7 courier status producers remain pending.
+and merchant-owned published events, and the webhook consumer is implemented for
+merchant-owned `parcel.status_changed.v1`. M6 relay publication and assignment
+producers are implemented; M7 courier status producers are implemented.
 
 ### Notification rendering (implemented)
 
-The notification worker supports the legacy `notification.requested.v1` work item and the customer-owned `parcel.created.v1` and `parcel.status_changed.v1` domain events. It validates the envelope, the event type and version, and the `data` fields it uses before delivering anything. Invalid `data` is a permanent failure. For domain events it resolves the customer's contact through the identity internal endpoint and sends the branded parcel email; merchant-owned events are unsupported and are dead-lettered. The legacy path is unchanged.
+The notification worker supports the legacy `notification.requested.v1` work item and the customer-owned and merchant-owned `parcel.created.v1` and `parcel.status_changed.v1` domain events. It validates the envelope, the event type and version, and the `data` fields it uses before delivering anything. Invalid `data` is a permanent failure. For customer-owned domain events it resolves the customer's contact through the identity internal endpoint. For merchant-owned domain events it resolves the approved merchant contact through the merchant internal `GET /internal/merchants/{merchantId}/contact` endpoint; APPROVED merchants receive one email, while PENDING/SUSPENDED/REJECTED merchants, unknown merchants and empty contacts are permanent failures with no email, log or processed row. The legacy path is unchanged.
 
 The notification worker requires `data.parcel_id` as a UUID. It is the parcel the notification belongs to and is stored in `notification.notification_logs.parcel_id`, which is `NOT NULL`. A missing or malformed `parcel_id` is a permanent failure and does not trigger delivery or a delivery-log write.
 
@@ -181,22 +183,15 @@ SMTP delivery and the database transaction are separate operations. A duplicate 
 
 `notification.requested.v1` is legacy. It has a consumer but no producer. Its required `recipient` field is raw contact data and conflicts with the domain-event privacy rule above; it must not be exposed to merchants and must not receive new producers without a separately approved internal-command contract.
 
-The target direction is for the notification worker to consume `parcel.created.v1` and `parcel.status_changed.v1`, resolve contact details through the identity internal `GET /internal/users/{userId}/contact` endpoint, and render notifications from non-contact parcel data. Parcel domain events must not contain email addresses or phone numbers.
+The target direction is for the notification worker to consume `parcel.created.v1` and `parcel.status_changed.v1`, resolve contact details through the identity internal `GET /internal/users/{userId}/contact` endpoint for customer-owned parcels and the merchant internal `GET /internal/merchants/{merchantId}/contact` endpoint for merchant-owned parcels, and render notifications from non-contact parcel data. Parcel domain events must not contain email addresses or phone numbers.
 
-**Current limitation:** this contact-resolution path only covers a parcel with a `customer_user_id`. A merchant-owned parcel has `merchant_id` instead of a user ID, and the identity endpoint cannot resolve a merchant-order recipient. The API v1.1 internal parcel summary returns `recipientName` but no email or phone, and `merchant.merchant_orders` does not store recipient contact details. Merchant-owned parcel notifications are therefore **unsupported in the current notification target** until an authorized merchant/parcel contact-resolution mechanism is approved. Do not read another service's database, add contact fields to parcel events, or invent a notification producer or endpoint.
+**Implemented:** customer-owned events resolve through the identity contact endpoint. Merchant-owned events resolve the APPROVED merchant's business contact email through the merchant internal endpoint and send one email; PENDING/SUSPENDED/REJECTED merchants, unknown merchants and empty contacts are permanent failures with no email, log or processed row. Do not read another service's database or add contact fields to parcel events; use the documented internal contact endpoints.
 
-Architectural options requiring approval:
-
-- an authorized internal parcel endpoint that returns notification contact data;
-- an authorized merchant-order contact lookup;
-- an explicitly approved internal notification-command contract;
-- or limiting the notification target to customer-owned parcels until one of the above is approved.
-
-The customer-owned domain-event path is implemented. Merchant-owned parcel notifications remain unsupported and are dead-lettered until an authorized contact-resolution mechanism is approved. The legacy `notification.requested.v1` consumer remains.
+The customer-owned and merchant-owned domain-event paths are implemented. The legacy `notification.requested.v1` consumer remains and has no producer.
 
 Per-event schemas may be closed for their specific payload, as the notification example is. Additive changes are still compatible for consumers that ignore unknown fields; update the schema within the same major version when adding optional fields. Adding a required field, removing a field, changing a type, or changing semantics is a breaking change that requires a new major version.
 
-### Public merchant webhook projection (v1 contract; not implemented)
+### Public merchant webhook projection (v1 contract; implemented)
 
 The webhook is a separate public projection. Do not reuse the internal RabbitMQ envelope as the merchant body. Merchants receive only `parcel.status_changed`; `parcel.created` and `parcel.assigned` remain internal events unless a separate public contract is approved.
 
@@ -204,13 +199,13 @@ The webhook is a separate public projection. Do not reuse the internal RabbitMQ 
 - Public event type: `parcel.status_changed` (unversioned in the API v1.1 public contract).
 - Public body is camelCase and additive `schemaVersion: 1` is included.
 - Public body fields: `eventId`, `eventType`, `schemaVersion`, `occurredAt`, and `data.trackingNumber`, `data.externalOrderId`, `data.previousStatus`, `data.status`, `data.note`, `data.failureReason`.
-- `externalOrderId` is not part of `parcel.status_changed.v1`. The webhook worker must not read a merchant database directly. Parcel exposes the authenticated internal `GET /internal/parcels/{parcelId}/summary` response containing `externalOrderId` for trusted callers.
+- `externalOrderId` is not part of `parcel.status_changed.v1`. The webhook worker must not read a merchant database directly. It reads `externalOrderId` from the implemented authenticated internal `GET /internal/parcels/{parcelId}/summary` response, which is documented in `contracts/openapi/parcel.yaml`. The domain event is not changed.
 - `eventId` is the stable outbox UUID. A webhook delivery-attempt ID is internal and must not replace the merchant idempotency key.
 - Signing: HMAC-SHA-256 over `<timestamp>.<raw request body>`, header `X-SwiftDrop-Signature: sha256=<lowercase hex>`, five-minute replay window, constant-time comparison.
 - Retry: six attempts following API v1.1: immediate, 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours; then dead-letter and record the attempt. Business retries must not reuse the shared RabbitMQ consumer retry loop and multiply attempts.
 - Delivery logs store outcome metadata, not request or response bodies. Never log payloads, signing secrets, recipient data, or raw responses.
 
-Current state: `webhook-worker` consumes `parcel.status_changed.v1` on its own durable queue, validates the envelope/type/version, and logs only. It does not deliver HTTP requests, sign, or write delivery attempts. The merchant webhook settings, signing-secret lookup, and delivery-attempt recording endpoints are not implemented. `docs/API_Documentation_v1.1.md` section 10 is the public webhook contract; this repository's current runtime does not yet implement it.
+Current state: `webhook-worker` consumes `parcel.status_changed.v1` on its own durable queue, loads the merchant webhook and decrypted signing secret through the Merchant internal API, reads `externalOrderId` from the Parcel internal summary, delivers the signed HTTP request, and records each delivery attempt through the Merchant internal API. It schedules the six API v1.1 business retries (1m/5m/30m/2h/6h) through RabbitMQ delay queues and dead-letters the final failure. The merchant webhook settings, signing-secret lookup, and delivery-attempt recording endpoints are implemented. `docs/API_Documentation_v1.1.md` section 10 is the public webhook contract.
 
 The internal trigger for the target flow is `parcel.status_changed.v1`, produced by the parcel service: the M7 courier status writer records a PENDING `parcel.status_changed` outbox row in the status transaction, and the M6 relay publishes `parcel.status_changed.v1` to `swiftdrop.events`. A dedicated `webhook.delivery.requested.v1` dispatcher is not used; it would require a separately approved payload schema and must not duplicate the domain-event publisher.
 
@@ -225,8 +220,8 @@ The internal trigger for the target flow is `parcel.status_changed.v1`, produced
   - `webhook.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
   - `merchant.sync.queue` (bound to `parcel.status_changed.v1`; merchant order snapshot and timeline synchronization)
 - Consumer bindings:
-  - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned parcels; merchant-owned unsupported)
-  - Webhook worker: `parcel.status_changed.v1` (implemented; validates and logs only)
+  - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned and merchant-owned parcels)
+  - Webhook worker: `parcel.status_changed.v1` (implemented; signed delivery, attempt recording and business retries)
   - Realtime: `parcel.status_changed.v1` (implemented; in-process WebSocket fan-out, no replay). `parcel.assigned.v1` remains a target.
   - Merchant integration: `parcel.status_changed.v1` (implemented; updates the merchant order status and timeline exactly once, newest event wins)
 - The realtime consumer validates the envelope and only reads `tracking_number`, `previous_status`, `status`, and `occurred_at` from `parcel.status_changed.v1`; private fields are not decoded or forwarded to clients.
@@ -236,13 +231,14 @@ The internal trigger for the target flow is `parcel.status_changed.v1`, produced
 
 ## Implementation status
 
-The following are contracts and target architecture, not evidence of working functionality:
+The following are the current implementation status of the documented contracts:
 
-- Parcel creation outbox writer: implemented atomically with parcel and initial history. Relay: not implemented.
-- Parcel creation bus publication and assignment writers: implemented through the merged M6 relay. M7 courier status writers remain planned.
-- Notification domain-event consumer: implemented for customer-owned `parcel.created.v1` and `parcel.status_changed.v1`; merchant-owned events are dead-lettered as unsupported. The legacy `notification.requested.v1` consumer remains.
-- Webhook delivery, signing, and attempt logging: not implemented; the current worker only logs a legacy work item.
-- Realtime and merchant event consumers: implemented. The merchant consumer updates the merchant-owned order snapshot and timeline; it does not deliver webhooks.
+- Parcel creation outbox writer: implemented atomically with parcel and initial history. Relay: implemented.
+- Parcel creation bus publication and assignment writers: implemented through the M6 relay. M7 courier status writers are implemented.
+- Notification domain-event consumer: implemented for customer-owned and merchant-owned `parcel.created.v1` and `parcel.status_changed.v1`. Customer contacts resolve through Identity; merchant contacts resolve through the merchant internal contact endpoint; unapproved or missing merchant contacts are permanent failures. The legacy `notification.requested.v1` consumer remains.
+- Webhook delivery, signing, attempt logging and the six business retries: implemented.
+- Realtime consumer: implemented for `parcel.status_changed.v1`.
+- Merchant integration consumer: implemented on `merchant.sync.queue`; it updates the merchant-owned order snapshot and timeline exactly once and ignores non-merchant parcels.
 
 Do not claim an event is published or delivered merely because a schema, queue name, or database table exists.
 

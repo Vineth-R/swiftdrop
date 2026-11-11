@@ -40,6 +40,8 @@ type Config struct {
 	ProcessedEventsCleanupInterval time.Duration
 	IdentityBaseURL                string
 	IdentityTimeout                time.Duration
+	MerchantBaseURL                string
+	MerchantTimeout                time.Duration
 	InternalToken                  string
 	InternalTokenProblem           string
 	ParcelCreatedQueue             string
@@ -163,6 +165,19 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, errors.New("IDENTITY_TIMEOUT must be at least 1ms")
 	}
 
+	merchantBaseURL := strings.TrimRight(strings.TrimSpace(loader.String("MERCHANT_BASE_URL", "http://merchant:8084")), "/")
+	if err := validateBaseURL(merchantBaseURL); err != nil {
+		return Config{}, fmt.Errorf("MERCHANT_BASE_URL: %w", err)
+	}
+
+	merchantTimeout, err := loader.Duration("MERCHANT_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if merchantTimeout < time.Millisecond {
+		return Config{}, errors.New("MERCHANT_TIMEOUT must be at least 1ms")
+	}
+
 	internalToken, internalTokenProblem := sharedconfig.LoadInternalToken(loader, appEnv)
 
 	routingKey := loader.String("NOTIFICATION_ROUTING_KEY", queue)
@@ -234,6 +249,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		ProcessedEventsCleanupInterval: cleanupInterval,
 		IdentityBaseURL:                identityBaseURL,
 		IdentityTimeout:                identityTimeout,
+		MerchantBaseURL:                merchantBaseURL,
+		MerchantTimeout:                merchantTimeout,
 		InternalToken:                  internalToken,
 		InternalTokenProblem:           internalTokenProblem,
 		ParcelCreatedQueue:             parcelCreatedQueue,

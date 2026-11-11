@@ -28,13 +28,16 @@ func New(logger *slog.Logger, repositories ...*repository.Repository) *gin.Engin
 	router := httpx.NewRouter(logger)
 	httpx.RegisterHealth(router)
 	if len(repositories) > 0 && repositories[0] != nil {
-		registerMerchantRoutes(router, Options{Repository: repositories[0], Logger: logger})
+		Mount(router, Options{Repository: repositories[0], Logger: logger})
 	}
 	return router
 }
 
-// Mount registers the configured merchant routes on an existing router.
+// Mount registers the configured merchant routes on an existing router. The
+// internal merchant lookup is always registered so a missing repository fails
+// closed with 503 instead of looking like an unknown path.
 func Mount(router *gin.Engine, options Options) {
+	RegisterInternalMerchantRoutes(router, options.Repository, options.InternalToken, options.Logger)
 	if options.Repository != nil {
 		registerMerchantRoutes(router, options)
 	}
@@ -43,7 +46,8 @@ func Mount(router *gin.Engine, options Options) {
 // NewWithOptions builds the merchant router with optional authenticated
 // registration, lifecycle and merchant business routes.
 func NewWithOptions(options Options) *gin.Engine {
-	router := New(options.Logger)
+	router := httpx.NewRouter(options.Logger)
+	httpx.RegisterHealth(router)
 	Mount(router, options)
 	return router
 }

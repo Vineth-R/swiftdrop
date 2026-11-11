@@ -49,13 +49,22 @@ func New(baseURL, token string, timeout time.Duration) (*Client, error) {
 // SUSPENDED application, the administrator's reason. An owner with no merchant
 // record has an empty status. The reason is personal to the owner: the caller
 // shows it only after a correct password and never logs it.
+// outboundRequestID forwards the inbound request ID when one is on the context
+// and generates a fresh one only for a call with no inbound request.
+func outboundRequestID(ctx context.Context) string {
+	if id := requestid.FromContext(ctx); id != "" {
+		return id
+	}
+	return requestid.New()
+}
+
 func (c *Client) Approval(ctx context.Context, userID string) (status, reason string, err error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/internal/merchants/owners/"+url.PathEscape(userID)+"/approval", nil)
 	if err != nil {
 		return "", "", ErrUnavailable
 	}
 	request.Header.Set("X-Internal-Token", c.token)
-	request.Header.Set(requestid.Header, requestid.New())
+	request.Header.Set(requestid.Header, outboundRequestID(ctx))
 	response, err := c.http.Do(request)
 	if err != nil {
 		return "", "", ErrUnavailable

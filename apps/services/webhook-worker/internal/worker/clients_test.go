@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 )
 
 func messageStub() messaging.Message { return messaging.Message{Body: []byte(`{}`)} }
@@ -92,6 +93,39 @@ func TestParcelExternalOrderID(t *testing.T) {
 	}
 	if got, err := c.ExternalOrderID(context.Background(), "p-gone"); err != nil || got != nil {
 		t.Fatalf("404 = %v, %v", got, err)
+	}
+}
+
+func TestMerchantClientPropagatesInboundRequestID(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get(requestid.Header)
+		_, _ = w.Write([]byte(`{"data":{"url":"https://x.example/h","signingSecret":"s","eventTypes":[],"isActive":true}}`))
+	}))
+	defer srv.Close()
+
+	ctx := requestid.WithContext(context.Background(), "inbound-request-id")
+	if _, err := NewMerchantClient(srv.URL, "tok", time.Second).Webhook(ctx, "m-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got != "inbound-request-id" {
+		t.Fatalf("X-Request-Id = %q, want the inbound request ID", got)
+	}
+}
+
+func TestMerchantClientGeneratesRequestIDWithoutInbound(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get(requestid.Header)
+		_, _ = w.Write([]byte(`{"data":{"url":"https://x.example/h","signingSecret":"s","eventTypes":[],"isActive":true}}`))
+	}))
+	defer srv.Close()
+
+	if _, err := NewMerchantClient(srv.URL, "tok", time.Second).Webhook(context.Background(), "m-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !requestid.Valid(got) {
+		t.Fatalf("X-Request-Id = %q, want a generated valid ID", got)
 	}
 }
 

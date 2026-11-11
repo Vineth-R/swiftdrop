@@ -75,6 +75,15 @@ type statusError struct {
 
 func (e *statusError) Error() string { return fmt.Sprintf("%s: unexpected status %d", e.op, e.status) }
 
+// outboundRequestID forwards the inbound request ID when one is on the context
+// and generates a fresh one only for a call with no inbound request.
+func outboundRequestID(ctx context.Context) string {
+	if id := requestid.FromContext(ctx); id != "" {
+		return id
+	}
+	return requestid.New()
+}
+
 // do sends one request and decodes a JSON {"data": ...} response into out
 // (when out is not nil). okStatuses lists the accepted statuses.
 func (c internalClient) do(ctx context.Context, op, method, path string, body, out any, okStatuses ...int) (int, error) {
@@ -92,7 +101,7 @@ func (c internalClient) do(ctx context.Context, op, method, path string, body, o
 		return 0, fmt.Errorf("%s: build request: %w", op, err)
 	}
 	req.Header.Set("X-Internal-Token", c.token)
-	req.Header.Set("X-Request-Id", requestid.New())
+	req.Header.Set(requestid.Header, outboundRequestID(ctx))
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

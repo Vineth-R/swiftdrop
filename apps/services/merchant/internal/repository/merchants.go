@@ -126,6 +126,14 @@ func (r *Repository) MerchantByOwnerUserID(ctx context.Context, ownerUserID stri
 	return scanMerchant(r.db.QueryRow(ctx, `SELECT `+merchantColumns+` FROM merchant.merchants WHERE owner_user_id = $1`, ownerUserID))
 }
 
+// MerchantByContactEmail resolves a merchant by its business contact email.
+// The baseline schema does not make contact_email unique, so the oldest match
+// wins and callers that require a single deterministic owner must treat a
+// different business registration number as a conflict.
+func (r *Repository) MerchantByContactEmail(ctx context.Context, contactEmail string) (Merchant, error) {
+	return scanMerchant(r.db.QueryRow(ctx, `SELECT `+merchantColumns+` FROM merchant.merchants WHERE lower(contact_email) = lower($1) ORDER BY created_at, id LIMIT 1`, strings.TrimSpace(contactEmail)))
+}
+
 // UpdateProfile changes only merchant-editable contact and pickup fields.
 func (r *Repository) UpdateProfile(ctx context.Context, merchantID string, update ProfileUpdate) (Merchant, error) {
 	_, err := r.db.Exec(ctx, `

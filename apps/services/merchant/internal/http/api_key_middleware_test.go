@@ -71,10 +71,13 @@ func TestWriteAPIKeyErrorKeepsAuthAndInternalFailuresDistinct(t *testing.T) {
 			}
 
 			if test.wantLog {
-				for _, want := range []string{"merchant api key request failed", "lookup_api_key", "database unavailable"} {
+				for _, want := range []string{"merchant api key request failed", "lookup_api_key", "error_class", "internal"} {
 					if !strings.Contains(logs.String(), want) {
 						t.Fatalf("internal failure log missing %q: %s", want, logs.String())
 					}
+				}
+				if strings.Contains(logs.String(), "database unavailable") {
+					t.Fatalf("internal failure log leaked the raw error text: %s", logs.String())
 				}
 				if !strings.Contains(logs.String(), `"level":"ERROR"`) {
 					t.Fatalf("internal failure was not logged at error level: %s", logs.String())

@@ -10,6 +10,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -130,7 +131,7 @@ func (s *Sender) AccountStatusChanged(ctx context.Context, to service.Recipient,
 func (s *Sender) send(ctx context.Context, kind string, to service.Recipient, email emails.Email) {
 	message, err := email.Message(to.Email, s.site)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "account email could not be built", "email_kind", kind, "user_id", to.UserID, "error", err.Error())
+		s.logger.ErrorContext(ctx, "account email could not be built", "email_kind", kind, "user_id", to.UserID, "reason", "build_failed")
 		return
 	}
 	s.dispatch(func() {
@@ -138,9 +139,22 @@ func (s *Sender) send(ctx context.Context, kind string, to service.Recipient, em
 		sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTimeout)
 		defer cancel()
 		if err := s.mailer.Send(sendCtx, message); err != nil {
-			s.logger.ErrorContext(sendCtx, "account email was not sent", "email_kind", kind, "user_id", to.UserID, "error", err.Error())
+			s.logger.ErrorContext(sendCtx, "account email was not sent", "email_kind", kind, "user_id", to.UserID, "reason", emailSendFailureReason(err))
 		}
 	})
+}
+
+// emailSendFailureReason classifies a delivery failure for the log. The error
+// text is never logged because an SMTP server can echo the recipient address.
+func emailSendFailureReason(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "send_failed"
+	}
 }
 
 // roleLabel writes a role the way people say it.

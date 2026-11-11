@@ -332,6 +332,7 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:5432/postgres?sslmode=disable
+      PARCEL_TEST_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v5
 
@@ -350,6 +351,12 @@ jobs:
 
           timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5432) 2>/dev/null; do sleep 1; done'
 
+      - name: Install pinned golang-migrate
+        run: |
+          set -euo pipefail
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Run database integration tests
         run: |
           set -euo pipefail
@@ -360,8 +367,75 @@ jobs:
             exit 1
           fi
 
+      - name: Run parcel PostgreSQL integration tests
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -tags=integration,postgres -v ./apps/services/parcel/... | tee parcel-database.log
+
+          if grep -q -- '--- SKIP' parcel-database.log; then
+            echo "::error::Parcel PostgreSQL integration tests were skipped; the database and migrate CLI must be available."
+            exit 1
+          fi
+
       - name: Enforce merchant service coverage
         run: make coverage-merchant
+
+  eventflow:
+    name: Event flow E2E (PostgreSQL + RabbitMQ)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: swiftdrop
+          POSTGRES_PASSWORD: swiftdrop
+          POSTGRES_DB: swiftdrop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U swiftdrop"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:4.1-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: swiftdrop
+          RABBITMQ_DEFAULT_PASS: swiftdrop
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:5432/postgres?sslmode=disable
+      RABBITMQ_URL: amqp://swiftdrop:swiftdrop@127.0.0.1:5672/
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Wait for dependencies
+        run: |
+          set -euo pipefail
+          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5432) 2>/dev/null; do sleep 1; done'
+          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5672) 2>/dev/null; do sleep 1; done'
+
+      - name: Run the event-flow integration test
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -tags=integration -v ./tests/integration/eventflow/... | tee eventflow.log
+
+          if grep -q -- '--- SKIP' eventflow.log; then
+            echo "::error::Event-flow integration tests were skipped; PostgreSQL and RabbitMQ must be reachable."
+            exit 1
+          fi
 
   frontend:
     name: Frontend checks
@@ -381,6 +455,24 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: >-
+          pnpm exec prettier --check
+          README.md
+          AGENTS.md
+          CONTRIBUTING.md
+          DESIGN.md
+          docs/architecture.md
+          docs/security-scanning.md
+          docs/operations.md
+          docs/merchant-internal-api.md
+          tests/integration/README.md
+          contracts/events/README.md
+          contracts/openapi/README.md
+          contracts/openapi/merchant-internal.yaml
+          ".github/workflows/*.yml"
+          "apps/web/src/**/*.{css,json}"
 
       - name: Test the design lint rules
         run: node --test "apps/web/eslint-rules/*.test.mjs"
@@ -447,7 +539,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if pnpm exec playwright install --with-deps chromium; then
+              exit 0
+            fi
+            echo "Chromium dependency install failed (attempt ${attempt}); retrying in 15s"
+            sleep 15
+          done
+          echo "OS dependency install failed; downloading Chromium without apt packages"
+          pnpm exec playwright install chromium
 
       - name: Run Playwright E2E
         run: pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"
@@ -480,11 +582,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install PostgreSQL client and golang-migrate
+      - name: Install golang-migrate
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
           go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
@@ -492,6 +592,10 @@ jobs:
         run: |
           set -euo pipefail
           timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5432) 2>/dev/null; do sleep 1; done'
+          psql() {
+            docker run --rm -i --network host -v "$GITHUB_WORKSPACE:/work" -w /work \
+              -e PGPASSWORD=swiftdrop postgres:16-alpine psql "$@"
+          }
           psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f infra/docker/postgres/init/01-schemas.sql
           for service in identity pricing parcel merchant notification; do
             url="${TEST_DATABASE_URL}&x-migrations-table=${service}_schema_migrations"
@@ -585,6 +689,20 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+      pgbouncer:
+        image: edoburu/pgbouncer:v1.26.1-p0
+        env:
+          DB_HOST: postgres
+          DB_USER: swiftdrop
+          DB_PASSWORD: swiftdrop
+          DB_NAME: postgres
+          POOL_MODE: transaction
+          AUTH_TYPE: scram-sha-256
+          MAX_CLIENT_CONN: '100'
+          DEFAULT_POOL_SIZE: '20'
+          MAX_PREPARED_STATEMENTS: '200'
+        ports:
+          - 6432:5432
     steps:
       - uses: actions/checkout@v5
 
@@ -593,35 +711,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run PgBouncer in transaction mode
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y pgbouncer
-          sudo systemctl stop pgbouncer 2>/dev/null || true
-          printf '"swiftdrop" ""\n' > /tmp/pgbouncer-userlist.txt
-          cat > /tmp/pgbouncer.ini <<'EOF'
-          [databases]
-          postgres = host=127.0.0.1 port=5432 dbname=postgres user=swiftdrop password=swiftdrop
-
-          [pgbouncer]
-          listen_addr = 127.0.0.1
-          listen_port = 6432
-          auth_type = trust
-          auth_file = /tmp/pgbouncer-userlist.txt
-          pool_mode = transaction
-          max_client_conn = 100
-          default_pool_size = 20
-          max_prepared_statements = 200
-          logfile = /tmp/pgbouncer.log
-          pidfile = /tmp/pgbouncer.pid
-          EOF
-          pgbouncer -d /tmp/pgbouncer.ini
-          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/6432) 2>/dev/null; do sleep 1; done'
+      - name: Wait for PgBouncer
+        run: timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/6432) 2>/dev/null; do sleep 1; done'
 
       - name: Run pooled compatibility test
         env:
-          TEST_POOLED_DATABASE_URL: postgres://swiftdrop@127.0.0.1:6432/postgres?sslmode=disable
+          TEST_POOLED_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:6432/postgres?sslmode=disable
         run: go test -race -count=1 -tags=integration -v ./packages/go-common/postgres -run TestPooledTransactionCompatibility
 
   changes:
@@ -1019,7 +1114,17 @@ jobs:
           } >> "${GITHUB_ENV}"
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if pnpm exec playwright install --with-deps chromium; then
+              exit 0
+            fi
+            echo "Chromium dependency install failed (attempt ${attempt}); retrying in 15s"
+            sleep 15
+          done
+          echo "OS dependency install failed; downloading Chromium without apt packages"
+          pnpm exec playwright install chromium
 
       - name: Run real-stack Playwright
         run: pnpm exec nx run @org/web-e2e:e2e --args="--project=real-stack"
@@ -1042,6 +1147,7 @@ jobs:
       COMPOSE_PROJECT_NAME: swiftdrop-notificationflow
       COMPOSE_FILE: docker-compose.yml:tests/integration/notificationflow/docker-compose.identity.yml
       NOTIFICATIONFLOW_IDENTITY_URL: http://127.0.0.1:18081
+      NOTIFICATIONFLOW_MERCHANT_URL: http://127.0.0.1:18084
       RABBITMQ_RETRY_DELAY: 5s
       RABBITMQ_MAX_RETRIES: '2'
       NOTIFICATIONFLOW_RETRY_WAIT: 60s
@@ -1056,11 +1162,11 @@ jobs:
       - name: Prepare local environment
         run: cp .env.example .env
 
-      - name: Build the notification worker and identity images
-        run: docker compose build notification-worker identity
+      - name: Build the notification worker, identity and merchant images
+        run: docker compose build notification-worker identity merchant
 
       - name: Start the dependencies
-        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit identity
+        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit identity merchant
 
       - name: Apply database migrations
         run: make migrate
@@ -1080,7 +1186,7 @@ jobs:
 
       - name: Show service logs after a failure
         if: failure()
-        run: docker compose logs --tail=200 notification-worker identity mailpit rabbitmq postgres
+        run: docker compose logs --tail=200 notification-worker identity merchant mailpit rabbitmq postgres
 
       - name: Stop the stack
         if: always()
@@ -1146,6 +1252,7 @@ jobs:
       - hygiene
       - integration
       - database
+      - eventflow
       - frontend
       - e2e
       - changes
@@ -1166,6 +1273,7 @@ jobs:
           HYGIENE_RESULT: ${{ needs.hygiene.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           DATABASE_RESULT: ${{ needs.database.result }}
+          EVENTFLOW_RESULT: ${{ needs.eventflow.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
@@ -1207,6 +1315,7 @@ jobs:
           check_required "hygiene" "$HYGIENE_RESULT"
           check_required "integration" "$INTEGRATION_RESULT"
           check_required "database" "$DATABASE_RESULT"
+          check_required "eventflow" "$EVENTFLOW_RESULT"
           check_required "frontend" "$FRONTEND_RESULT"
           check_required "e2e" "$E2E_RESULT"
           check_required "changes" "$CHANGES_RESULT"
