@@ -28,9 +28,10 @@ import (
 	"syscall"
 )
 
-// MaxLength is the longest URL accepted. It matches common browser and proxy
-// limits and keeps stored values bounded.
-const MaxLength = 2048
+// MaxLength is the longest URL accepted. It matches the 500 character limit
+// of merchant.merchant_webhooks.url and the API, so an over-long URL is
+// refused with a validation error instead of failing at the database.
+const MaxLength = 500
 
 // Sentinel errors let callers map a failure to a stable API error code without
 // parsing messages. Messages never contain the submitted URL.

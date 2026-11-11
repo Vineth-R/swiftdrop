@@ -27,6 +27,8 @@ func TestValidate(t *testing.T) {
 		{"empty", "", ErrEmpty},
 		{"only spaces", "   ", ErrEmpty},
 		{"too long", "https://shop.example.com/" + strings.Repeat("a", MaxLength), ErrTooLong},
+		{"exactly at the limit", "https://shop.example.com/" + strings.Repeat("a", MaxLength-len("https://shop.example.com/")), nil},
+		{"one over the limit", "https://shop.example.com/" + strings.Repeat("a", MaxLength-len("https://shop.example.com/")+1), ErrTooLong},
 		{"relative url", "/hooks/swiftdrop", ErrInvalid},
 		{"no scheme", "shop.example.com/hook", ErrInvalid},
 		{"no host", "https:///hook", ErrInvalid},
