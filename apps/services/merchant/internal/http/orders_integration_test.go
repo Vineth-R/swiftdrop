@@ -27,6 +27,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/notify"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/parcelclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
@@ -121,6 +122,14 @@ func writeParcelSuccess(w http.ResponseWriter, result orders.ParcelResult) {
 
 func newOrderHTTPFixture(t *testing.T) (context.Context, *repository.Repository, *pgxpool.Pool, *gin.Engine, *fakeParcel) {
 	t.Helper()
+	return newOrderHTTPFixtureWith(t, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+}
+
+func newOrderHTTPFixtureWith(t *testing.T, logger *slog.Logger, notifier *notify.Notifier) (context.Context, *repository.Repository, *pgxpool.Pool, *gin.Engine, *fakeParcel) {
+	t.Helper()
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not set; skipping merchant order HTTP tests")
@@ -200,10 +209,10 @@ func newOrderHTTPFixture(t *testing.T) (context.Context, *repository.Repository,
 	if err != nil {
 		t.Fatalf("identityclient.New() error = %v", err)
 	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := NewWithOptions(Options{
 		Repository: repo, Identity: identity,
 		Orders:       orders.New(repo, parcelClient, staticZones{name: "Colombo"}),
+		Notifier:     notifier,
 		AccessSecret: testJWTSecret, CookieName: "sd_access", InternalToken: "internal-token", Logger: logger,
 	})
 	return ctx, repo, pool, router, parcel
@@ -494,7 +503,7 @@ func TestMerchantAPIKeyLimitIsConcurrencySafe(t *testing.T) {
 				results <- err
 				return
 			}
-			err = repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
+			_, err = repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
 				ID: urlUUID(), MerchantID: merchantID, Name: fmt.Sprintf("key-%d", index),
 				KeyPrefix: key.KeyPrefix, LookupID: key.LookupID, KeyHash: key.Hash,
 			})
