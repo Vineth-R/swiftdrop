@@ -697,7 +697,7 @@ jobs:
           DB_PASSWORD: swiftdrop
           DB_NAME: postgres
           POOL_MODE: transaction
-          AUTH_TYPE: trust
+          AUTH_TYPE: scram-sha-256
           MAX_CLIENT_CONN: '100'
           DEFAULT_POOL_SIZE: '20'
           MAX_PREPARED_STATEMENTS: '200'

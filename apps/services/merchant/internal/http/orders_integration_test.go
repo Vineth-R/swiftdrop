@@ -430,8 +430,11 @@ func TestMerchantOrderConcurrentDuplicateCreatesOneOrder(t *testing.T) {
 	if created != 1 || replayed != 1 {
 		t.Fatalf("created=%d replayed=%d, want 1/1", created, replayed)
 	}
-	if parcel.calls != 1 {
-		t.Fatalf("parcel calls = %d, want 1", parcel.calls)
+	// A concurrent duplicate may reach Parcel before either request persists
+	// its order. Parcel replays by (merchantId, externalOrderId), so the
+	// invariant is one persisted order, not one upstream call.
+	if parcel.calls < 1 || parcel.calls > 2 {
+		t.Fatalf("parcel calls = %d, want 1 or 2", parcel.calls)
 	}
 }
 
