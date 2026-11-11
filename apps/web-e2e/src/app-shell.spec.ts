@@ -10,7 +10,7 @@ test.use({ colorScheme: 'light' });
 test.describe('navigation by role', () => {
   const sidebarLabels: Record<Exclude<Role, 'COURIER'>, string[]> = {
     CUSTOMER: ['Dashboard', 'New delivery', 'My parcels', 'Profile'],
-    MERCHANT: ['Dashboard', 'Orders', 'API keys', 'Business', 'Profile'],
+    MERCHANT: ['Dashboard', 'Orders', 'API keys', 'Webhook', 'Business', 'Profile'],
     DISPATCHER: ['Unassigned', 'Workload', 'All parcels', 'Reports'],
     ADMIN: [
       'Unassigned',
