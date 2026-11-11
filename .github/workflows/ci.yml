@@ -465,9 +465,12 @@ jobs:
           DESIGN.md
           docs/architecture.md
           docs/security-scanning.md
+          docs/operations.md
+          docs/merchant-internal-api.md
           tests/integration/README.md
           contracts/events/README.md
           contracts/openapi/README.md
+          contracts/openapi/merchant-internal.yaml
           ".github/workflows/*.yml"
           "apps/web/src/**/*.{css,json}"
 

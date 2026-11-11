@@ -89,6 +89,13 @@ func TestInternalMerchantContactResolvesStoredRecipient(t *testing.T) {
 		}
 	})
 
+	t.Run("malformed merchant id is not found", func(t *testing.T) {
+		recorder, _ := get(t, "not-a-uuid", merchantContactTestToken, "req-3b")
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+		}
+	})
+
 	t.Run("token is checked first", func(t *testing.T) {
 		merchantID, _ := newMerchant(t)
 		recorder, _ := get(t, merchantID, "", "req-4")

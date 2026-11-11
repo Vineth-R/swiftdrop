@@ -48,7 +48,6 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctx, cancel := context.WithCancel(t.Context())
-	t.Cleanup(cancel)
 
 	runID := randomHex(6)
 	exchange := "eventflow." + runID
@@ -64,6 +63,7 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 		merchantSync: "eventflow." + runID + ".merchant-sync",
 	}
 	t.Cleanup(func() {
+		cancel()
 		deleteTopology(t, rabbitURL, exchange, queues.notification, queues.webhook, queues.realtime, queues.merchantSync)
 	})
 

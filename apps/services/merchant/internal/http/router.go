@@ -37,7 +37,7 @@ func New(logger *slog.Logger, repositories ...*repository.Repository) *gin.Engin
 // internal merchant lookup is always registered so a missing repository fails
 // closed with 503 instead of looking like an unknown path.
 func Mount(router *gin.Engine, options Options) {
-	RegisterInternalMerchantRoutes(router, options.Repository, options.InternalToken)
+	RegisterInternalMerchantRoutes(router, options.Repository, options.InternalToken, options.Logger)
 	if options.Repository != nil {
 		registerMerchantRoutes(router, options)
 	}
