@@ -16,6 +16,12 @@
 --                merchant_order_status_events, audit_logs               (7)
 --   notification notification_logs, processed_events                    (2)
 --
+-- Additive migrations above this baseline add four more tables:
+--   identity 000004 email_verification_tokens
+--   identity 000006 merchant_lifecycle_transitions
+--   merchant 000007 merchant_registration_attempts, merchant_status_transitions
+-- The complete migrated chain is 30 tables. See migrations/README.md.
+--
 -- ADDED BEYOND THE DOCUMENT (marked "ADDED" below):
 --   1  DEFAULT gen_random_uuid() on UUID keys (document says app generated)
 --   2  set_updated_at() trigger on every table that has updated_at

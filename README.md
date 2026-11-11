@@ -7,7 +7,7 @@ Identity authentication, pricing estimates/zones/internal quote and admin config
 ## Technology
 
 - **Frontend:** Next.js 16 App Router, React 19, TypeScript 6, pnpm, Nx, Tailwind CSS v4, shadcn/ui with Radix primitives, and Lucide icons.
-- **Backend:** Go 1.27.3 with Gin, one root Go module.
+- **Backend:** Go 1.27.4 with Gin, one root Go module.
 - **Data:** PostgreSQL 16 with service-owned schemas and versioned SQL migrations.
 - **Messaging:** RabbitMQ 4.1 with a durable topic exchange, versioned JSON event contracts, bounded retries, and dead-lettering.
 - **Edge:** Nginx reverse proxy.
@@ -64,7 +64,7 @@ Each Go service has `main.go`, `internal/config`, and either `internal/http` or 
 
 ## Prerequisites
 
-- Go **1.27.3** or a compatible 1.27 toolchain (`go.mod` is the source of truth).
+- Go **1.27.4** or a compatible 1.27 toolchain (`go.mod` is the source of truth).
 - Node.js **24**, the supported and CI-tested version. Other Node.js versions are not officially supported.
 - pnpm **12.15.0** through Corepack.
 - Docker with Docker Compose v2.
@@ -143,21 +143,28 @@ If `.env` is missing and required variables are not exported, or `JWT_ACCESS_SEC
 
 ### Command reference
 
-| Command                        | What it does                                                     |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `make build`                   | Build all application images; does not start containers          |
-| `make up`                      | Start existing images, wait for health, migrate, verify routes   |
-| `make up-build`                | Build images, then run the full `make up` workflow               |
-| `docker compose up --build -d` | Start only; **builds but does not migrate**                      |
-| `make migrate`                 | Apply all service migrations                                     |
-| `make db-verify`               | Verify the documented database baseline (read-only)              |
-| `make project-name`            | Print the resolved Compose project name                          |
-| `make seed`                    | Create the five deterministic demo users                         |
-| `make migrate-down`            | Roll back **one migration per service** (destructive; see below) |
-| `make check-routes`            | Verify gateway routing against the running stack                 |
-| `make logs`                    | Follow logs                                                      |
-| `make down`                    | Stop containers; keeps volumes and data                          |
-| `make db-reset`                | Delete local volumes and rebuild (destructive)                   |
+| Command                        | What it does                                                       |
+| ------------------------------ | ------------------------------------------------------------------ |
+| `make build`                   | Build all application images; does not start containers            |
+| `make up`                      | Start existing images, wait for health, migrate, verify routes     |
+| `make up-build`                | Build images, then run the full `make up` workflow                 |
+| `docker compose up --build -d` | Start only; **builds but does not migrate**                        |
+| `make migrate`                 | Apply all service migrations (uses `DATABASE_URL_DIRECT` when set) |
+| `make migrate-status`          | Print each migration version and fail on dirty state               |
+| `make migrate-create`          | Create a migration pair (`SERVICE=parcel NAME=description`)        |
+| `make storage-up`              | Start local S3-compatible storage and create the proof bucket                      |
+| `make db-audit`                | Read-only source database inventory                                |
+| `make db-backup`               | Verified local PostgreSQL backup outside the repository            |
+| `make proof-transfer`          | Dry-run local proof files into object storage                      |
+| `make proof-reconcile`         | Compare database proof keys with stored objects                    |
+| `make db-verify`               | Verify the documented database baseline (read-only)                |
+| `make project-name`            | Print the resolved Compose project name                            |
+| `make seed`                    | Create the five deterministic demo users                           |
+| `make migrate-down`            | Roll back **one migration per service** (destructive; see below)   |
+| `make check-routes`            | Verify gateway routing against the running stack                   |
+| `make logs`                    | Follow logs                                                        |
+| `make down`                    | Stop containers; keeps volumes and data                            |
+| `make db-reset`                | Delete local volumes and rebuild (destructive)                     |
 
 Start only what you need:
 
@@ -167,7 +174,20 @@ docker compose up -d rabbitmq        # workers and broker-backed integration tes
 docker compose up -d mailpit         # local email UI
 ```
 
-PostgreSQL is internal to the Compose network and does not publish a host port. Containers connect to it at `postgres:5432`; Compose builds that URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`, so services and `make migrate` never use the `localhost` URL. The `DATABASE_URL` in `.env.example` is a **host-side** default for tools such as `psql`, `go run`, and `make seed`. It points at `localhost:5432` and works only when a PostgreSQL instance is reachable there (for example a separate local installation). It cannot reach the Compose database. PostgreSQL integration tests use a separate `TEST_DATABASE_URL` instead; see [PostgreSQL integration tests](#postgresql-integration-tests) below. Do not use `localhost` from inside a container, and do not add a host port to `docker-compose.yml` just for local tests.
+PostgreSQL is internal to the Compose network and does not publish a host port. Containers connect to it at `postgres:5432`; Compose builds that URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`, so services and `make migrate` never use the `localhost` URL. Application services read `DB_*` pool settings (the legacy `POSTGRES_MAX_CONNS` / `POSTGRES_MIN_CONNS` names remain aliases). The `DATABASE_URL` in `.env.example` is a **host-side** default for tools such as `psql`, `go run`, and `make seed`. It points at `localhost:5432` and works only when a PostgreSQL instance is reachable there (for example a separate local installation). It cannot reach the Compose database. PostgreSQL integration tests use a separate `TEST_DATABASE_URL` instead; see [PostgreSQL integration tests](#postgresql-integration-tests) below. Do not use `localhost` from inside a container, and do not add a host port to `docker-compose.yml` just for local tests.
+
+### Neon production and object storage
+
+Production uses the existing Neon project (`proud-rice-63339713`, AWS US East 2, branch `production`, database `neondb`). Application services use the pooled `DATABASE_URL`; migrations use `DATABASE_URL_DIRECT`. Local Docker PostgreSQL remains the default and needs no Neon credentials. See [`docs/neon-production.md`](docs/neon-production.md) for project facts, pool budgets, staging validation, backup/restore, data migration, proof transfer, cutover, and GitHub secrets.
+
+Delivery proof photos use `packages/go-common/objectstore`. Local filesystem storage is the development default; `make storage-up` starts an opt-in VersityGW S3-compatible profile for local development, and production uses Neon Object Storage's private `delivery-proofs` bucket. Proof keys are `<parcel-uuid>/<proof-uuid>.jpg|.png`; legacy flat keys remain readable. See [`docs/delivery-proof-storage.md`](docs/delivery-proof-storage.md).
+
+```sh
+make migrate-status
+make storage-up
+make proof-transfer      # dry run
+make proof-reconcile
+```
 
 ## Sending email
 
@@ -218,9 +238,9 @@ Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`. To switch b
 Migrations live under `migrations/<service>/` and use `NNNNNN_description.up.sql` / `.down.sql`. Applied migrations are immutable.
 
 - `000001_initial_schema` creates the schema.
-- `000002_tables` is the M1 baseline from [`docs/db.sql`](docs/db.sql) (26 tables, triggers, seeds).
+- `000002_tables` is the M1 baseline from [`docs/db.sql`](docs/db.sql) (26 tables, triggers, seeds). Identity `000004`-`000006` and merchant `000007` add four additive tables, making 30 tables in the complete chain.
 - `000006_merchant_constraints` is the merchant-specific forward migration that preserves the merchant checks after the duplicate merchant migration files were removed. Versions `000003`–`000005` are intentionally absent for merchant; the runner accepts gaps.
-- New migrations start at the next unused version (merchant: `000007`).
+- New migrations start at the next unused version (merchant: `000009`).
 
 Apply migrations (PostgreSQL must be running):
 
@@ -231,7 +251,7 @@ make migrate
 
 `make migrate` runs `scripts/migrate.sh` inside the pinned `migrate/migrate:v4.18.3` container. The migrate service receives a `DATABASE_URL` that Compose builds from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` (from `.env` or exported variables), so custom credentials are honored, and it never prints the URL. It bootstraps `public.set_updated_at()` and applies identity → pricing → parcel → merchant → notification, each with its own `<service>_schema_migrations` version table.
 
-Expected result: 26 tables and seeds `5/5/25/4/4`.
+Expected result: 30 tables and seeds `5/5/25/4/4`.
 
 Verify the baseline without writing to the database:
 
@@ -239,7 +259,7 @@ Verify the baseline without writing to the database:
 make db-verify
 ```
 
-`make db-verify` runs read-only queries through the Compose `postgres` service with `default_transaction_read_only=on`. It checks the five schemas, 26 base tables, five identity roles, five pricing zones, 25 pricing rules, four weight bands, and four size surcharges, then prints `PASS`/`FAIL` for each check and exits non-zero if any expectation is not met. It does not run migrations, reset data, or print credentials.
+`make db-verify` runs read-only queries through the Compose `postgres` service with `default_transaction_read_only=on`. It checks the five schemas, 30 base tables, the four additive identity/merchant tables, five identity roles, five pricing zones, 25 pricing rules, four weight bands, and four size surcharges, then prints `PASS`/`FAIL` for each check and exits non-zero if any expectation is not met. It does not run migrations, reset data, or print credentials.
 
 **Windows and line endings.** Git for Windows may convert shell scripts to CRLF, which breaks execution in the Linux migration container. `.gitattributes` forces LF for `*.sh` and `Makefile`; do not override it. If an existing clone still fails with `bad interpreter: /bin/sh^M` or `$'\r': command not found`, preserve any local edits and re-checkout only the affected scripts:
 
@@ -567,7 +587,7 @@ See [Security scanning](docs/security-scanning.md) for scanner versions, thresho
   ```
 
 - **Migration fails with a duplicate version:** check `migrations/<service>/` for repeated six-digit versions. Applied migrations are immutable; add a new forward migration instead of renumbering an applied one.
-- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
+- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`, `000007_registration_onboarding` and the forward compatibility migration `000008_business_reg_no_optional`; the next merchant migration starts at `000009`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
 - **CI fails on formatting:** run `gofmt -w` on the changed Go files and `pnpm exec prettier --write` on changed documentation or frontend files.
 
 ## Branching and pull requests
@@ -590,7 +610,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 
 - [`DESIGN.md`](DESIGN.md): the frontend design guide. Read it before building or changing any screen in `apps/web`.
 - [`docs/architecture.md`](docs/architecture.md): service boundaries, routing, lifecycle, messaging, and readiness.
-- [`docs/db.sql`](docs/db.sql): canonical database definition (26 tables, five schemas, triggers, seeds).
+- [`docs/db.sql`](docs/db.sql): canonical 26-table baseline (five schemas, triggers, seeds); additive migrations bring the current chain to 30 tables.
 - [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md) and [`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md): product API and database design sources.
 - [`docs/how-to-error-logging.md`](docs/how-to-error-logging.md): adopting the shared error envelope and safe logging.
 - [`docs/security-scanning.md`](docs/security-scanning.md): automated security scanners, thresholds, SBOMs, exceptions, and gate troubleshooting.
@@ -598,6 +618,8 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 - [`contracts/events/README.md`](contracts/events/README.md): event naming, envelope, framing, and failure rules.
 - [`contracts/openapi/README.md`](contracts/openapi/README.md): HTTP contracts and shared error behavior.
 - [`migrations/README.md`](migrations/README.md): migration conventions and commands.
+- [`docs/neon-production.md`](docs/neon-production.md): Neon PostgreSQL, data migration, cutover, and GitHub environment setup.
+- [`docs/delivery-proof-storage.md`](docs/delivery-proof-storage.md): private proof storage, presigned downloads, local S3-compatible storage, and reconciliation.
 - [`infra/nginx/README.md`](infra/nginx/README.md): local edge routing.
 - [`tests/integration/README.md`](tests/integration/README.md): RabbitMQ and PostgreSQL integration test setup.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): development and review workflow.
@@ -606,7 +628,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 
 Implemented: repository structure, service entry points, health and readiness endpoints, environment configuration with case-insensitive and trimmed values, structured logging, request IDs, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB HTTP header limit, shared infrastructure, event envelope and message framing validation, bounded RabbitMQ retry and dead-letter routing with publisher confirms, reconnect backoff with jitter, unit and broker-backed messaging integration tests, one Playwright example test run Chromium-only in CI, Dockerfiles, Compose infrastructure, Nginx routing, migration and event conventions, Nx targets, CI, and documentation.
 
-Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema baseline migrations (26 tables and reference seeds), forward merchant constraints, Mailpit, published gateway and development infrastructure ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
+Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema migrations (30 tables and reference seeds, including the recovered identity/merchant additive migrations), forward merchant constraints, Mailpit, published gateway and development infrastructure ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
 
 M4 implemented: `POST /pricing/estimate`, `GET /zones`, authenticated internal quote/zone lookups, ADMIN pricing configuration with transactional audit logging, exact decimal LKR calculations, bounded public rate limiting, trusted-proxy handling, and anonymous `GET /tracking/{trackingNumber}` backed by real parcel/status-history rows. M5 consumes the real internal quote and persists its exact LKR total and snake_case `price_breakdown` atomically with the parcel, initial history and PENDING outbox data. Customer creation/read/history/PDF APIs, internal merchant creation/summary and the `/new`, `/parcels`, `/parcels/{id}` screens are implemented. See [M5 evidence](docs/m5-complete-parcel-flow.md) for verification and remaining dependencies.
 
