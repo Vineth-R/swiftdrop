@@ -716,7 +716,7 @@ jobs:
 
       - name: Run pooled compatibility test
         env:
-          TEST_POOLED_DATABASE_URL: postgres://swiftdrop@127.0.0.1:6432/postgres?sslmode=disable
+          TEST_POOLED_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:6432/postgres?sslmode=disable
         run: go test -race -count=1 -tags=integration -v ./packages/go-common/postgres -run TestPooledTransactionCompatibility
 
   changes:
