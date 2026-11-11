@@ -26,6 +26,21 @@ const (
 	DefaultPostgresPort     = 5432
 	DefaultPostgresSSLMode  = "disable"
 	DefaultPostgresHostname = "localhost"
+
+	// Pool settings accept the DB_* names first and the legacy POSTGRES_*
+	// names as aliases so existing local and Compose configuration keeps working.
+	envMaxOpenConns     = "DB_MAX_OPEN_CONNS"
+	envLegacyMaxConns   = "POSTGRES_MAX_CONNS"
+	envMaxIdleConns     = "DB_MAX_IDLE_CONNS"
+	envLegacyMinConns   = "POSTGRES_MIN_CONNS"
+	envConnMaxLifetime  = "DB_CONN_MAX_LIFETIME"
+	envConnMaxIdleTime  = "DB_CONN_MAX_IDLE_TIME"
+	envConnectTimeout   = "DB_CONNECT_TIMEOUT"
+	envHealthCheck      = "DB_HEALTH_CHECK_PERIOD"
+	neonHostnameSuffix  = ".neon.tech"
+	strongSSLMode       = "require"
+	strongSSLModeVerify = "verify-ca"
+	strongSSLModeFull   = "verify-full"
 )
 
 var (
@@ -70,10 +85,25 @@ func LoadConfigFromEnv() (Config, error) {
 	return LoadConfig(sharedconfig.Load())
 }
 
+// LoadConfigFromURL builds a pool configuration for a URL already read by a
+// service. Pool limits still come from the environment, so every service uses
+// the same DB_* (and legacy POSTGRES_*) settings. An empty URL falls back to
+// the regular DATABASE_URL/POSTGRES_* resolution.
+func LoadConfigFromURL(rawURL string) (Config, error) {
+	return loadConfig(sharedconfig.Load(), rawURL)
+}
+
 func LoadConfig(loader sharedconfig.Loader) (Config, error) {
+	return loadConfig(loader, "")
+}
+
+func loadConfig(loader sharedconfig.Loader, explicitURL string) (Config, error) {
 	config := DefaultConfig()
 
-	config.URL = loader.String("DATABASE_URL", "")
+	config.URL = strings.TrimSpace(explicitURL)
+	if config.URL == "" {
+		config.URL = loader.String("DATABASE_URL", "")
+	}
 	if !config.Configured() {
 		host := loader.String("POSTGRES_HOST", "")
 		if host == "" {
@@ -97,29 +127,86 @@ func LoadConfig(loader sharedconfig.Loader) (Config, error) {
 		config.URL = buildURL(host, port, user, password, database, sslmode)
 	}
 
-	maxConns, err := loader.Int("POSTGRES_MAX_CONNS", DefaultMaxConns)
+	pool := poolSettings(loader)
+
+	maxConns, err := loader.Int(pool.maxConnsKey, DefaultMaxConns)
 	if err != nil {
 		return Config{}, err
 	}
 	if maxConns < 1 {
-		return Config{}, fmt.Errorf("%w: POSTGRES_MAX_CONNS must be at least 1", ErrInvalidConfig)
+		return Config{}, fmt.Errorf("%w: %s must be at least 1", ErrInvalidConfig, envMaxOpenConns)
 	}
 	config.MaxConns = int32(maxConns)
 
-	minConns, err := loader.Int("POSTGRES_MIN_CONNS", DefaultMinConns)
+	minConns, err := loader.Int(pool.minConnsKey, DefaultMinConns)
 	if err != nil {
 		return Config{}, err
 	}
 	if minConns < 0 || minConns > maxConns {
-		return Config{}, fmt.Errorf("%w: POSTGRES_MIN_CONNS must be between 0 and POSTGRES_MAX_CONNS", ErrInvalidConfig)
+		return Config{}, fmt.Errorf("%w: %s must be between 0 and %s", ErrInvalidConfig, envMaxIdleConns, envMaxOpenConns)
 	}
 	config.MinConns = int32(minConns)
+
+	maxLifetime, err := loader.Duration(pool.maxLifetimeKey, DefaultMaxConnLifetime)
+	if err != nil {
+		return Config{}, err
+	}
+	config.MaxConnLifetime = maxLifetime
+
+	maxIdle, err := loader.Duration(pool.maxIdleTimeKey, DefaultMaxConnIdleTime)
+	if err != nil {
+		return Config{}, err
+	}
+	config.MaxConnIdleTime = maxIdle
+
+	healthCheck, err := loader.Duration(pool.healthCheckKey, DefaultHealthCheck)
+	if err != nil {
+		return Config{}, err
+	}
+	config.HealthCheckPeriod = healthCheck
+
+	connectTimeout, err := loader.Duration(pool.connectTimeoutKey, DefaultConnectTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	config.ConnectTimeout = connectTimeout
 
 	if err := validateURL(config.URL); err != nil {
 		return Config{}, err
 	}
 
 	return config, nil
+}
+
+type poolKeys struct {
+	maxConnsKey       string
+	minConnsKey       string
+	maxLifetimeKey    string
+	maxIdleTimeKey    string
+	healthCheckKey    string
+	connectTimeoutKey string
+}
+
+func poolSettings(loader sharedconfig.Loader) poolKeys {
+	return poolKeys{
+		maxConnsKey:       firstSet(loader, envMaxOpenConns, envLegacyMaxConns),
+		minConnsKey:       firstSet(loader, envMaxIdleConns, envLegacyMinConns),
+		maxLifetimeKey:    envConnMaxLifetime,
+		maxIdleTimeKey:    envConnMaxIdleTime,
+		healthCheckKey:    envHealthCheck,
+		connectTimeoutKey: envConnectTimeout,
+	}
+}
+
+// firstSet returns the first key with a non-empty value, or fallback when none
+// is set. This keeps DB_* canonical while accepting the legacy names.
+func firstSet(loader sharedconfig.Loader, keys ...string) string {
+	for _, key := range keys {
+		if loader.String(key, "") != "" {
+			return key
+		}
+	}
+	return keys[0]
 }
 
 func validateURL(raw string) error {
@@ -148,7 +235,22 @@ func validateURL(raw string) error {
 		}
 	}
 
+	if IsNeonHost(host) {
+		sslmode := strings.ToLower(strings.TrimSpace(parsed.Query().Get("sslmode")))
+		switch sslmode {
+		case strongSSLMode, strongSSLModeVerify, strongSSLModeFull:
+		default:
+			return fmt.Errorf("%w: DATABASE_URL must require SSL for Neon hosts", ErrInvalidConfig)
+		}
+	}
+
 	return nil
+}
+
+// IsNeonHost reports whether a database host belongs to Neon. Neon rejects
+// unencrypted and opportunistic TLS modes, so configuration fails closed.
+func IsNeonHost(host string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(host)), neonHostnameSuffix)
 }
 
 func buildURL(host string, port int, user, password, database, sslmode string) string {

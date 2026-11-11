@@ -24,6 +24,13 @@ x-mail-env: &mail-env
   SMTP_SECURE: ${SMTP_SECURE:-auto}
   SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
 
+x-db-pool: &db-pool
+  DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-10}
+  DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-2}
+  DB_CONN_MAX_LIFETIME: ${DB_CONN_MAX_LIFETIME:-30m}
+  DB_CONN_MAX_IDLE_TIME: ${DB_CONN_MAX_IDLE_TIME:-5m}
+  DB_CONNECT_TIMEOUT: ${DB_CONNECT_TIMEOUT:-5s}
+
 x-rabbitmq-env: &rabbitmq-env
   RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-swiftdrop}:${RABBITMQ_DEFAULT_PASS:-swiftdrop}@rabbitmq:5672/
   RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-swiftdrop.events}
@@ -63,6 +70,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-}
 
   rabbitmq:
     image: rabbitmq:4.1-management-alpine
@@ -94,15 +102,49 @@ services:
       timeout: 5s
       retries: 5
 
+  s3:
+    image: versity/versitygw:v1.11.0
+    profiles: ['storage']
+    command: ['posix', '--sidecar', '/meta', '/data']
+    environment:
+      ROOT_ACCESS_KEY: ${STORAGE_ACCESS_KEY_ID:-swiftdrop}
+      ROOT_SECRET_KEY: ${STORAGE_SECRET_ACCESS_KEY:-swiftdrop-s3}
+      VGW_REGION: ${STORAGE_REGION:-us-east-1}
+    ports:
+      - '${S3_PORT:-7070}:7070'
+    volumes:
+      - s3-data:/data
+      - s3-meta:/meta
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 7070']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  s3-init:
+    image: amazon/aws-cli:2.28.0
+    profiles: ['storage']
+    depends_on:
+      s3:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-swiftdrop}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-swiftdrop-s3}
+      AWS_DEFAULT_REGION: ${STORAGE_REGION:-us-east-1}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - 'aws --endpoint-url http://s3:7070 s3api head-bucket --bucket "${STORAGE_BUCKET:-delivery-proofs}" >/dev/null 2>&1 || aws --endpoint-url http://s3:7070 s3api create-bucket --bucket "${STORAGE_BUCKET:-delivery-proofs}"'
+
   identity:
     build:
       <<: *go-build
       args:
         SERVICE: identity
     environment:
-      <<: [*app-env, *mail-env]
+      <<: [*app-env, *mail-env, *db-pool]
       PORT: '8081'
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DB_MAX_OPEN_CONNS: ${IDENTITY_DB_MAX_OPEN_CONNS:-10}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
       ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
@@ -138,10 +180,11 @@ services:
       args:
         SERVICE: parcel
     environment:
-      <<: [*app-env, *rabbitmq-env]
+      <<: [*app-env, *rabbitmq-env, *db-pool]
       PORT: '8082'
       HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DB_MAX_OPEN_CONNS: ${PARCEL_DB_MAX_OPEN_CONNS:-15}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
@@ -151,6 +194,16 @@ services:
       IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
       PROOF_STORAGE_DIR: ${PROOF_STORAGE_DIR:-/home/app/proofs}
       PROOF_MAX_PER_PARCEL: ${PROOF_MAX_PER_PARCEL:-20}
+      PROOF_MAX_SIZE_BYTES: ${PROOF_MAX_SIZE_BYTES:-5242880}
+      PROOF_PRESIGNED_URL_TTL_SECONDS: ${PROOF_PRESIGNED_URL_TTL_SECONDS:-300}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      STORAGE_LOCAL_DIR: ${STORAGE_LOCAL_DIR:-/home/app/proofs}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-2}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-delivery-proofs}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
+      STORAGE_USE_PATH_STYLE: ${STORAGE_USE_PATH_STYLE:-true}
     volumes:
       # /home/app is created and owned by the image's non-root app user. An
       # empty named volume inherits that ownership, so the service can create
@@ -173,13 +226,14 @@ services:
       args:
         SERVICE: pricing
     environment:
-      <<: *app-env
+      <<: [*app-env, *db-pool]
       PORT: '8083'
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DB_MAX_OPEN_CONNS: ${PRICING_DB_MAX_OPEN_CONNS:-10}
     depends_on:
       postgres:
         condition: service_healthy
@@ -240,7 +294,7 @@ services:
       args:
         SERVICE: merchant
     environment:
-      <<: [*app-env, *mail-env]
+      <<: [*app-env, *mail-env, *db-pool]
       PORT: '8084'
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
       SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
@@ -253,6 +307,7 @@ services:
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DB_MAX_OPEN_CONNS: ${MERCHANT_DB_MAX_OPEN_CONNS:-8}
     depends_on:
       postgres:
         condition: service_healthy
@@ -268,9 +323,10 @@ services:
       args:
         SERVICE: realtime
     environment:
-      <<: [*app-env, *rabbitmq-env]
+      <<: [*app-env, *rabbitmq-env, *db-pool]
       PORT: '8085'
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DB_MAX_OPEN_CONNS: ${REALTIME_DB_MAX_OPEN_CONNS:-4}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       REALTIME_QUEUE: ${REALTIME_QUEUE:-realtime.parcel.status_changed.v1}
@@ -293,9 +349,10 @@ services:
       args:
         SERVICE: notification-worker
     environment:
-      <<: [*app-env, *rabbitmq-env, *mail-env]
+      <<: [*app-env, *rabbitmq-env, *mail-env, *db-pool]
       PORT: '8086'
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DB_MAX_OPEN_CONNS: ${NOTIFICATION_DB_MAX_OPEN_CONNS:-8}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification.requested.v1}
@@ -410,3 +467,5 @@ volumes:
   postgres-data:
   rabbitmq-data:
   parcel-proofs:
+  s3-data:
+  s3-meta:

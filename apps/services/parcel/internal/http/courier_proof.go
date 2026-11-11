@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	proofRequestBytes = proofmedia.MaxPhotoBytes + 64*1024
+	proofRequestOverhead = 64 * 1024
 	// A courier should never need more than a handful of proofs per minute.
 	// Thirty leaves room for retries and a multi-stop workflow while bounding
 	// storage and image-decoding abuse from a compromised courier account.
@@ -46,9 +46,12 @@ func (unavailableProofStore) CreateProof(context.Context, courier.ProofInput) (c
 	return courier.ProofResult{}, courier.ErrUnavailable
 }
 
-func registerCourierProof(group *gin.RouterGroup, store CourierProofStore, logger *slog.Logger) {
+func registerCourierProof(group *gin.RouterGroup, store CourierProofStore, logger *slog.Logger, maxPhotoBytes int) {
 	if store == nil {
 		store = unavailableProofStore{}
+	}
+	if maxPhotoBytes <= 0 || maxPhotoBytes > proofmedia.MaxPhotoBytes {
+		maxPhotoBytes = proofmedia.MaxPhotoBytes
 	}
 	limiter := httpx.NewRateLimiter(proofUploadsPerMinute, time.Minute)
 	// The courier group runs authentication before this middleware, so the
@@ -74,7 +77,7 @@ func registerCourierProof(group *gin.RouterGroup, store CourierProofStore, logge
 			httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "parcelId must be a valid UUID")
 			return
 		}
-		input, err := readProofForm(c)
+		input, err := readProofForm(c, maxPhotoBytes)
 		if err != nil {
 			writeProofFormError(c, err)
 			return
@@ -114,12 +117,12 @@ var (
 	errProofMedia        = errors.New("delivery proof media type is unsupported")
 )
 
-func readProofForm(c *gin.Context) (courier.ProofInput, error) {
+func readProofForm(c *gin.Context, maxPhotoBytes int) (courier.ProofInput, error) {
 	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
 	if err != nil || mediaType != "multipart/form-data" {
 		return courier.ProofInput{}, errProofMedia
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, proofRequestBytes)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxPhotoBytes)+proofRequestOverhead)
 	reader, err := c.Request.MultipartReader()
 	if err != nil {
 		return courier.ProofInput{}, errProofBadMultipart
@@ -146,15 +149,16 @@ func readProofForm(c *gin.Context) (courier.ProofInput, error) {
 				_ = part.Close()
 				return courier.ProofInput{}, errProofBadMultipart
 			}
-			data, readErr := io.ReadAll(io.LimitReader(part, proofmedia.MaxPhotoBytes+1))
+			contentType := part.Header.Get("Content-Type")
+			data, readErr := io.ReadAll(io.LimitReader(part, int64(maxPhotoBytes)+1))
 			_ = part.Close()
 			if readErr != nil {
 				return courier.ProofInput{}, classifyProofReadError(readErr)
 			}
-			if len(data) > proofmedia.MaxPhotoBytes {
+			if len(data) > maxPhotoBytes {
 				return courier.ProofInput{}, errProofTooLarge
 			}
-			input.Photo = &courier.ProofPhoto{Data: data, MIMEType: part.Header.Get("Content-Type")}
+			input.Photo = &courier.ProofPhoto{Data: data, MIMEType: contentType}
 		case "recipientName", "note":
 			if part.FileName() != "" {
 				_ = part.Close()

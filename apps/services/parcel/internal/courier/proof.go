@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	proofmedia "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/objectstore"
 )
 
 const DefaultProofMaxPerParcel = 20
@@ -50,27 +51,33 @@ type ProofDB interface {
 }
 
 type ProofService struct {
-	db           ProofDB
-	storage      proofmedia.Storage
-	maxPerParcel int
+	db            ProofDB
+	storage       objectstore.Store
+	maxPerParcel  int
+	maxPhotoBytes int
 }
 
-func NewProofService(db ProofDB, storage proofmedia.Storage, maxPerParcel int) *ProofService {
+func NewProofService(db ProofDB, storage objectstore.Store, maxPerParcel int) *ProofService {
 	if maxPerParcel < 1 {
 		maxPerParcel = DefaultProofMaxPerParcel
 	}
-	return &ProofService{db: db, storage: storage, maxPerParcel: maxPerParcel}
+	return &ProofService{db: db, storage: storage, maxPerParcel: maxPerParcel, maxPhotoBytes: proofmedia.MaxPhotoBytes}
 }
 
-// CreateProof locks the parcel before checking both assignment representations.
-// Reassignments therefore cannot race an authorized proof insert. Repeated
-// proofs are allowed up to the configured per-parcel limit.
-//
-// The photo is written and synced before the proof row commits, so a committed
-// row always references a durable file. That ordering holds the parcel lock
-// during the write; a temp-file/rename redesign could shorten the lock but
-// would introduce a crash window where a committed row references a file that
-// has not reached its final name. The safer ordering is kept deliberately.
+// WithMaxPhotoBytes lowers the configured upload limit. Values above the
+// database's 5 MiB constraint are ignored.
+func (s *ProofService) WithMaxPhotoBytes(limit int) *ProofService {
+	if s != nil && limit > 0 && limit <= proofmedia.MaxPhotoBytes {
+		s.maxPhotoBytes = limit
+	}
+	return s
+}
+
+// CreateProof verifies the courier's current assignment before uploading the
+// photo, then re-verifies under the parcel row lock before inserting metadata.
+// PostgreSQL and object storage do not share a transaction, so a failed insert
+// deletes the uploaded object. A committed row therefore always references an
+// object that was uploaded before the commit.
 func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (result ProofResult, err error) {
 	if s == nil || s.db == nil || s.storage == nil {
 		return ProofResult{}, ErrUnavailable
@@ -86,7 +93,7 @@ func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (resul
 
 	var metadata proofmedia.PhotoMetadata
 	if input.Photo != nil {
-		metadata, err = proofmedia.ValidatePhoto(input.Photo.Data, input.Photo.MIMEType)
+		metadata, err = proofmedia.ValidatePhotoLimit(input.Photo.Data, input.Photo.MIMEType, s.maxPhotoBytes)
 		if err != nil {
 			switch {
 			case errors.Is(err, proofmedia.ErrPhotoTooLarge):
@@ -107,6 +114,46 @@ func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (resul
 	result.ID, err = proofID()
 	if err != nil {
 		return ProofResult{}, err
+	}
+
+	var storageKey *string
+	uploadedKey := ""
+	if input.Photo != nil {
+		// Fail before writing an object when the courier is not assigned.
+		if err := s.checkAssignment(ctx, input.ParcelID, input.CourierID, false); err != nil {
+			return ProofResult{}, err
+		}
+		// Avoid uploading when the quota is already exhausted; the transaction
+		// re-checks under the row lock for concurrent uploads.
+		count, countErr := s.proofCount(ctx, input.ParcelID)
+		if countErr != nil {
+			return ProofResult{}, countErr
+		}
+		if count >= s.maxPerParcel {
+			return ProofResult{}, ErrProofLimitReached
+		}
+		key, keyErr := proofmedia.NewKey(input.ParcelID, result.ID, metadata.MIMEType)
+		if keyErr != nil {
+			return ProofResult{}, fmt.Errorf("%w: %v", ErrProofUnsupported, keyErr)
+		}
+		if putErr := s.storage.Put(ctx, key, input.Photo.Data, metadata.MIMEType); putErr != nil {
+			if errors.Is(putErr, proofmedia.ErrUnsupportedPhotoType) {
+				return ProofResult{}, fmt.Errorf("%w: %v", ErrProofUnsupported, putErr)
+			}
+			return ProofResult{}, fmt.Errorf("store courier proof photo: %w", putErr)
+		}
+		storageKey = &key
+		uploadedKey = key
+		defer func() {
+			if uploadedKey == "" {
+				return
+			}
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if deleteErr := s.storage.Delete(cleanupCtx, uploadedKey); deleteErr != nil {
+				err = errors.Join(err, fmt.Errorf("clean up courier proof photo: %w", deleteErr))
+			}
+		}()
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -158,30 +205,6 @@ func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (resul
 		return ProofResult{}, ErrProofLimitReached
 	}
 
-	var storageKey *string
-	cleanupFile := false
-	if input.Photo != nil {
-		key, saveErr := s.storage.Save(ctx, input.Photo.Data, metadata.MIMEType)
-		if saveErr != nil {
-			if errors.Is(saveErr, proofmedia.ErrUnsupportedPhotoType) {
-				return ProofResult{}, fmt.Errorf("%w: %v", ErrProofUnsupported, saveErr)
-			}
-			return ProofResult{}, fmt.Errorf("store courier proof photo: %w", saveErr)
-		}
-		storageKey = &key
-		cleanupFile = true
-		defer func() {
-			if !cleanupFile {
-				return
-			}
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if deleteErr := s.storage.Delete(cleanupCtx, key); deleteErr != nil {
-				err = errors.Join(err, fmt.Errorf("clean up courier proof photo: %w", deleteErr))
-			}
-		}()
-	}
-
 	var mimeType *string
 	var sizeBytes *int
 	if input.Photo != nil {
@@ -206,7 +229,9 @@ func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (resul
 		probeErr := s.db.QueryRow(probeCtx,
 			`SELECT EXISTS (SELECT 1 FROM parcel.delivery_proofs WHERE id=$1)`, result.ID).Scan(&exists)
 		if probeErr != nil {
-			cleanupFile = false
+			// Keep the object: the row may have committed and deleting it would
+			// break that proof. Reconciliation reports the ambiguity.
+			uploadedKey = ""
 			return ProofResult{}, errors.Join(fmt.Errorf("commit courier proof: %w", err),
 				fmt.Errorf("resolve courier proof commit: %w", probeErr))
 		}
@@ -215,9 +240,44 @@ func (s *ProofService) CreateProof(ctx context.Context, input ProofInput) (resul
 		}
 	}
 	committed = true
-	cleanupFile = false
+	uploadedKey = ""
 	result.CreatedAt = result.CreatedAt.UTC()
 	return result, nil
+}
+
+func (s *ProofService) proofCount(ctx context.Context, parcelID string) (int, error) {
+	var count int
+	if err := s.db.QueryRow(ctx,
+		`SELECT count(*) FROM parcel.delivery_proofs WHERE parcel_id=$1`, parcelID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count courier proofs: %w", err)
+	}
+	return count, nil
+}
+
+func (s *ProofService) checkAssignment(ctx context.Context, parcelID, courierID string, lock bool) error {
+	query := `SELECT p.current_courier_id, EXISTS (
+		SELECT 1 FROM parcel.parcel_assignments a
+		WHERE a.parcel_id=p.id AND a.courier_id=$2 AND a.is_current)
+		FROM parcel.parcels p WHERE p.id=$1`
+	if lock {
+		query += " FOR UPDATE"
+	}
+	var currentCourierID *string
+	var assignmentCurrent bool
+	err := s.db.QueryRow(ctx, query, parcelID, courierID).Scan(&currentCourierID, &assignmentCurrent)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("check courier proof assignment: %w", err)
+	}
+	if currentCourierID == nil || *currentCourierID != courierID {
+		return ErrForbidden
+	}
+	if !assignmentCurrent {
+		return ErrInconsistentAssignment
+	}
+	return nil
 }
 
 func proofID() (string, error) {

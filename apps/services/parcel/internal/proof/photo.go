@@ -38,17 +38,27 @@ type PhotoMetadata struct {
 	SizeBytes int
 }
 
-// ValidatePhoto checks a supplied photo without modifying data. The declared MIME
-// type must be image/jpeg or image/png; valid MIME parameters are accepted, but
-// only the canonical media type is returned. Missing and generic MIME types fail.
-// The Go decoders validate image structure after signature and dimension checks.
-// Callers must bound upload reads before allocating data, and persist the same
-// bytes they validated. An omitted optional photo should not call this function.
+// ValidatePhoto checks a supplied photo against the fixed 5 MiB contract.
 func ValidatePhoto(data []byte, declaredMIME string) (PhotoMetadata, error) {
+	return ValidatePhotoLimit(data, declaredMIME, MaxPhotoBytes)
+}
+
+// ValidatePhotoLimit checks a supplied photo against a configured limit that
+// must not exceed the database's 5 MiB photo_size_bytes constraint. The
+// declared MIME type must be image/jpeg or image/png; valid MIME parameters are
+// accepted, but only the canonical media type is returned. Missing and generic
+// MIME types fail. The Go decoders validate image structure after signature and
+// dimension checks. Callers must bound upload reads before allocating data, and
+// persist the same bytes they validated. An omitted optional photo should not
+// call this function.
+func ValidatePhotoLimit(data []byte, declaredMIME string, maxBytes int) (PhotoMetadata, error) {
+	if maxBytes <= 0 || maxBytes > MaxPhotoBytes {
+		maxBytes = MaxPhotoBytes
+	}
 	if len(data) == 0 {
 		return PhotoMetadata{}, ErrEmptyPhoto
 	}
-	if len(data) > MaxPhotoBytes {
+	if len(data) > maxBytes {
 		return PhotoMetadata{}, ErrPhotoTooLarge
 	}
 

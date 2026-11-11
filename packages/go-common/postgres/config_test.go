@@ -94,6 +94,94 @@ func TestLoadConfigRejectsMissingParts(t *testing.T) {
 	}
 }
 
+func TestLoadConfigReadsPoolSettings(t *testing.T) {
+	config, err := LoadConfig(loader(map[string]string{
+		"DATABASE_URL":           "postgres://user:secret@db:5432/swiftdrop?sslmode=disable",
+		"DB_MAX_OPEN_CONNS":      "15",
+		"DB_MAX_IDLE_CONNS":      "0",
+		"DB_CONN_MAX_LIFETIME":   "15m",
+		"DB_CONN_MAX_IDLE_TIME":  "2m",
+		"DB_CONNECT_TIMEOUT":     "3s",
+		"DB_HEALTH_CHECK_PERIOD": "30s",
+	}))
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if config.MaxConns != 15 || config.MinConns != 0 {
+		t.Fatalf("pool = %d/%d", config.MaxConns, config.MinConns)
+	}
+	if config.MaxConnLifetime != 15*time.Minute || config.MaxConnIdleTime != 2*time.Minute {
+		t.Fatalf("lifetimes = %v/%v", config.MaxConnLifetime, config.MaxConnIdleTime)
+	}
+	if config.ConnectTimeout != 3*time.Second || config.HealthCheckPeriod != 30*time.Second {
+		t.Fatalf("timeouts = %v/%v", config.ConnectTimeout, config.HealthCheckPeriod)
+	}
+}
+
+func TestLoadConfigKeepsLegacyPoolAliases(t *testing.T) {
+	config, err := LoadConfig(loader(map[string]string{
+		"DATABASE_URL":       "postgres://user:secret@db:5432/swiftdrop?sslmode=disable",
+		"POSTGRES_MAX_CONNS": "7",
+		"POSTGRES_MIN_CONNS": "1",
+		"DB_MAX_OPEN_CONNS":  "12",
+	}))
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if config.MaxConns != 12 || config.MinConns != 1 {
+		t.Fatalf("pool = %d/%d", config.MaxConns, config.MinConns)
+	}
+}
+
+func TestLoadConfigFromURLUsesExplicitURL(t *testing.T) {
+	config, err := LoadConfigFromURL("postgres://user:secret@db:5432/swiftdrop?sslmode=disable")
+	if err != nil {
+		t.Fatalf("LoadConfigFromURL() error: %v", err)
+	}
+	if config.URL != "postgres://user:secret@db:5432/swiftdrop?sslmode=disable" {
+		t.Fatalf("unexpected URL %q", config.URL)
+	}
+}
+
+func TestLoadConfigRequiresSSLForNeonHosts(t *testing.T) {
+	cases := map[string]string{
+		"missing": "postgres://user:secret@ep-test-pooler.us-east-2.aws.neon.tech/neondb",
+		"disable": "postgres://user:secret@ep-test-pooler.us-east-2.aws.neon.tech/neondb?sslmode=disable",
+		"prefer":  "postgres://user:secret@ep-test-pooler.us-east-2.aws.neon.tech/neondb?sslmode=prefer",
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadConfig(loader(map[string]string{"DATABASE_URL": raw}))
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("expected ErrInvalidConfig, got %v", err)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatalf("validation error leaked credentials: %v", err)
+			}
+		})
+	}
+
+	config, err := LoadConfig(loader(map[string]string{
+		"DATABASE_URL": "postgres://user:secret@ep-test-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require",
+	}))
+	if err != nil || !config.Configured() {
+		t.Fatalf("Neon URL with sslmode=require rejected: %v", err)
+	}
+}
+
+func TestIsNeonHost(t *testing.T) {
+	for host, want := range map[string]bool{
+		"ep-test-pooler.us-east-2.aws.neon.tech": true,
+		"EP-TEST.NEON.TECH":                      true,
+		"postgres":                               false,
+		"neon.tech.example.com":                  false,
+	} {
+		if got := IsNeonHost(host); got != want {
+			t.Fatalf("IsNeonHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
 func TestNextDelay(t *testing.T) {
 	if got := nextDelay(250*time.Millisecond, 5*time.Second); got != 500*time.Millisecond {
 		t.Fatalf("nextDelay() = %v", got)

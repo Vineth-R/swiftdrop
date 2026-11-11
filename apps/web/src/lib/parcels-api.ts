@@ -75,6 +75,13 @@ export type ParcelHistory = {
   changedAt: string;
 };
 
+export type ProofPhotoTarget = {
+  url: string;
+  expiresAt: string;
+  mimeType: 'image/jpeg' | 'image/png';
+  stream: boolean;
+};
+
 export type ParcelQuery = {
   status?: ParcelStatus | '';
   from?: string;
@@ -112,4 +119,12 @@ export function getParcelHistory(id: string, signal?: AbortSignal) {
 
 export function getParcelReceipt(id: string, signal?: AbortSignal) {
   return apiBlob(`/parcels/${encodeURIComponent(id)}/receipt`, { signal });
+}
+
+/** Returns a short-lived proof photo target; no permanent URL is exposed. */
+export function getParcelProofPhoto(id: string, signal?: AbortSignal) {
+  return api<ProofPhotoTarget>(
+    `/parcels/${encodeURIComponent(id)}/proof/photo`,
+    { signal },
+  );
 }
