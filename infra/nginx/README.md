@@ -50,3 +50,14 @@ Merchant registration uses `/api/v1/merchants/`; admin listing uses the exact
 
 `/api/v1/admin/users` (the documented list path, no trailing slash) has its own
 exact rule that proxies to Identity, so it is not sent on to the web app.
+
+## Redirects
+
+`absolute_redirect off;` makes every redirect Nginx itself issues relative, such as the `308` that adds the
+trailing slash to a collection path (`/api/v1/couriers` to `/api/v1/couriers/`) and the `301` Nginx adds
+for a prefix location. Without it, Nginx builds the address from its own port (80), so a caller on
+`http://localhost:8080` is sent to `http://localhost/...`, a closed port. The explicit `308` rules also
+carry the query string over (`$is_args$args`), so `GET /api/v1/couriers?isAvailable=true` keeps its filter.
+
+`scripts/check-routes.sh` checks both (`make check-routes`). A new collection path that needs a
+no-slash redirect should follow the same `return 308 /path/$is_args$args;` shape.
