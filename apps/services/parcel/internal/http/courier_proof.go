@@ -149,6 +149,7 @@ func readProofForm(c *gin.Context, maxPhotoBytes int) (courier.ProofInput, error
 				_ = part.Close()
 				return courier.ProofInput{}, errProofBadMultipart
 			}
+			contentType := part.Header.Get("Content-Type")
 			data, readErr := io.ReadAll(io.LimitReader(part, int64(maxPhotoBytes)+1))
 			_ = part.Close()
 			if readErr != nil {
@@ -157,7 +158,7 @@ func readProofForm(c *gin.Context, maxPhotoBytes int) (courier.ProofInput, error
 			if len(data) > maxPhotoBytes {
 				return courier.ProofInput{}, errProofTooLarge
 			}
-			input.Photo = &courier.ProofPhoto{Data: data, MIMEType: part.Header.Get("Content-Type")}
+			input.Photo = &courier.ProofPhoto{Data: data, MIMEType: contentType}
 		case "recipientName", "note":
 			if part.FileName() != "" {
 				_ = part.Close()
