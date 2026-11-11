@@ -29,34 +29,51 @@ const baseURL = process.env['BASE_URL'] || webServerAddress;
  */
 export default defineConfig({
   ...nxE2EPreset(import.meta.dirname, { testDir: './src' }),
+  // The real stack shares login rate limits and, in one test, stops Identity.
+  // Run its files one at a time; the mocked suite stays parallel.
+  workers: process.env['REAL_STACK'] ? 1 : undefined,
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     baseURL,
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
   },
-  webServer: {
-    command: isCI
-      ? 'pnpm exec nx run @org/web:start'
-      : 'pnpm exec nx run @org/web:dev',
-    url: webServerAddress,
-    reuseExistingServer: true,
-    cwd: workspaceRoot,
-  },
+  webServer: process.env['REAL_STACK']
+    ? undefined
+    : {
+        command: isCI
+          ? 'pnpm exec nx run @org/web:start'
+          : 'pnpm exec nx run @org/web:dev',
+        url: webServerAddress,
+        reuseExistingServer: true,
+        cwd: workspaceRoot,
+      },
   projects: [
     {
       name: 'chromium',
+      testIgnore: /.*\.real\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
 
     {
       name: 'firefox',
+      testIgnore: /.*\.real\.spec\.ts/,
       use: { ...devices['Desktop Firefox'] },
     },
 
     {
       name: 'webkit',
+      testIgnore: /.*\.real\.spec\.ts/,
       use: { ...devices['Desktop Safari'] },
+    },
+
+    {
+      name: 'real-stack',
+      testMatch: /.*\.real\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env['REAL_STACK_BASE_URL'] || 'http://localhost:8080',
+      },
     },
 
     // Uncomment for mobile browsers support

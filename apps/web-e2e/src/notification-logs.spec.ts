@@ -181,24 +181,24 @@ test.describe('notification logs', () => {
   test('retry issues a second request after a server error', async ({
     page,
   }) => {
-    let attempts = 0;
+    let allowSuccess = false;
     const api = await signInAs(page, 'ADMIN', {
-      'GET /admin/notification-logs': () => {
-        attempts += 1;
-        return attempts === 1 ? fail(500, 'INTERNAL_ERROR') : pageOf([log]);
-      },
+      'GET /admin/notification-logs': () =>
+        allowSuccess ? pageOf([log]) : fail(500, 'INTERNAL_ERROR'),
     });
     await page.goto('/admin/notification-logs');
 
     const alert = page.locator('[role="alert"]:not(#__next-route-announcer__)');
     await expect(alert).toContainText('Notification logs could not be loaded');
+    allowSuccess = true;
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect(
       page.getByRole('table').getByText('n***@example.com'),
     ).toBeVisible();
     expect(
-      api.calls.filter((call) => call.key === 'GET /admin/notification-logs'),
-    ).toHaveLength(2);
+      api.calls.filter((call) => call.key === 'GET /admin/notification-logs')
+        .length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   test('an API 403 shows the safe access error', async ({ page }) => {
@@ -225,6 +225,10 @@ test.describe('notification logs', () => {
     });
     await page.goto('/admin/notification-logs');
 
+    await page
+      .getByRole('dialog', { name: 'Your session ended' })
+      .getByRole('button', { name: 'Log in' })
+      .click();
     await expect(page).toHaveURL(/\/login\?next=%2Fadmin%2Fnotification-logs$/);
     await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
   });

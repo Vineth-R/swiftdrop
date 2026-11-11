@@ -42,3 +42,22 @@ Health endpoints are not public except `/healthz` at the gateway. `/health` and 
 - `/ws` enables WebSocket upgrade headers, disables proxy buffering, and uses a long read timeout.
 - Local development uses plain HTTP. Production TLS should terminate at a load balancer or a separately managed Nginx configuration with real certificates. No certificates are committed to this repository.
 - Nginx resolves every upstream at startup. Start the full Compose stack; starting Nginx alone with missing upstreams is not supported.
+
+Registration routes `/api/v1/auth/verify-email` and
+`/api/v1/auth/resend-verification` use the existing `/api/v1/auth/` proxy.
+Merchant registration uses `/api/v1/merchants/`; admin listing uses the exact
+`/api/v1/admin/merchants` and prefix routes.
+
+`/api/v1/admin/users` (the documented list path, no trailing slash) has its own
+exact rule that proxies to Identity, so it is not sent on to the web app.
+
+## Redirects
+
+`absolute_redirect off;` makes every redirect Nginx itself issues relative, such as the `308` that adds the
+trailing slash to a collection path (`/api/v1/couriers` to `/api/v1/couriers/`) and the `301` Nginx adds
+for a prefix location. Without it, Nginx builds the address from its own port (80), so a caller on
+`http://localhost:8080` is sent to `http://localhost/...`, a closed port. The explicit `308` rules also
+carry the query string over (`$is_args$args`), so `GET /api/v1/couriers?isAvailable=true` keeps its filter.
+
+`scripts/check-routes.sh` checks both (`make check-routes`). A new collection path that needs a
+no-slash redirect should follow the same `return 308 /path/$is_args$args;` shape.

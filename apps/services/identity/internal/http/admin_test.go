@@ -622,6 +622,7 @@ func TestAdminEndpoints_refuseACallerWhoseAccountChangedAfterTheTokenWasIssued(t
 		{name: "deactivated since", access: &service.CurrentAccess{Role: auth.RoleAdmin, Active: false}, status: http.StatusForbidden, code: "ACCOUNT_DISABLED"},
 		{name: "demoted since", access: &service.CurrentAccess{Role: auth.RoleCustomer, Active: true}, status: http.StatusForbidden, code: "FORBIDDEN"},
 		{name: "demoted to dispatcher", access: &service.CurrentAccess{Role: auth.RoleDispatcher, Active: true}, status: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "stale session version", access: &service.CurrentAccess{Role: auth.RoleAdmin, Active: true, SessionVersion: 5}, status: http.StatusUnauthorized, code: "SESSION_REVOKED"},
 		{name: "account deleted", err: service.ErrUserNotFound, status: http.StatusUnauthorized, code: "UNAUTHENTICATED"},
 		{name: "lookup failed", err: errors.New("db down at 10.0.0.5"), status: http.StatusInternalServerError, code: "INTERNAL_ERROR"},
 	}

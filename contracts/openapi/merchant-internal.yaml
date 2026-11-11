@@ -128,6 +128,48 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /internal/merchants/owners/{userId}/approval:
+    get:
+      operationId: merchantInternalOwnerApproval
+      summary: Current merchant approval status for Identity login/refresh
+      description: >-
+        Returns the merchant status for an owner user ID. Identity uses it to
+        prevent pending, rejected or suspended merchants from obtaining or
+        renewing sessions even if Identity deactivation failed.
+
+
+        For a REJECTED or SUSPENDED merchant it also returns the administrator's
+        `reason` (left out when there is none). Identity shows it to the owner
+        after a correct password and does not log it.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Current status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      merchantId: { type: string, format: uuid }
+                      status:
+                        {
+                          type: string,
+                          enum: [PENDING, APPROVED, REJECTED, SUSPENDED],
+                        }
+                      reason:
+                        {
+                          type: string,
+                          description: The administrator's text for a REJECTED or SUSPENDED merchant. Absent otherwise.,
+                        }
+        '404': { description: No merchant owns this user. }
+
 components:
   parameters:
     InternalToken:

@@ -78,6 +78,9 @@ func newTestRepository(t *testing.T) (*Repository, *postgres.Pool) {
 		"migrations/identity/000001_initial_schema.up.sql",
 		"migrations/identity/000002_tables.up.sql",
 		"migrations/identity/000003_oauth_states_browser_binding.up.sql",
+		"migrations/identity/000004_email_verification.up.sql",
+		"migrations/identity/000005_session_version.up.sql",
+		"migrations/identity/000006_merchant_lifecycle_transitions.up.sql",
 	} {
 		script, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file)))
 		if err != nil {

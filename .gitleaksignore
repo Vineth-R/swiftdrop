@@ -1,0 +1,7 @@
+# Verified false positives: the email template catalog previously used a
+# high-entropy sample verification link token for local previews. It is not a
+# credential. The current catalog uses a non-secret placeholder, but the PR
+# commit range still includes the older commits. Keep this allowlist narrow to
+# the exact historical fingerprints.
+99dfd9b8834108ba58897c3d74d792518abab442:packages/go-common/emails/catalog.go:generic-api-key:55
+2f906f910534e34d75664f01162333a50f145ce2:packages/go-common/emails/catalog.go:generic-api-key:55

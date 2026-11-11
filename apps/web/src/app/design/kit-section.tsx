@@ -1,8 +1,8 @@
 'use client';
 
-import { Plus } from 'lucide-react';
 import { useState } from 'react';
 
+import { SessionExpiredDialog } from '../../components/auth/session-expired-dialog';
 import { Button } from '../../components/ui/button';
 import {
   DataTable,
@@ -268,12 +268,12 @@ export function KitSection() {
               Open reason dialog
             </Button>
             <Button variant="secondary" onClick={() => setDialog('busy')}>
-              Open must-answer dialog
+              Open session-expired dialog
             </Button>
           </div>
           <span className="text-body-sm text-text-muted">
             Escape, the close button and a click outside all close it, except
-            the must-answer dialog.
+            the session-expired dialog, which must be answered.
           </span>
         </Panel>
         <Panel title="Toast">
@@ -437,21 +437,9 @@ export function KitSection() {
           onChange={(event) => setReason(event.target.value)}
         />
       </Modal>
-      <Modal
+      <SessionExpiredDialog
         isOpen={dialog === 'busy'}
-        onClose={() => setDialog(null)}
-        isDismissible={false}
-        size="sm"
-        title="Your session has ended"
-        description="Log in again to carry on. Nothing you typed is lost."
-        actions={
-          <Button
-            iconLeading={<Plus size={16} strokeWidth={1.5} />}
-            onClick={() => setDialog(null)}
-          >
-            Log in again
-          </Button>
-        }
+        onLogIn={() => setDialog(null)}
       />
     </section>
   );

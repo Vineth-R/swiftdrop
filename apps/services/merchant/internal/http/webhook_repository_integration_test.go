@@ -108,6 +108,7 @@ func createOwnedMerchant(t *testing.T, ctx context.Context, repo *repository.Rep
 		ID:            merchantID,
 		OwnerUserID:   ownerUserID,
 		BusinessName:  "Webhook Test " + merchantID[:8],
+		BusinessRegNo: "WEBHOOK-" + merchantID[:8],
 		ContactEmail:  "owner-" + merchantID[:8] + "@example.test",
 		ContactPhone:  "+94771234567",
 		PickupAddress: "12 Galle Road, Colombo",

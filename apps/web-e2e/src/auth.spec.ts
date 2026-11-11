@@ -50,7 +50,9 @@ test.describe('session check and splash', () => {
 
     await page.goto('/dashboard');
     await expect(page.getByText('Signed in as')).toContainText('Nimal Perera');
-    await expect(page.getByText('CUSTOMER')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Dashboard', exact: true }),
+    ).toBeVisible();
 
     await page.getByRole('button', { name: 'Account menu' }).click();
     await page.getByRole('menuitem', { name: 'Log out' }).click();
@@ -75,7 +77,12 @@ test.describe('session check and splash', () => {
 
     await page.goto('/dashboard');
     await expect(page.getByText('Signed in as')).toContainText('Nimal Perera');
-    expect(calls.map((call) => call.key)).toEqual([
+    // The dashboard also asks for the customer's parcels; only the session
+    // calls are compared, in the order they were made.
+    const keys = calls
+      .map((call) => call.key)
+      .filter((key) => key.includes('/users/me') || key.includes('/auth/'));
+    expect(keys.filter((key, index) => key !== keys[index - 1])).toEqual([
       'GET /users/me',
       'POST /auth/refresh',
       'GET /users/me',
@@ -372,27 +379,20 @@ test.describe('register', () => {
     await page.getByLabel('Confirm password').fill('Str0ngPass!');
   }
 
-  test('creates the account, signs in, and goes to the dashboard', async ({
+  test('creates the account and asks the customer to verify their email', async ({
     page,
   }) => {
-    let signedIn = false;
     const { calls } = await mockApi(page, {
-      'GET /users/me': () =>
-        signedIn ? ok(user) : fail(401, 'UNAUTHENTICATED'),
-      'POST /auth/refresh': fail(401, 'REFRESH_TOKEN_INVALID'),
-      'POST /auth/register': ok(user, 201),
-      'POST /auth/login': () => {
-        signedIn = true;
-        return ok({ user, expiresIn: 900 });
-      },
+      ...signedOut,
+      'POST /auth/register': ok({ ...user, emailVerified: false }, 201),
     });
-    await page.goto('/register');
+    await page.goto('/register/customer');
     await fillValid(page);
     await page.getByRole('button', { name: 'Create account' }).click();
 
-    await expect(page.getByText('Account created')).toBeVisible();
+    await expect(page.getByText('Check your email')).toBeVisible();
     await expect(page.getByText('nimal@example.com').first()).toBeVisible();
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 8000 });
+    await expect(page).toHaveURL(/\/register\/customer$/);
     expect(
       calls.find((call) => call.key === 'POST /auth/register')?.body,
     ).toEqual({
@@ -401,13 +401,68 @@ test.describe('register', () => {
       phone: '+94771234567',
       password: 'Str0ngPass!',
     });
+    expect(calls.map((call) => call.key)).not.toContain('POST /auth/login');
+  });
+
+  test('the account type page offers customer and merchant registration', async ({
+    page,
+  }) => {
+    await mockApi(page, signedOut);
+    await page.goto('/register');
+    await expect(
+      page.getByRole('link', { name: 'Register as Customer' }),
+    ).toHaveAttribute('href', '/register/customer');
+    await expect(
+      page.getByRole('link', { name: 'Register as Merchant' }),
+    ).toHaveAttribute('href', '/register/merchant');
+  });
+
+  test('the verification page consumes a token and links to login', async ({
+    page,
+  }) => {
+    const { calls } = await mockApi(page, {
+      ...signedOut,
+      'POST /auth/verify-email': ok({ message: 'verified' }),
+    });
+    await page.goto('/verify-email?token=known-token');
+    await expect(page.getByText('Your email has been verified')).toBeVisible();
+    expect(
+      calls.find((call) => call.key === 'POST /auth/verify-email')?.body,
+    ).toEqual({ token: 'known-token' });
+    await expect(
+      page.getByRole('link', { name: 'Go to log in' }),
+    ).toHaveAttribute('href', '/login?verified=1');
+  });
+
+  test('an invalid verification token offers another email', async ({
+    page,
+  }) => {
+    await mockApi(page, {
+      ...signedOut,
+      'POST /auth/verify-email': fail(
+        400,
+        'INVALID_OR_EXPIRED_VERIFICATION_TOKEN',
+      ),
+      'POST /auth/resend-verification': ok({ message: 'sent' }, 202),
+    });
+    await page.goto('/verify-email?token=bad-token');
+    await expect(
+      page.getByText('This link is invalid or has expired'),
+    ).toBeVisible();
+    await page.getByLabel('Email').fill('nimal@example.com');
+    await page
+      .getByRole('button', { name: 'Send another verification email' })
+      .click();
+    await expect(
+      page.getByText('If that address needs verification'),
+    ).toBeVisible();
   });
 
   test('a failed submit counts the problems, takes focus and links to each field', async ({
     page,
   }) => {
     const { calls } = await mockApi(page, signedOut);
-    await page.goto('/register');
+    await page.goto('/register/customer');
     await page.getByRole('button', { name: 'Create account' }).click();
 
     const summary = page.getByRole('alert').filter({ hasText: 'attention' });
@@ -431,7 +486,7 @@ test.describe('register', () => {
 
   test('the password rules flip as the person types', async ({ page }) => {
     await mockApi(page, signedOut);
-    await page.goto('/register');
+    await page.goto('/register/customer');
     const password = page.locator('#register-password');
 
     await password.fill('abc');
@@ -447,7 +502,7 @@ test.describe('register', () => {
       ...signedOut,
       'POST /auth/register': fail(409, 'EMAIL_ALREADY_EXISTS'),
     });
-    await page.goto('/register');
+    await page.goto('/register/customer');
     await fillValid(page);
     await page.getByRole('button', { name: 'Create account' }).click();
 
@@ -476,7 +531,7 @@ test.describe('register', () => {
         details: [{ field: 'phone', issue: SERVER_WORDS }],
       }),
     });
-    await page.goto('/register');
+    await page.goto('/register/customer');
     await fillValid(page);
     await page.getByRole('button', { name: 'Create account' }).click();
 

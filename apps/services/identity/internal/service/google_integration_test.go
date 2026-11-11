@@ -55,6 +55,14 @@ func (m *captureMailer) Send(_ context.Context, message mailer.Message) error {
 	return nil
 }
 
+// approvedMerchants answers that every merchant owner is approved. A merchant
+// signs in only with a current approval, and these tests are about linking.
+type approvedMerchants struct{}
+
+func (approvedMerchants) Approval(context.Context, string) (string, string, error) {
+	return "APPROVED", "", nil
+}
+
 type googleFlow struct {
 	google   *service.GoogleAuth
 	base     *service.Service
@@ -81,7 +89,7 @@ func newGoogleFlow(t *testing.T) *googleFlow {
 	base, err := service.New(repo, hasher, tokens, service.Config{
 		RefreshTTL: 7 * 24 * time.Hour,
 		Lockout:    lockout.Policy{MaxFailures: 5, Duration: 15 * time.Minute},
-	})
+	}, service.WithMerchantApproval(approvedMerchants{}))
 	if err != nil {
 		t.Fatalf("service.New: %v", err)
 	}
@@ -520,6 +528,9 @@ func openIsolatedDB(t *testing.T) *postgres.Pool {
 		"migrations/identity/000001_initial_schema.up.sql",
 		"migrations/identity/000002_tables.up.sql",
 		"migrations/identity/000003_oauth_states_browser_binding.up.sql",
+		"migrations/identity/000004_email_verification.up.sql",
+		"migrations/identity/000005_session_version.up.sql",
+		"migrations/identity/000006_merchant_lifecycle_transitions.up.sql",
 	} {
 		script, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file)))
 		if err != nil {

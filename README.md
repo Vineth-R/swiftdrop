@@ -7,7 +7,7 @@ Identity authentication, pricing estimates/zones/internal quote and admin config
 ## Technology
 
 - **Frontend:** Next.js 16 App Router, React 19, TypeScript 6, pnpm, Nx, Tailwind CSS v4, shadcn/ui with Radix primitives, and Lucide icons.
-- **Backend:** Go 1.27.3 with Gin, one root Go module.
+- **Backend:** Go 1.27.4 with Gin, one root Go module.
 - **Data:** PostgreSQL 16 with service-owned schemas and versioned SQL migrations.
 - **Messaging:** RabbitMQ 4.1 with a durable topic exchange, versioned JSON event contracts, bounded retries, and dead-lettering.
 - **Edge:** Nginx reverse proxy.
@@ -64,7 +64,7 @@ Each Go service has `main.go`, `internal/config`, and either `internal/http` or 
 
 ## Prerequisites
 
-- Go **1.27.3** or a compatible 1.27 toolchain (`go.mod` is the source of truth).
+- Go **1.27.4** or a compatible 1.27 toolchain (`go.mod` is the source of truth).
 - Node.js **24**, the supported and CI-tested version. Other Node.js versions are not officially supported.
 - pnpm **12.15.0** through Corepack.
 - Docker with Docker Compose v2.
@@ -309,7 +309,7 @@ The browser only ever calls `/api/v1/...` on its own origin. In development, Nex
 
 Live updates use a WebSocket, and Next proxies `/api/v1` but not `/ws`. For `nx dev`, copy `apps/web/.env.example` to the untracked `apps/web/.env.local` so the client connects to the gateway at `ws://localhost:8080/ws`. Behind the gateway (production and Docker) the client uses the page's own host, so no override is needed.
 
-The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, a placeholder `/dashboard`, `/profile`, `/profile/security`, the COURIER `/history` delivery-history screen, the DISPATCHER/ADMIN `/reports` screen, the ADMIN `/admin/users` and `/admin/notification-logs`, and the public `/track` parcel tracking page. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
+The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, the role-based `/dashboard` (a customer's recent parcels, a merchant's business and API keys, an administrator's waiting counts, the courier's Today view), `/profile`, `/profile/security`, the COURIER `/history` delivery-history screen, the DISPATCHER/ADMIN `/reports` screen, the ADMIN `/admin/users` and `/admin/notification-logs`, and the public `/track` parcel tracking page. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
 
 ## Run an individual HTTP service
 
@@ -626,4 +626,13 @@ Merchant-owner follow-up: the merchant repository uses `database/sql` and is not
 
 Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: the legacy notification worker, the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` consumer with identity contact resolution, ADMIN notification delivery-log reads and the ADMIN notification-log screen, with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`). Implemented by M10: the DISPATCHER/ADMIN reports screen (`/reports`). The COURIER `/history` delivery-history screen is implemented in the web app against the implemented parcel `GET /courier/deliveries` list and detail reads.
 
-Not implemented: the complete delivery status workflow and its full successful/failed delivery E2E scenarios, M8's merchant order-to-parcel caller and merchant-owned parcel notification contact resolution, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, the pricing administration UI, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
+Not implemented: the complete delivery status workflow and its full successful/failed delivery E2E scenarios, M8's merchant order-to-parcel caller and merchant-owned parcel notification contact resolution, SMS notification delivery, webhook signing and delivery retries, the pricing administration UI, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
+
+## Registration and merchant onboarding
+
+Customers register at `/register/customer`, receive a single-use verification
+email and cannot sign in until it is verified. Merchants register at
+`/register/merchant`; the Identity account stays inactive and the application
+stays PENDING until an administrator approves it at `/admin/merchants`.
+Approval applies a lifecycle-bound session-version transition. Suspension and
+reapproval invalidate old access tokens, so a fresh login is required.

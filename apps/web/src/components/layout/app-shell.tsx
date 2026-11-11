@@ -139,7 +139,7 @@ export function AppShell({ user, banner, children }: AppShellProps) {
             type="button"
             aria-label="Open navigation"
             onClick={() => setIsDrawerOpen(true)}
-            className="inline-flex size-9 shrink-0 items-center justify-center rounded-control hover:bg-surface-2 md:hidden"
+            className="inline-flex size-9 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-control hover:bg-surface-2 md:hidden"
           >
             <Menu size={20} strokeWidth={1.5} aria-hidden="true" />
           </button>
@@ -150,7 +150,7 @@ export function AppShell({ user, banner, children }: AppShellProps) {
             }
             aria-expanded={!isCollapsed}
             onClick={toggleSidebar}
-            className="hidden size-9 shrink-0 items-center justify-center rounded-control hover:bg-surface-2 lg:inline-flex"
+            className="hidden size-9 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-control hover:bg-surface-2 lg:inline-flex"
           >
             {isCollapsed ? (
               <PanelLeftOpen size={20} strokeWidth={1.5} aria-hidden="true" />

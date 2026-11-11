@@ -104,10 +104,15 @@ func newStack() (*stack, error) {
 		if err != nil {
 			return s, fmt.Errorf("register the %s fixture: %w", role, err)
 		}
-		if role != auth.RoleCustomer {
+		if err := s.sql(fmt.Sprintf(
+			`UPDATE identity.users SET role_id = (SELECT id FROM identity.roles WHERE name = '%s'), email_verified = true WHERE id = '%s';`, role, id)); err != nil {
+			return s, fmt.Errorf("give the fixture the %s role: %w", role, err)
+		}
+		if role == auth.RoleMerchant {
 			if err := s.sql(fmt.Sprintf(
-				`UPDATE identity.users SET role_id = (SELECT id FROM identity.roles WHERE name = '%s') WHERE id = '%s';`, role, id)); err != nil {
-				return s, fmt.Errorf("give the fixture the %s role: %w", role, err)
+				`INSERT INTO merchant.merchants (owner_user_id, business_name, business_reg_no, business_address, contact_email, contact_phone, pickup_address, pickup_zone_id, status, approved_by, approved_at)
+				 VALUES ('%s', 'Access Merchant', 'ACCESS-%s', '1 Test Road', 'merchant@example.test', '+94771234567', '1 Test Road', '00000000-0000-4000-8000-000000000001', 'APPROVED', '%s', now());`, id, runID, id)); err != nil {
+				return s, fmt.Errorf("create the merchant fixture: %w", err)
 			}
 		}
 		token, _, err := manager.Issue(id, role)
@@ -166,7 +171,14 @@ func (s *stack) cleanup() {
 	}
 	ids := "'" + strings.Join(s.created, "','") + "'"
 	if err := s.sql(fmt.Sprintf(
-		`DELETE FROM identity.courier_profiles WHERE user_id IN (%[1]s); DELETE FROM identity.refresh_tokens WHERE user_id IN (%[1]s); DELETE FROM identity.users WHERE id IN (%[1]s);`, ids)); err != nil {
+		`DELETE FROM merchant.merchant_status_transitions WHERE merchant_id IN (SELECT id FROM merchant.merchants WHERE owner_user_id IN (%[1]s));
+		 DELETE FROM merchant.merchant_registration_attempts WHERE user_id IN (%[1]s);
+		 DELETE FROM merchant.merchants WHERE owner_user_id IN (%[1]s);
+		 DELETE FROM identity.courier_profiles WHERE user_id IN (%[1]s);
+		 DELETE FROM identity.refresh_tokens WHERE user_id IN (%[1]s);
+		 DELETE FROM identity.email_verification_tokens WHERE user_id IN (%[1]s);
+		 DELETE FROM identity.merchant_lifecycle_transitions WHERE user_id IN (%[1]s);
+		 DELETE FROM identity.users WHERE id IN (%[1]s);`, ids)); err != nil {
 		fmt.Fprintln(os.Stderr, "access tests: could not remove the fixture accounts:", err)
 	}
 }
@@ -279,6 +291,9 @@ func (s *stack) newCustomer(t *testing.T) customer {
 	c := customer{email: fmt.Sprintf("access.%s@example.test", randomHex(6)), password: "Str0ngPass!"}
 	id, err := s.register(c.email, c.password)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.sql(fmt.Sprintf(`UPDATE identity.users SET email_verified = true WHERE id = '%s';`, id)); err != nil {
 		t.Fatal(err)
 	}
 	c.id = id

@@ -74,6 +74,21 @@ check_notification_admin_route() {
   fi
 }
 
+# A redirect the gateway makes itself must stay on the address the caller used:
+# a relative Location, so the port is kept, and the query string carried over.
+check_redirect() {
+  local path="$1" expected_code="$2" expected_location="$3" description="$4"
+  local headers code location
+  headers="$(curl -s -o /dev/null -D - --max-time 5 "$BASE_URL$path" | tr -d '\r' || true)"
+  code="$(printf '%s' "$headers" | awk 'NR==1 {print $2}')"
+  location="$(printf '%s' "$headers" | awk 'tolower($1)=="location:" {print $2}')"
+  if [ "$code" = "$expected_code" ] && [ "$location" = "$expected_location" ]; then
+    pass "$description ($path -> $code $location)"
+  else
+    fail "$description ($path -> $code ${location:-no Location}, want $expected_code $expected_location)"
+  fi
+}
+
 check_status "/healthz" "200" "gateway health"
 check_status "/internal/pricing/quote" "404" "internal APIs are blocked"
 check_ai_chat_route "/api/v1/ai/chat" "ai-assistant:chat"
@@ -101,6 +116,11 @@ check_upstream "/api/v1/merchants/probe" "merchant:merchants"
 check_upstream "/api/v1/merchant/orders/probe" "merchant:merchant"
 check_upstream "/api/v1/admin/merchants/probe" "merchant:admin-merchants"
 check_status "/ws" "426" "realtime websocket route"
+
+check_redirect "/api/v1/couriers" "308" "/api/v1/couriers/" "no-slash redirect is relative"
+check_redirect "/api/v1/couriers?isAvailable=true&page=2" "308" "/api/v1/couriers/?isAvailable=true&page=2" "no-slash redirect keeps the query"
+check_redirect "/api/v1/merchants" "308" "/api/v1/merchants/" "merchants no-slash redirect is relative"
+check_redirect "/api/v1/dispatch" "301" "/api/v1/dispatch/" "nginx's own slash redirect is relative"
 
 if [ "$failures" -ne 0 ]; then
   printf '\n%d route check(s) failed\n' "$failures"

@@ -28,6 +28,7 @@ type User struct {
 	Role             auth.Role
 	AuthProvider     string
 	EmailVerified    bool
+	SessionVersion   int
 	IsActive         bool
 	FailedLoginCount int
 	LockedUntil      *time.Time
@@ -49,7 +50,7 @@ type CreateUserParams struct {
 }
 
 const userColumns = `u.id, u.email, u.password_hash, u.full_name, u.phone, r.name,
-	u.auth_provider, u.email_verified, u.is_active, u.failed_login_count, u.locked_until, u.created_at`
+	u.auth_provider, u.email_verified, u.session_version, u.is_active, u.failed_login_count, u.locked_until, u.created_at`
 
 // CreateUser inserts a LOCAL account. It returns ErrEmailTaken when the email is
 // already registered in any letter case.
@@ -113,6 +114,7 @@ func (r *Repository) queryUser(ctx context.Context, condition string, arg any) (
 		&role,
 		&user.AuthProvider,
 		&user.EmailVerified,
+		&user.SessionVersion,
 		&user.IsActive,
 		&user.FailedLoginCount,
 		&user.LockedUntil,

@@ -1,5 +1,4 @@
 import {
-  Boxes,
   ChartColumn,
   CircleDollarSign,
   FileText,
@@ -15,7 +14,6 @@ import {
   Truck,
   User,
   Users,
-  Webhook,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -88,9 +86,8 @@ export const navByRole: Record<Role, NavGroup[]> = {
     {
       items: [
         { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-        { label: 'Orders', href: '/orders', icon: Boxes },
         { label: 'API keys', href: '/api-keys', icon: KeyRound },
-        { label: 'Webhook', href: '/webhook', icon: Webhook },
+        { label: 'Business', href: '/merchant/profile', icon: Store },
         { label: 'Profile', href: '/profile', icon: User },
       ],
     },
