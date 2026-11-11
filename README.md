@@ -220,7 +220,9 @@ Migrations live under `migrations/<service>/` and use `NNNNNN_description.up.sql
 - `000001_initial_schema` creates the schema.
 - `000002_tables` is the M1 baseline from [`docs/db.sql`](docs/db.sql) (26 tables, triggers, seeds).
 - `000006_merchant_constraints` is the merchant-specific forward migration that preserves the merchant checks after the duplicate merchant migration files were removed. Versions `000003`–`000005` are intentionally absent for merchant; the runner accepts gaps.
-- New migrations start at the next unused version (merchant: `000007`).
+- `000007_registration_onboarding` adds merchant onboarding tables and the required registration-number constraint.
+- `000008_business_reg_no_optional` was introduced by PR #129 and applied to source/production; `000009_restore_business_reg_no_required` restores the invariant on this branch.
+- New migrations start at the next unused version (merchant: `000010`).
 
 Apply migrations (PostgreSQL must be running):
 

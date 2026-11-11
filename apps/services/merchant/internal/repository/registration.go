@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/businessreg"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -101,16 +102,16 @@ func (r *Repository) FailRegistrationAttempt(ctx context.Context, attemptID, mes
 // CreatePendingMerchant inserts a PENDING merchant and completes the attempt in
 // one transaction.
 func (r *Repository) CreatePendingMerchant(ctx context.Context, attemptID string, params CreateMerchantParams) (Merchant, error) {
+	businessRegNo, err := businessreg.NormalizeValid(params.BusinessRegNo)
+	if err != nil {
+		return Merchant{}, ErrInvalidRegistrationNumber
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return Merchant{}, fmt.Errorf("creating merchant: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var businessRegNo any = params.BusinessRegNo
-	if params.BusinessRegNo == "" {
-		businessRegNo = nil
-	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO merchant.merchants (
 			id, owner_user_id, business_name, business_reg_no, business_address, contact_email,

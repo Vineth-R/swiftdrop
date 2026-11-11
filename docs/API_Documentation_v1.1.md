@@ -2835,7 +2835,10 @@ Purpose: Registers a merchant business and its owner account. The merchant stays
 
 PENDING until an administrator approves it.
 
-
+`business.registrationNumber` is required. It must be 3-50 letters, digits,
+spaces, hyphens, slashes or dots, with at least one digit. The stored value is
+trimmed, whitespace-collapsed and upper-cased. Missing, null, empty and
+whitespace-only values are rejected with `422 VALIDATION_ERROR`.
 
 Request body:
 
