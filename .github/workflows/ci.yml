@@ -353,12 +353,15 @@ jobs:
       - name: Run database integration tests
         run: |
           set -euo pipefail
-          go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/... | tee database.log
+          go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/... ./apps/services/merchant/internal/repository/... | tee database.log
 
           if grep -q -- '--- SKIP' database.log; then
             echo "::error::PostgreSQL integration tests were skipped; the database must be reachable."
             exit 1
           fi
+
+      - name: Enforce merchant service coverage
+        run: make coverage-merchant
 
   frontend:
     name: Frontend checks

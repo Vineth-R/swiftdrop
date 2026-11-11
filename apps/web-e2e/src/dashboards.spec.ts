@@ -45,6 +45,29 @@ const merchant = {
   pickupZoneId: '7a1e0000-0000-4000-8000-000000000001',
   status: 'APPROVED',
 };
+const merchantOrder = (n: number, status: string) => ({
+  orderId: `order-${n}`,
+  externalOrderId: `SZ-10024${n}`,
+  trackingNumber: `SDN4T8W2LC${n}`,
+  status,
+  recipientName: 'Amali Fernando',
+  dropoffCity: 'Kandy',
+  total: 550,
+  currency: 'LKR',
+  createdAt: '2026-11-04T08:00:00Z',
+});
+
+const merchantOrderList = ({ query }: { query: URLSearchParams }): Reply => {
+  const status = query.get('status');
+  const pageSize = Number(query.get('pageSize') || 20);
+  if (pageSize === 5) {
+    return list([merchantOrder(1, 'IN_TRANSIT')], 1);
+  }
+  if (status === 'DELIVERED') return list([], 1);
+  if (status === 'FAILED') return list([], 0);
+  return list([], 2);
+};
+
 const key = (n: number, status: 'ACTIVE' | 'REVOKED') => ({
   id: `key-${n}`,
   name: `Key ${n}`,
@@ -146,6 +169,7 @@ test.describe('merchant dashboard', () => {
         key(2, 'REVOKED'),
         key(3, 'ACTIVE'),
       ]),
+      'GET /merchant/orders': merchantOrderList,
     });
     await page.goto('/dashboard');
 
@@ -155,6 +179,9 @@ test.describe('merchant dashboard', () => {
     await expect(page.getByText('PV 123456')).toBeVisible();
     await expect(page.getByText('APPROVED')).toBeVisible();
     await expect(page.getByText('active keys')).toBeVisible();
+    await expect(page.getByText('Total orders')).toBeVisible();
+    await expect(page.getByText('In progress', { exact: true })).toBeVisible();
+    await expect(page.getByText('SZ-100241')).toBeVisible();
     await expect(
       page.getByRole('link', { name: 'Manage API keys' }),
     ).toHaveAttribute('href', '/api-keys');
@@ -166,6 +193,7 @@ test.describe('merchant dashboard', () => {
     await signInAs(page, 'MERCHANT', {
       'GET /merchants/me': ok(merchant),
       'GET /merchants/me/keys': ok([key(1, 'REVOKED')]),
+      'GET /merchant/orders': merchantOrderList,
     });
     await page.goto('/dashboard');
 
@@ -179,6 +207,7 @@ test.describe('merchant dashboard', () => {
     await signInAs(page, 'MERCHANT', {
       'GET /merchants/me': ok(merchant),
       'GET /merchants/me/keys': fail(503, 'SERVICE_UNAVAILABLE'),
+      'GET /merchant/orders': merchantOrderList,
     });
     await page.goto('/dashboard');
 

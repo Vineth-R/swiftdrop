@@ -13,13 +13,27 @@ import (
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/merchantsync"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/onboarding"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/parcelclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/pricingclient"
 	merchantrepository "github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
+
+type zoneNameLookup struct{ client *pricingclient.Client }
+
+func (z zoneNameLookup) ZoneName(ctx context.Context, zoneID string) (string, error) {
+	zone, err := z.client.Zone(ctx, zoneID)
+	if err != nil {
+		return "", err
+	}
+	return zone.Name, nil
+}
 
 const serviceName = "merchant"
 
@@ -82,16 +96,23 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create pricing client: %w", err)
 	}
+	parcelClient, err := parcelclient.New(config.ParcelBaseURL, config.InternalToken, config.ParcelTimeout)
+	if err != nil {
+		return fmt.Errorf("create parcel client: %w", err)
+	}
 	var onboardingService *onboarding.Service
+	var orderService *orders.Service
 	if merchantRepo != nil {
 		onboardingService, err = onboarding.New(merchantRepo, identityClient, pricingClient, mail.Notifier, logger)
 		if err != nil {
 			return fmt.Errorf("create onboarding service: %w", err)
 		}
+		orderService = orders.New(merchantRepo, parcelClient, zoneNameLookup{client: pricingClient})
 	}
 	router := servicehttp.New(logger)
 	servicehttp.Mount(router, servicehttp.Options{
 		Repository: merchantRepo, Onboarding: onboardingService, Identity: identityClient,
+		Orders:       orderService,
 		AccessSecret: config.AccessSecret, CookieName: config.CookieName,
 		InternalToken: config.InternalToken, Logger: logger,
 	})
@@ -121,5 +142,45 @@ func run() error {
 	})
 
 	logger.Info("starting http service", "address", config.Addr(), "environment", config.AppEnv)
-	return httpx.Serve(ctx, server, 10*time.Second)
+	runSync := config.SyncEnabled() && merchantRepo != nil
+	switch {
+	case !config.SyncEnabled():
+		logger.Warn("RABBITMQ_URL is not set; merchant order status synchronization is disabled")
+	case merchantRepo == nil:
+		logger.Warn("DATABASE_URL is not set; merchant order status synchronization is disabled")
+	}
+	if !runSync {
+		return httpx.Serve(ctx, server, 10*time.Second)
+	}
+
+	logger.Info("starting merchant status consumer",
+		"exchange", config.RabbitMQExchange,
+		"queue", config.MerchantSyncQueue,
+		"routing_key", config.MerchantSyncRoutingKey,
+	)
+	consumer := messaging.ConsumerConfig{
+		URL:            config.RabbitMQURL,
+		Exchange:       config.RabbitMQExchange,
+		Queue:          config.MerchantSyncQueue,
+		RoutingKey:     config.MerchantSyncRoutingKey,
+		Prefetch:       config.RabbitMQPrefetch,
+		HandlerTimeout: config.RabbitMQHandlerTimeout,
+		MaxRetries:     config.RabbitMQMaxRetries,
+		RetryDelay:     config.RabbitMQRetryDelay,
+		ReconnectMin:   config.RabbitMQReconnectMin,
+		ReconnectMax:   config.RabbitMQReconnectMax,
+	}
+	handler := merchantsync.New(merchantRepo, logger)
+
+	results := make(chan error, 2)
+	go func() { results <- httpx.Serve(ctx, server, 10*time.Second) }()
+	go func() { results <- messaging.Run(ctx, consumer, handler, logger) }()
+
+	first := <-results
+	stop()
+	second := <-results
+	if first != nil {
+		return first
+	}
+	return second
 }

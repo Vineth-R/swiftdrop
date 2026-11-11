@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
@@ -125,6 +126,83 @@ func TestLoadFromRejectsInvalidPortAndLogLevel(t *testing.T) {
 
 			if _, err := LoadFrom(loader); err == nil {
 				t.Fatalf("LoadFrom() should fail for values %v", test.values)
+			}
+		})
+	}
+}
+
+func TestLoadFromMerchantOrderIntegrationSettings(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_ENV":                   "development",
+			"PARCEL_BASE_URL":           "http://parcel:8082",
+			"PARCEL_TIMEOUT":            "2s",
+			"RABBITMQ_URL":              "amqp://guest:guest@rabbitmq:5672/",
+			"RABBITMQ_EXCHANGE":         "swiftdrop.events",
+			"MERCHANT_SYNC_QUEUE":       "merchant.sync.queue",
+			"MERCHANT_SYNC_ROUTING_KEY": "parcel.status_changed.v1",
+			"RABBITMQ_PREFETCH":         "5",
+			"RABBITMQ_MAX_RETRIES":      "2",
+			"RABBITMQ_RETRY_DELAY":      "5s",
+			"RABBITMQ_RECONNECT_MIN":    "2s",
+			"RABBITMQ_RECONNECT_MAX":    "10s",
+		}
+		value, ok := values[key]
+		return value, ok
+	})
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if !config.SyncEnabled() || config.MerchantSyncQueue != "merchant.sync.queue" || config.MerchantSyncRoutingKey != "parcel.status_changed.v1" {
+		t.Fatalf("sync settings = %+v", config)
+	}
+	if config.ParcelBaseURL != "http://parcel:8082" || config.ParcelTimeout != 2*time.Second || config.RabbitMQPrefetch != 5 || config.RabbitMQMaxRetries != 2 {
+		t.Fatalf("integration settings = %+v", config)
+	}
+}
+
+func TestLoadFromAllowsMerchantSyncToBeDisabled(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		if key == "APP_ENV" {
+			return "development", true
+		}
+		return "", false
+	})
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if config.SyncEnabled() {
+		t.Fatal("SyncEnabled() = true without RABBITMQ_URL")
+	}
+	if config.MerchantSyncQueue != "merchant.sync.queue" || config.ParcelBaseURL != "http://parcel:8082" {
+		t.Fatalf("defaults = %+v", config)
+	}
+}
+
+func TestLoadFromRejectsBadIntegrationSettings(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{"bad AMQP URL", map[string]string{"RABBITMQ_URL": "http://rabbitmq"}},
+		{"bad parcel URL", map[string]string{"PARCEL_BASE_URL": "parcel:8082"}},
+		{"bad prefetch", map[string]string{"RABBITMQ_PREFETCH": "0"}},
+		{"bad retries", map[string]string{"RABBITMQ_MAX_RETRIES": "-1"}},
+		{"bad reconnect", map[string]string{"RABBITMQ_RECONNECT_MIN": "10s", "RABBITMQ_RECONNECT_MAX": "1s"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				if key == "APP_ENV" {
+					return "development", true
+				}
+				value, ok := test.values[key]
+				return value, ok
+			})
+			if _, err := LoadFrom(loader); err == nil {
+				t.Fatalf("LoadFrom() accepted %+v", test.values)
 			}
 		})
 	}

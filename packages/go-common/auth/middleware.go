@@ -23,25 +23,35 @@ type Verifier interface {
 // no usable token is answered 401 and never reaches the next handler.
 func Authenticate(verifier Verifier, cookieName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token, ok := extractToken(c, cookieName)
-		if !ok {
-			httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
-			return
+		if AuthenticateRequest(c, verifier, cookieName) {
+			c.Next()
 		}
-
-		claims, err := verifier.Verify(token)
-		if err != nil {
-			if errors.Is(err, ErrTokenExpired) {
-				httpx.Error(c, http.StatusUnauthorized, "TOKEN_EXPIRED", "access token expired")
-				return
-			}
-			httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
-			return
-		}
-
-		c.Set(claimsContextKey, claims)
-		c.Next()
 	}
+}
+
+// AuthenticateRequest verifies the caller's token and stores the claims without
+// advancing the Gin chain. It lets a route choose between session and API-key
+// authentication without nesting c.Next() calls. The caller decides whether to
+// continue; a false result means a JSON error has already been written.
+func AuthenticateRequest(c *gin.Context, verifier Verifier, cookieName string) bool {
+	token, ok := extractToken(c, cookieName)
+	if !ok {
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
+		return false
+	}
+
+	claims, err := verifier.Verify(token)
+	if err != nil {
+		if errors.Is(err, ErrTokenExpired) {
+			httpx.Error(c, http.StatusUnauthorized, "TOKEN_EXPIRED", "access token expired")
+			return false
+		}
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
+		return false
+	}
+
+	c.Set(claimsContextKey, claims)
+	return true
 }
 
 // RequireRoles allows only callers whose role satisfies at least one of roles

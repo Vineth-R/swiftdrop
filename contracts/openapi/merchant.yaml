@@ -1,9 +1,11 @@
 openapi: 3.0.3
 info:
   title: SwiftDrop Merchant API
-  version: 0.2.0
+  version: 0.3.0
   description: >-
-    Merchant account management, integration settings, and API credentials.
+    Merchant account management, merchant orders, integration settings, and API
+    credentials. Order creation (8.16) is API-key-only; reads (8.17-8.18) accept a
+    MERCHANT session or an API key and are merchant-scoped.
     Successful merchant responses use the API v1.1 success envelope
     `{ "data": ..., "meta": { "requestId": "...", "timestamp": "..." } }`.
     Errors use the standard error envelope
@@ -22,9 +24,7 @@ info:
     `SERVICE_UNAVAILABLE` when `JWT_ACCESS_SECRET` or `WEBHOOK_SECRET_KEY` is
     not configured.
 servers:
-  - url: /api/v1/merchants
-  - url: /api/v1/merchant
-  - url: /api/v1/admin/merchants
+  - url: /api/v1
 paths:
   /health:
     get:
@@ -398,6 +398,174 @@ paths:
       responses:
         '204': { description: Revoked. }
         '404': { $ref: '#/components/responses/NotFound' }
+  /merchant/orders:
+    post:
+      operationId: merchantCreateOrder
+      summary: Create a merchant order (8.16)
+      description: >-
+        Server-to-server order creation for an APPROVED merchant. The merchant is
+        resolved from the API key; the request body cannot carry a merchant or
+        owner identity. Parcel Operations calculates the fee and returns the SDN
+        tracking number. A reused external order reference or Idempotency-Key
+        with the same normalized payload returns the original order with 200;
+        a different payload returns 409 DUPLICATE_ORDER.
+      tags: [Merchant orders]
+      security:
+        - MerchantApiKey: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, maxLength: 100 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantOrderCreateRequest'
+      responses:
+        '201':
+          description: The order and parcel were created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantOrderCreateEnvelope'
+        '200':
+          description: The same payload was replayed; no new parcel was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantOrderCreateEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: DUPLICATE_ORDER.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR, ROUTE_NOT_SERVICEABLE or WEIGHT_NOT_PRICED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    get:
+      operationId: merchantListOrders
+      summary: List the caller's merchant orders (8.17)
+      description: >-
+        Merchant-scoped list for a MERCHANT session or merchant API key. Another
+        merchant's orders are never included. Sorting is limited to the
+        documented fields; pageSize is capped at 100.
+      tags: [Merchant orders]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+        - MerchantApiKey: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              [
+                CREATED,
+                PICKED_UP,
+                IN_TRANSIT,
+                OUT_FOR_DELIVERY,
+                DELIVERED,
+                FAILED,
+              ]
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: externalOrderId
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: sort
+          in: query
+          schema: { type: string, example: 'createdAt:desc' }
+          description: 'One of createdAt, updatedAt or externalOrderId, with :asc or :desc.'
+      responses:
+        '200':
+          description: One page of the merchant's orders.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MerchantOrderListItem'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /merchant/orders/{orderId}:
+    get:
+      operationId: merchantGetOrder
+      summary: Get one merchant order (8.18)
+      description: >-
+        Returns the snapshot, fee, current status and chronological status
+        timeline. A missing order and another merchant's order both return 404.
+      tags: [Merchant orders]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+        - MerchantApiKey: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The merchant order.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MerchantOrderDetail'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /admin/merchants:
     get:
       operationId: adminListMerchants
@@ -535,6 +703,10 @@ components:
       type: apiKey
       in: cookie
       name: sd_access
+    MerchantApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
     BearerAuth:
       type: http
       scheme: bearer
@@ -592,6 +764,191 @@ components:
         totalPages:
           type: integer
           minimum: 0
+    MerchantOrderContact:
+      type: object
+      additionalProperties: false
+      required: [name, phone, address, city, zoneId]
+      properties:
+        name: { type: string, maxLength: 150 }
+        phone: { type: string, example: '+94712345678' }
+        address: { type: string, maxLength: 255 }
+        city: { type: string, maxLength: 100 }
+        zoneId: { type: string, format: uuid }
+    MerchantOrderFee:
+      type: object
+      additionalProperties: false
+      required: [currency, baseFee, weightCharge, sizeSurcharge, total]
+      properties:
+        currency: { type: string, enum: [LKR] }
+        baseFee: { type: number }
+        weightCharge: { type: number }
+        sizeSurcharge: { type: number }
+        total: { type: number }
+    MerchantOrderCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [externalOrderId, recipient, weightKg, sizeCategory]
+      properties:
+        externalOrderId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        pickup:
+          $ref: '#/components/schemas/MerchantOrderContact'
+          description: Optional. When omitted the merchant's default pickup is used.
+        recipient:
+          $ref: '#/components/schemas/MerchantOrderContact'
+        weightKg:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 9999.99
+        sizeCategory:
+          type: string
+          enum: [SMALL, MEDIUM, LARGE, OVERSIZED]
+        description:
+          type: string
+          maxLength: 255
+          nullable: true
+    MerchantOrderCreateResult:
+      type: object
+      additionalProperties: false
+      required:
+        [orderId, externalOrderId, trackingNumber, status, fee, createdAt]
+      properties:
+        orderId: { type: string, format: uuid }
+        externalOrderId: { type: string }
+        trackingNumber: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        fee:
+          $ref: '#/components/schemas/MerchantOrderFee'
+        createdAt: { type: string, format: date-time }
+    MerchantOrderCreateEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/MerchantOrderCreateResult'
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
+    MerchantOrderListItem:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          orderId,
+          externalOrderId,
+          trackingNumber,
+          status,
+          recipientName,
+          dropoffCity,
+          total,
+          currency,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        orderId: { type: string, format: uuid }
+        externalOrderId: { type: string }
+        trackingNumber: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        recipientName: { type: string }
+        dropoffCity: { type: string }
+        total: { type: number }
+        currency: { type: string, enum: [LKR] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    MerchantOrderTimelineEvent:
+      type: object
+      additionalProperties: false
+      required: [status, at]
+      properties:
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        at: { type: string, format: date-time }
+    MerchantOrderDetail:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          orderId,
+          externalOrderId,
+          trackingNumber,
+          status,
+          recipientName,
+          dropoffCity,
+          total,
+          currency,
+          createdAt,
+          updatedAt,
+          weightKg,
+          sizeCategory,
+          fee,
+          timeline,
+        ]
+      properties:
+        orderId: { type: string, format: uuid }
+        externalOrderId: { type: string }
+        trackingNumber: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        recipientName: { type: string }
+        dropoffCity: { type: string }
+        total: { type: number }
+        currency: { type: string, enum: [LKR] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        weightKg: { type: number }
+        sizeCategory:
+          type: string
+          enum: [SMALL, MEDIUM, LARGE, OVERSIZED]
+        description:
+          type: string
+          nullable: true
+        fee:
+          $ref: '#/components/schemas/MerchantOrderFee'
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/MerchantOrderTimelineEvent'
     WebhookSettingsRequest:
       type: object
       required: [url]

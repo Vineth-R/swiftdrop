@@ -33,11 +33,11 @@ The Admin actor approves, rejects, and suspends merchants through the administra
 1. The external merchant system calls `POST /api/v1/merchant/orders` with `X-API-Key`.
 2. Merchant Integration extracts the lookup identifier, verifies the key hash, and confirms that the merchant is approved.
 3. It validates the payload and checks `externalOrderId`, `Idempotency-Key`, and the normalized `request_hash`.
-4. If pickup details are omitted, the saved merchant pickup address and zone are used.
+4. If pickup details are omitted, the saved merchant pickup address, contact phone, business name and zone are used; the pickup city is the Pricing zone name.
 5. Merchant Integration calls Parcel Operations through the authenticated internal `POST /internal/parcels` contract.
 6. Parcel Operations applies pricing and creates the parcel.
 7. Parcel Operations returns the tracking number and fee breakdown.
-8. Merchant Integration stores the order snapshot and inserts the first `CREATED` status event in one local transaction.
+8. Merchant Integration stores the order, pickup/recipient snapshots, fee snapshot and the first `CREATED` status event in one local transaction.
 9. The service returns HTTP 201 with the order, tracking number, status, and fee.
 
 Identical duplicate requests return the original order. A reused external order identifier or idempotency key with a different normalized payload returns `409 DUPLICATE_ORDER`. Invalid credentials return `401`, unapproved merchants return `403`, invalid payloads return `422`, and unavailable Parcel Operations returns `503`.
@@ -50,15 +50,56 @@ the request, and keeps ownership stable when the same `(merchantId,
 externalOrderId)` is replayed, but it cannot verify that the supplied
 `createdByUserId` owns the merchant or that the merchant is approved. The
 Merchant service owns API-key authentication, merchant status, and the
-owner relationship; its order caller must enforce those checks before calling
-Parcel and must never accept `createdByUserId` from an external client.
+owner relationship; its order caller enforces those checks before calling
+Parcel and never accepts `createdByUserId` from an external client.
 
-This integration is intentionally documented as pending: the Merchant order
-route (UC-M3) is not implemented in the current tree, and no trusted internal
-merchant lookup exists for Parcel to call. Until both exist and are reviewed,
-Parcel's merchant creation path is safe only behind the internal network and
-must not be described as fully resolving merchant ownership.
+The implemented caller is API 8.16. It authenticates `X-API-Key`, resolves the
+merchant and owner from the key record, requires `APPROVED`, validates the
+request, and sends the verified `merchantId` and `createdByUserId` to Parcel.
+Parcel applies the real Pricing quote and creates the parcel; the Merchant
+service does not duplicate parcel creation or pricing logic.
+
+## Idempotency and concurrency
+
+The normalized request hash is SHA-256 over a fixed-order structure with a
+canonical two-decimal weight. The same `externalOrderId` or `Idempotency-Key`
+with the same hash returns the original order with `200`; a different hash
+returns `409 DUPLICATE_ORDER`. A request without `Idempotency-Key` still
+deduplicates by `externalOrderId`.
+
+Parcel serializes creation for `(merchantId, externalOrderId)` and replays the
+existing parcel, so a client timeout followed by a retry cannot create a second
+parcel. The Merchant service persists the order and its initial `CREATED`
+timeline row in one transaction; a unique-conflict loser re-reads the winner and
+returns it only when the request hash matches.
+
+## Status synchronization
+
+`merchant.sync.queue` is bound to `parcel.status_changed.v1`. The consumer
+validates the envelope, type, version, producer and status fields, then locks the
+merchant order row and applies the event only when `occurred_at` is newer than
+`last_status_at`. The event ID is unique, so a redelivery is a no-op, and the
+timeline insert and status update share one transaction. Customer parcels have
+no `merchant_id` and are ignored. Merchant-owned parcels without an order
+snapshot are logged and acknowledged; malformed events and tracking-number
+mismatches are dead-lettered.
 
 ## Figures
 
 The Mermaid sources for the report figures are in [`docs/diagrams/merchant-integration.md`](diagrams/merchant-integration.md).
+
+## Merchant portal access
+
+The Next.js portal exposes `/merchant/orders` and `/merchant/orders/{orderId}`
+to a signed-in `MERCHANT`. The list and detail screens use the merchant session
+cookie, never an API key, and the API scopes every query to the authenticated
+merchant. A PENDING, REJECTED or SUSPENDED merchant sees the approval/suspension
+notice and no order data. The dashboard shows real total, in-progress, delivered
+and failed counts plus recent orders from the same API.
+
+The portal does not implement a browser order-creation form. API 8.16 is
+API-key-only and the key must stay on the merchant's server. Instead,
+`/merchant/orders` includes a Create via API panel with the endpoint, required
+headers, request/response examples, an API documentation link and a shortcut to
+API key management. This keeps API v1.1 unchanged and prevents a merchant secret
+from entering browser storage or client-side requests.

@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -30,7 +31,26 @@ type Config struct {
 	IdentityTimeout time.Duration
 	PricingBaseURL  string
 	PricingTimeout  time.Duration
+	ParcelBaseURL   string
+	ParcelTimeout   time.Duration
+
+	// RabbitMQURL is optional. When it is set, the merchant service also runs
+	// the merchant.sync.queue consumer. When it is empty the HTTP service still
+	// starts and logs a warning; no status synchronization happens.
+	RabbitMQURL            string
+	RabbitMQExchange       string
+	MerchantSyncQueue      string
+	MerchantSyncRoutingKey string
+	RabbitMQPrefetch       int
+	RabbitMQHandlerTimeout time.Duration
+	RabbitMQMaxRetries     int
+	RabbitMQRetryDelay     time.Duration
+	RabbitMQReconnectMin   time.Duration
+	RabbitMQReconnectMax   time.Duration
 }
+
+// SyncEnabled reports whether the merchant status consumer should run.
+func (c Config) SyncEnabled() bool { return strings.TrimSpace(c.RabbitMQURL) != "" }
 
 func Load() (Config, error) {
 	return LoadFrom(sharedconfig.Load())
@@ -97,6 +117,76 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, errors.New("PRICING_TIMEOUT must be at least 1ms")
 	}
 
+	parcelURL := strings.TrimRight(loader.String("PARCEL_BASE_URL", "http://parcel:8082"), "/")
+	if !validHTTPOrigin(parcelURL) {
+		return Config{}, errors.New("PARCEL_BASE_URL must be an HTTP(S) service origin")
+	}
+	parcelTimeout, err := loader.Duration("PARCEL_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if parcelTimeout < time.Millisecond {
+		return Config{}, errors.New("PARCEL_TIMEOUT must be at least 1ms")
+	}
+
+	rabbitMQURL := strings.TrimSpace(loader.String("RABBITMQ_URL", ""))
+	if rabbitMQURL != "" {
+		if err := sharedconfig.ValidateAMQPURL(rabbitMQURL); err != nil {
+			return Config{}, fmt.Errorf("RABBITMQ_URL: %w", err)
+		}
+	}
+	exchange := strings.TrimSpace(loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"))
+	if exchange == "" {
+		return Config{}, errors.New("RABBITMQ_EXCHANGE must not be empty")
+	}
+	syncQueue := strings.TrimSpace(loader.String("MERCHANT_SYNC_QUEUE", "merchant.sync.queue"))
+	if syncQueue == "" {
+		return Config{}, errors.New("MERCHANT_SYNC_QUEUE must not be empty")
+	}
+	syncRoutingKey := strings.TrimSpace(loader.String("MERCHANT_SYNC_ROUTING_KEY", "parcel.status_changed.v1"))
+	if syncRoutingKey == "" {
+		return Config{}, errors.New("MERCHANT_SYNC_ROUTING_KEY must not be empty")
+	}
+	prefetch, err := loader.Int("RABBITMQ_PREFETCH", 10)
+	if err != nil {
+		return Config{}, err
+	}
+	if prefetch < 1 {
+		return Config{}, errors.New("RABBITMQ_PREFETCH must be at least 1")
+	}
+	handlerTimeout, err := loader.Duration("RABBITMQ_HANDLER_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if handlerTimeout <= 0 {
+		return Config{}, errors.New("RABBITMQ_HANDLER_TIMEOUT must be greater than zero")
+	}
+	maxRetries, err := loader.Int("RABBITMQ_MAX_RETRIES", 3)
+	if err != nil {
+		return Config{}, err
+	}
+	if maxRetries < 0 {
+		return Config{}, errors.New("RABBITMQ_MAX_RETRIES must not be negative")
+	}
+	retryDelay, err := loader.Duration("RABBITMQ_RETRY_DELAY", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if retryDelay < time.Millisecond {
+		return Config{}, errors.New("RABBITMQ_RETRY_DELAY must be at least 1ms")
+	}
+	reconnectMin, err := loader.Duration("RABBITMQ_RECONNECT_MIN", time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	reconnectMax, err := loader.Duration("RABBITMQ_RECONNECT_MAX", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if reconnectMax < reconnectMin {
+		return Config{}, errors.New("RABBITMQ_RECONNECT_MAX must be greater than or equal to RABBITMQ_RECONNECT_MIN")
+	}
+
 	return Config{
 		Port:             port,
 		AppEnv:           appEnv,
@@ -114,6 +204,19 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		IdentityTimeout:      identityTimeout,
 		PricingBaseURL:       pricingURL,
 		PricingTimeout:       pricingTimeout,
+		ParcelBaseURL:        parcelURL,
+		ParcelTimeout:        parcelTimeout,
+
+		RabbitMQURL:            rabbitMQURL,
+		RabbitMQExchange:       exchange,
+		MerchantSyncQueue:      syncQueue,
+		MerchantSyncRoutingKey: syncRoutingKey,
+		RabbitMQPrefetch:       prefetch,
+		RabbitMQHandlerTimeout: handlerTimeout,
+		RabbitMQMaxRetries:     maxRetries,
+		RabbitMQRetryDelay:     retryDelay,
+		RabbitMQReconnectMin:   reconnectMin,
+		RabbitMQReconnectMax:   reconnectMax,
 	}, nil
 }
 

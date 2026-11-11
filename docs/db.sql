@@ -505,7 +505,17 @@ CREATE TABLE IF NOT EXISTS merchant.merchant_orders (
   request_hash      CHAR(64)      NOT NULL,              -- SHA-256 of the normalised payload
   parcel_id         UUID          NOT NULL UNIQUE,       -- ref parcels
   tracking_number   VARCHAR(20)   NOT NULL UNIQUE,
+  -- M8 snapshots: the pickup and recipient details sent to Parcel, so a later
+  -- merchant profile or pricing change cannot rewrite the order history.
+  pickup_name        VARCHAR(150),
+  pickup_phone       VARCHAR(20),
+  pickup_address     VARCHAR(255),
+  pickup_city        VARCHAR(100),
+  pickup_zone_id     UUID,
   recipient_name    VARCHAR(150)  NOT NULL,
+  recipient_phone    VARCHAR(20),
+  recipient_address  VARCHAR(255),
+  recipient_zone_id  UUID,
   dropoff_city      VARCHAR(100)  NOT NULL,
   weight_kg         NUMERIC(6,2)  NOT NULL,
   size_category     VARCHAR(12)   NOT NULL CHECK (size_category IN ('SMALL','MEDIUM','LARGE','OVERSIZED')),
@@ -523,6 +533,7 @@ CREATE TABLE IF NOT EXISTS merchant.merchant_orders (
 CREATE UNIQUE INDEX IF NOT EXISTS merchant_orders_idem_uq
   ON merchant.merchant_orders (merchant_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS merchant_orders_created_idx ON merchant.merchant_orders (merchant_id, created_at);
+CREATE INDEX IF NOT EXISTS merchant_orders_updated_idx ON merchant.merchant_orders (merchant_id, updated_at);
 CREATE INDEX IF NOT EXISTS merchant_orders_status_idx  ON merchant.merchant_orders (merchant_id, last_known_status);
 
 

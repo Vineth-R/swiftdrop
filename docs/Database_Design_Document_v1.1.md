@@ -2000,11 +2000,17 @@ Column                               Type                         Constraints   
 
 
 
+Migration 000009 adds the pickup and recipient contact snapshots used by API
+8.16: pickup_name, pickup_phone, pickup_address, pickup_city,
+pickup_zone_id, recipient_phone, recipient_address and recipient_zone_id.
+They are nullable for pre-M8 rows and are populated for every order created by
+the merchant order API.
+
 Constraints: UNIQUE (merchant_id, external_order_id) and partial UNIQUE
 
 (merchant_id, idempotency_key) where not null. Indexes: (merchant_id,
 
-created_at) , (merchant_id, last_known_status) .
+created_at) , (merchant_id, updated_at) , (merchant_id, last_known_status) .
 
 
 

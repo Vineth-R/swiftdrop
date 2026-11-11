@@ -240,7 +240,7 @@ services:
       args:
         SERVICE: merchant
     environment:
-      <<: [*app-env, *mail-env]
+      <<: [*app-env, *mail-env, *rabbitmq-env]
       PORT: '8084'
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
       SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
@@ -248,13 +248,19 @@ services:
       IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
       PRICING_BASE_URL: ${PRICING_BASE_URL:-http://pricing:8083}
       PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
+      PARCEL_BASE_URL: ${PARCEL_BASE_URL:-http://parcel:8082}
+      PARCEL_TIMEOUT: ${PARCEL_TIMEOUT:-3s}
       WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:-}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      MERCHANT_SYNC_QUEUE: ${MERCHANT_SYNC_QUEUE:-merchant.sync.queue}
+      MERCHANT_SYNC_ROUTING_KEY: ${MERCHANT_SYNC_ROUTING_KEY:-parcel.status_changed.v1}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8084/ready']

@@ -204,7 +204,7 @@ The webhook is a separate public projection. Do not reuse the internal RabbitMQ 
 - Public event type: `parcel.status_changed` (unversioned in the API v1.1 public contract).
 - Public body is camelCase and additive `schemaVersion: 1` is included.
 - Public body fields: `eventId`, `eventType`, `schemaVersion`, `occurredAt`, and `data.trackingNumber`, `data.externalOrderId`, `data.previousStatus`, `data.status`, `data.note`, `data.failureReason`.
-- `externalOrderId` is not part of `parcel.status_changed.v1`. The webhook worker must not read a merchant database directly. API v1.1 documents a target `GET /internal/parcels/{parcelId}/summary` response containing `externalOrderId`, but that endpoint is not implemented or present in the parcel OpenAPI contract. It is a required future dependency unless the team approves adding `external_order_id` to the domain event.
+- `externalOrderId` is not part of `parcel.status_changed.v1`. The webhook worker must not read a merchant database directly. Parcel exposes the authenticated internal `GET /internal/parcels/{parcelId}/summary` response containing `externalOrderId` for trusted callers.
 - `eventId` is the stable outbox UUID. A webhook delivery-attempt ID is internal and must not replace the merchant idempotency key.
 - Signing: HMAC-SHA-256 over `<timestamp>.<raw request body>`, header `X-SwiftDrop-Signature: sha256=<lowercase hex>`, five-minute replay window, constant-time comparison.
 - Retry: six attempts following API v1.1: immediate, 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours; then dead-letter and record the attempt. Business retries must not reuse the shared RabbitMQ consumer retry loop and multiply attempts.
@@ -223,11 +223,12 @@ The internal trigger for the target flow is `parcel.status_changed.v1`, produced
   - `notification.parcel.created.v1` (bound to `parcel.created.v1`)
   - `notification.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
   - `webhook.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
+  - `merchant.sync.queue` (bound to `parcel.status_changed.v1`; merchant order snapshot and timeline synchronization)
 - Consumer bindings:
   - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned parcels; merchant-owned unsupported)
   - Webhook worker: `parcel.status_changed.v1` (implemented; validates and logs only)
   - Realtime: `parcel.status_changed.v1` (implemented; in-process WebSocket fan-out, no replay). `parcel.assigned.v1` remains a target.
-  - Merchant integration: `parcel.status_changed.v1` (target; not implemented)
+  - Merchant integration: `parcel.status_changed.v1` (implemented; updates the merchant order status and timeline exactly once, newest event wins)
 - The realtime consumer validates the envelope and only reads `tracking_number`, `previous_status`, `status`, and `occurred_at` from `parcel.status_changed.v1`; private fields are not decoded or forwarded to clients.
 - Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. The notification worker's parcel consumers use separate durable queues; future consumers should add new durable queues or an explicit queue migration rather than changing an existing queue's arguments.
 - Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The retry queue dead-letters to its owning queue through the default exchange, so retries stay queue-isolated. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
@@ -241,7 +242,7 @@ The following are contracts and target architecture, not evidence of working fun
 - Parcel creation bus publication and assignment writers: implemented through the merged M6 relay. M7 courier status writers remain planned.
 - Notification domain-event consumer: implemented for customer-owned `parcel.created.v1` and `parcel.status_changed.v1`; merchant-owned events are dead-lettered as unsupported. The legacy `notification.requested.v1` consumer remains.
 - Webhook delivery, signing, and attempt logging: not implemented; the current worker only logs a legacy work item.
-- Realtime and merchant event consumers: not implemented.
+- Realtime and merchant event consumers: implemented. The merchant consumer updates the merchant-owned order snapshot and timeline; it does not deliver webhooks.
 
 Do not claim an event is published or delivered merely because a schema, queue name, or database table exists.
 

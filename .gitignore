@@ -66,7 +66,9 @@ bin/
 *.test
 *.prof
 coverage.out
+merchant-coverage.out
 m5-parcel-coverage.out
+merchant-coverage.out
 coverage/
 dist/
 
