@@ -99,7 +99,7 @@ export function Modal({
               type="button"
               aria-label="Close"
               onClick={onClose}
-              className="-mr-2 -mt-1 inline-flex size-9 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-2"
+              className="-mr-2 -mt-1 inline-flex size-9 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-2"
             >
               <X size={20} strokeWidth={1.5} aria-hidden="true" />
             </button>

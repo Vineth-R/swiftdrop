@@ -50,7 +50,7 @@ export function Drawer({
             type="button"
             aria-label="Close navigation"
             onClick={onClose}
-            className="inline-flex size-9 items-center justify-center rounded-control hover:bg-surface-2"
+            className="inline-flex size-9 pointer-coarse:size-11 items-center justify-center rounded-control hover:bg-surface-2"
           >
             <X size={20} strokeWidth={1.5} aria-hidden="true" />
           </button>

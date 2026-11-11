@@ -196,7 +196,7 @@ export function PasswordField({
           aria-label={isRevealed ? 'Hide password' : 'Show password'}
           aria-pressed={isRevealed}
           onClick={() => setIsRevealed((current) => !current)}
-          className="h-full rounded-none border-l px-3 text-caption hover:decoration-1"
+          className="h-full rounded-none border-l px-3 text-caption hover:decoration-1 pointer-coarse:min-h-0"
         >
           {isRevealed ? 'Hide' : 'Show'}
         </Button>

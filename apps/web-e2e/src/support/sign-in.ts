@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 
-import { fail, mockApi, ok, user, type Handler } from './mock-api';
+import { fail, mockApi, ok, user, type Handler, type Reply } from './mock-api';
 
 export type Role = 'CUSTOMER' | 'MERCHANT' | 'COURIER' | 'DISPATCHER' | 'ADMIN';
 
@@ -12,9 +12,28 @@ export const names: Record<Role, string> = {
   ADMIN: 'Anusha Nawarathna',
 };
 
+/** The API's own words for "this session is over", as opposed to a wrong password. */
+const sessionEndCodes = [
+  'UNAUTHENTICATED',
+  'TOKEN_EXPIRED',
+  'REFRESH_TOKEN_INVALID',
+  'SESSION_REVOKED',
+];
+
+function endsTheSession(reply: Reply): boolean {
+  const code = (reply.body as { error?: { code?: string } } | undefined)?.error
+    ?.code;
+  return (
+    reply.status === 401 && code !== undefined && sessionEndCodes.includes(code)
+  );
+}
+
 /**
  * Signs the page in as `role`, with no backend. `GET /users/me` answers with a
- * user of that role until the page logs out; after that it answers 401.
+ * user of that role until the page logs out; after that it answers 401. It also
+ * answers 401 once any of your own endpoints has said the session is over (a
+ * 401 UNAUTHENTICATED, as a real API would stop saying "signed in" too), so
+ * the login page the person is sent to does not send them straight back.
  *
  * - `extra` adds your screen's own endpoints, such as 'GET /parcels'. An entry
  *   here wins over the defaults, so you can also replace 'GET /users/me'.
@@ -45,6 +64,16 @@ export async function signInAs(
       signedIn = false;
       return { status: 204 };
     },
-    ...extra,
+    ...Object.fromEntries(
+      Object.entries(extra).map(([key, handler]) => [
+        key,
+        ((request) => {
+          const reply =
+            typeof handler === 'function' ? handler(request) : handler;
+          if (endsTheSession(reply)) signedIn = false;
+          return reply;
+        }) as Handler,
+      ]),
+    ),
   });
 }
