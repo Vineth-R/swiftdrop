@@ -20,7 +20,9 @@
 --   identity 000004 email_verification_tokens
 --   identity 000006 merchant_lifecycle_transitions
 --   merchant 000007 merchant_registration_attempts, merchant_status_transitions
--- The complete migrated chain is 30 tables. See migrations/README.md.
+-- merchant 000008 drops the database-level business-registration constraint;
+-- it adds no tables. The complete migrated chain is 30 tables. See
+-- migrations/README.md.
 --
 -- ADDED BEYOND THE DOCUMENT (marked "ADDED" below):
 --   1  DEFAULT gen_random_uuid() on UUID keys (document says app generated)

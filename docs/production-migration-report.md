@@ -3,7 +3,7 @@
 Status: **production database restored and verified; four proof photographs
 transferred and reconciled; production read paths verified; PostgreSQL 18 write
 paths rehearsed on a disposable database. Production traffic has not been
-switched. CI/CD and application deployment remain unverified.**
+switched. Development CI is validated; GHCR publication and application deployment remain unverified.**
 
 ## A. Source database
 
@@ -58,8 +58,8 @@ Exact source row counts:
 
 The four proof files match the four non-null `photo_path` rows:
 
-| Proof ID                               | Parcel ID                              | Source key                             |     Bytes | SHA-256                                                            |
-| -------------------------------------- | -------------------------------------- | -------------------------------------- | --------: | ------------------------------------------------------------------ |
+| Proof ID                               | Parcel ID                              | Source key        |     Bytes | SHA-256         |
+| -------------------------------------- | -------------------------------------- | ----------------- | --------: | --------------- |
 | `12e5e098-362a-474e-b86a-c4f081bea0db` | `091d1c45-f200-4e53-8aef-afcfd3cb421d` | `50b96e4f…13.png` |        85 | `b58cd2df…78a1` |
 | `89e40a90-9c2a-49d4-9369-039952812c3e` | `091d1c45-f200-4e53-8aef-afcfd3cb421d` | `27c90391…4a.jpg` |       759 | `88fd131b…72e8` |
 | `1314fd5e-683d-411f-99a8-6cd8c7803c50` | `091d1c45-f200-4e53-8aef-afcfd3cb421d` | `3da73ea9…60.jpg` | 5,060,994 | `246e45c6…1467` |
@@ -71,7 +71,7 @@ The four proof files match the four non-null `photo_path` rows:
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | Path                             | `/var/folders/s6/rkrnyxh51_ggggbvy5blmc2c0000gn/T/opencode/swiftdrop-cutover-backups/swiftdrop-20261110T203506Z.dump`   |
 | Format                           | PostgreSQL custom                                                                                                       |
-| SHA-256                          | `324d4a0d…fec0`                                                      |
+| SHA-256                          | `324d4a0d…fec0`                                                                                                         |
 | `pg_restore --list`              | passed                                                                                                                  |
 | Restored into                    | disposable PostgreSQL 16.15 database `final_backup_verify`                                                              |
 | Row-count comparison             | 0 differences across all 30 tables                                                                                      |
@@ -283,19 +283,21 @@ names can differ. No locale change or database recreation was attempted.
 
 ## H. CI/CD
 
-The workflow file `.github/workflows/deploy-production.yml` exists locally, but:
+Development CI was validated on PR #129:
 
-- it is **not yet on the GitHub default branch**, so `gh` reports the workflow
-  as missing;
-- no `production` GitHub environment is configured;
+- 33 checks passed; release smoke is skipped by design on pull requests.
+
+Production deployment remains isolated and unverified:
+
+- `.github/workflows/deploy-production.yml` is a separate manual/tag workflow;
+- no `production` GitHub environment or approval rules are configured;
 - the five production secrets are not configured;
-- no workflow run has occurred;
+- no production workflow run has occurred;
 - no GHCR images have been published from this change;
 - the Go toolchain was updated to `1.27.4` after `GO-2026-6859` appeared in the
   vulnerability database; `govulncheck` is clean on the new toolchain.
 
-These remain unverified and require a commit/push plus repository environment
-configuration. Application rollout is still manual.
+Application rollout is still manual.
 
 ## I. Rollback readiness
 
@@ -312,9 +314,9 @@ configuration. Application rollout is still manual.
 
 ## Outstanding
 
-- Commit/push the migration reconciliation and workflow changes.
+- Merge PR #129 after the required review/approval.
 - Create the GitHub `production` environment, required reviewers and the five
-  secrets; run CI and the production workflow.
+  secrets before running the production workflow.
 - Publish GHCR images from the approved commit.
 - Deploy the application to its hosting target (not defined in this repo).
 - Validate background workers against the production deployment.
@@ -322,7 +324,7 @@ configuration. Application rollout is still manual.
 - Optionally validate collation-sensitive ordering with representative
   non-ASCII data.
 - **Credential hygiene:** a real credential block was found at the end of the
-  tracked `.env.example` during final review and removed. Rotate the exposed
+  working-tree `.env.example` during review and removed; it was not committed. Rotate the exposed
   Neon role password, the default object-storage credential and the
   `swiftdrop-proof-storage` credential before deployment; update `.env` and the
   GitHub production secrets with the replacement values. No secret is present
