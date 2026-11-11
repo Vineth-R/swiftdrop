@@ -207,13 +207,9 @@ export function MerchantsView() {
       key: 'businessName',
       header: 'Business',
       cell: (row) => (
-        <button
-          type="button"
-          className="text-left font-semibold text-interactive underline underline-offset-4"
-          onClick={() => openDetail(row)}
-        >
+        <Button variant="link" onClick={() => openDetail(row)}>
           {row.businessName}
-        </button>
+        </Button>
       ),
     },
     {
