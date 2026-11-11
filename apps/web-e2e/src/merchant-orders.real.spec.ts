@@ -252,6 +252,22 @@ test.describe('real stack merchant orders', () => {
     await page.reload();
     await expect(page.getByText('IN TRANSIT').first()).toBeVisible();
 
+    await page.goto('/dashboard');
+    await expect(page.getByText(externalOrderID)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText('IN TRANSIT').first()).toBeVisible({
+      timeout: 30_000,
+    });
+
+    await page.goto('/merchant/orders');
+    await expect(page.getByText(externalOrderID)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText('IN TRANSIT').first()).toBeVisible({
+      timeout: 30_000,
+    });
+
     const otherEmail = uniqueEmail('merchant-orders-other');
     const otherBusiness = `Other Orders ${Date.now()}`;
     const otherRegistration = await request.post('/api/v1/merchants/register', {
