@@ -11,3 +11,9 @@
 # older commits. Keep the allowlist to the exact historical fingerprints.
 7dc9b16513fd744868d82cb5c43de5bdaf417052:apps/services/merchant/internal/http/orders_integration_test.go:generic-api-key:36
 8f6b1e88e39805467e64212bc2edd31163efa52b:apps/services/merchant/internal/http/orders_integration_test.go:generic-api-key:36
+# The webhook portal Playwright spec originally used a high-entropy sample
+# signing secret as a rendered fixture. It is not a credential and matches the
+# contract's documented example. The current test assembles a deterministic
+# placeholder at runtime, but the PR commit range still contains the older
+# commit. Keep the allowlist to the exact historical fingerprint.
+4820749ebd393300916a80aa887807946493b88f:apps/web-e2e/src/webhook.spec.ts:generic-api-key:31
