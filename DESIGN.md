@@ -233,13 +233,13 @@ export function OrdersView() {
 | Role       | Entries (route)                                                                                                                   |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | CUSTOMER   | Dashboard `/dashboard`, New delivery `/new`, My parcels `/parcels`, Profile `/profile`                                            |
-| MERCHANT   | Dashboard, Orders `/orders`, API keys `/api-keys`, Webhook `/webhook`, Profile                                                    |
+| MERCHANT   | Dashboard, API keys `/api-keys`, Business `/merchant/profile`, Profile                                                            |
 | COURIER    | Today `/dashboard`, History `/history`, Profile (bottom tabs)                                                                     |
 | DISPATCHER | Unassigned `/unassigned`, Workload `/workload`, All parcels `/parcels`, Reports `/reports`                                        |
 | ADMIN      | the dispatcher's entries, plus Users `/admin/users`, Merchants `/admin/merchants`, Zones `/admin/zones`, Pricing `/admin/pricing` |
 
 - If your route is missing, add one entry with a Lucide icon. Do not reorder or remove other people's entries.
-- `/dashboard` is shared by every role and `/parcels` by customers and dispatchers. A route has one `page.tsx`, so its view must choose by role with `useSession()` (`session.status === 'authenticated'`, then `session.user.role`). Agree with the other owner who writes that file.
+- `/dashboard` is shared by every role and `/parcels` by customers and dispatchers. A route has one `page.tsx`, so its view must choose by role with `useSession()` (`session.status === 'authenticated'`, then `session.user.role`). `/dashboard` already does: `components/dashboard/dashboard-view.tsx` picks the courier's Today view, the customer's recent parcels, the merchant's business and API keys, or the administrator's waiting counts. A dispatcher has no dashboard and is sent to `/unassigned`. Change a role's home there, not in `app/(app)/dashboard/page.tsx`.
 - After login every role lands on `/dashboard` until you change that role's entry in `roleHome` in `lib/nav.ts` when you build its first real screen.
 - **Hiding a link never protects a page.** Wrap a role-limited page in `RequireRole`; anyone else sees the 403 page inside the shell. That is the no-permission state. The API checks the role again.
 - Put a signed-in screen outside `app/(app)/` and it gets no shell and no login check.

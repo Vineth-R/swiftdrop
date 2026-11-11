@@ -217,9 +217,14 @@ for (const role of ['CUSTOMER', 'MERCHANT', 'DISPATCHER', 'ADMIN'] as Role[]) {
       ),
     ).toBe(false);
     await page.goto('/dashboard');
-    await expect(
-      page.getByRole('heading', { level: 1, name: 'Dashboard', exact: true }),
-    ).toBeVisible();
+    if (role === 'DISPATCHER') {
+      // A dispatcher has no dashboard: their home is the unassigned list.
+      await expect(page).toHaveURL(/\/unassigned$/);
+    } else {
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Dashboard', exact: true }),
+      ).toBeVisible();
+    }
     expect(api.calls.some((call) => call.key === listEndpoint)).toBe(false);
   });
 }

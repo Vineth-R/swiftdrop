@@ -309,7 +309,7 @@ The browser only ever calls `/api/v1/...` on its own origin. In development, Nex
 
 Live updates use a WebSocket, and Next proxies `/api/v1` but not `/ws`. For `nx dev`, copy `apps/web/.env.example` to the untracked `apps/web/.env.local` so the client connects to the gateway at `ws://localhost:8080/ws`. Behind the gateway (production and Docker) the client uses the page's own host, so no override is needed.
 
-The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, a placeholder `/dashboard`, `/profile`, `/profile/security`, the COURIER `/history` delivery-history screen, the DISPATCHER/ADMIN `/reports` screen, the ADMIN `/admin/users` and `/admin/notification-logs`, and the public `/track` parcel tracking page. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
+The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, the role-based `/dashboard` (a customer's recent parcels, a merchant's business and API keys, an administrator's waiting counts, the courier's Today view), `/profile`, `/profile/security`, the COURIER `/history` delivery-history screen, the DISPATCHER/ADMIN `/reports` screen, the ADMIN `/admin/users` and `/admin/notification-logs`, and the public `/track` parcel tracking page. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
 
 ## Run an individual HTTP service
 
