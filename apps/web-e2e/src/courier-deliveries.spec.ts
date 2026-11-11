@@ -311,6 +311,66 @@ test('saves a valid status and refreshes the detail timeline', async ({
   ]);
 });
 
+test('records a failed delivery with a reason and refreshes the history', async ({
+  page,
+}) => {
+  let saved = false;
+  const api = await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: () =>
+      ok(
+        !saved
+          ? detail
+          : {
+              ...detail,
+              status: 'FAILED',
+              history: [
+                ...detail.history,
+                {
+                  previousStatus: 'OUT_FOR_DELIVERY',
+                  status: 'FAILED',
+                  note: null,
+                  failureReason: 'Recipient was unavailable',
+                  actorRole: 'COURIER',
+                  changedAt: '2026-11-05T11:00:00Z',
+                },
+              ],
+            },
+      ),
+    [`POST /courier/deliveries/${parcelId}/status`]: () => {
+      saved = true;
+      return ok({
+        parcelId,
+        trackingNumber: delivery.trackingNumber,
+        previousStatus: 'OUT_FOR_DELIVERY',
+        status: 'FAILED',
+        updatedAt: '2026-11-05T11:00:00Z',
+      });
+    },
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  await page.getByLabel('Next status').selectOption('FAILED');
+  await page.getByLabel('Failure reason').fill('Recipient was unavailable');
+  await page.getByRole('button', { name: 'Save status' }).click();
+
+  await expect(
+    page.getByText('Delivery status saved', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('FAILED', { exact: true }).first()).toBeVisible();
+  const history = page.getByRole('list', { name: 'Status history' });
+  await expect(history).toContainText('FAILED');
+  await expect(history).toContainText('Recipient was unavailable');
+  await expect(page.getByRole('combobox', { name: 'Next status' })).toHaveCount(
+    0,
+  );
+  expect(
+    api.calls
+      .filter(
+        (call) => call.key === `POST /courier/deliveries/${parcelId}/status`,
+      )
+      .map((call) => call.body),
+  ).toEqual([{ status: 'FAILED', failureReason: 'Recipient was unavailable' }]);
+});
+
 test('validates recipient and failure fields before posting', async ({
   page,
 }) => {
@@ -587,6 +647,7 @@ test('validates proof fields and previews a supported image', async ({
   ).toBeVisible();
 
   const photo = page.getByLabel('Proof photo');
+  await expect(photo).toHaveAttribute('capture', 'environment');
   await photo.setInputFiles({
     name: 'renamed.jpg',
     mimeType: 'text/plain',
