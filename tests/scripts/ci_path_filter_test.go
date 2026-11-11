@@ -366,6 +366,9 @@ func TestRequiredGateRejectsFailedOrCancelledDockerAndAccessJobs(t *testing.T) {
 		"ACCESS_RESULT":           "success",
 		"SECURITY_GATE_RESULT":    "success",
 		"NOTIFICATIONFLOW_RESULT": "success",
+		"MIGRATIONS_RESULT":       "success",
+		"STORAGE_RESULT":          "success",
+		"POOLED_RESULT":           "success",
 	}
 
 	tests := []struct {
@@ -386,6 +389,9 @@ func TestRequiredGateRejectsFailedOrCancelledDockerAndAccessJobs(t *testing.T) {
 		{name: "notificationflow skipped", result: "NOTIFICATIONFLOW_RESULT", value: "skipped"},
 		{name: "notificationflow failure", result: "NOTIFICATIONFLOW_RESULT", value: "failure", wantErr: true},
 		{name: "notificationflow cancelled", result: "NOTIFICATIONFLOW_RESULT", value: "cancelled", wantErr: true},
+		{name: "migrations failure", result: "MIGRATIONS_RESULT", value: "failure", wantErr: true},
+		{name: "storage failure", result: "STORAGE_RESULT", value: "failure", wantErr: true},
+		{name: "pooled failure", result: "POOLED_RESULT", value: "failure", wantErr: true},
 	}
 
 	for _, test := range tests {

@@ -449,6 +449,177 @@ jobs:
       - name: Run Playwright E2E
         run: pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"
 
+  migrations:
+    name: Migration validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: swiftdrop
+          POSTGRES_PASSWORD: swiftdrop
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U swiftdrop -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install PostgreSQL client and golang-migrate
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Apply every service migration from a fresh database
+        run: |
+          set -euo pipefail
+          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5432) 2>/dev/null; do sleep 1; done'
+          psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f infra/docker/postgres/init/01-schemas.sql
+          for service in identity pricing parcel merchant notification; do
+            url="${TEST_DATABASE_URL}&x-migrations-table=${service}_schema_migrations"
+            migrate -path "migrations/${service}" -database "$url" up
+            migrate -path "migrations/${service}" -database "$url" version
+            migrate -path "migrations/${service}" -database "$url" up
+          done
+          dirty="$(psql "$TEST_DATABASE_URL" -X -At -c "SELECT count(*) FROM (SELECT dirty FROM public.identity_schema_migrations UNION ALL SELECT dirty FROM public.pricing_schema_migrations UNION ALL SELECT dirty FROM public.parcel_schema_migrations UNION ALL SELECT dirty FROM public.merchant_schema_migrations UNION ALL SELECT dirty FROM public.notification_schema_migrations) d WHERE dirty")"
+          if [ "${dirty}" != "0" ]; then
+            echo "::error::a migration version is dirty"
+            exit 1
+          fi
+          tables="$(psql "$TEST_DATABASE_URL" -X -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('identity','pricing','parcel','merchant','notification') AND table_type='BASE TABLE'")"
+          if [ "${tables}" != "30" ]; then
+            echo "::error::expected 30 migrated tables, found ${tables}"
+            exit 1
+          fi
+          versions="$(psql "$TEST_DATABASE_URL" -X -At -F '|' -c "SELECT 'identity',version FROM public.identity_schema_migrations UNION ALL SELECT 'pricing',version FROM public.pricing_schema_migrations UNION ALL SELECT 'parcel',version FROM public.parcel_schema_migrations UNION ALL SELECT 'merchant',version FROM public.merchant_schema_migrations UNION ALL SELECT 'notification',version FROM public.notification_schema_migrations ORDER BY 1")"
+          printf '%s\n' "$versions"
+          while IFS='|' read -r service version; do
+            case "$service" in
+              identity) expected=6 ;;
+              pricing) expected=2 ;;
+              parcel) expected=6 ;;
+              merchant) expected=8 ;;
+              notification) expected=2 ;;
+              *) echo "::error::unexpected migration service ${service}"; exit 1 ;;
+            esac
+            if [ "${version}" != "${expected}" ]; then
+              echo "::error::${service} migration version ${version}, expected ${expected}"
+              exit 1
+            fi
+          done <<EOF
+          ${versions}
+          EOF
+
+  storage:
+    name: S3-compatible object storage integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Start S3-compatible storage (VersityGW)
+        run: |
+          set -euo pipefail
+          docker run -d --name s3gw -p 7070:7070 \
+            -e ROOT_ACCESS_KEY=swiftdrop \
+            -e ROOT_SECRET_KEY=swiftdrop-s3 \
+            -e VGW_REGION=us-east-1 \
+            -v s3gw-data:/data \
+            versity/versitygw:v1.11.0 posix --nometa /data
+          timeout 60 bash -c 'until curl -s -o /dev/null http://127.0.0.1:7070/; do sleep 1; done'
+
+      - name: Run object storage integration tests
+        env:
+          STORAGE_TEST_ENDPOINT: http://127.0.0.1:7070
+          STORAGE_TEST_ACCESS_KEY: swiftdrop
+          STORAGE_TEST_SECRET_KEY: swiftdrop-s3
+          STORAGE_TEST_BUCKET: delivery-proofs-test
+          STORAGE_TEST_REGION: us-east-1
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -tags=integration,storage -v ./packages/go-common/objectstore | tee storage.log
+          if grep -q -- '--- SKIP' storage.log; then
+            echo "::error::Object storage integration tests were skipped; S3-compatible storage must be reachable."
+            exit 1
+          fi
+
+  pooled:
+    name: Pooled PostgreSQL compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: swiftdrop
+          POSTGRES_PASSWORD: swiftdrop
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U swiftdrop -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run PgBouncer in transaction mode
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y pgbouncer
+          sudo systemctl stop pgbouncer 2>/dev/null || true
+          printf '"swiftdrop" ""\n' > /tmp/pgbouncer-userlist.txt
+          cat > /tmp/pgbouncer.ini <<'EOF'
+          [databases]
+          postgres = host=127.0.0.1 port=5432 dbname=postgres user=swiftdrop password=swiftdrop
+
+          [pgbouncer]
+          listen_addr = 127.0.0.1
+          listen_port = 6432
+          auth_type = trust
+          auth_file = /tmp/pgbouncer-userlist.txt
+          pool_mode = transaction
+          max_client_conn = 100
+          default_pool_size = 20
+          max_prepared_statements = 200
+          logfile = /tmp/pgbouncer.log
+          pidfile = /tmp/pgbouncer.pid
+          EOF
+          pgbouncer -d /tmp/pgbouncer.ini
+          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/6432) 2>/dev/null; do sleep 1; done'
+
+      - name: Run pooled compatibility test
+        env:
+          TEST_POOLED_DATABASE_URL: postgres://swiftdrop@127.0.0.1:6432/postgres?sslmode=disable
+        run: go test -race -count=1 -tags=integration -v ./packages/go-common/postgres -run TestPooledTransactionCompatibility
+
   changes:
     name: Detect changed projects
     runs-on: ubuntu-latest
@@ -928,6 +1099,9 @@ jobs:
       - real-stack-e2e
       - notificationflow
       - security-gate
+      - migrations
+      - storage
+      - pooled
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -945,6 +1119,9 @@ jobs:
           SECURITY_GATE_RESULT: ${{ needs['security-gate'].result }}
           NOTIFICATIONFLOW_RESULT: ${{ needs.notificationflow.result }}
           REALSTACK_RESULT: ${{ needs.real-stack-e2e.result }}
+          MIGRATIONS_RESULT: ${{ needs.migrations.result }}
+          STORAGE_RESULT: ${{ needs.storage.result }}
+          POOLED_RESULT: ${{ needs.pooled.result }}
         run: |
           set -euo pipefail
           REALSTACK_RESULT="${REALSTACK_RESULT:-skipped}"
@@ -981,6 +1158,9 @@ jobs:
           check_optional "docker" "$DOCKER_RESULT"
           check_optional "access" "$ACCESS_RESULT"
           check_required "security-gate" "$SECURITY_GATE_RESULT"
+          check_required "migrations" "$MIGRATIONS_RESULT"
+          check_required "storage" "$STORAGE_RESULT"
+          check_required "pooled" "$POOLED_RESULT"
           check_optional "notificationflow" "$NOTIFICATIONFLOW_RESULT"
           check_optional "real-stack-e2e" "$REALSTACK_RESULT"
 
