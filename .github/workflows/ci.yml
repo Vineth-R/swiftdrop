@@ -690,7 +690,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       pgbouncer:
-        image: edoburu/pgbouncer:latest
+        image: edoburu/pgbouncer:v1.26.1-p0
         env:
           DB_HOST: postgres
           DB_USER: swiftdrop
