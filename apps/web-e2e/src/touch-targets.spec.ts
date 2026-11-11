@@ -6,10 +6,12 @@ test.use({ colorScheme: 'light' });
 
 /**
  * The controls inside `scope` a finger has to hit. A checkbox or a radio is
- * left out: its whole row is the 44px target, not the 16px box.
+ * left out: its whole row is the 44px target, not the 16px box. So is anything
+ * marked aria-hidden, such as the 1px native select Radix keeps beside its
+ * custom one for forms: nobody can see or touch it.
  */
 const controls = (scope: string) =>
-  `${scope} :is(button, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), [role="button"]):not([role="checkbox"]):not([role="radio"]):not([role="switch"])`;
+  `${scope} :is(button, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), [role="button"]):not([role="checkbox"]):not([role="radio"]):not([role="switch"]):not([aria-hidden="true"])`;
 
 /** Each visible control shorter than `min` pixels, named so a failure says which. */
 async function tooSmall(page: Page, scope: string, min: number) {
@@ -52,6 +54,31 @@ test.describe('touch targets', () => {
       ).toBeVisible();
 
       expect(await tooSmall(page, 'main', 44)).toEqual([]);
+    });
+
+    test('the scan skips a hidden native fallback but still reports a real small control', async ({
+      page,
+    }) => {
+      await page.goto('/design');
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Design tokens' }),
+      ).toBeVisible();
+      // What CI found beside Radix's select: a 1px aria-hidden native select.
+      await page.evaluate(`(() => {
+        const main = document.querySelector('main');
+        const hidden = document.createElement('select');
+        hidden.setAttribute('aria-hidden', 'true');
+        hidden.tabIndex = -1;
+        hidden.style.cssText = 'position:absolute;width:1px;height:1px';
+        const real = document.createElement('button');
+        real.textContent = 'Tiny';
+        real.style.cssText = 'height:20px';
+        main.append(hidden, real);
+      })()`);
+
+      expect(await tooSmall(page, 'main', 44)).toEqual([
+        'button "Tiny" is 20px',
+      ]);
     });
 
     test('the signed-in shell is at least 44px too', async ({ page }) => {
