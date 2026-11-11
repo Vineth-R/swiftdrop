@@ -7,7 +7,7 @@ Identity authentication, pricing estimates/zones/internal quote and admin config
 ## Technology
 
 - **Frontend:** Next.js 16 App Router, React 19, TypeScript 6, pnpm, Nx, Tailwind CSS v4, shadcn/ui with Radix primitives, and Lucide icons.
-- **Backend:** Go 1.27.3 with Gin, one root Go module.
+- **Backend:** Go 1.27.4 with Gin, one root Go module.
 - **Data:** PostgreSQL 16 with service-owned schemas and versioned SQL migrations.
 - **Messaging:** RabbitMQ 4.1 with a durable topic exchange, versioned JSON event contracts, bounded retries, and dead-lettering.
 - **Edge:** Nginx reverse proxy.
@@ -64,7 +64,7 @@ Each Go service has `main.go`, `internal/config`, and either `internal/http` or 
 
 ## Prerequisites
 
-- Go **1.27.3** or a compatible 1.27 toolchain (`go.mod` is the source of truth).
+- Go **1.27.4** or a compatible 1.27 toolchain (`go.mod` is the source of truth).
 - Node.js **24**, the supported and CI-tested version. Other Node.js versions are not officially supported.
 - pnpm **12.15.0** through Corepack.
 - Docker with Docker Compose v2.
