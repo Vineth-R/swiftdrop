@@ -3,7 +3,8 @@ import { afterEach, test } from 'node:test';
 
 import { restoreFetch, stubFetch } from './api-test-support.mjs';
 
-const { listCourierDeliveries } = await import('./courier-api.ts');
+const { listCourierDeliveries, uploadCourierDeliveryProof } =
+  await import('./courier-api.ts');
 
 const delivery = {
   id: '00000000-0000-4000-8000-000000000101',
@@ -121,4 +122,43 @@ test('keeps the request id on a contract error', async () => {
     status: 200,
     requestId: 'req-1',
   });
+});
+
+test('builds the documented courier proof multipart form', async () => {
+  let request;
+  globalThis.fetch = async (url, init) => {
+    request = { url: String(url), ...init };
+    return new Response(
+      JSON.stringify({
+        data: {
+          id: '00000000-0000-4000-8000-000000000201',
+          parcelId: delivery.id,
+          recipientName: 'Nimali Perera',
+          note: 'Handed over',
+          hasPhoto: true,
+          createdAt: '2026-11-10T09:00:00Z',
+        },
+        meta: {},
+      }),
+      { status: 201, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+  const photo = new File(['png'], 'proof.png', { type: 'image/png' });
+  const controller = new AbortController();
+
+  const result = await uploadCourierDeliveryProof(
+    delivery.id,
+    { photo, recipientName: 'Nimali Perera', note: 'Handed over' },
+    controller.signal,
+  );
+
+  assert.equal(request.url, `/api/v1/courier/deliveries/${delivery.id}/proof`);
+  assert.equal(request.method, 'POST');
+  assert.equal(request.signal, controller.signal);
+  assert.ok(request.body instanceof FormData);
+  assert.equal(request.body.get('photo'), photo);
+  assert.equal(request.body.get('recipientName'), 'Nimali Perera');
+  assert.equal(request.body.get('note'), 'Handed over');
+  assert.equal(request.headers['Content-Type'], undefined);
+  assert.equal(result.parcelId, delivery.id);
 });

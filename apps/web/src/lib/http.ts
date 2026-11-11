@@ -17,18 +17,25 @@ export async function send(
   path: string,
   options: RequestOptions,
 ): Promise<Response> {
+  const formData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData
+      ? options.body
+      : undefined;
+  const body: BodyInit | undefined =
+    options.body === undefined
+      ? undefined
+      : (formData ?? JSON.stringify(options.body));
   try {
     return await fetch(`${API_BASE}${path}`, {
       method: options.method ?? 'GET',
       headers: {
         Accept: 'application/json',
         ...options.headers,
-        ...(options.body === undefined
+        ...(options.body === undefined || formData
           ? {}
           : { 'Content-Type': 'application/json' }),
       },
-      body:
-        options.body === undefined ? undefined : JSON.stringify(options.body),
+      body,
       credentials: 'same-origin',
       cache: 'no-store',
       signal: options.signal,
