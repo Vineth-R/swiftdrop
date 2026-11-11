@@ -448,6 +448,18 @@ pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"
 
 The Playwright configuration also defines Firefox and WebKit projects, but CI runs Chromium only in this phase.
 
+The `real-stack` project runs `*.real.spec.ts` against the Compose stack through the gateway. It needs the five demo accounts from `make seed` and the matching variables; use the same values you gave `SEED_*_EMAIL` / `SEED_*_PASSWORD`:
+
+| Account    | Variables                                                       |
+| ---------- | --------------------------------------------------------------- |
+| ADMIN      | `REAL_STACK_ADMIN_EMAIL`, `REAL_STACK_ADMIN_PASSWORD`           |
+| DISPATCHER | `REAL_STACK_DISPATCHER_EMAIL`, `REAL_STACK_DISPATCHER_PASSWORD` |
+| COURIER_1  | `REAL_STACK_COURIER_1_EMAIL`, `REAL_STACK_COURIER_1_PASSWORD`   |
+| COURIER_2  | `REAL_STACK_COURIER_2_EMAIL`, `REAL_STACK_COURIER_2_PASSWORD`   |
+| CUSTOMER   | `REAL_STACK_CUSTOMER_EMAIL`, `REAL_STACK_CUSTOMER_PASSWORD`     |
+
+`REAL_STACK_BASE_URL` (default `http://localhost:8080`), `REAL_STACK_RABBITMQ_URL`, `MAILPIT_URL`, `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS` are optional. Locally a missing account skips its test; in CI every account is required, and the run fails if the provisioning step did not supply one. The real-stack CI job seeds all five accounts into its disposable database and passes generated credentials to Playwright through the step environment, never through the repository.
+
 The E2E suite includes `track.spec.ts`, which covers the public `/track` page without a backend: found, delivered, failed, not-found, invalid-format, rate-limited, server-fault and offline states, shared links, refresh behaviour, public-field privacy, and responsive and accessibility checks. It also includes `booking-fee.spec.ts`, which covers the customer booking wizard's fee estimate problems: field-level route, weight and 422 messages, rate-limit countdowns that hold Retry estimate and Create delivery independently, and server faults. `admin-users.spec.ts` covers the ADMIN `/admin/users` screen without a backend: the user list, search, the role and account filters, pagination, activate and deactivate with confirmation, the self-deactivation guard, and the loading, empty, error and no-permission states.
 
 Go targets run from the repository root so the single root module and shared packages resolve correctly. `go.mod`, `go.sum`, and `packages/go-common` are part of every Go target's Nx cache key.

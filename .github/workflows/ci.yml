@@ -927,8 +927,6 @@ jobs:
       COMPOSE_PROJECT_NAME: swiftdrop-realstack
       REAL_STACK: '1'
       REAL_STACK_BASE_URL: http://localhost:8080
-      REAL_STACK_ADMIN_EMAIL: realstack.admin@example.test
-      REAL_STACK_ADMIN_PASSWORD: Str0ngPass!
       MAILPIT_URL: http://localhost:8025
     steps:
       - uses: actions/checkout@v5
@@ -957,15 +955,68 @@ jobs:
       - name: Apply database migrations
         run: make migrate
 
-      - name: Create the real-stack administrator
+      - name: Seed the real-stack demo accounts
         run: |
           set -euo pipefail
-          curl -fsS -X POST http://localhost:8080/api/v1/auth/register \
-            -H 'Content-Type: application/json' \
-            --data '{"email":"realstack.admin@example.test","password":"Str0ngPass!","fullName":"Real Stack Admin","phone":"+94771234567"}' >/dev/null
-          printf '%s\n' \
-            "UPDATE identity.users SET role_id = (SELECT id FROM identity.roles WHERE name = 'ADMIN'), email_verified = true WHERE lower(email) = 'realstack.admin@example.test';" \
-            | docker compose exec -T postgres sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+          # The seed command is the existing operator path for the five demo
+          # accounts and the two courier profiles. Run it in a Go container on
+          # the Compose network so it can reach the unpublished PostgreSQL
+          # service, rather than adding unsafe SQL writes or publishing a port.
+          #
+          # Read the resolved Compose values instead of sourcing .env: some
+          # documented values (for example SMTP_FROM_NAME) contain spaces and
+          # are not shell assignments.
+          compose_config="$(docker compose config --format json)"
+          postgres_user="$(jq -r '.services.postgres.environment.POSTGRES_USER // "swiftdrop"' <<<"${compose_config}")"
+          postgres_password="$(jq -r '.services.postgres.environment.POSTGRES_PASSWORD // "swiftdrop"' <<<"${compose_config}")"
+          postgres_db="$(jq -r '.services.postgres.environment.POSTGRES_DB // "swiftdrop"' <<<"${compose_config}")"
+
+          postgres_id="$(docker compose ps -q postgres)"
+          test -n "${postgres_id}"
+          network="$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}' "${postgres_id}")"
+          test -n "${network}"
+
+          # Generated per run, never written to the repository. One password
+          # for every demo account is acceptable on a disposable database.
+          password="$(openssl rand -hex 12)Aa1"
+          echo "::add-mask::${password}"
+
+          admin_email=realstack.admin@example.test
+          dispatcher_email=realstack.dispatcher@example.test
+          courier_one_email=realstack.courier.1@example.test
+          courier_two_email=realstack.courier.2@example.test
+          customer_email=realstack.customer@example.test
+
+          docker run --rm --network "${network}" \
+            -v "${PWD}:/src:ro" -w /src \
+            -e GOTOOLCHAIN=local \
+            -e DATABASE_URL="postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}?sslmode=disable" \
+            -e SEED_ADMIN_EMAIL="${admin_email}" \
+            -e SEED_ADMIN_PASSWORD="${password}" \
+            -e SEED_DISPATCHER_EMAIL="${dispatcher_email}" \
+            -e SEED_DISPATCHER_PASSWORD="${password}" \
+            -e SEED_COURIER_1_EMAIL="${courier_one_email}" \
+            -e SEED_COURIER_1_PASSWORD="${password}" \
+            -e SEED_COURIER_2_EMAIL="${courier_two_email}" \
+            -e SEED_COURIER_2_PASSWORD="${password}" \
+            -e SEED_CUSTOMER_EMAIL="${customer_email}" \
+            -e SEED_CUSTOMER_PASSWORD="${password}" \
+            golang:1.27-alpine \
+            go run ./apps/services/identity/seed
+
+          {
+            echo "REAL_STACK_ADMIN_EMAIL=${admin_email}"
+            echo "REAL_STACK_ADMIN_PASSWORD=${password}"
+            echo "REAL_STACK_DISPATCHER_EMAIL=${dispatcher_email}"
+            echo "REAL_STACK_DISPATCHER_PASSWORD=${password}"
+            echo "REAL_STACK_COURIER_1_EMAIL=${courier_one_email}"
+            echo "REAL_STACK_COURIER_1_PASSWORD=${password}"
+            echo "REAL_STACK_COURIER_2_EMAIL=${courier_two_email}"
+            echo "REAL_STACK_COURIER_2_PASSWORD=${password}"
+            echo "REAL_STACK_CUSTOMER_EMAIL=${customer_email}"
+            echo "REAL_STACK_CUSTOMER_PASSWORD=${password}"
+          } >> "${GITHUB_ENV}"
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium

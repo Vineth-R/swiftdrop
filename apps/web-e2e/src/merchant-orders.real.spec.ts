@@ -7,6 +7,8 @@ import {
   type Page,
 } from '@playwright/test';
 
+import { apiLogin } from './support/real-stack';
+
 const adminEmail =
   process.env['REAL_STACK_ADMIN_EMAIL'] || 'seed.admin@example.com';
 const adminPassword = process.env['REAL_STACK_ADMIN_PASSWORD'] || 'Str0ngPass!';
@@ -17,39 +19,6 @@ const rabbitPass = process.env['RABBITMQ_DEFAULT_PASS'] || 'swiftdrop';
 
 function uniqueEmail(prefix: string) {
   return `${prefix}.${Date.now()}.${Math.floor(Math.random() * 10000)}@example.test`;
-}
-
-async function apiLogin(
-  request: APIRequestContext,
-  email: string,
-  password: string,
-): Promise<string> {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const response = await request.post('/api/v1/auth/login', {
-      headers: { 'X-Token-Mode': 'body' },
-      data: { email, password },
-    });
-    if (response.status() === 429) {
-      const retryAfter = Number(response.headers()['retry-after']);
-      const waitMs =
-        Number.isFinite(retryAfter) && retryAfter > 0
-          ? retryAfter * 1000
-          : 5000;
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(waitMs, 30_000)),
-      );
-      continue;
-    }
-    if (!response.ok()) {
-      throw new Error(`login for ${email} returned ${response.status()}`);
-    }
-    const body = (await response.json()) as {
-      data?: { accessToken?: string };
-    };
-    if (!body.data?.accessToken) throw new Error('login returned no token');
-    return body.data.accessToken;
-  }
-  throw new Error(`login for ${email} stayed rate limited`);
 }
 
 async function signIn(page: Page, email: string, password: string) {
