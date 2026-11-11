@@ -398,9 +398,16 @@ services:
       <<: [*app-env, *rabbitmq-env]
       WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.parcel.status_changed.v1}
       WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-parcel.status_changed.v1}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      MERCHANT_BASE_URL: http://merchant:8084
+      PARCEL_BASE_URL: http://parcel:8082
     stop_grace_period: 35s
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      merchant:
+        condition: service_healthy
+      parcel:
         condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'pgrep -x /usr/local/bin/service > /dev/null']
