@@ -14,14 +14,14 @@ import (
 	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/courier"
-	proofmedia "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/objectstore"
 	"github.com/Vineth-R/swiftdrop/tests/integration/parceltest"
 )
 
 func TestCourierProofHTTPDatabase(t *testing.T) {
 	database := parceltest.New(t)
-	storage, err := proofmedia.NewLocalStorage(t.TempDir())
+	storage, err := objectstore.NewLocal(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

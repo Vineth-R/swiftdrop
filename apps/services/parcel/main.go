@@ -19,11 +19,11 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/outbox"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/parcels"
-	proofmedia "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/reports"
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/objectstore"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
@@ -82,10 +82,11 @@ func run() error {
 
 	var database *postgres.Pool
 	var pinger postgres.Pinger
-	if config.DatabaseURL != "" {
-		databaseConfig := postgres.DefaultConfig()
-		databaseConfig.URL = config.DatabaseURL
-
+	databaseConfig, configErr := postgres.LoadConfigFromURL(config.DatabaseURL)
+	if configErr != nil {
+		return fmt.Errorf("configure database: %w", configErr)
+	}
+	if databaseConfig.Configured() {
 		database, err = postgres.Open(ctx, databaseConfig)
 		if err != nil {
 			return fmt.Errorf("connect database: %w", err)
@@ -122,10 +123,11 @@ func run() error {
 		courierRepository := courier.NewRepository(database)
 		options.Courier = courierRepository
 		options.CourierStatus = courierRepository
-		if config.ProofStorageDir == "" {
-			logger.Warn("PROOF_STORAGE_DIR is not set; courier proof uploads will return 503")
+		options.ProofMaxSizeBytes = config.ProofMaxSizeBytes
+		if !config.Storage.Enabled() {
+			logger.Warn("object storage is not configured; courier proof uploads and downloads will return 503")
 		} else {
-			proofStorage, storageErr := proofmedia.NewLocalStorage(config.ProofStorageDir)
+			proofStorage, storageErr := objectstore.New(ctx, config.Storage)
 			if storageErr != nil {
 				return fmt.Errorf("configure courier proof storage: %w", storageErr)
 			}
@@ -134,7 +136,9 @@ func run() error {
 					logger.Warn("courier proof storage did not close cleanly")
 				}
 			}()
-			options.CourierProof = courier.NewProofService(database, proofStorage, config.ProofMaxPerParcel)
+			options.CourierProof = courier.NewProofService(database, proofStorage, config.ProofMaxPerParcel).
+				WithMaxPhotoBytes(config.ProofMaxSizeBytes)
+			options.CourierProofPhoto = courier.NewProofPhotoService(database, proofStorage, config.Storage.PresignTTL)
 		}
 		options.Tracking = tracking.NewRepository(database)
 		options.Reports = reports.NewRepository(database)

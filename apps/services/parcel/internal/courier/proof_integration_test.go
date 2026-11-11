@@ -11,18 +11,19 @@ import (
 	"image/jpeg"
 	"image/png"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
-	proofmedia "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/objectstore"
 	"github.com/Vineth-R/swiftdrop/tests/integration/parceltest"
 )
 
-func proofIntegrationStorage(t *testing.T) (*proofmedia.LocalStorage, string) {
+func proofIntegrationStorage(t *testing.T) (*objectstore.Local, string) {
 	t.Helper()
 	directory := t.TempDir()
-	storage, err := proofmedia.NewLocalStorage(directory)
+	storage, err := objectstore.NewLocal(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,6 +33,24 @@ func proofIntegrationStorage(t *testing.T) (*proofmedia.LocalStorage, string) {
 		}
 	})
 	return storage, directory
+}
+
+func proofStorageFiles(t *testing.T, directory string) []string {
+	t.Helper()
+	files := []string{}
+	err := filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
 }
 
 func proofIntegrationImage(t *testing.T, mimeType string) []byte {
@@ -72,7 +91,7 @@ func TestCourierProofDatabase(t *testing.T) {
 				Scan(&parcelID, &recipient, &note, &path, &storedMIME, &size, &capturedBy); err != nil {
 				t.Fatal(err)
 			}
-			if parcelID != id || recipient != "Recipient" || note != "At door" || storedMIME != mimeType || size <= 0 || capturedBy != statusCourierID || strings.Contains(path, "/") || strings.Contains(path, `\`) {
+			if parcelID != id || recipient != "Recipient" || note != "At door" || storedMIME != mimeType || size <= 0 || capturedBy != statusCourierID || !objectstore.ValidKey(path) || !strings.HasPrefix(path, id+"/") {
 				t.Fatalf("persisted proof = %s/%s/%s/%s/%s/%d/%s", parcelID, recipient, note, path, storedMIME, size, capturedBy)
 			}
 			if _, err := os.Stat(directory + string(os.PathSeparator) + path); err != nil {
@@ -151,9 +170,9 @@ func TestCourierProofDatabase(t *testing.T) {
 		if err := database.Pool.QueryRow(t.Context(), `SELECT count(*) FROM parcel.delivery_proofs WHERE parcel_id=$1`, id).Scan(&count); err != nil || count != 2 {
 			t.Fatalf("proof count=%d error=%v", count, err)
 		}
-		entries, err := os.ReadDir(directory)
-		if err != nil || len(entries) != 2 || entries[0].Name() == entries[1].Name() {
-			t.Fatalf("storage entries=%v error=%v", entries, err)
+		entries := proofStorageFiles(t, directory)
+		if len(entries) != 2 || entries[0] == entries[1] {
+			t.Fatalf("storage entries=%v", entries)
 		}
 	})
 
@@ -174,9 +193,8 @@ func TestCourierProofDatabase(t *testing.T) {
 		if err == nil {
 			t.Fatal("injected database failure succeeded")
 		}
-		entries, readErr := os.ReadDir(directory)
-		if readErr != nil || len(entries) != 0 {
-			t.Fatalf("orphan files=%v error=%v", entries, readErr)
+		if entries := proofStorageFiles(t, directory); len(entries) != 0 {
+			t.Fatalf("orphan files=%v", entries)
 		}
 	})
 }

@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	proofmedia "github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof"
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/objectstore"
 )
 
 const (
@@ -27,6 +29,8 @@ type Config struct {
 	DatabaseURL          string
 	ProofStorageDir      string
 	ProofMaxPerParcel    int
+	ProofMaxSizeBytes    int
+	Storage              objectstore.Config
 	TrustedProxies       []string
 	AccessSecret         string
 	CookieName           string
@@ -109,6 +113,17 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	if proofMaxPerParcel < 1 || proofMaxPerParcel > MaxProofMaxPerParcel {
 		return Config{}, fmt.Errorf("PROOF_MAX_PER_PARCEL must be between 1 and %d", MaxProofMaxPerParcel)
 	}
+	proofMaxSizeBytes, err := loader.Int("PROOF_MAX_SIZE_BYTES", proofmedia.MaxPhotoBytes)
+	if err != nil {
+		return Config{}, err
+	}
+	if proofMaxSizeBytes < 1 || proofMaxSizeBytes > proofmedia.MaxPhotoBytes {
+		return Config{}, fmt.Errorf("PROOF_MAX_SIZE_BYTES must be between 1 and %d", proofmedia.MaxPhotoBytes)
+	}
+	storage, err := objectstore.LoadConfig(loader)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Port:                 port,
@@ -117,6 +132,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		DatabaseURL:          loader.String("DATABASE_URL", ""),
 		ProofStorageDir:      loader.String("PROOF_STORAGE_DIR", ""),
 		ProofMaxPerParcel:    proofMaxPerParcel,
+		ProofMaxSizeBytes:    proofMaxSizeBytes,
+		Storage:              storage,
 		TrustedProxies:       proxies,
 		AccessSecret:         accessSecret,
 		CookieName:           loader.String("COOKIE_NAME", "sd_access"),

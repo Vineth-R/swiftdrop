@@ -17,8 +17,9 @@ import (
 )
 
 type parcelHandlers struct {
-	service *parcels.Service
-	logger  *slog.Logger
+	service    *parcels.Service
+	logger     *slog.Logger
+	photoStore ProofPhotoStore
 }
 
 func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) error {
@@ -26,7 +27,7 @@ func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) e
 	if service == nil {
 		service = parcels.NewService(nil, nil)
 	}
-	h := &parcelHandlers{service, logger}
+	h := &parcelHandlers{service, logger, options.CourierProofPhoto}
 	group := router.Group("/parcels", noStore())
 	if options.AccessSecret == "" {
 		group.Use(func(c *gin.Context) { httpx.Error(c, 503, "SERVICE_UNAVAILABLE", "authentication is not configured") })
@@ -46,6 +47,9 @@ func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) e
 	group.GET("/:parcelId", auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher), h.detail)
 	group.GET("/:parcelId/history", auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher), h.history)
 	group.GET("/:parcelId/receipt", auth.RequireRoles(auth.RoleCustomer, auth.RoleAdmin), h.receipt)
+	proofRoles := auth.RequireRoles(auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin)
+	group.GET("/:parcelId/proof/photo", proofRoles, h.proofPhoto)
+	group.GET("/:parcelId/proof/photo/content", proofRoles, h.proofPhotoContent)
 	internal := router.Group("/internal/parcels", noStore(), httpx.InternalToken(options.InternalToken))
 	internal.POST("", h.merchant)
 	internal.GET("/:parcelId/summary", h.summary)
