@@ -2,6 +2,8 @@
 
 This document records Member 8's merchant order and integration flows. The merchant service owns merchant accounts, API clients, order snapshots, status timelines, and administrative audit records. It does not read another service's tables; parcel creation and pricing are internal service integrations.
 
+The report deliverables are [`section 2.3`](report/section_2_3_merchant_use_cases.md) and [`section 6.2`](report/section_6_2_merchant_order_creation.md).
+
 ## Merchant use cases (Section 2.3)
 
 | ID    | Use case                           | Primary actor            | Endpoint / integration |
@@ -10,7 +12,7 @@ This document records Member 8's merchant order and integration flows. The merch
 | UC-M2 | Manage API keys                    | Merchant                 | 8.9–8.11               |
 | UC-M3 | Create order through API           | External Merchant System | 8.16                   |
 | UC-M4 | Configure webhook                  | Merchant                 | 8.12, 8.13             |
-| UC-M5 | Receive status webhooks            | External Merchant System | Section 10             |
+| UC-M5 | Receive status webhooks            | External Merchant System | 10 (outbound delivery) |
 | UC-M6 | View order dashboard               | Merchant                 | 8.17, 8.18             |
 | UC-M7 | Test webhook and view delivery log | Merchant                 | 8.14, 8.15             |
 | UC-M8 | Manage business profile            | Merchant                 | 8.2, 8.3               |
@@ -23,7 +25,7 @@ The Admin actor approves, rejects, and suspends merchants through the administra
 - **UC-M2:** An approved merchant creates, lists, and revokes server-to-server API keys.
 - **UC-M3:** An external store submits a delivery order and receives a tracking number and fee.
 - **UC-M4:** A merchant configures webhook destinations and delivery preferences through M9.
-- **UC-M5:** The external store receives parcel status updates through M9's webhook delivery flow.
+- **UC-M5:** The external store receives signed `parcel.status_changed` events at its configured HTTPS endpoint through the webhook worker (API v1.1 section 10).
 - **UC-M6:** A merchant searches orders, filters by status, and views order history and details.
 - **UC-M7:** A merchant sends a test webhook and reviews delivery attempts through M9.
 - **UC-M8:** A merchant views and edits contact and default pickup information.
