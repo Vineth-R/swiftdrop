@@ -495,6 +495,11 @@ test('honours Retry-After without clearing filters', async ({ page }) => {
 test('an expired API session returns to login safely', async ({ page }) => {
   await signInAs(page, 'COURIER', { [endpoint]: fail(401, 'UNAUTHENTICATED') });
   await page.goto('/history');
+  // The session-expired dialog offers the way back to login and to this page.
+  await page
+    .getByRole('dialog', { name: 'Your session ended' })
+    .getByRole('button', { name: 'Log in' })
+    .click();
   await expect(page).toHaveURL(/\/login\?next=%2Fhistory$/);
   await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
 });

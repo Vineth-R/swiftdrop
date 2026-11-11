@@ -41,6 +41,14 @@ test.describe('design tokens', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   });
 
+  test('has one h1, so the page has a single main heading', async ({
+    page,
+  }) => {
+    await page.goto('/design');
+
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+  });
+
   test('uses the display font for headings and the interface font for text', async ({
     page,
   }) => {

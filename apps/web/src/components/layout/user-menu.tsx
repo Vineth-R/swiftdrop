@@ -94,7 +94,7 @@ export function UserMenu({ user }: { user: User }) {
         <button
           type="button"
           aria-label="Account menu"
-          className="group inline-flex h-10 items-center gap-2 rounded-control border border-transparent pl-1 pr-2 hover:bg-surface-2 md:pr-3"
+          className="group inline-flex h-10 pointer-coarse:h-11 items-center gap-2 rounded-control border border-transparent pl-1 pr-2 hover:bg-surface-2 md:pr-3"
         >
           <Avatar name={user.fullName} />
           <span className="hidden max-w-40 truncate text-button font-medium md:inline">
@@ -153,7 +153,7 @@ export function UserMenu({ user }: { user: User }) {
               <DropdownMenuRadioItem
                 key={value}
                 value={value}
-                className="h-10 rounded-chip text-button"
+                className="h-10 pointer-coarse:h-11 rounded-chip text-button"
               >
                 <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
                 {label}

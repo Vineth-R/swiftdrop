@@ -6,15 +6,17 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { homeFor } from '@/lib/nav';
 import { safeNext } from '@/lib/redirect';
 import { useSession, type SessionState } from '@/lib/session';
+import { SessionExpiredDialog } from './session-expired-dialog';
 import { Splash } from './splash';
 
 /**
  * Wraps pages that need a signed-in user. The splash shows while the cookie is
  * checked; a signed-out visitor is sent to the login page and brought back to
- * this path afterwards.
+ * this path afterwards. Someone whose session ends while the page is open keeps
+ * the page, with a dialog over it that sends them to log in and back.
  */
 export function SignedInOnly({ children }: { children: ReactNode }) {
-  const { session, recheck } = useSession();
+  const { session, isExpired, recheck } = useSession();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -24,7 +26,14 @@ export function SignedInOnly({ children }: { children: ReactNode }) {
     }
   }, [session.status, router, pathname]);
 
-  if (session.status === 'authenticated') return <>{children}</>;
+  if (session.status === 'authenticated') {
+    return (
+      <>
+        {children}
+        {isExpired && <SessionExpiredDialog />}
+      </>
+    );
+  }
   return (
     <Splash
       state={session.status === 'unavailable' ? 'unavailable' : 'checking'}
