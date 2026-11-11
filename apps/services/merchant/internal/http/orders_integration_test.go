@@ -33,7 +33,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
 
-const testJWTSecret = "0123456789abcdef0123456789abcdef"
+const testJWTSecret = "merchant-order-test-signing-key-32-bytes"
 
 type staticZones struct{ name string }
 
