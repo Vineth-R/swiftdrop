@@ -6,22 +6,19 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError } from '../../lib/api';
 import { uploadCourierDeliveryProof } from '../../lib/courier-api';
 import { useSession } from '../../lib/session';
-import { ServerFaultAlert } from '../auth/form-alerts';
+import { useCountdown } from '../../lib/use-countdown';
+import { RateLimitedAlert, ServerFaultAlert } from '../auth/form-alerts';
 import { Alert } from '../ui/alert';
 import { Button } from '../ui/button';
 import { TextField } from '../ui/field';
 import { FileField } from '../ui/file-field';
 import { Textarea } from '../ui/textarea';
-
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
-const PHOTO_TYPES = new Set(['image/jpeg', 'image/png']);
-
-type ProofErrors = {
-  form?: string;
-  photo?: string;
-  recipientName?: string;
-  note?: string;
-};
+import {
+  isProofLimitReached,
+  proofPhotoError,
+  validateProofDraft,
+  type ProofErrors,
+} from './proof-upload';
 
 export function ProofUploadForm({
   parcelId,
@@ -40,6 +37,11 @@ export function ProofUploadForm({
   const [uploadError, setUploadError] = useState<ApiError | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
+  const remaining = useCountdown(
+    uploadError?.code === 'RATE_LIMITED'
+      ? (uploadError.retryAfter ?? null)
+      : null,
+  );
 
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
@@ -59,22 +61,11 @@ export function ProofUploadForm({
       setErrors((current) => ({ ...current, photo: undefined }));
       return;
     }
-    if (!PHOTO_TYPES.has(selected.type)) {
+    const photoError = proofPhotoError(selected);
+    if (photoError) {
       setPickerKey((key) => key + 1);
       setPhoto(null);
-      setErrors((current) => ({
-        ...current,
-        photo: 'Choose a JPEG or PNG image.',
-      }));
-      return;
-    }
-    if (selected.size > MAX_PHOTO_BYTES) {
-      setPickerKey((key) => key + 1);
-      setPhoto(null);
-      setErrors((current) => ({
-        ...current,
-        photo: 'Photo must be 5 MiB or smaller.',
-      }));
+      setErrors((current) => ({ ...current, photo: photoError }));
       return;
     }
     setPhoto(selected);
@@ -82,20 +73,14 @@ export function ProofUploadForm({
   }
 
   function validate(): ProofErrors {
-    const next: ProofErrors = {};
-    if (!photo && !recipientName.trim() && !note.trim())
-      next.form = 'Add a photo, recipient name or delivery note.';
-    if (Array.from(recipientName.trim()).length > 150)
-      next.recipientName = 'Recipient name must be 150 characters or fewer.';
-    if (Array.from(note.trim()).length > 500)
-      next.note = 'Delivery note must be 500 characters or fewer.';
+    const next = validateProofDraft({ photo, recipientName, note });
     setErrors(next);
     return next;
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (uploading || request.current) return;
+    if (blocked || request.current) return;
     const nextErrors = validate();
     const first = Object.keys(nextErrors)[0] as keyof ProofErrors | undefined;
     if (first) {
@@ -128,11 +113,7 @@ export function ProofUploadForm({
         caught instanceof ApiError
           ? caught
           : new ApiError({ code: 'INTERNAL', status: 0 });
-      if (
-        next.code === 'ACCOUNT_DEACTIVATED' ||
-        next.code === 'UNAUTHENTICATED'
-      )
-        recheck();
+      if (next.code === 'ACCOUNT_DEACTIVATED') recheck();
       setUploadError(next);
     } finally {
       request.current = null;
@@ -142,8 +123,12 @@ export function ProofUploadForm({
 
   const blocked =
     uploading ||
+    remaining > 0 ||
+    isProofLimitReached(uploadError) ||
     uploadError?.code === 'FORBIDDEN' ||
-    uploadError?.code === 'NOT_FOUND';
+    uploadError?.code === 'NOT_FOUND' ||
+    uploadError?.code === 'UNAUTHENTICATED' ||
+    uploadError?.code === 'ACCOUNT_DEACTIVATED';
 
   return (
     <form noValidate onSubmit={submit} className="flex max-w-xl flex-col gap-4">
@@ -152,7 +137,9 @@ export function ProofUploadForm({
           {errors.form}
         </Alert>
       )}
-      {uploadError && <ProofUploadError error={uploadError} />}
+      {uploadError && (
+        <ProofUploadError error={uploadError} remaining={remaining} />
+      )}
       <FileField
         key={pickerKey}
         id="courier-proof-photo"
@@ -161,6 +148,7 @@ export function ProofUploadForm({
         error={errors.photo}
         name="photo"
         accept="image/jpeg,image/png"
+        capture="environment"
         buttonLabel="Take or choose a photo"
         emptyLabel="No photo selected"
         controlSize="lg"
@@ -236,9 +224,24 @@ export function ProofUploadForm({
   );
 }
 
-function ProofUploadError({ error }: { error: ApiError }) {
+function ProofUploadError({
+  error,
+  remaining,
+}: {
+  error: ApiError;
+  remaining: number;
+}) {
   if (error.code === 'UNAUTHENTICATED' || error.code === 'ACCOUNT_DEACTIVATED')
     return null;
+  if (isProofLimitReached(error))
+    return (
+      <Alert tone="warning" title="This parcel has reached its proof limit">
+        The maximum number of delivery proofs has already been recorded for this
+        parcel. Another proof cannot be uploaded.
+      </Alert>
+    );
+  if (error.code === 'RATE_LIMITED')
+    return <RateLimitedAlert remaining={remaining} />;
   if (error.code === 'FORBIDDEN')
     return (
       <Alert tone="danger" title="You no longer have access to this delivery">
