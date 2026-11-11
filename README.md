@@ -626,4 +626,13 @@ Merchant-owner follow-up: the merchant repository uses `database/sql` and is not
 
 Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: the legacy notification worker, the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` consumer with identity contact resolution, ADMIN notification delivery-log reads and the ADMIN notification-log screen, with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`). Implemented by M10: the DISPATCHER/ADMIN reports screen (`/reports`). The COURIER `/history` delivery-history screen is implemented in the web app against the implemented parcel `GET /courier/deliveries` list and detail reads.
 
-Not implemented: the complete delivery status workflow and its full successful/failed delivery E2E scenarios, M8's merchant order-to-parcel caller and merchant-owned parcel notification contact resolution, merchant onboarding and API keys, SMS notification delivery, webhook signing and delivery retries, the pricing administration UI, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
+Not implemented: the complete delivery status workflow and its full successful/failed delivery E2E scenarios, M8's merchant order-to-parcel caller and merchant-owned parcel notification contact resolution, SMS notification delivery, webhook signing and delivery retries, the pricing administration UI, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
+
+## Registration and merchant onboarding
+
+Customers register at `/register/customer`, receive a single-use verification
+email and cannot sign in until it is verified. Merchants register at
+`/register/merchant`; the Identity account stays inactive and the application
+stays PENDING until an administrator approves it at `/admin/merchants`.
+Approval applies a lifecycle-bound session-version transition. Suspension and
+reapproval invalidate old access tokens, so a fresh login is required.

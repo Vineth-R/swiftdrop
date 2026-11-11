@@ -1,16 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError } from '@/lib/api';
 import { classifyApiError, type ApiProblem } from '@/lib/api-problem';
 import { googleLoginUrl, register } from '@/lib/auth-api';
-import { DEFAULT_AUTH_ROUTE, REGISTER_REDIRECT_SECONDS } from '@/lib/constants';
-import { homeFor } from '@/lib/nav';
+import { DEFAULT_AUTH_ROUTE } from '@/lib/constants';
 import { safeNext } from '@/lib/redirect';
-import { useSession } from '@/lib/session';
 import { formatClock, useCountdown } from '@/lib/use-countdown';
 import { useForm, type FormRules } from '@/lib/use-form';
 import {
@@ -66,12 +64,10 @@ const labels: Record<Field, string> = {
 
 const fieldId = (field: Field) => `register-${field}`;
 
-type Banner = ApiProblem | { kind: 'signed-out-after-create' };
+type Banner = ApiProblem;
 
 export function RegisterForm() {
-  const router = useRouter();
   const params = useSearchParams();
-  const { signIn } = useSession();
   const next = safeNext(params.get('next'), '');
 
   const form = useForm(
@@ -81,20 +77,12 @@ export function RegisterForm() {
   const [banner, setBanner] = useState<Banner | null>(null);
   const [failedSubmits, setFailedSubmits] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [createdAs, setCreatedAs] = useState<{
-    email: string;
-    to: string;
-  } | null>(null);
+  const [createdEmail, setCreatedEmail] = useState<string | null>(null);
   const alertRef = useRef<HTMLDivElement>(null);
 
   const waitSeconds = banner?.kind === 'rate-limited' ? banner.seconds : null;
   const waiting = useCountdown(waitSeconds);
   const isWaiting = banner?.kind === 'rate-limited' && waiting > 0;
-
-  const redirectIn = useCountdown(createdAs ? REGISTER_REDIRECT_SECONDS : null);
-  useEffect(() => {
-    if (createdAs && redirectIn === 0) router.replace(createdAs.to);
-  }, [createdAs, redirectIn, router]);
 
   useEffect(() => {
     if (banner) alertRef.current?.focus();
@@ -129,21 +117,11 @@ export function RegisterForm() {
         phone: toSriLankanE164(form.values.phone),
         password: form.values.password,
       });
+      setCreatedEmail(form.values.email.trim());
     } catch (error) {
-      setIsLoading(false);
       handleFailure(error);
-      return;
-    }
-
-    try {
-      const user = await signIn(form.values.email, form.values.password);
-      setCreatedAs({
-        email: user.email,
-        to: next || homeFor(user.role),
-      });
-    } catch {
+    } finally {
       setIsLoading(false);
-      setBanner({ kind: 'signed-out-after-create' });
     }
   }
 
@@ -171,19 +149,24 @@ export function RegisterForm() {
     setBanner(classified);
   }
 
-  if (createdAs) {
+  if (createdEmail) {
     return (
       <div className="flex flex-col gap-4">
-        <Alert tone="success" title="Account created">
-          You are signed in as{' '}
-          <span className="font-mono text-text">{createdAs.email}</span>.
+        <Alert tone="success" title="Check your email">
+          We sent a verification link to{' '}
+          <span className="font-mono text-text">{createdEmail}</span>. Open the
+          link within 30 minutes to activate your account.
         </Alert>
-        <ButtonLink href={createdAs.to} size="lg" isFullWidth>
-          Go to my dashboard
-        </ButtonLink>
-        <p role="status" className="tabular text-caption text-text-faint">
-          Taking you there in {redirectIn} seconds.
+        <p className="text-body-sm text-text-muted">
+          You cannot sign in until your email is verified. If the email does not
+          arrive, use the verification page to request another one.
         </p>
+        <ButtonLink href="/verify-email" size="lg" isFullWidth>
+          Open verification page
+        </ButtonLink>
+        <ButtonLink href="/login" variant="secondary" isFullWidth>
+          Back to log in
+        </ButtonLink>
       </div>
     );
   }
@@ -213,24 +196,12 @@ export function RegisterForm() {
 
   return (
     <>
-      {banner && banner.kind !== 'signed-out-after-create' && (
+      {banner && (
         <ApiProblemAlerts
           problem={banner}
           alertRef={alertRef}
           remaining={waiting}
         />
-      )}
-      {banner?.kind === 'signed-out-after-create' && (
-        <Alert ref={alertRef} tone="warning" title="Your account was created">
-          We could not sign you in just now.{' '}
-          <Link
-            href="/login"
-            className="font-semibold underline underline-offset-4"
-          >
-            Log in
-          </Link>{' '}
-          with the email and password you chose.
-        </Alert>
       )}
       {issues.length > 0 && failedSubmits > 0 && (
         <ErrorSummary key={failedSubmits} issues={issues} />

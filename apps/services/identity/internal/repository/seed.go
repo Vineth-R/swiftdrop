@@ -58,8 +58,8 @@ func (r *Repository) SeedDemoUsers(ctx context.Context, users []SeedUser) (SeedR
 		var userID string
 		err := r.db.QueryRow(ctx, `
 			INSERT INTO identity.users
-				(email, password_hash, full_name, phone, role_id, auth_provider)
-			SELECT $1, $2, $3, NULL, ro.id, 'LOCAL'
+				(email, password_hash, full_name, phone, role_id, auth_provider, email_verified)
+			SELECT $1, $2, $3, NULL, ro.id, 'LOCAL', true
 			FROM identity.roles ro
 			WHERE ro.name = $4
 			ON CONFLICT DO NOTHING

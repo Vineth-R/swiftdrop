@@ -24,7 +24,10 @@ type Recipient struct {
 // safe for concurrent use. The default does nothing, which is what a service
 // without an SMTP server gets.
 type Notifier interface {
-	// Welcome follows a new customer account, made by email or with Google.
+	// VerifyEmail follows a customer registration and carries a single-use
+	// verification link. It never carries a password.
+	VerifyEmail(ctx context.Context, to Recipient, link string, validFor time.Duration)
+	// Welcome follows a verified customer account, made by email or with Google.
 	Welcome(ctx context.Context, to Recipient)
 	// PasswordChanged follows a password change or reset. byReset is true for a
 	// reset link and false for a change from the profile.
@@ -51,11 +54,12 @@ func WithNotifier(notifier Notifier) Option {
 // noNotifier is the default: no SMTP server, no account email.
 type noNotifier struct{}
 
-func (noNotifier) Welcome(context.Context, Recipient)                          {}
-func (noNotifier) PasswordChanged(context.Context, Recipient, bool, time.Time) {}
-func (noNotifier) StaffAccountCreated(context.Context, Recipient, auth.Role)   {}
-func (noNotifier) AccountLocked(context.Context, Recipient, time.Duration)     {}
-func (noNotifier) AccountStatusChanged(context.Context, Recipient, bool)       {}
+func (noNotifier) VerifyEmail(context.Context, Recipient, string, time.Duration) {}
+func (noNotifier) Welcome(context.Context, Recipient)                            {}
+func (noNotifier) PasswordChanged(context.Context, Recipient, bool, time.Time)   {}
+func (noNotifier) StaffAccountCreated(context.Context, Recipient, auth.Role)     {}
+func (noNotifier) AccountLocked(context.Context, Recipient, time.Duration)       {}
+func (noNotifier) AccountStatusChanged(context.Context, Recipient, bool)         {}
 
 func recipientOf(user repository.User) Recipient {
 	return Recipient{UserID: user.ID, Email: user.Email, FullName: user.FullName}

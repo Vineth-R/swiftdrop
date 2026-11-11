@@ -456,6 +456,7 @@ jobs:
       services: ${{ steps.matrix.outputs.services }}
       access: ${{ steps.filter.outputs.access }}
       notificationflow: ${{ steps.filter.outputs.notificationflow }}
+      realstack: ${{ steps.filter.outputs.realstack }}
     steps:
       - uses: actions/checkout@v5
 
@@ -530,6 +531,25 @@ jobs:
               - 'tsconfig.base.json'
               - 'tsconfig.json'
               - 'apps/web-e2e/package.json'
+            realstack:
+              - 'apps/web/**'
+              - 'apps/web-e2e/**'
+              - 'apps/services/identity/**'
+              - 'apps/services/merchant/**'
+              - 'apps/services/pricing/**'
+              - 'packages/**'
+              - 'migrations/identity/**'
+              - 'migrations/merchant/**'
+              - 'contracts/**'
+              - 'docker-compose.yml'
+              - 'infra/docker/**'
+              - 'infra/nginx/**'
+              - 'scripts/migrate.sh'
+              - 'Makefile'
+              - '.env.example'
+              - 'go.mod'
+              - 'go.sum'
+              - '.github/workflows/ci.yml'
             access:
               - 'docker-compose.yml'
               - 'infra/nginx/**'
@@ -563,7 +583,7 @@ jobs:
           CHANGED: ${{ steps.filter.outputs.changes }}
         run: |
           set -euo pipefail
-          services="$(jq -c '[.[] | select(. != "access") | select(. != "notificationflow")]' <<< "${CHANGED:-[]}")"
+          services="$(jq -c '[.[] | select(. != "access") | select(. != "notificationflow") | select(. != "realstack")]' <<< "${CHANGED:-[]}")"
           echo "services=${services}" >> "$GITHUB_OUTPUT"
 
   docker:
@@ -722,6 +742,70 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  real-stack-e2e:
+    name: Real-stack onboarding E2E (Compose + Mailpit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: changes
+    if: needs.changes.outputs.realstack == 'true'
+    env:
+      COMPOSE_PROJECT_NAME: swiftdrop-realstack
+      REAL_STACK: '1'
+      REAL_STACK_BASE_URL: http://localhost:8080
+      REAL_STACK_ADMIN_EMAIL: realstack.admin@example.test
+      REAL_STACK_ADMIN_PASSWORD: Str0ngPass!
+      MAILPIT_URL: http://localhost:8025
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare local environment
+        run: cp .env.example .env
+
+      - name: Build all images
+        run: make build
+
+      - name: Start the stack
+        run: docker compose up -d --no-build --wait --wait-timeout 600
+
+      - name: Apply database migrations
+        run: make migrate
+
+      - name: Create the real-stack administrator
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST http://localhost:8080/api/v1/auth/register \
+            -H 'Content-Type: application/json' \
+            --data '{"email":"realstack.admin@example.test","password":"Str0ngPass!","fullName":"Real Stack Admin","phone":"+94771234567"}' >/dev/null
+          printf '%s\n' \
+            "UPDATE identity.users SET role_id = (SELECT id FROM identity.roles WHERE name = 'ADMIN'), email_verified = true WHERE lower(email) = 'realstack.admin@example.test';" \
+            | docker compose exec -T postgres sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run real-stack Playwright
+        run: pnpm exec nx run @org/web-e2e:e2e --args="--project=real-stack"
+
+      - name: Show service logs after a failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
+
   notificationflow:
     name: Notification worker E2E (Compose)
     runs-on: ubuntu-latest
@@ -841,6 +925,7 @@ jobs:
       - changes
       - docker
       - access
+      - real-stack-e2e
       - notificationflow
       - security-gate
     runs-on: ubuntu-latest
@@ -859,8 +944,10 @@ jobs:
           ACCESS_RESULT: ${{ needs.access.result }}
           SECURITY_GATE_RESULT: ${{ needs['security-gate'].result }}
           NOTIFICATIONFLOW_RESULT: ${{ needs.notificationflow.result }}
+          REALSTACK_RESULT: ${{ needs.real-stack-e2e.result }}
         run: |
           set -euo pipefail
+          REALSTACK_RESULT="${REALSTACK_RESULT:-skipped}"
           failed=0
 
           check_required() {
@@ -895,6 +982,7 @@ jobs:
           check_optional "access" "$ACCESS_RESULT"
           check_required "security-gate" "$SECURITY_GATE_RESULT"
           check_optional "notificationflow" "$NOTIFICATIONFLOW_RESULT"
+          check_optional "real-stack-e2e" "$REALSTACK_RESULT"
 
           exit "$failed"
 

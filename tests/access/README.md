@@ -62,5 +62,8 @@ The suite must fail when a rule is broken, or it proves nothing. Two checks do t
 
 ## Known gaps these tests report
 
-- The merchant service does not verify access tokens on `/merchants/*` and `/admin/merchants/*`. Every caller is refused, so the routes fail closed, but a merchant cannot use them and an admin cannot approve anyone. The matrix marks them `Pending`.
-- Customer parcel, dispatch and courier delivery routes participate in the matrix and real ownership tests. The merchant route cases remain `Pending` or `Missing` until the merchant service verifies tokens and exposes orders.
+- Merchant routes now verify access tokens. Merchant business routes also compare
+  the JWT `sv` session version with Identity and require an APPROVED merchant.
+  Merchant admin routes use the short-lived ADMIN JWT.
+- Customer parcel, dispatch and courier delivery routes participate in the matrix
+  and real ownership tests. Merchant order routes remain future work.

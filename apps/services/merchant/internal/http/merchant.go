@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/onboarding"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
@@ -39,28 +44,190 @@ func identityFrom(c *gin.Context) (Identity, bool) {
 }
 
 type merchantHandler struct {
-	repository *repository.Repository
-	logger     *slog.Logger
+	repository         *repository.Repository
+	onboarding         *onboarding.Service
+	identity           *identityclient.Client
+	internalTokenValue string
+	logger             *slog.Logger
 }
 
-func registerMerchantRoutes(router *gin.Engine, repo *repository.Repository, logger *slog.Logger) {
-	h := &merchantHandler{repository: repo, logger: logger}
-	merchants := router.Group("/merchants")
+func registerMerchantRoutes(router *gin.Engine, options Options) {
+	repo := options.Repository
+	h := &merchantHandler{repository: repo, onboarding: options.Onboarding, identity: options.Identity, internalTokenValue: options.InternalToken, logger: options.Logger}
+
+	limiter := httpx.NewRateLimiter(10, time.Minute)
+	router.POST("/merchants/register", limiter.Middleware(), h.register)
+	router.GET("/internal/merchants/owners/:userId/approval", h.internalApproval)
+
+	merchants := router.Group("/merchants", noStore())
+	admin := router.Group("/admin/merchants", noStore())
+	if options.AccessSecret == "" {
+		merchants.Use(unavailable("authentication is not configured"))
+		admin.Use(unavailable("authentication is not configured"))
+	} else {
+		manager, err := auth.NewTokenManager(options.AccessSecret, time.Minute)
+		if err == nil {
+			cookie := options.CookieName
+			if cookie == "" {
+				cookie = "sd_access"
+			}
+			merchants.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleMerchant), h.requireSession)
+			admin.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleAdmin))
+		} else {
+			merchants.Use(unavailable("authentication is not configured"))
+			admin.Use(unavailable("authentication is not configured"))
+		}
+	}
+
 	merchants.GET("/me", h.profile)
-	merchants.PATCH("/me", h.updateProfile)
 	merchants.GET("/me/keys", h.listKeys)
 	merchants.POST("/me/keys", h.createKey)
 	merchants.DELETE("/me/keys/:keyId", h.revokeKey)
-	admin := router.Group("/admin/merchants")
+	merchants.PATCH("/me", h.updateProfile)
+
+	admin.GET("", h.list)
 	admin.GET("/:merchantId", h.adminDetail)
 	admin.POST("/:merchantId/approve", h.approve)
 	admin.POST("/:merchantId/reject", h.reject)
 	admin.POST("/:merchantId/suspend", h.suspend)
 }
 
-func (h *merchantHandler) listKeys(c *gin.Context) {
-	identity, ok := merchantIdentity(c)
+func (h *merchantHandler) register(c *gin.Context) {
+	if h.onboarding == nil {
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "merchant registration is not configured")
+		return
+	}
+	var input onboarding.RegisterInput
+	if c.ContentType() != "application/json" {
+		httpx.Error(c, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "content type must be application/json")
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+	if err := c.ShouldBindJSON(&input); err != nil {
+		httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "request body must be valid JSON")
+		return
+	}
+	input.IdempotencyKey = c.GetHeader("Idempotency-Key")
+	result, err := h.onboarding.Register(c.Request.Context(), input)
+	if err != nil {
+		h.onboardingError(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusCreated, gin.H{"merchantId": result.MerchantID, "userId": result.UserID, "status": result.Status})
+}
+
+func (h *merchantHandler) requireSession(c *gin.Context) {
+	claims, ok := auth.ClaimsFrom(c)
+	if !ok || h.identity == nil {
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "authentication could not be verified")
+		return
+	}
+	state, err := h.identity.SessionState(c.Request.Context(), claims.UserID)
+	if err != nil {
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "authentication could not be verified")
+		return
+	}
+	if !sessionIsCurrent(claims, state) {
+		if h.logger != nil {
+			h.logger.WarnContext(c.Request.Context(), "merchant session rejected",
+				"user_id", claims.UserID, "claim_role", claims.Role, "claim_version", claims.SessionVersion,
+				"state_role", state.Role, "state_active", state.IsActive, "state_version", state.SessionVersion)
+		}
+		httpx.Error(c, http.StatusUnauthorized, "SESSION_REVOKED", "this session is no longer valid")
+		return
+	}
+	merchant, err := h.repository.MerchantByOwnerUserID(c.Request.Context(), claims.UserID)
+	if errors.Is(err, repository.ErrNotFound) {
+		httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_PROVISIONED", "merchant account is not provisioned")
+		return
+	}
+	if err != nil {
+		h.internalError(c, "merchant_lookup", "merchant account could not be read", err)
+		return
+	}
+	WithIdentity(c, Identity{UserID: claims.UserID, MerchantID: merchant.ID, Role: string(auth.RoleMerchant)})
+	c.Set("merchant.status", merchant.Status)
+	c.Next()
+}
+
+func sessionIsCurrent(claims auth.Claims, state identityclient.SessionState) bool {
+	return state.IsActive && state.Role == string(claims.Role) && state.SessionVersion == claims.SessionVersion
+}
+
+func (h *merchantHandler) merchantIdentity(c *gin.Context) (Identity, repository.Merchant, bool) {
+	identity, ok := identityFrom(c)
+	if !ok || identity.MerchantID == "" || identity.Role != string(auth.RoleMerchant) {
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "merchant authentication required")
+		return Identity{}, repository.Merchant{}, false
+	}
+	merchant, err := h.repository.MerchantByID(c.Request.Context(), identity.MerchantID)
+	if err != nil {
+		h.handleRepositoryError(c, err)
+		return Identity{}, repository.Merchant{}, false
+	}
+	return identity, merchant, true
+}
+
+func (h *merchantHandler) requireApproved(c *gin.Context, merchant repository.Merchant) bool {
+	if merchant.Status != repository.MerchantStatusApproved {
+		httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_APPROVED", "merchant approval is required")
+		return false
+	}
+	return true
+}
+
+func (h *merchantHandler) profile(c *gin.Context) {
+	_, merchant, ok := h.merchantIdentity(c)
 	if !ok {
+		return
+	}
+	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
+}
+
+type profileRequest struct {
+	ContactEmail  string `json:"contactEmail"`
+	ContactPhone  string `json:"contactPhone"`
+	PickupAddress string `json:"pickupAddress"`
+	PickupZoneID  string `json:"pickupZoneId"`
+}
+
+func (h *merchantHandler) updateProfile(c *gin.Context) {
+	identity, merchant, ok := h.merchantIdentity(c)
+	if !ok {
+		return
+	}
+	if merchant.Status != repository.MerchantStatusPending && merchant.Status != repository.MerchantStatusApproved {
+		httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_APPROVED", "this merchant account cannot be edited")
+		return
+	}
+	var request profileRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid merchant profile")
+		return
+	}
+	issues := validation.New()
+	issues.Email("contactEmail", strings.TrimSpace(request.ContactEmail))
+	issues.RequiredExact("contactPhone", request.ContactPhone)
+	issues.RequiredExact("pickupAddress", request.PickupAddress)
+	issues.Custom("pickupZoneId", validation.UUID(strings.TrimSpace(request.PickupZoneID)), "must be a UUID")
+	if !issues.Empty() {
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", httpx.ErrorItems(issues.Issues()))
+		return
+	}
+	updated, err := h.repository.UpdateProfile(c.Request.Context(), identity.MerchantID, repository.ProfileUpdate{
+		ContactEmail: strings.TrimSpace(request.ContactEmail), ContactPhone: strings.TrimSpace(request.ContactPhone),
+		PickupAddress: strings.TrimSpace(request.PickupAddress), PickupZoneID: strings.TrimSpace(request.PickupZoneID),
+	})
+	if err != nil {
+		h.handleRepositoryError(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, merchantResponse(updated))
+}
+
+func (h *merchantHandler) listKeys(c *gin.Context) {
+	identity, merchant, ok := h.merchantIdentity(c)
+	if !ok || !h.requireApproved(c, merchant) {
 		return
 	}
 	keys, err := h.repository.APIClientsByMerchant(c.Request.Context(), identity.MerchantID)
@@ -80,17 +247,8 @@ type keyRequest struct {
 }
 
 func (h *merchantHandler) createKey(c *gin.Context) {
-	identity, ok := merchantIdentity(c)
-	if !ok {
-		return
-	}
-	merchant, err := h.repository.MerchantByID(c.Request.Context(), identity.MerchantID)
-	if err != nil {
-		h.handleRepositoryError(c, err)
-		return
-	}
-	if merchant.Status != repository.MerchantStatusApproved {
-		httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_APPROVED", "merchant approval is required")
+	identity, merchant, ok := h.merchantIdentity(c)
+	if !ok || !h.requireApproved(c, merchant) {
 		return
 	}
 	var request keyRequest
@@ -130,8 +288,8 @@ func randomUUID() (string, error) {
 }
 
 func (h *merchantHandler) revokeKey(c *gin.Context) {
-	identity, ok := merchantIdentity(c)
-	if !ok {
+	identity, merchant, ok := h.merchantIdentity(c)
+	if !ok || !h.requireApproved(c, merchant) {
 		return
 	}
 	if err := h.repository.RevokeAPIClient(c.Request.Context(), identity.MerchantID, c.Param("keyId")); err != nil {
@@ -141,76 +299,37 @@ func (h *merchantHandler) revokeKey(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func merchantIdentity(c *gin.Context) (Identity, bool) {
-	identity, ok := identityFrom(c)
-	if !ok || identity.MerchantID == "" || identity.Role != "MERCHANT" {
-		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "merchant authentication required")
-		return Identity{}, false
+func (h *merchantHandler) list(c *gin.Context) {
+	query := c.Request.URL.Query()
+	page, _ := strconv.Atoi(query.Get("page"))
+	pageSize, _ := strconv.Atoi(query.Get("pageSize"))
+	if page < 1 {
+		page = 1
 	}
-	return identity, true
-}
-
-func (h *merchantHandler) profile(c *gin.Context) {
-	identity, ok := identityFrom(c)
-	if !ok || identity.MerchantID == "" || identity.Role != "MERCHANT" {
-		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "merchant authentication required")
-		return
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
 	}
-	merchant, err := h.repository.MerchantByID(c.Request.Context(), identity.MerchantID)
-	if err != nil {
-		h.handleRepositoryError(c, err)
-		return
+	desc := true
+	if value := query.Get("sort"); strings.HasSuffix(value, ":asc") {
+		desc = false
 	}
-	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
-}
-
-type profileRequest struct {
-	ContactEmail  string `json:"contactEmail" binding:"required,email"`
-	ContactPhone  string `json:"contactPhone"`
-	PickupAddress string `json:"pickupAddress"`
-	PickupZoneID  string `json:"pickupZoneId"`
-}
-
-func (h *merchantHandler) updateProfile(c *gin.Context) {
-	identity, ok := identityFrom(c)
-	if !ok || identity.MerchantID == "" || identity.Role != "MERCHANT" {
-		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "merchant authentication required")
-		return
-	}
-	var request profileRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid merchant profile")
-		return
-	}
-	if len(validateProfileRequest(request)) > 0 {
-		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid merchant profile")
-		return
-	}
-	merchant, err := h.repository.UpdateProfile(c.Request.Context(), identity.MerchantID, repository.ProfileUpdate{
-		ContactEmail: strings.TrimSpace(request.ContactEmail), ContactPhone: strings.TrimSpace(request.ContactPhone),
-		PickupAddress: strings.TrimSpace(request.PickupAddress), PickupZoneID: strings.TrimSpace(request.PickupZoneID),
+	merchants, total, err := h.repository.ListMerchants(c.Request.Context(), repository.MerchantFilter{
+		Status: strings.ToUpper(query.Get("status")), Search: query.Get("q"),
+		Sort: strings.TrimSuffix(strings.TrimSuffix(query.Get("sort"), ":asc"), ":desc"),
+		Desc: desc, Limit: pageSize, Offset: (page - 1) * pageSize,
 	})
 	if err != nil {
 		h.handleRepositoryError(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
-}
-
-// validateProfileRequest preserves the original Gin "required" semantics:
-// only empty values are missing, whitespace-only values remain accepted.
-func validateProfileRequest(request profileRequest) []validation.Issue {
-	issues := validation.New()
-	issues.RequiredExact("contactPhone", request.ContactPhone)
-	issues.RequiredExact("pickupAddress", request.PickupAddress)
-	issues.RequiredExact("pickupZoneId", request.PickupZoneID)
-	return issues.Issues()
+	items := make([]merchantDTO, 0, len(merchants))
+	for _, merchant := range merchants {
+		items = append(items, merchantResponse(merchant))
+	}
+	httpx.SuccessList(c, http.StatusOK, items, httpx.NewPagination(page, pageSize, total))
 }
 
 func (h *merchantHandler) adminDetail(c *gin.Context) {
-	if !requireAdmin(c) {
-		return
-	}
 	merchant, err := h.repository.MerchantByID(c.Request.Context(), c.Param("merchantId"))
 	if err != nil {
 		h.handleRepositoryError(c, err)
@@ -220,66 +339,112 @@ func (h *merchantHandler) adminDetail(c *gin.Context) {
 }
 
 func (h *merchantHandler) approve(c *gin.Context) {
-	identity, ok := requireAdminIdentity(c)
-	if !ok {
-		return
-	}
-	merchant, err := h.repository.ApproveMerchant(c.Request.Context(), c.Param("merchantId"), identity.UserID)
-	if err != nil {
-		h.handleRepositoryError(c, err)
-		return
-	}
-	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
+	h.decide(c, "approve")
 }
 
 type reasonRequest struct {
-	Reason string `json:"reason"`
+	Reason *string `json:"reason"`
 }
 
 func (h *merchantHandler) reject(c *gin.Context) {
-	identity, ok := requireAdminIdentity(c)
-	if !ok {
-		return
-	}
-	var request reasonRequest
-	if c.ShouldBindJSON(&request) != nil || !validation.Required(request.Reason) {
-		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a rejection reason is required")
-		return
-	}
-	merchant, err := h.repository.RejectMerchant(c.Request.Context(), c.Param("merchantId"), identity.UserID, strings.TrimSpace(request.Reason))
-	if err != nil {
-		h.handleRepositoryError(c, err)
-		return
-	}
-	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
+	h.decide(c, "reject")
 }
 
 func (h *merchantHandler) suspend(c *gin.Context) {
-	identity, ok := requireAdminIdentity(c)
-	if !ok {
-		return
-	}
-	var request reasonRequest
-	if c.ShouldBindJSON(&request) != nil || !validation.Required(request.Reason) {
-		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a suspension reason is required")
-		return
-	}
-	merchant, err := h.repository.SuspendMerchant(c.Request.Context(), c.Param("merchantId"), identity.UserID, strings.TrimSpace(request.Reason))
-	if err != nil {
-		h.handleRepositoryError(c, err)
-		return
-	}
-	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
+	h.decide(c, "suspend")
 }
 
-func requireAdmin(c *gin.Context) bool { _, ok := requireAdminIdentity(c); return ok }
-func requireAdminIdentity(c *gin.Context) (Identity, bool) {
-	identity, ok := identityFrom(c)
-	if !ok || identity.Role != "ADMIN" {
-		httpx.Error(c, http.StatusForbidden, "FORBIDDEN", "administrator access required")
-		return Identity{}, false
+func (h *merchantHandler) decide(c *gin.Context, action string) {
+	if h.onboarding == nil {
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "merchant lifecycle is not configured")
+		return
 	}
-	return identity, true
+	claims, ok := auth.ClaimsFrom(c)
+	if !ok {
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
+		return
+	}
+	var reason *string
+	if action != "approve" {
+		var request reasonRequest
+		if c.Request.ContentLength != 0 {
+			if c.ContentType() != "application/json" {
+				httpx.Error(c, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "content type must be application/json")
+				return
+			}
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
+			if err := c.ShouldBindJSON(&request); err != nil {
+				httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "request body must be valid JSON")
+				return
+			}
+		}
+		reason = request.Reason
+	}
+	var (
+		result onboarding.DecisionResult
+		err    error
+	)
+	switch action {
+	case "approve":
+		result, err = h.onboarding.Approve(c.Request.Context(), c.Param("merchantId"), claims.UserID)
+	case "reject":
+		result, err = h.onboarding.Reject(c.Request.Context(), c.Param("merchantId"), claims.UserID, reason)
+	default:
+		result, err = h.onboarding.Suspend(c.Request.Context(), c.Param("merchantId"), claims.UserID, reason)
+	}
+	if err != nil {
+		h.onboardingError(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{
+		"id": result.Merchant.ID, "status": result.Merchant.Status, "identitySync": result.IdentitySync,
+		"alreadyDone": result.AlreadyDone, "approvedAt": result.Merchant.ApprovedAt,
+		"rejectionReason": result.Merchant.RejectionReason, "suspensionReason": result.Merchant.SuspensionReason,
+	})
+}
+
+func (h *merchantHandler) internalApproval(c *gin.Context) {
+	if !requireInternalToken(c, h.internalTokenValue) {
+		return
+	}
+	if !requestid.Valid(c.GetHeader(requestid.Header)) {
+		httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "a valid X-Request-Id header is required")
+		return
+	}
+	merchant, err := h.repository.MerchantByOwnerUserID(c.Request.Context(), c.Param("userId"))
+	if errors.Is(err, repository.ErrNotFound) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+		return
+	}
+	if err != nil {
+		h.internalError(c, "merchant_approval_lookup", "merchant status could not be read", err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"merchantId": merchant.ID, "status": merchant.Status})
+}
+
+func (h *merchantHandler) onboardingError(c *gin.Context, err error) {
+	var validationErr *onboarding.ValidationError
+	switch {
+	case errors.As(err, &validationErr):
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", httpx.ErrorItems(validationErr.Issues))
+	case errors.Is(err, onboarding.ErrEmailInUse):
+		httpx.Error(c, http.StatusConflict, "EMAIL_ALREADY_EXISTS", "an account with this email already exists")
+	case errors.Is(err, onboarding.ErrDuplicateApplication):
+		httpx.Error(c, http.StatusConflict, "DUPLICATE_MERCHANT_APPLICATION", "a merchant application already exists for this email")
+	case errors.Is(err, onboarding.ErrDuplicateBusiness):
+		httpx.Error(c, http.StatusConflict, "DUPLICATE_BUSINESS_REGISTRATION", "this business registration number is already registered")
+	case errors.Is(err, onboarding.ErrActivationFailed):
+		httpx.Error(c, http.StatusServiceUnavailable, "MERCHANT_ACTIVATION_FAILED", "merchant activation failed; retry safely")
+	case errors.Is(err, onboarding.ErrUnavailable):
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "a required service is unavailable, try again later")
+	case errors.Is(err, repository.ErrNotFound):
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+	case errors.Is(err, repository.ErrInvalidState):
+		httpx.Error(c, http.StatusConflict, "INVALID_MERCHANT_STATE", "merchant state transition is not allowed")
+	default:
+		h.internalError(c, "merchant_onboarding", "merchant operation failed", err)
+	}
 }
 
 func (h *merchantHandler) handleRepositoryError(c *gin.Context, err error) {
@@ -296,33 +461,59 @@ func (h *merchantHandler) handleRepositoryError(c *gin.Context, err error) {
 func (h *merchantHandler) internalError(c *gin.Context, operation, message string, err error) {
 	if h.logger != nil {
 		h.logger.ErrorContext(c.Request.Context(), "merchant request failed",
-			"request_id", requestid.FromGin(c),
-			"path", c.FullPath(),
-			"operation", operation,
-			"error", err.Error(),
-		)
+			"request_id", requestid.FromGin(c), "path", c.FullPath(), "operation", operation, "error", err.Error())
 	}
 	httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)
 }
 
 type merchantDTO struct {
-	ID               string                    `json:"id"`
-	OwnerUserID      string                    `json:"ownerUserId"`
-	BusinessName     string                    `json:"businessName"`
-	BusinessRegNo    *string                   `json:"registrationNumber,omitempty"`
-	ContactEmail     string                    `json:"contactEmail"`
-	ContactPhone     string                    `json:"contactPhone"`
-	PickupAddress    string                    `json:"pickupAddress"`
-	PickupZoneID     string                    `json:"pickupZoneId"`
-	Status           repository.MerchantStatus `json:"status"`
-	ApprovedBy       *string                   `json:"approvedBy,omitempty"`
-	ApprovedAt       any                       `json:"approvedAt,omitempty"`
-	RejectionReason  *string                   `json:"rejectionReason,omitempty"`
-	SuspensionReason *string                   `json:"suspensionReason,omitempty"`
-	CreatedAt        any                       `json:"createdAt"`
-	UpdatedAt        any                       `json:"updatedAt"`
+	ID                 string                    `json:"id"`
+	OwnerUserID        string                    `json:"ownerUserId"`
+	BusinessName       string                    `json:"businessName"`
+	RegistrationNumber *string                   `json:"registrationNumber,omitempty"`
+	BusinessAddress    *string                   `json:"businessAddress,omitempty"`
+	ContactEmail       string                    `json:"contactEmail"`
+	ContactPhone       string                    `json:"contactPhone"`
+	PickupAddress      string                    `json:"pickupAddress"`
+	PickupZoneID       string                    `json:"pickupZoneId"`
+	Status             repository.MerchantStatus `json:"status"`
+	ApprovedBy         *string                   `json:"approvedBy,omitempty"`
+	ApprovedAt         any                       `json:"approvedAt,omitempty"`
+	RejectionReason    *string                   `json:"rejectionReason,omitempty"`
+	SuspensionReason   *string                   `json:"suspensionReason,omitempty"`
+	CreatedAt          any                       `json:"createdAt"`
+	UpdatedAt          any                       `json:"updatedAt"`
 }
 
 func merchantResponse(merchant repository.Merchant) merchantDTO {
-	return merchantDTO{ID: merchant.ID, OwnerUserID: merchant.OwnerUserID, BusinessName: merchant.BusinessName, BusinessRegNo: merchant.BusinessRegNo, ContactEmail: merchant.ContactEmail, ContactPhone: merchant.ContactPhone, PickupAddress: merchant.PickupAddress, PickupZoneID: merchant.PickupZoneID, Status: merchant.Status, ApprovedBy: merchant.ApprovedBy, ApprovedAt: merchant.ApprovedAt, RejectionReason: merchant.RejectionReason, SuspensionReason: merchant.SuspensionReason, CreatedAt: merchant.CreatedAt, UpdatedAt: merchant.UpdatedAt}
+	return merchantDTO{ID: merchant.ID, OwnerUserID: merchant.OwnerUserID, BusinessName: merchant.BusinessName, RegistrationNumber: merchant.BusinessRegNo, BusinessAddress: merchant.BusinessAddress, ContactEmail: merchant.ContactEmail, ContactPhone: merchant.ContactPhone, PickupAddress: merchant.PickupAddress, PickupZoneID: merchant.PickupZoneID, Status: merchant.Status, ApprovedBy: merchant.ApprovedBy, ApprovedAt: merchant.ApprovedAt, RejectionReason: merchant.RejectionReason, SuspensionReason: merchant.SuspensionReason, CreatedAt: merchant.CreatedAt, UpdatedAt: merchant.UpdatedAt}
+}
+
+// merchantIdentity is retained for handler-level tests and callers that only
+// need the authenticated identity. New routes resolve the merchant row through
+// merchantHandler.merchantIdentity.
+func merchantIdentity(c *gin.Context) (Identity, bool) {
+	identity, ok := identityFrom(c)
+	if !ok || identity.MerchantID == "" || identity.Role != string(auth.RoleMerchant) {
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "merchant authentication required")
+		return Identity{}, false
+	}
+	return identity, true
+}
+
+func requireAdminIdentity(c *gin.Context) (Identity, bool) {
+	identity, ok := identityFrom(c)
+	if !ok || identity.Role != string(auth.RoleAdmin) {
+		httpx.Error(c, http.StatusForbidden, "FORBIDDEN", "administrator access required")
+		return Identity{}, false
+	}
+	return identity, true
+}
+
+func validateProfileRequest(request profileRequest) []validation.Issue {
+	issues := validation.New()
+	issues.RequiredExact("contactPhone", request.ContactPhone)
+	issues.RequiredExact("pickupAddress", request.PickupAddress)
+	issues.RequiredExact("pickupZoneId", request.PickupZoneID)
+	return issues.Issues()
 }

@@ -183,11 +183,13 @@ test('a long daily table is split into pages', async ({ page }) => {
   const table = page.getByRole('table', { name: 'Daily parcels' });
   await expect(table.getByRole('row')).toHaveCount(16);
   await expect(page.getByText('Page 1 of 3')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Previous' })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Previous', exact: true }),
+  ).toBeDisabled();
 
   await expect(table.getByRole('row').nth(1)).toContainText('9 Nov 2026');
 
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByText('Page 2 of 3')).toBeVisible();
   await expect(table.getByRole('cell', { name: '25 Oct 2026' })).toBeVisible();
 });

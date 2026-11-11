@@ -182,6 +182,8 @@ func (h *adminHandlers) requireCurrentAccess(required auth.Role) gin.HandlerFunc
 			httpx.Error(c, http.StatusForbidden, "ACCOUNT_DISABLED", "this account has been disabled")
 		case !access.Role.Satisfies(required):
 			httpx.Error(c, http.StatusForbidden, "FORBIDDEN", "not allowed")
+		case access.SessionVersion != claims.SessionVersion:
+			httpx.Error(c, http.StatusUnauthorized, "SESSION_REVOKED", "this session is no longer valid")
 		default:
 			c.Next()
 		}

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +50,16 @@ func (f *fakeService) Refresh(_ context.Context, input service.RefreshInput) (se
 	f.calls++
 	f.refreshed = input
 	return f.session, f.err
+}
+
+func (f *fakeService) VerifyEmail(_ context.Context, token string) error {
+	f.calls++
+	return f.err
+}
+
+func (f *fakeService) ResendVerification(_ context.Context, email string, _ netip.Addr) error {
+	f.calls++
+	return f.err
 }
 
 func (f *fakeService) Logout(_ context.Context, userID, refreshToken string) error {

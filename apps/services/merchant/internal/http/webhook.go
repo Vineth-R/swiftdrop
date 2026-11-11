@@ -76,6 +76,10 @@ type WebhookConfig struct {
 	AccessSecret string
 	CookieName   string
 	Logger       *slog.Logger
+	// SessionCheck returns the current Identity active flag and session
+	// version. It is optional so existing tests can exercise the webhook
+	// handlers directly.
+	SessionCheck func(ctx context.Context, userID string) (bool, int, error)
 }
 
 // RegisterWebhookRoutes adds the four webhook endpoints to the router.
@@ -96,7 +100,7 @@ func RegisterWebhookRoutes(router *gin.Engine, config WebhookConfig) error {
 		sender = config.Sender
 	}
 	_, err := registerWebhookRoutes(router, store, cipher, sender,
-		config.AccessSecret, config.CookieName, config.Logger)
+		config.AccessSecret, config.CookieName, config.SessionCheck, config.Logger)
 	return err
 }
 
@@ -125,7 +129,7 @@ type webhookHandler struct {
 }
 
 func registerWebhookRoutes(router *gin.Engine, store webhookStore, cipher secretCipher, sender webhookSender,
-	accessSecret, cookieName string, logger *slog.Logger,
+	accessSecret, cookieName string, sessionCheck func(context.Context, string) (bool, int, error), logger *slog.Logger,
 ) (*webhookHandler, error) {
 	h := &webhookHandler{store: store, cipher: cipher, sender: sender, checkURL: checkWebhookURL, logger: logger, now: time.Now}
 	group := router.Group("/merchants/me/webhook", noStore())
@@ -144,6 +148,25 @@ func registerWebhookRoutes(router *gin.Engine, store webhookStore, cipher secret
 			cookieName = "sd_access"
 		}
 		group.Use(auth.Authenticate(manager, cookieName), auth.RequireRoles(auth.RoleMerchant))
+		if sessionCheck != nil {
+			group.Use(func(c *gin.Context) {
+				claims, ok := auth.ClaimsFrom(c)
+				if !ok {
+					httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
+					return
+				}
+				active, version, err := sessionCheck(c.Request.Context(), claims.UserID)
+				if err != nil {
+					httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "authentication could not be verified")
+					return
+				}
+				if !active || version != claims.SessionVersion {
+					httpx.Error(c, http.StatusUnauthorized, "SESSION_REVOKED", "this session is no longer valid")
+					return
+				}
+				c.Next()
+			})
+		}
 	}
 
 	group.GET("", h.get)
@@ -182,6 +205,10 @@ func (h *webhookHandler) merchant(c *gin.Context) (repository.Merchant, bool) {
 	}
 	if err != nil {
 		h.internalError(c, "merchant_lookup", "webhook operation failed", err)
+		return repository.Merchant{}, false
+	}
+	if merchant.Status != repository.MerchantStatusApproved {
+		httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_APPROVED", "merchant approval is required")
 		return repository.Merchant{}, false
 	}
 	return merchant, true

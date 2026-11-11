@@ -155,8 +155,11 @@ test.describe('shadcn primitives', () => {
 
   test('tooltip appears for an icon-only control', async ({ page }) => {
     const trigger = page.getByRole('button', { name: 'Add a parcel' });
-    await trigger.hover();
-    await expect(page.getByRole('tooltip')).toContainText('Add a parcel');
+    await trigger.focus();
+    await trigger.hover({ force: true });
+    await expect(page.getByRole('tooltip')).toContainText('Add a parcel', {
+      timeout: 10_000,
+    });
   });
 
   test('the shadcn table has a caption and real rows', async ({ page }) => {

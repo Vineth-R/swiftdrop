@@ -23,10 +23,11 @@ var errStore = errors.New("store unavailable")
 // memoryStore is an in-memory Store. It mirrors the repository's observable
 // rules; the repository itself is covered by PostgreSQL integration tests.
 type memoryStore struct {
-	users     map[string]*repository.User
-	tokens    map[string]*storedToken
-	nextID    int
-	failOnOps map[string]bool
+	users         map[string]*repository.User
+	tokens        map[string]*storedToken
+	verifications map[string]storedVerification
+	nextID        int
+	failOnOps     map[string]bool
 
 	// changePasswordErr, when set, is returned by ChangePassword in place of
 	// the real outcome, to stand in for a concurrent change.
@@ -35,6 +36,12 @@ type memoryStore struct {
 	// lastIssued records the metadata stored with the newest refresh token.
 	lastAgent string
 	lastIP    *netip.Addr
+}
+
+type storedVerification struct {
+	userID    string
+	expiresAt time.Time
+	used      bool
 }
 
 type storedToken struct {
@@ -50,9 +57,10 @@ type storedToken struct {
 
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
-		users:     map[string]*repository.User{},
-		tokens:    map[string]*storedToken{},
-		failOnOps: map[string]bool{},
+		users:         map[string]*repository.User{},
+		tokens:        map[string]*storedToken{},
+		verifications: map[string]storedVerification{},
+		failOnOps:     map[string]bool{},
 	}
 }
 
@@ -87,6 +95,39 @@ func (m *memoryStore) CreateUser(_ context.Context, params repository.CreateUser
 	}
 	m.users[user.ID] = user
 	return *user, nil
+}
+
+func (m *memoryStore) CreateUserWithVerificationToken(ctx context.Context, params repository.CreateUserParams, token repository.NewEmailVerificationToken) (repository.User, error) {
+	user, err := m.CreateUser(ctx, params)
+	if err != nil {
+		return repository.User{}, err
+	}
+	m.verifications[token.TokenHash] = storedVerification{userID: user.ID, expiresAt: token.ExpiresAt}
+	return user, nil
+}
+
+func (m *memoryStore) IssueEmailVerificationToken(_ context.Context, token repository.NewEmailVerificationToken, _ time.Time) error {
+	for hash, record := range m.verifications {
+		if record.userID == token.UserID && !record.used {
+			record.used = true
+			m.verifications[hash] = record
+		}
+	}
+	m.verifications[token.TokenHash] = storedVerification{userID: token.UserID, expiresAt: token.ExpiresAt}
+	return nil
+}
+
+func (m *memoryStore) ConsumeEmailVerificationToken(_ context.Context, tokenHash string, now time.Time) (string, error) {
+	record, ok := m.verifications[tokenHash]
+	if !ok || record.used || !now.Before(record.expiresAt) {
+		return "", repository.ErrVerificationTokenInvalid
+	}
+	record.used = true
+	m.verifications[tokenHash] = record
+	if user, ok := m.users[record.userID]; ok {
+		user.EmailVerified = true
+	}
+	return record.userID, nil
 }
 
 func (m *memoryStore) UserByEmail(_ context.Context, email string) (repository.User, error) {
@@ -303,6 +344,9 @@ func (f *fixture) register(t *testing.T) Account {
 	account, err := f.service.Register(context.Background(), validRegistration())
 	if err != nil {
 		t.Fatalf("Register returned error: %v", err)
+	}
+	if user, ok := f.store.users[account.ID]; ok {
+		user.EmailVerified = true
 	}
 	return account
 }

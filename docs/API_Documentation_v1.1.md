@@ -609,6 +609,13 @@ Errors: 409 EMAIL_ALREADY_EXISTS , 422 VALIDATION_ERROR , 429.
 
 Access: Public.
 
+Unverified CUSTOMER accounts receive 403 EMAIL_VERIFICATION_REQUIRED and no
+cookies. Inactive MERCHANT accounts, or merchants whose application is not
+APPROVED, receive 403 MERCHANT_ACCOUNT_INACTIVE. Identity checks the Merchant
+service status during merchant login and refresh; if it is unavailable the login
+fails closed with 503. Access tokens carry an `sv` session version that must
+match the current Identity session version.
+
 
 
 Purpose: Authenticates a user with email and password and starts the session using
@@ -1301,6 +1308,37 @@ End-to-end reset flow
 
 
 
+
+
+2.18 POST /auth/verify-email
+
+Access: Public.
+
+Purpose: Consumes a single-use email verification token for a CUSTOMER account.
+Only its SHA-256 hash is persisted. Unknown, expired and already-used tokens
+return the same 400 response. The account is marked verified and the token is
+consumed in one transaction.
+
+Request body: { "token": "verification-token" }
+
+Response 200: { "data": { "message": "Your email has been verified. You can now sign in to SwiftDrop." }, "meta": { "requestId": "req_20" } }
+
+Errors: 400 INVALID_OR_EXPIRED_VERIFICATION_TOKEN, 415, 429.
+
+2.19 POST /auth/resend-verification
+
+Access: Public.
+
+Purpose: Requests another verification email. The reply is always 202 for a
+well-formed email so account existence is not revealed. Only an active,
+unverified LOCAL CUSTOMER receives a new token; issuing one invalidates any
+previous unused token. Rate limited per IP and per normalized email.
+
+Request body: { "email": "nimal@example.com" }
+
+Response 202: { "data": { "message": "If an account needs verification, a new verification email will be sent." }, "meta": { "requestId": "req_21" } }
+
+Errors: 422, 429.
 
 ## 3. Pricing and Zones Service
 
@@ -3031,6 +3069,29 @@ Response 200: { "data": { "id": "m1a2...", "status": "SUSPENDED" } } . Errors:
 
 
 
+
+Merchant registration (8.1) creates an inactive Identity account and a PENDING
+application. No session is issued. Only an ADMIN approval applies a lifecycle
+transition, increments the Identity session version and activates the account.
+Pending, rejected and suspended merchants cannot obtain sessions.
+
+8.6 to 8.8 lifecycle rules:
+
+- Every actual approval, rejection, suspension and reapproval is a new lifecycle
+  transition with a unique transition ID and per-merchant sequence.
+- Identity increments session_version for every newly applied transition, even
+  when is_active already equals the target. Retries of the same transition do
+  not increment it again.
+- A reused transition ID with a different payload returns 409
+  TRANSITION_ID_CONFLICT. A stale sequence returns 409 STALE_TRANSITION.
+- Suspension commits SUSPENDED immediately, then deactivates Identity and
+  revokes refresh tokens. If Identity is unavailable the response reports
+  identitySync PENDING and the merchant stays blocked.
+- Rejection reason is optional, nullable and limited to 1,000 characters. Empty
+  or whitespace-only values are stored as NULL. The rejection email omits the
+  reason when none is provided. Suspension still requires a reason.
+- `/merchant/pending` is a public informational page and never shows merchant
+  details or rejection reasons.
 
 8.9 GET /merchants/me/keys
 

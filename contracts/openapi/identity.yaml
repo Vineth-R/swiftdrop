@@ -120,7 +120,11 @@ paths:
         return the same 401. Five consecutive wrong passwords lock the account
         for 15 minutes (423). Send `X-Token-Mode: body` to also receive the
         tokens in the response body. Rate limited to 10 requests per minute per
-        client address, shared with `/auth/register`.
+        client address, shared with `/auth/register`. An unverified CUSTOMER is
+        refused with 403 `EMAIL_VERIFICATION_REQUIRED`. An inactive MERCHANT or
+        a merchant whose application is not APPROVED is refused with 403
+        `MERCHANT_ACCOUNT_INACTIVE`. If the Merchant service cannot be reached,
+        merchant login fails closed with 503.
       parameters:
         - $ref: '#/components/parameters/TokenMode'
       requestBody:
@@ -161,6 +165,16 @@ paths:
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '403':
+          description: 'EMAIL_VERIFICATION_REQUIRED or MERCHANT_ACCOUNT_INACTIVE.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '503':
+          description: 'SERVICE_UNAVAILABLE when merchant status cannot be checked.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '423':
           description: Too many failed logins (`ACCOUNT_LOCKED`).
           content:
@@ -526,8 +540,18 @@ paths:
       summary: List users (API v1.1 section 2.10, ADMIN)
       description: Paginated, filterable list. Sorted newest first unless `sort` says otherwise.
       parameters:
-        - { name: role, in: query, required: false, schema: { $ref: '#/components/schemas/Role' } }
-        - { name: isActive, in: query, required: false, schema: { type: boolean } }
+        - {
+            name: role,
+            in: query,
+            required: false,
+            schema: { $ref: '#/components/schemas/Role' },
+          }
+        - {
+            name: isActive,
+            in: query,
+            required: false,
+            schema: { type: boolean },
+          }
         - name: q
           in: query
           required: false
@@ -688,8 +712,19 @@ paths:
       operationId: identityListCouriers
       summary: List active couriers for assignment (API v1.1 section 2.15, DISPATCHER and ADMIN)
       parameters:
-        - { name: isAvailable, in: query, required: false, schema: { type: boolean } }
-        - { name: zoneId, in: query, required: false, description: Home zone, schema: { type: string, format: uuid } }
+        - {
+            name: isAvailable,
+            in: query,
+            required: false,
+            schema: { type: boolean },
+          }
+        - {
+            name: zoneId,
+            in: query,
+            required: false,
+            description: Home zone,
+            schema: { type: string, format: uuid },
+          }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
       responses:
@@ -704,6 +739,77 @@ paths:
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /auth/verify-email:
+    post:
+      operationId: identityVerifyEmail
+      summary: Verify a customer email address
+      description: >-
+        Consumes a single-use verification token. The token is SHA-256 hashed
+        and stored only as a hash; raw tokens are never logged. Unknown, expired
+        and reused tokens share one 400 response. Rate limited per client address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 128 }
+      responses:
+        '200':
+          description: Email verified.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      message: { type: string }
+        '400':
+          description: 'INVALID_OR_EXPIRED_VERIFICATION_TOKEN.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/resend-verification:
+    post:
+      operationId: identityResendVerification
+      summary: Request another customer verification email
+      description: >-
+        Returns the same 202 for every well-formed email so account existence is
+        not revealed. Rate limited per client address and per normalized email.
+        Previous unused verification tokens are invalidated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 255 }
+      responses:
+        '202':
+          description: The request was accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      message: { type: string }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
 components:
   parameters:
@@ -822,6 +928,8 @@ components:
         role:
           type: string
           enum: [CUSTOMER, MERCHANT, COURIER, DISPATCHER, ADMIN]
+        emailVerified:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -923,8 +1031,10 @@ components:
       type: object
       required: [vehicleType, vehicleNumber, homeZoneId, isAvailable]
       properties:
-        vehicleType: { type: string, nullable: true, maxLength: 30, example: BIKE }
-        vehicleNumber: { type: string, nullable: true, maxLength: 20, example: BCD-4521 }
+        vehicleType:
+          { type: string, nullable: true, maxLength: 30, example: BIKE }
+        vehicleNumber:
+          { type: string, nullable: true, maxLength: 20, example: BCD-4521 }
         homeZoneId: { type: string, format: uuid, nullable: true }
         isAvailable: { type: boolean }
     AdminUser:
@@ -972,8 +1082,15 @@ components:
       type: object
       minProperties: 1
       properties:
-        fullName: { type: string, minLength: 2, maxLength: 150, example: Nimal P. Perera }
-        phone: { type: string, description: E.164 format., example: '+94771234000' }
+        fullName:
+          {
+            type: string,
+            minLength: 2,
+            maxLength: 150,
+            example: Nimal P. Perera,
+          }
+        phone:
+          { type: string, description: E.164 format., example: '+94771234000' }
     ChangePasswordRequest:
       type: object
       required: [currentPassword, newPassword]
@@ -1020,7 +1137,8 @@ components:
           maxLength: 72
           description: Same rules as registration. The caller should ask the new user to change it.
         fullName: { type: string, minLength: 2, maxLength: 150 }
-        phone: { type: string, description: E.164 format., example: '+94712223344' }
+        phone:
+          { type: string, description: E.164 format., example: '+94712223344' }
         role:
           type: string
           enum: [COURIER, DISPATCHER, ADMIN]

@@ -89,8 +89,9 @@ func NewAdminUsers(base *Service, store AdminStore) (*AdminUsers, error) {
 // CurrentAccess is a caller's role and active flag as stored now, not as they
 // were when the caller's access token was issued.
 type CurrentAccess struct {
-	Role   auth.Role
-	Active bool
+	Role           auth.Role
+	Active         bool
+	SessionVersion int
 }
 
 // CurrentAccess returns the stored role and active flag of the user. An access
@@ -103,7 +104,7 @@ func (a *AdminUsers) CurrentAccess(ctx context.Context, userID string) (CurrentA
 	if err != nil {
 		return CurrentAccess{}, err
 	}
-	return CurrentAccess{Role: user.Role, Active: user.IsActive}, nil
+	return CurrentAccess{Role: user.Role, Active: user.IsActive, SessionVersion: user.SessionVersion}, nil
 }
 
 // ListUsersInput filters the admin user list. Zero Page and PageSize mean the

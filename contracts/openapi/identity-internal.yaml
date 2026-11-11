@@ -46,7 +46,11 @@ paths:
                 $ref: '#/components/schemas/EligibilityEnvelope'
               example:
                 data: { isActive: true, isAvailable: true, role: COURIER }
-                meta: { requestId: req_01HF-example, timestamp: '2026-11-04T09:30:00Z' }
+                meta:
+                  {
+                    requestId: req_01HF-example,
+                    timestamp: '2026-11-04T09:30:00Z',
+                  }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -74,12 +78,149 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContactEnvelope'
               example:
-                data: { fullName: Nimal Perera, email: nimal@example.com, phone: '+94771234567' }
-                meta: { requestId: req_01HF-example, timestamp: '2026-11-04T09:30:00Z' }
+                data:
+                  {
+                    fullName: Nimal Perera,
+                    email: nimal@example.com,
+                    phone: '+94771234567',
+                  }
+                meta:
+                  {
+                    requestId: req_01HF-example,
+                    timestamp: '2026-11-04T09:30:00Z',
+                  }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /internal/users/{userId}/session-state:
+    get:
+      operationId: identityInternalSessionState
+      summary: Current session authority state
+      description: >-
+        Returns the user's role, active flag and session version. Merchant
+        business requests compare the JWT `sv` claim with `sessionVersion`.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The current state.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      role: { type: string }
+                      isActive: { type: boolean }
+                      sessionVersion: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /internal/merchant-owners:
+    post:
+      operationId: identityInternalCreateMerchantOwner
+      summary: Create or resume an inactive merchant owner
+      description: >-
+        Creates a LOCAL MERCHANT user with isActive=false. A retry with the same
+        email and password returns the existing merchant user. The response is
+        201 when created and 200 when resumed.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password, fullName, phone]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                fullName: { type: string }
+                phone: { type: string }
+      responses:
+        '200': { description: Existing merchant account resumed. }
+        '201': { description: Inactive merchant account created. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { description: EMAIL_ALREADY_EXISTS. }
+        '422': { $ref: '#/components/responses/BadRequest' }
+  /internal/merchant-owners/{userId}/lifecycle:
+    post:
+      operationId: identityInternalMerchantLifecycle
+      summary: Apply one merchant lifecycle transition exactly once
+      description: >-
+        Every new transition increments session_version exactly once, even when
+        is_active already matches the target. Reusing a transitionId with a
+        different payload returns TRANSITION_ID_CONFLICT. A lower sequence than
+        the latest applied transition returns STALE_TRANSITION. REJECT and
+        SUSPEND revoke every refresh token.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [transitionId, sequence, operation]
+              properties:
+                transitionId: { type: string, format: uuid }
+                sequence: { type: integer, minimum: 1 }
+                operation: { type: string, enum: [APPROVE, REJECT, SUSPEND] }
+      responses:
+        '200':
+          description: Applied or already applied.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      sessionVersion: { type: integer }
+                      isActive: { type: boolean }
+                      alreadyApplied: { type: boolean }
+                      revokedSessions: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: TRANSITION_ID_CONFLICT or STALE_TRANSITION. }
+  /internal/merchant-owners/{userId}:
+    delete:
+      operationId: identityInternalDeleteMerchantOwner
+      summary: Compensate a failed merchant registration
+      description: >-
+        Deletes only an inactive, unverified MERCHANT owner with no refresh
+        tokens and no lifecycle transitions.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: The account is not eligible for compensation. }
 
 components:
   parameters:
@@ -94,7 +235,13 @@ components:
       in: header
       required: true
       description: 1 to 128 characters from letters, digits and `- . _ :`.
-      schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+      schema:
+        {
+          type: string,
+          minLength: 1,
+          maxLength: 128,
+          pattern: '^[A-Za-z0-9._:-]+$',
+        }
   schemas:
     EligibilityEnvelope:
       type: object

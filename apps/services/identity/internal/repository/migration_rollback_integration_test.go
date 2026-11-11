@@ -62,6 +62,9 @@ func TestIdentityMigration_rollbackAndReapply(t *testing.T) {
 
 	// Roll back the browser-binding column, then the baseline tables, then the
 	// schema. Reapply the whole chain and check it is usable again.
+	applyMigrationFile(t, pool, "migrations/identity/000006_merchant_lifecycle_transitions.down.sql")
+	applyMigrationFile(t, pool, "migrations/identity/000005_session_version.down.sql")
+	applyMigrationFile(t, pool, "migrations/identity/000004_email_verification.down.sql")
 	applyMigrationFile(t, pool, "migrations/identity/000003_oauth_states_browser_binding.down.sql")
 	if oauthBindingColumnExists(t, pool) {
 		t.Fatal("000003 down left browser_binding_hash behind")
@@ -76,6 +79,9 @@ func TestIdentityMigration_rollbackAndReapply(t *testing.T) {
 	applyMigrationFile(t, pool, "migrations/identity/000001_initial_schema.up.sql")
 	applyMigrationFile(t, pool, "migrations/identity/000002_tables.up.sql")
 	applyMigrationFile(t, pool, "migrations/identity/000003_oauth_states_browser_binding.up.sql")
+	applyMigrationFile(t, pool, "migrations/identity/000004_email_verification.up.sql")
+	applyMigrationFile(t, pool, "migrations/identity/000005_session_version.up.sql")
+	applyMigrationFile(t, pool, "migrations/identity/000006_merchant_lifecycle_transitions.up.sql")
 
 	if !oauthStatesTableExists(t, pool) || !oauthBindingColumnExists(t, pool) {
 		t.Fatal("the reapplied migration chain did not restore oauth_states with browser_binding_hash")

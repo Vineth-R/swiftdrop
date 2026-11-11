@@ -271,6 +271,256 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /merchants/register:
+    post:
+      operationId: merchantRegister
+      summary: Register a merchant business
+      description: >-
+        Creates an inactive Identity MERCHANT account and a PENDING merchant
+        application. No session is issued. The optional Idempotency-Key makes
+        retries safe. The pickup zone must exist and be active.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fullName, email, phone, password, business]
+              properties:
+                fullName: { type: string }
+                email: { type: string, format: email }
+                phone: { type: string }
+                password: { type: string }
+                business:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    [
+                      name,
+                      registrationNumber,
+                      businessAddress,
+                      contactEmail,
+                      contactPhone,
+                      pickupAddress,
+                      pickupZoneId,
+                    ]
+                  properties:
+                    name: { type: string }
+                    registrationNumber: { type: string, maxLength: 50 }
+                    contactEmail: { type: string, format: email }
+                    contactPhone: { type: string }
+                    businessAddress: { type: string }
+                    pickupAddress: { type: string }
+                    pickupZoneId: { type: string, format: uuid }
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, maxLength: 128 }
+      responses:
+        '201':
+          description: Application created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      merchantId: { type: string, format: uuid }
+                      userId: { type: string, format: uuid }
+                      status: { type: string, enum: [PENDING] }
+        '409':
+          {
+            description: EMAIL_ALREADY_EXISTS,
+            DUPLICATE_MERCHANT_APPLICATION or DUPLICATE_BUSINESS_REGISTRATION.,
+          }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /merchants/me:
+    get:
+      operationId: merchantGetProfile
+      summary: Get the authenticated merchant profile (8.2)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200': { description: The merchant profile and status. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: MERCHANT_NOT_PROVISIONED. }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    patch:
+      operationId: merchantUpdateProfile
+      summary: Update contact and default pickup details (8.3)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200': { description: Updated. }
+        '403': { description: MERCHANT_NOT_APPROVED. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /merchants/me/keys:
+    get:
+      operationId: merchantListKeys
+      summary: List API keys (8.9)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200': { description: Key metadata. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: MERCHANT_NOT_APPROVED. }
+    post:
+      operationId: merchantCreateKey
+      summary: Create an API key (8.10)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '201': { description: Created; the full key is returned once. }
+        '403': { description: MERCHANT_NOT_APPROVED. }
+        '409': { description: KEY_LIMIT_REACHED. }
+  /merchants/me/keys/{keyId}:
+    delete:
+      operationId: merchantRevokeKey
+      summary: Revoke an API key (8.11)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Revoked. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/merchants:
+    get:
+      operationId: adminListMerchants
+      summary: List merchant applications (8.4)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            { type: string, enum: [PENDING, APPROVED, REJECTED, SUSPENDED] }
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: sort
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { description: A paginated merchant list. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/merchants/{merchantId}:
+    get:
+      operationId: adminGetMerchant
+      summary: Get one merchant (8.5)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Full merchant profile. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/merchants/{merchantId}/approve:
+    post:
+      operationId: adminApproveMerchant
+      summary: Approve and activate a merchant (8.6)
+      description: >-
+        Applies an Identity lifecycle transition and only then commits APPROVED.
+        If activation fails, the merchant stays in its previous state, login
+        remains blocked, and the same transition can be retried.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: 'Approved; identitySync is APPLIED or PENDING.' }
+        '409': { description: INVALID_MERCHANT_STATE. }
+        '503': { description: MERCHANT_ACTIVATION_FAILED. }
+  /admin/merchants/{merchantId}/reject:
+    post:
+      operationId: adminRejectMerchant
+      summary: Reject an application (8.7)
+      description: >-
+        The reason is optional, nullable and limited to 1,000 characters. Empty
+        and whitespace-only values are stored as null. The Identity lifecycle
+        transition still deactivates the account and increments the session
+        version. A rejection email omits the reason when none is provided.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: string, nullable: true, maxLength: 1000 }
+      responses:
+        '200': { description: 'Rejected; identitySync is APPLIED or PENDING.' }
+        '409': { description: INVALID_MERCHANT_STATE. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/merchants/{merchantId}/suspend:
+    post:
+      operationId: adminSuspendMerchant
+      summary: Suspend a merchant (8.8)
+      description: >-
+        Commits SUSPENDED immediately, then deactivates Identity and revokes
+        refresh tokens. If Identity is unavailable, business operations are
+        still blocked and identitySync is PENDING for safe retry.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        '200': { description: 'Suspended; identitySync is APPLIED or PENDING.' }
+        '409': { description: INVALID_MERCHANT_STATE. }
+
 components:
   securitySchemes:
     AccessCookie:
