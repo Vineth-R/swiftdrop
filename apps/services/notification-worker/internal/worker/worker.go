@@ -15,6 +15,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/merchantclient"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
@@ -48,6 +49,12 @@ type ContactResolver interface {
 	Contact(ctx context.Context, userID string) (identityclient.Contact, error)
 }
 
+// MerchantResolver resolves a merchant's contact details through the merchant
+// service. The notification address is the merchant's approved contact email.
+type MerchantResolver interface {
+	Merchant(ctx context.Context, merchantID string) (merchantclient.Merchant, error)
+}
+
 const (
 	maxVariables    = 64
 	maxVariableKey  = 64
@@ -56,15 +63,16 @@ const (
 )
 
 type Handler struct {
-	logger   *slog.Logger
-	sender   mailer.Mailer
-	store    DeliveryStore
-	contacts ContactResolver
-	site     emails.Site
+	logger    *slog.Logger
+	sender    mailer.Mailer
+	store     DeliveryStore
+	contacts  ContactResolver
+	merchants MerchantResolver
+	site      emails.Site
 }
 
-func New(logger *slog.Logger, sender mailer.Mailer, store DeliveryStore, contacts ContactResolver, site emails.Site) *Handler {
-	return &Handler{logger: logger, sender: sender, store: store, contacts: contacts, site: site}
+func New(logger *slog.Logger, sender mailer.Mailer, store DeliveryStore, contacts ContactResolver, merchants MerchantResolver, site emails.Site) *Handler {
+	return &Handler{logger: logger, sender: sender, store: store, contacts: contacts, merchants: merchants, site: site}
 }
 
 type payload struct {
@@ -192,19 +200,28 @@ func (h *Handler) handleParcelCreated(ctx context.Context, envelope messaging.En
 	if err := json.Unmarshal(envelope.Data, &data); err != nil {
 		return messaging.Permanent(fmt.Errorf("decode parcel.created.v1 data: %w", err))
 	}
-	customerOwned, err := validateParcelCreated(data)
+	owner, err := validateParcelCreated(data)
 	if err != nil {
 		return messaging.Permanent(err)
 	}
-	if !customerOwned {
-		return h.unsupportedMerchant(ctx, envelope, strings.TrimSpace(data.ParcelID))
+	if owner.merchantID != "" {
+		return h.notifyMerchant(
+			ctx,
+			envelope,
+			strings.TrimSpace(data.ParcelID),
+			strings.TrimSpace(data.TrackingNumber),
+			owner.merchantID,
+			"CREATED",
+			"",
+			"",
+		)
 	}
 	return h.notifyCustomer(
 		ctx,
 		envelope,
 		strings.TrimSpace(data.ParcelID),
 		strings.TrimSpace(data.TrackingNumber),
-		strings.TrimSpace(*data.CustomerUserID),
+		owner.customerUserID,
 		"CREATED",
 		"",
 		"",
@@ -226,7 +243,20 @@ func (h *Handler) handleParcelStatusChanged(ctx context.Context, envelope messag
 	case hasCustomer && hasMerchant:
 		return messaging.Permanent(errors.New("parcel.status_changed.v1 has an ambiguous notification owner"))
 	case hasMerchant:
-		return h.unsupportedMerchant(ctx, envelope, strings.TrimSpace(data.ParcelID))
+		failureReason := ""
+		if data.FailureReason != nil {
+			failureReason = strings.TrimSpace(*data.FailureReason)
+		}
+		return h.notifyMerchant(
+			ctx,
+			envelope,
+			strings.TrimSpace(data.ParcelID),
+			strings.TrimSpace(data.TrackingNumber),
+			strings.TrimSpace(*data.MerchantID),
+			data.Status,
+			data.PreviousStatus,
+			failureReason,
+		)
 	case !hasCustomer:
 		return messaging.Permanent(errors.New("parcel.status_changed.v1 has no notification owner"))
 	}
@@ -247,16 +277,110 @@ func (h *Handler) handleParcelStatusChanged(ctx context.Context, envelope messag
 	)
 }
 
-// unsupportedMerchant makes the documented merchant-owned limitation explicit
-// and preserves the event in the dead-letter queue for a future approved flow.
-func (h *Handler) unsupportedMerchant(ctx context.Context, envelope messaging.Envelope, parcelID string) error {
-	h.logger.WarnContext(ctx, "merchant-owned parcel notification unsupported",
-		"event_id", envelope.ID,
-		"parcel_id", parcelID,
-		"correlation_id", envelope.CorrelationID,
-		"event_type", envelope.Type,
-	)
-	return messaging.Permanent(errors.New("merchant-owned parcel notifications are unsupported"))
+// notifyMerchant delivers a merchant-owned parcel update to the merchant's
+// approved contact email. Unapproved merchants and missing contacts are
+// permanent failures: the event is preserved in the dead-letter queue rather
+// than silently dropped.
+func (h *Handler) notifyMerchant(
+	ctx context.Context,
+	envelope messaging.Envelope,
+	parcelID string,
+	trackingNumber string,
+	merchantID string,
+	status string,
+	previousStatus string,
+	failureReason string,
+) error {
+	if h.store == nil {
+		return errors.New("processed-event store is not configured")
+	}
+
+	processed, err := h.store.IsProcessed(ctx, envelope.ID)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "processed-event lookup failed",
+			"event_id", envelope.ID,
+			"correlation_id", envelope.CorrelationID,
+			"operation", "lookup_processed_event",
+		)
+		return errors.New("processed-event lookup failed")
+	}
+	if processed {
+		h.logger.InfoContext(ctx, "notification already processed",
+			"event_id", envelope.ID,
+			"correlation_id", envelope.CorrelationID,
+			"channel", "email",
+		)
+		return nil
+	}
+
+	if h.merchants == nil {
+		return errors.New("merchant contact resolver is not configured")
+	}
+	merchant, err := h.merchants.Merchant(ctx, merchantID)
+	if err != nil {
+		if errors.Is(err, merchantclient.ErrNotFound) ||
+			errors.Is(err, merchantclient.ErrUnauthorized) ||
+			errors.Is(err, merchantclient.ErrInvalidResponse) {
+			h.logger.WarnContext(ctx, "notification merchant lookup failed permanently",
+				"event_id", envelope.ID,
+				"parcel_id", parcelID,
+				"merchant_id", merchantID,
+				"correlation_id", envelope.CorrelationID,
+				"operation", "merchant_contact",
+				"error", err.Error(),
+			)
+			return messaging.Permanent(err)
+		}
+		h.logger.WarnContext(ctx, "notification merchant lookup failed; retrying",
+			"event_id", envelope.ID,
+			"parcel_id", parcelID,
+			"merchant_id", merchantID,
+			"correlation_id", envelope.CorrelationID,
+			"operation", "merchant_contact",
+			"error", err.Error(),
+		)
+		return err
+	}
+
+	if merchant.Status != "APPROVED" {
+		h.logger.WarnContext(ctx, "merchant-owned parcel notification skipped",
+			"event_id", envelope.ID,
+			"parcel_id", parcelID,
+			"merchant_id", merchantID,
+			"merchant_status", merchant.Status,
+			"correlation_id", envelope.CorrelationID,
+		)
+		return messaging.Permanent(errors.New("merchant is not approved for parcel notifications"))
+	}
+
+	contactEmail := strings.TrimSpace(merchant.ContactEmail)
+	if contactEmail == "" {
+		h.logger.WarnContext(ctx, "merchant-owned parcel notification skipped",
+			"event_id", envelope.ID,
+			"parcel_id", parcelID,
+			"merchant_id", merchantID,
+			"correlation_id", envelope.CorrelationID,
+			"reason", "missing_contact_email",
+		)
+		return messaging.Permanent(errors.New("merchant contact email is empty"))
+	}
+
+	contact := identityclient.Contact{
+		FullName: strings.TrimSpace(merchant.BusinessName),
+		Email:    contactEmail,
+	}
+	message, err := h.parcelEmail(contact, trackingNumber, status, previousStatus, failureReason)
+	if err != nil {
+		return messaging.Permanent(fmt.Errorf("build merchant notification: %w", err))
+	}
+	entry := idempotency.LogEntry{
+		EventID:   envelope.ID,
+		ParcelID:  parcelID,
+		Channel:   "EMAIL",
+		Recipient: contactEmail,
+		Subject:   message.Subject,
+	}
+	return h.deliver(ctx, envelope, entry, message)
 }
 
 func (h *Handler) notifyCustomer(
@@ -423,33 +547,40 @@ func (h *Handler) recordFailure(ctx context.Context, entry idempotency.LogEntry,
 	return nil
 }
 
-func validateParcelCreated(data parcelCreatedData) (bool, error) {
+type parcelOwner struct {
+	customerUserID string
+	merchantID     string
+}
+
+func validateParcelCreated(data parcelCreatedData) (parcelOwner, error) {
 	if !validation.UUID(strings.TrimSpace(data.ParcelID)) {
-		return false, errors.New("parcel_id must be a UUID")
+		return parcelOwner{}, errors.New("parcel_id must be a UUID")
 	}
 	tracking := strings.TrimSpace(data.TrackingNumber)
 	if length := validation.RuneLength(tracking); length < 11 || length > 20 {
-		return false, errors.New("tracking_number must be 11 to 20 characters")
+		return parcelOwner{}, errors.New("tracking_number must be 11 to 20 characters")
 	}
 	if data.Status != "CREATED" {
-		return false, errors.New("parcel.created.v1 status must be CREATED")
+		return parcelOwner{}, errors.New("parcel.created.v1 status must be CREATED")
 	}
 
-	hasCustomer := data.CustomerUserID != nil
-	hasMerchant := data.MerchantID != nil
+	hasCustomer := data.CustomerUserID != nil && strings.TrimSpace(*data.CustomerUserID) != ""
+	hasMerchant := data.MerchantID != nil && strings.TrimSpace(*data.MerchantID) != ""
 	if hasCustomer == hasMerchant {
-		return false, errors.New("parcel.created.v1 must have exactly one owner")
+		return parcelOwner{}, errors.New("parcel.created.v1 must have exactly one owner")
 	}
 	if hasCustomer {
-		if !validation.UUID(strings.TrimSpace(*data.CustomerUserID)) {
-			return false, errors.New("customer_user_id must be a UUID")
+		customerUserID := strings.TrimSpace(*data.CustomerUserID)
+		if !validation.UUID(customerUserID) {
+			return parcelOwner{}, errors.New("customer_user_id must be a UUID")
 		}
-		return true, nil
+		return parcelOwner{customerUserID: customerUserID}, nil
 	}
-	if !validation.UUID(strings.TrimSpace(*data.MerchantID)) {
-		return false, errors.New("merchant_id must be a UUID")
+	merchantID := strings.TrimSpace(*data.MerchantID)
+	if !validation.UUID(merchantID) {
+		return parcelOwner{}, errors.New("merchant_id must be a UUID")
 	}
-	return false, nil
+	return parcelOwner{merchantID: merchantID}, nil
 }
 
 func validateParcelStatusChanged(data parcelStatusChangedData) error {

@@ -39,13 +39,22 @@ func New(baseURL, token string, timeout time.Duration) (*Client, error) {
 	return &Client{baseURL: trimmed, token: strings.TrimSpace(token), http: &http.Client{Timeout: timeout}}, nil
 }
 
+// outboundRequestID forwards the inbound request ID when one is on the context
+// and generates a fresh one only for a call with no inbound request.
+func outboundRequestID(ctx context.Context) string {
+	if id := requestid.FromContext(ctx); id != "" {
+		return id
+	}
+	return requestid.New()
+}
+
 func (c *Client) Zone(ctx context.Context, zoneID string) (Zone, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/internal/zones/"+url.PathEscape(zoneID), nil)
 	if err != nil {
 		return Zone{}, ErrUnavailable
 	}
 	request.Header.Set("X-Internal-Token", c.token)
-	request.Header.Set(requestid.Header, requestid.New())
+	request.Header.Set(requestid.Header, outboundRequestID(ctx))
 	response, err := c.http.Do(request)
 	if err != nil {
 		return Zone{}, ErrUnavailable

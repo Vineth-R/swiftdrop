@@ -121,6 +121,6 @@ func run() error {
 		IdleTimeout:       60 * time.Second,
 	})
 
-	logger.Info("starting http service", "address", config.Addr(), "environment", config.AppEnv)
+	logger.Info("starting http service", "listen_addr", config.Addr(), "environment", config.AppEnv)
 	return httpx.Serve(ctx, server, 10*time.Second)
 }

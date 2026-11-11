@@ -134,7 +134,7 @@ func run() error {
 	})
 
 	logger.Info("starting http service",
-		"address", cfg.Addr(),
+		"listen_addr", cfg.Addr(),
 		"environment", cfg.AppEnv,
 		"provider", cfg.Provider,
 		"model", cfg.Model,

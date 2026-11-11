@@ -332,6 +332,7 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:5432/postgres?sslmode=disable
+      PARCEL_TEST_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v5
 
@@ -350,6 +351,12 @@ jobs:
 
           timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5432) 2>/dev/null; do sleep 1; done'
 
+      - name: Install pinned golang-migrate
+        run: |
+          set -euo pipefail
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Run database integration tests
         run: |
           set -euo pipefail
@@ -357,6 +364,73 @@ jobs:
 
           if grep -q -- '--- SKIP' database.log; then
             echo "::error::PostgreSQL integration tests were skipped; the database must be reachable."
+            exit 1
+          fi
+
+      - name: Run parcel PostgreSQL integration tests
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -tags=integration,postgres -v ./apps/services/parcel/... | tee parcel-database.log
+
+          if grep -q -- '--- SKIP' parcel-database.log; then
+            echo "::error::Parcel PostgreSQL integration tests were skipped; the database and migrate CLI must be available."
+            exit 1
+          fi
+
+  eventflow:
+    name: Event flow E2E (PostgreSQL + RabbitMQ)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: swiftdrop
+          POSTGRES_PASSWORD: swiftdrop
+          POSTGRES_DB: swiftdrop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U swiftdrop"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:4.1-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: swiftdrop
+          RABBITMQ_DEFAULT_PASS: swiftdrop
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://swiftdrop:swiftdrop@127.0.0.1:5432/postgres?sslmode=disable
+      RABBITMQ_URL: amqp://swiftdrop:swiftdrop@127.0.0.1:5672/
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Wait for dependencies
+        run: |
+          set -euo pipefail
+          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5432) 2>/dev/null; do sleep 1; done'
+          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5672) 2>/dev/null; do sleep 1; done'
+
+      - name: Run the event-flow integration test
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -tags=integration -v ./tests/integration/eventflow/... | tee eventflow.log
+
+          if grep -q -- '--- SKIP' eventflow.log; then
+            echo "::error::Event-flow integration tests were skipped; PostgreSQL and RabbitMQ must be reachable."
             exit 1
           fi
 
@@ -378,6 +452,21 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: >-
+          pnpm exec prettier --check
+          README.md
+          AGENTS.md
+          CONTRIBUTING.md
+          DESIGN.md
+          docs/architecture.md
+          docs/security-scanning.md
+          tests/integration/README.md
+          contracts/events/README.md
+          contracts/openapi/README.md
+          ".github/workflows/*.yml"
+          "apps/web/src/**/*.{css,json}"
 
       - name: Test the design lint rules
         run: node --test "apps/web/eslint-rules/*.test.mjs"
@@ -988,6 +1077,7 @@ jobs:
       COMPOSE_PROJECT_NAME: swiftdrop-notificationflow
       COMPOSE_FILE: docker-compose.yml:tests/integration/notificationflow/docker-compose.identity.yml
       NOTIFICATIONFLOW_IDENTITY_URL: http://127.0.0.1:18081
+      NOTIFICATIONFLOW_MERCHANT_URL: http://127.0.0.1:18084
       RABBITMQ_RETRY_DELAY: 5s
       RABBITMQ_MAX_RETRIES: '2'
       NOTIFICATIONFLOW_RETRY_WAIT: 60s
@@ -1002,11 +1092,11 @@ jobs:
       - name: Prepare local environment
         run: cp .env.example .env
 
-      - name: Build the notification worker and identity images
-        run: docker compose build notification-worker identity
+      - name: Build the notification worker, identity and merchant images
+        run: docker compose build notification-worker identity merchant
 
       - name: Start the dependencies
-        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit identity
+        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit identity merchant
 
       - name: Apply database migrations
         run: make migrate
@@ -1026,7 +1116,7 @@ jobs:
 
       - name: Show service logs after a failure
         if: failure()
-        run: docker compose logs --tail=200 notification-worker identity mailpit rabbitmq postgres
+        run: docker compose logs --tail=200 notification-worker identity merchant mailpit rabbitmq postgres
 
       - name: Stop the stack
         if: always()
@@ -1092,6 +1182,7 @@ jobs:
       - hygiene
       - integration
       - database
+      - eventflow
       - frontend
       - e2e
       - changes
@@ -1112,6 +1203,7 @@ jobs:
           HYGIENE_RESULT: ${{ needs.hygiene.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           DATABASE_RESULT: ${{ needs.database.result }}
+          EVENTFLOW_RESULT: ${{ needs.eventflow.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
@@ -1153,6 +1245,7 @@ jobs:
           check_required "hygiene" "$HYGIENE_RESULT"
           check_required "integration" "$INTEGRATION_RESULT"
           check_required "database" "$DATABASE_RESULT"
+          check_required "eventflow" "$EVENTFLOW_RESULT"
           check_required "frontend" "$FRONTEND_RESULT"
           check_required "e2e" "$E2E_RESULT"
           check_required "changes" "$CHANGES_RESULT"

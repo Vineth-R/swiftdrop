@@ -16,6 +16,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/merchantclient"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
@@ -151,8 +152,47 @@ func (f *fakeContacts) callCount() int {
 	return f.calls
 }
 
+type fakeMerchants struct {
+	mu       sync.Mutex
+	merchant merchantclient.Merchant
+	err      error
+	calls    int
+}
+
+func newFakeMerchants() *fakeMerchants {
+	return &fakeMerchants{merchant: merchantclient.Merchant{
+		ID:           testMerchantID,
+		OwnerUserID:  "5f1c7a52-0000-4000-8000-000000000003",
+		BusinessName: "Test Merchant",
+		ContactEmail: "merchant@example.test",
+		Status:       "APPROVED",
+	}}
+}
+
+func (f *fakeMerchants) Merchant(_ context.Context, _ string) (merchantclient.Merchant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return merchantclient.Merchant{}, f.err
+	}
+	return f.merchant, nil
+}
+
+func (f *fakeMerchants) setError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
+}
+
+func (f *fakeMerchants) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
 func testHandler(logger *slog.Logger, sender mailer.Mailer, store *fakeStore) *Handler {
-	return New(logger, sender, store, newFakeContacts(), testSite)
+	return New(logger, sender, store, newFakeContacts(), newFakeMerchants(), testSite)
 }
 
 func newFakeHandler() (*Handler, *mailer.Mock, *fakeStore) {
@@ -165,8 +205,16 @@ func newDomainHandler() (*Handler, *mailer.Mock, *fakeStore, *fakeContacts) {
 	sender := &mailer.Mock{}
 	store := newFakeStore()
 	contacts := newFakeContacts()
-	handler := New(slog.New(slog.NewTextHandler(io.Discard, nil)), sender, store, contacts, testSite)
+	handler := New(slog.New(slog.NewTextHandler(io.Discard, nil)), sender, store, contacts, newFakeMerchants(), testSite)
 	return handler, sender, store, contacts
+}
+
+func newMerchantDomainHandler() (*Handler, *mailer.Mock, *fakeStore, *fakeMerchants) {
+	sender := &mailer.Mock{}
+	store := newFakeStore()
+	merchants := newFakeMerchants()
+	handler := New(slog.New(slog.NewTextHandler(io.Discard, nil)), sender, store, newFakeContacts(), merchants, testSite)
+	return handler, sender, store, merchants
 }
 
 func newHandler() (*Handler, *mailer.Mock) {

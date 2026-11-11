@@ -14,6 +14,7 @@ import (
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/http"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/merchantclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/notificationlog"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/retention"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/worker"
@@ -74,11 +75,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure identity client: %w", err)
 	}
+	merchants, err := merchantclient.New(config.MerchantBaseURL, config.InternalToken, config.MerchantTimeout)
+	if err != nil {
+		return fmt.Errorf("configure merchant client: %w", err)
+	}
 	if config.InternalTokenProblem != "" {
-		logger.Warn("identity contact lookup is not fully configured", "problem", config.InternalTokenProblem)
+		logger.Warn("internal contact lookups are not fully configured", "problem", config.InternalTokenProblem)
 	}
 	site := emails.Site{BaseURL: config.FrontendBaseURL, SupportEmail: config.SupportEmail}
-	handler := worker.New(logger, sender, store, identity, site)
+	handler := worker.New(logger, sender, store, identity, merchants, site)
 
 	router, err := servicehttp.New(logger, servicehttp.Options{
 		Store:        notificationlog.NewRepository(database),
@@ -146,7 +151,7 @@ func run() error {
 		"environment", config.AppEnv,
 	)
 	logger.Info("starting http service",
-		"address", config.Addr(),
+		"listen_addr", config.Addr(),
 		"environment", config.AppEnv,
 	)
 	logger.Info("processed-event retention enabled",

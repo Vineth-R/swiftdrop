@@ -157,27 +157,28 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
 
 ## Notification worker end-to-end (notificationflow)
 
-`tests/integration/notificationflow` (tag `notificationflow`) exercises the **running** notification worker container against real RabbitMQ, PostgreSQL, Mailpit, identity and the notification schema. It covers the legacy `notification.requested.v1` work item and the D6.1 `parcel.created.v1`/`parcel.status_changed.v1` domain events for customer-owned parcels. The test publishes contract-valid events directly; it does not implement a parcel producer, outbox writer, relay, or the complete M1.8c flow.
+`tests/integration/notificationflow` (tag `notificationflow`) exercises the **running** notification worker container against real RabbitMQ, PostgreSQL, Mailpit, identity, merchant and the notification schema. It covers the legacy `notification.requested.v1` work item and the D6.1 `parcel.created.v1`/`parcel.status_changed.v1` domain events for customer-owned and merchant-owned parcels. The test publishes contract-valid events directly; it does not implement a parcel producer, outbox writer, relay, or the complete M1.8c flow.
 
 Coverage:
 
-| Scenario                    | Assertions                                                                                                                                                                                                                      |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Legacy valid event          | One email in Mailpit with the expected subject/body; one `SENT` notification log with `sent_at`; one `processed_events` row.                                                                                                    |
-| Legacy duplicate            | Re-publishing the identical envelope is confirmed and routed by the broker; the worker logs `notification already processed`; no second email, one log row, one processed row, and unchanged `sent_at`.                         |
-| Legacy unroutable publish   | A message published with an unmatched routing key is returned and rejected by mandatory/confirm handling; no email, log, or processed row is created.                                                                           |
-| Legacy invalid events       | Malformed JSON, an unsupported event type, and invalid notification data are dead-lettered as `permanent`; no email, log, or processed row is created; a later valid event still succeeds.                                      |
-| Legacy SMTP failure         | With Mailpit stopped, the worker records `PENDING`, does not mark the event processed, stays alive, and reaches `SENT` after Mailpit returns and the retry fires.                                                               |
-| `parcel.created.v1`         | A real customer is registered through identity; the worker resolves the customer's contact through the identity internal API, sends one email, writes one `SENT` log with the tracking number, and records one processed event. |
-| `parcel.status_changed.v1`  | The worker renders status-specific content, including the previous/current status and the tracking number; one email, log and processed event.                                                                                  |
-| Domain duplicate            | Republishing the same domain event sends no second email, keeps one log and one processed row, and leaves `sent_at` unchanged.                                                                                                  |
-| Merchant-owned domain event | The worker recognizes the unsupported owner, sends no email, writes no log/processed row, and dead-letters the event as `permanent`.                                                                                            |
-| Invalid domain event        | Missing/invalid contract fields are dead-lettered as `permanent` with no email, log or processed row.                                                                                                                           |
-| Identity user not found     | A 404 from identity is permanent; the event is dead-lettered with no email/log/processed row.                                                                                                                                   |
-| Identity unavailable        | With identity stopped, the worker retries, then dead-letters as `retry_exhausted`; no email/log/processed row; identity is restored.                                                                                            |
-| Domain SMTP failure         | With Mailpit stopped, the domain notification is `PENDING` and not processed; after Mailpit returns, the retry sends one email and records `SENT`/processed.                                                                    |
+| Scenario                       | Assertions                                                                                                                                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Legacy valid event             | One email in Mailpit with the expected subject/body; one `SENT` notification log with `sent_at`; one `processed_events` row.                                                                                                    |
+| Legacy duplicate               | Re-publishing the identical envelope is confirmed and routed by the broker; the worker logs `notification already processed`; no second email, one log row, one processed row, and unchanged `sent_at`.                         |
+| Legacy unroutable publish      | A message published with an unmatched routing key is returned and rejected by mandatory/confirm handling; no email, log, or processed row is created.                                                                           |
+| Legacy invalid events          | Malformed JSON, an unsupported event type, and invalid notification data are dead-lettered as `permanent`; no email, log, or processed row is created; a later valid event still succeeds.                                      |
+| Legacy SMTP failure            | With Mailpit stopped, the worker records `PENDING`, does not mark the event processed, stays alive, and reaches `SENT` after Mailpit returns and the retry fires.                                                               |
+| `parcel.created.v1`            | A real customer is registered through identity; the worker resolves the customer's contact through the identity internal API, sends one email, writes one `SENT` log with the tracking number, and records one processed event. |
+| `parcel.status_changed.v1`     | The worker renders status-specific content, including the previous/current status and the tracking number; one email, log and processed event.                                                                                  |
+| Domain duplicate               | Republishing the same domain event sends no second email, keeps one log and one processed row, and leaves `sent_at` unchanged.                                                                                                  |
+| Merchant-owned approved event  | An APPROVED merchant with a contact email is resolved through `GET /internal/merchants/{merchantId}/contact`; the worker sends one email to the business contact email and records `SENT`/processed.                            |
+| Merchant-owned suspended event | A SUSPENDED merchant is a permanent failure: no email, no log/processed row, and the event is dead-lettered.                                                                                                                    |
+| Invalid domain event           | Missing/invalid contract fields are dead-lettered as `permanent` with no email, log or processed row.                                                                                                                           |
+| Identity user not found        | A 404 from identity is permanent; the event is dead-lettered with no email/log/processed row.                                                                                                                                   |
+| Identity unavailable           | With identity stopped, the worker retries, then dead-letters as `retry_exhausted`; no email/log/processed row; identity is restored.                                                                                            |
+| Domain SMTP failure            | With Mailpit stopped, the domain notification is `PENDING` and not processed; after Mailpit returns, the retry sends one email and records `SENT`/processed.                                                                    |
 
-Required services (disposable local Compose stack): `postgres`, `rabbitmq` (management enabled), `mailpit`, `identity`, and `notification-worker`. The identity override publishes identity on `127.0.0.1:18081` for registration. Migrations must be applied so the identity and notification schemas exist. The test reaches PostgreSQL through `docker compose exec`, so PostgreSQL does not need a published host port. The suite requires `COMPOSE_PROJECT_NAME` to be set to a dedicated project other than `swiftdrop`; it refuses to run otherwise because the outage tests stop Mailpit and identity.
+Required services (disposable local Compose stack): `postgres`, `rabbitmq` (management enabled), `mailpit`, `identity`, `merchant`, and `notification-worker`. The identity override publishes identity on `127.0.0.1:18081` for registration, and the merchant service is reached at `127.0.0.1:18084` for the merchant contact lookup. Migrations must be applied so the identity, merchant and notification schemas exist. The test reaches PostgreSQL through `docker compose exec`, so PostgreSQL does not need a published host port. The suite requires `COMPOSE_PROJECT_NAME` to be set to a dedicated project other than `swiftdrop`; it refuses to run otherwise because the outage tests stop Mailpit and identity.
 
 Run locally from the repository root. Use the **same** `COMPOSE_PROJECT_NAME` and `COMPOSE_FILE` for the stack, `make migrate`, worker startup, and the test:
 
@@ -185,13 +186,15 @@ Run locally from the repository root. Use the **same** `COMPOSE_PROJECT_NAME` an
 cp .env.example .env
 export COMPOSE_PROJECT_NAME=swiftdrop-notificationflow
 export COMPOSE_FILE=docker-compose.yml:tests/integration/notificationflow/docker-compose.identity.yml
-docker compose build notification-worker identity
-docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit identity
+docker compose build notification-worker identity merchant
+docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit identity merchant
 make migrate
 RABBITMQ_RETRY_DELAY=5s RABBITMQ_MAX_RETRIES=2 \
   docker compose up -d --wait --wait-timeout 300 notification-worker
 
-NOTIFICATIONFLOW_IDENTITY_URL=http://127.0.0.1:18081 NOTIFICATIONFLOW_RETRY_WAIT=60s \
+NOTIFICATIONFLOW_IDENTITY_URL=http://127.0.0.1:18081 \
+NOTIFICATIONFLOW_MERCHANT_URL=http://127.0.0.1:18084 \
+NOTIFICATIONFLOW_RETRY_WAIT=60s \
   go test -race -tags=notificationflow -count=1 -v ./tests/integration/notificationflow/...
 
 # Dispose of the dedicated test project only.
@@ -200,22 +203,36 @@ docker compose down -v
 
 `COMPOSE_FILE` uses `:` as the separator on Linux and macOS and `;` on Windows. The identity service sends a welcome email on registration, so the domain tests filter Mailpit by the tracking number in the subject. The SMTP-failure case stops Mailpit; the identity-unavailable case stops identity; both restore the service in cleanup. The suite refuses the default `swiftdrop` project, and every Compose command in the harness is pinned to the validated project with `-p`. The duplicate test reads the worker log for `notification already processed`; keep `LOG_LEVEL=info` (the default). The suite does not skip when a dependency is missing; it fails with the readiness error.
 
-Optional overrides: `NOTIFICATIONFLOW_RABBITMQ_URL`, `NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL`, `NOTIFICATIONFLOW_RABBITMQ_USER`, `NOTIFICATIONFLOW_RABBITMQ_PASSWORD`, `NOTIFICATIONFLOW_MAILPIT_URL`, `NOTIFICATIONFLOW_EXCHANGE`, `NOTIFICATIONFLOW_QUEUE`, `NOTIFICATIONFLOW_ROUTING_KEY`, `NOTIFICATIONFLOW_IDENTITY_URL`, `NOTIFICATIONFLOW_PARCEL_CREATED_QUEUE`, `NOTIFICATIONFLOW_PARCEL_CREATED_ROUTING_KEY`, `NOTIFICATIONFLOW_PARCEL_STATUS_QUEUE`, `NOTIFICATIONFLOW_PARCEL_STATUS_ROUTING_KEY`, and `NOTIFICATIONFLOW_RETRY_WAIT`. If you use a custom Compose file, export `COMPOSE_FILE` for `docker compose`, `make migrate`, and the tests so they all use the same files.
+Optional overrides: `NOTIFICATIONFLOW_RABBITMQ_URL`, `NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL`, `NOTIFICATIONFLOW_RABBITMQ_USER`, `NOTIFICATIONFLOW_RABBITMQ_PASSWORD`, `NOTIFICATIONFLOW_MAILPIT_URL`, `NOTIFICATIONFLOW_EXCHANGE`, `NOTIFICATIONFLOW_QUEUE`, `NOTIFICATIONFLOW_ROUTING_KEY`, `NOTIFICATIONFLOW_IDENTITY_URL`, `NOTIFICATIONFLOW_MERCHANT_URL`, `NOTIFICATIONFLOW_PARCEL_CREATED_QUEUE`, `NOTIFICATIONFLOW_PARCEL_CREATED_ROUTING_KEY`, `NOTIFICATIONFLOW_PARCEL_STATUS_QUEUE`, `NOTIFICATIONFLOW_PARCEL_STATUS_ROUTING_KEY`, and `NOTIFICATIONFLOW_RETRY_WAIT`. If you use a custom Compose file, export `COMPOSE_FILE` for `docker compose`, `make migrate`, and the tests so they all use the same files.
 
-CI: the path-filtered `notificationflow` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds the notification-worker and identity images, starts postgres/rabbitmq/mailpit/identity, applies migrations, starts the worker, runs the suite with `-race`, fails on `--- SKIP`, and removes the dedicated project. It runs when the notification worker, identity, shared Go packages, notification migrations, Compose, migration scripts, or this suite change.
+CI: the path-filtered `notificationflow` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds the notification-worker, identity and merchant images, starts postgres/rabbitmq/mailpit/identity/merchant, applies migrations, starts the worker, runs the suite with `-race`, fails on `--- SKIP`, and removes the dedicated project. It runs when the notification worker, identity, merchant, shared Go packages, notification migrations, Compose, migration scripts, or this suite change.
 
 What this suite does **not** prove:
 
 - It does not implement or validate the parcel producer, transactional outbox, outbox relay, or parcel status-change API. The domain events are published by the test, not by a parcel service.
 - It does not prove the complete M1.8c flow: no real parcel status change causes the event.
-- Merchant-owned parcel notifications remain unsupported and are dead-lettered; no merchant contact-resolution path is implemented.
-- Webhook delivery, realtime delivery, and merchant order synchronization are out of scope.
+- Merchant-owned parcel notifications use the real approved-merchant contact lookup, but the suite does not prove merchant onboarding, approval, or suspension flows; it seeds the merchant status directly.
+- Webhook delivery, realtime delivery, and merchant order synchronization are out of scope. `merchant.sync.queue` is not implemented.
 - It does not prove exactly-once delivery. The worker is at-least-once: a crash after SMTP acceptance and before the database commit, or two concurrent workers, can still produce a duplicate email. Sequential redelivery after successful processing is deduplicated.
 - Retry exhaustion is not observable by the handler, so a notification log can remain `PENDING` after the message is dead-lettered.
-- Invalid and merchant-owned events remain in the dead-letter queue. The test peeks with `ack_requeue_true` and searches for its unique event ID; it does not purge the shared queue.
+- Invalid and unapproved-merchant events remain in the dead-letter queue. The test peeks with `ack_requeue_true` and searches for its unique event ID; it does not purge the shared queue.
 - The test requires Docker Compose, identity, the repository's service names, and the RabbitMQ management API. It is not a substitute for the Admin Notification Logs API/UI tests.
 
 Isolation and cleanup: every run uses fresh UUIDs and unique recipients. The suite refuses the default `swiftdrop` project and pins every Compose command to the validated `COMPOSE_PROJECT_NAME`, so the outage tests cannot stop another stack. Cleanup deletes only the notification rows and Mailpit messages created by that run. It never drops a schema or database, deletes a Docker volume, purges a shared queue, or removes the worker's exchange/queue topology. The registered identity fixture remains in the disposable project's database; `docker compose down -v` removes it.
+
+## Event flow end-to-end (eventflow)
+
+`tests/integration/eventflow` (tag `integration`) proves the event chain with real infrastructure and in-process real handlers. It creates an isolated PostgreSQL database with the parcel, notification and merchant migrations, writes a real courier status transaction and PENDING outbox row, runs the real outbox relay and AMQP publisher to RabbitMQ, and processes the published `parcel.status_changed.v1` with the real notification, webhook and realtime handlers. Merchant notifications use the real merchant internal lookup and client, and webhook delivery uses a real HTTP receiver.
+
+It requires both PostgreSQL and RabbitMQ:
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
+  go test -race -count=1 -tags=integration ./tests/integration/eventflow/...
+```
+
+CI runs this as the `eventflow` job and fails if any test is skipped. Each run uses a uniquely named database and uniquely named exchange/queues, and cleanup removes only the resources it created. The suite covers the committed outbox → relay → broker → consumer chain; it does not prove multi-replica fan-out or that the merchant asynchronous sync consumer exists. `merchant.sync.queue` is not implemented.
 
 ## Demo-user seed
 
@@ -271,15 +288,13 @@ Broker-backed tests are guarded by the `integration` build tag, so `go test ./..
 
 The API v1.1 section 11 audit found mismatches and missing implementations. **RabbitMQ integration compliance is not established by the M7 database or validator results, or by the generic broker scenarios below.** Follow-up ownership is recorded from the team task sheet; this documentation does not create tickets or imply the owners have completed the work.
 
-| Follow-up                                                                                                                                                                                                               | Responsible owners                                                                            |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Implement the approved versioned topology and failure-resource terminology; the current runtime still uses legacy work-item queues and the shared derived `swiftdrop.events.dlx`/per-queue DLQs.                        | M1 for shared infrastructure/contracts, coordinating with the producing and consuming owners. |
-| Implement the notification target: consume `parcel.created.v1`/`parcel.status_changed.v1` and resolve contact through identity. The current worker uses legacy `notification.requested.v1`.                             | M1 notification-worker ownership, coordinating notification requirements with M7.             |
-| Implement parcel event producers and outbox relay; the outbox table exists and D6.1 documents the storage-to-bus mapping, but runtime publication is absent.                                                            | M5 for parcel-created publication, M7 for parcel-status publication, M6 for outbox relay.     |
-| Implement the webhook target: consume `parcel.status_changed.v1`, deliver and sign the public projection, and apply the six-attempt business retry schedule. The current worker only validates/logs a legacy work item. | M9 for webhook behavior; M1 for shared retry/topology support.                                |
-| Implement the target `realtime.queue` and `merchant.sync.queue` consumers with the documented versioned bindings.                                                                                                       | M10 for realtime and M8 for merchant integration, coordinating topology with M1.              |
+| Follow-up                                                                                                                                                                                                    | Responsible owners                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Remaining merchant asynchronous synchronization: implement `merchant.sync.queue` with the documented versioned binding. The realtime consumer and the notification/webhook parcel consumers are implemented. | M8 for merchant integration, coordinating topology with M1.                               |
+| Parcel event producers and outbox relay are implemented; keep the single-instance claim/lock strategy documented before running the relay with more than one instance.                                       | M5 for parcel-created publication, M7 for parcel-status publication, M6 for outbox relay. |
+| Webhook delivery, signing, attempt recording, and the six-attempt business retry schedule are implemented; keep the business retries separate from the shared consumer retry loop.                           | M9 for webhook behavior; M1 for shared retry/topology support.                            |
 
-API v1.1 section 10.3 requires six webhook attempts with the schedule exactly: **now, 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours**. The later delays are after the previous failure. After the sixth failure, dead-lettering and delivery-log recording are required. The fixed-delay foundation does not implement that schedule. D6.1 documents the approved target contract in [contracts/events/README.md](../../contracts/events/README.md); the table above describes remaining runtime migration, not a missing contract decision.
+API v1.1 section 10.3 requires six webhook attempts with the schedule exactly: **now, 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours**. The later delays are after the previous failure. After the sixth failure, the worker dead-letters and records the attempt. The webhook worker implements this schedule through RabbitMQ delay queues without reusing the shared consumer retry loop. D6.1 documents the approved contract in [contracts/events/README.md](../../contracts/events/README.md).
 
 ### Prerequisites
 
@@ -340,7 +355,7 @@ The `integration` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci
 go test -race -count=1 -tags=integration -v ./tests/integration
 ```
 
-The `database` job starts a PostgreSQL 16 service container, sets `TEST_DATABASE_URL`, and runs the dispatch, pricing, processed-event cleanup, notification-log and demo-seed database tests. Both jobs fail if their dependency is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
+The `database` job starts a PostgreSQL 16 service container, sets `TEST_DATABASE_URL`, and runs the dispatch, pricing, processed-event cleanup, notification-log, demo-seed, merchant and parcel PostgreSQL tests. The `eventflow` job starts PostgreSQL and RabbitMQ and runs the event-flow suite. All these jobs fail if their dependency is unreachable or if any integration test is skipped. This documentation does not assert that CI passed for a given revision; check the Actions run.
 
 ### Guidelines for new tests
 

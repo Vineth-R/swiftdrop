@@ -3824,7 +3824,7 @@ Body:
 
    }
 
-The internal RabbitMQ trigger is `parcel.status_changed.v1`. The public body remains camelCase with unversioned `eventType: parcel.status_changed` and additive `schemaVersion: 1` for API v1.1 compatibility. `eventId` is the stable outbox UUID. The webhook worker must obtain `externalOrderId` through an authorized internal lookup; the internal parcel summary described in section 13 is a target contract and is not implemented yet.
+The internal RabbitMQ trigger is `parcel.status_changed.v1`. The public body remains camelCase with unversioned `eventType: parcel.status_changed` and additive `schemaVersion: 1` for API v1.1 compatibility. `eventId` is the stable outbox UUID. The webhook worker obtains `externalOrderId` through the implemented authorized internal parcel summary (`GET /internal/parcels/{parcelId}/summary`, section 13), loads the webhook and decrypted signing secret through the Merchant internal API, delivers the signed request, records the attempt, and schedules the 1m/5m/30m/2h/6h business retries.
 
 10.2 Merchant responsibilities
 
@@ -3900,7 +3900,7 @@ These webhook business retries are separate from shared RabbitMQ consumer retrie
 | `realtime.queue` | `parcel.assigned.v1`, `parcel.status_changed.v1` | Realtime Service |
 | `merchant.sync.queue` | `parcel.status_changed.v1` | Merchant Integration |
 
-Queue names are deployment details. The currently implemented worker queues use legacy work-item names and are not yet migrated; do not treat this table as evidence that the target bindings are running. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
+Queue names are deployment details. The implemented durable queues are `notification.requested.v1` (legacy), `notification.parcel.created.v1`, `notification.parcel.status_changed.v1`, `webhook.parcel.status_changed.v1` and `realtime.parcel.status_changed.v1`; do not treat the target names in this table as evidence that they are running. `merchant.sync.queue` has no consumer, queue declaration, migration or Compose wiring. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
 
 Failure topology is derived by the shared consumer: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. A retry is dead-lettered to its owning queue through the default exchange, so it cannot reach another worker bound to the same event. The legacy name `swiftdrop.dlx` is not the implemented exchange. Messages are persistent, and consumers deduplicate by `event_id`.
 
@@ -3954,7 +3954,7 @@ Database outbox storage labels remain unversioned to avoid a schema migration:
 | `parcel.assigned` | `parcel.assigned` | `parcel.assigned.v1` | `parcel.assigned.v1` |
 | `parcel.status_changed` | `parcel.status.changed` | `parcel.status_changed.v1` | `parcel.status_changed.v1` |
 
-The stored `routing_key` is legacy/internal. The relay maps the storage label and builds the canonical envelope; it must not copy the stored routing key blindly. The outbox writer and relay are not implemented yet.
+The stored `routing_key` is legacy/internal. The relay maps the storage label and builds the canonical envelope; it must not copy the stored routing key blindly. The outbox writers and the relay are implemented; the M6 relay publishes committed versioned events with confirms and bounded retries.
 
 Public merchant webhooks remain a separate projection with unversioned public `eventType: parcel.status_changed`; see section 10.
 
@@ -4129,6 +4129,24 @@ Method and path                                  Caller to      Purpose
                                                    to Identity    "fullName",
 
                                                                   "email", "phone" }
+
+
+
+   GET                                             Notification   Returns {
+
+  /internal/merchants/{merchantId}/contact         to Merchant    "merchantId",
+
+                                                                  "ownerUserId",
+
+                                                                  "businessName",
+
+                                                                  "contactEmail",
+
+                                                                  "status" } for
+
+                                                                  the approved
+
+                                                                  merchant contact
 
 
 

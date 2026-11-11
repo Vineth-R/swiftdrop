@@ -100,6 +100,21 @@ func TestRedactingHandlerMasksCredentialsAndPII(t *testing.T) {
 	}
 }
 
+func TestRedactingHandlerKeepsListenAddrAndRedactsAddress(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(NewRedactingHandler(slog.NewJSONHandler(&buffer, nil)))
+
+	logger.Info("starting http service", "listen_addr", "0.0.0.0:8081", "address", "12 Temple Road")
+
+	output := buffer.String()
+	if !strings.Contains(output, `"listen_addr":"0.0.0.0:8081"`) {
+		t.Fatalf("listen_addr was redacted: %s", output)
+	}
+	if strings.Contains(output, "12 Temple Road") || !strings.Contains(output, redacted) {
+		t.Fatalf("address was not redacted: %s", output)
+	}
+}
+
 func TestRedactingHandlerMasksGroupsAndAttachedAttrs(t *testing.T) {
 	var buffer bytes.Buffer
 	base := slog.New(NewRedactingHandler(slog.NewJSONHandler(&buffer, nil)))

@@ -1,6 +1,7 @@
 package servicehttp
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -485,9 +486,31 @@ func (h *merchantHandler) handleRepositoryError(c *gin.Context, err error) {
 func (h *merchantHandler) internalError(c *gin.Context, operation, message string, err error) {
 	if h.logger != nil {
 		h.logger.ErrorContext(c.Request.Context(), "merchant request failed",
-			"request_id", requestid.FromGin(c), "path", c.FullPath(), "operation", operation, "error", err.Error())
+			"request_id", requestid.FromGin(c), "path", c.FullPath(), "operation", operation, "error_class", errorClass(err))
 	}
 	httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)
+}
+
+// errorClass returns a stable classification for the log. The raw error text is
+// never logged: repository and driver errors can contain contact details, and
+// webhook and signing errors can carry URLs or secrets.
+func errorClass(err error) string {
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, repository.ErrNotFound):
+		return "not_found"
+	case errors.Is(err, repository.ErrInvalidState):
+		return "invalid_state"
+	case errors.Is(err, repository.ErrWebhookNotConfigured):
+		return "webhook_not_configured"
+	default:
+		return "internal"
+	}
 }
 
 type merchantDTO struct {

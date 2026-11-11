@@ -308,7 +308,7 @@ func (h *internalWebhookHandler) internalError(c *gin.Context, operation, messag
 			"request_id", requestid.FromGin(c),
 			"path", c.FullPath(),
 			"operation", operation,
-			"error", err.Error(),
+			"error_class", errorClass(err),
 		)
 	}
 	httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)

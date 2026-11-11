@@ -75,6 +75,15 @@ func FromContext(ctx context.Context) string {
 	return ""
 }
 
+// WithContext returns a context carrying id so outbound clients can propagate
+// the inbound request ID. An invalid id leaves the context unchanged.
+func WithContext(ctx context.Context, id string) context.Context {
+	if !Valid(id) {
+		return ctx
+	}
+	return context.WithValue(ctx, contextKeyValue, id)
+}
+
 func timeFallback() string {
 	return "rid-" + time.Now().UTC().Format("20060102T150405.000000000")
 }

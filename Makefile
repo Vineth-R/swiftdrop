@@ -11,7 +11,7 @@ MIGRATE_RUN = docker run --rm \
 	-e DATABASE_URL -e DATABASE_URL_DIRECT -e APP_ENV -e ALLOW_PRODUCTION_ROLLBACK -e MIGRATE_SERVICES \
 	$(MIGRATE_IMAGE)
 
-.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed check-routes test test-db test-storage test-pooled test-access coverage email-preview email-send-preview
+.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed check-routes test test-db test-storage test-pooled test-access coverage email-preview email-send-preview seed-merchant
 
 help:
 	@echo "Targets:"
@@ -30,6 +30,7 @@ help:
 	@echo "  make proof-reconcile compare database proof keys with stored objects"
 	@echo "  make db-verify      verify the documented database baseline (read-only)"
 	@echo "  make seed           create the five deterministic demo users"
+	@echo "  make seed-merchant  create and approve the deterministic merchant demo account"
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
 	@echo "  make check-routes   verify gateway routing against the running stack"
 	@echo "  make project-name   print the resolved Compose project name"
@@ -201,6 +202,17 @@ seed:
 	fi
 	go run ./apps/services/identity/seed
 
+seed-merchant:
+	@if [ -z "$${DATABASE_URL:-}" ]; then \
+		echo "error: DATABASE_URL is required. Export it or point it at a reachable disposable database." >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$${SEED_MERCHANT_PASSWORD:-}" ]; then \
+		echo "error: SEED_MERCHANT_PASSWORD is required for make seed-merchant (no default is provided)." >&2; \
+		exit 1; \
+	fi
+	go run ./apps/services/merchant/seed
+
 db-reset:
 	@echo "WARNING: this deletes local PostgreSQL and RabbitMQ volumes."
 	$(COMPOSE) down -v --remove-orphans
@@ -255,7 +267,7 @@ test-db:
 		echo "       The URL must allow CREATE DATABASE; tests create and drop isolated databases." >&2; \
 		exit 1; \
 	fi
-	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/...
+	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/... ./apps/services/merchant/internal/seed/...
 	@command -v migrate >/dev/null 2>&1 || { \
 		echo "error: the golang-migrate 'migrate' CLI must be on PATH for parcel PostgreSQL tests." >&2; \
 		exit 1; \

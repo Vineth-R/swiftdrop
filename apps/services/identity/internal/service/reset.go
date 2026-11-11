@@ -171,7 +171,7 @@ func (p *PasswordReset) ForgotPassword(ctx context.Context, input ForgotPassword
 	if err != nil {
 		// Never a reason to answer differently: the caller must not learn that
 		// this address has an account. The log carries the user ID only.
-		p.base.logger.ErrorContext(ctx, "password reset email could not be built", "user_id", userID, "error", err.Error())
+		p.base.logger.ErrorContext(ctx, "password reset email could not be built", "user_id", userID, "reason", "build_failed")
 		return nil
 	}
 	p.dispatch(func() {
@@ -180,7 +180,7 @@ func (p *PasswordReset) ForgotPassword(ctx context.Context, input ForgotPassword
 		defer cancel()
 		if err := p.mailer.Send(sendCtx, message); err != nil {
 			// The log carries the user ID only: no email address, link or token.
-			p.base.logger.ErrorContext(sendCtx, "password reset email was not sent", "user_id", userID, "error", err.Error())
+			p.base.logger.ErrorContext(sendCtx, "password reset email was not sent", "user_id", userID, "reason", emailSendFailureReason(err))
 		}
 	})
 	return nil
@@ -244,6 +244,19 @@ func (p *PasswordReset) ResetPassword(ctx context.Context, input ResetPasswordIn
 		p.base.notifier.PasswordChanged(ctx, recipientOf(user), true, p.base.nowUTC())
 	}
 	return nil
+}
+
+// emailSendFailureReason classifies a delivery failure for the log. The error
+// text is never logged because an SMTP server can echo the recipient address.
+func emailSendFailureReason(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "send_failed"
+	}
 }
 
 func (p *PasswordReset) resetLink(token string) string {

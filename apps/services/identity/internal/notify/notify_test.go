@@ -100,12 +100,12 @@ func TestSender_aFailedSendIsLoggedWithoutPersonalDetails(t *testing.T) {
 	sender.PasswordChanged(context.Background(), nimali, true, moment)
 
 	log := logs.String()
-	for _, want := range []string{"account email was not sent", "password_changed", "user-1", "smtp down"} {
+	for _, want := range []string{"account email was not sent", "password_changed", "user-1", "send_failed"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("the log lacks %q: %s", want, log)
 		}
 	}
-	for _, leak := range []string{"nimali@example.com", "Nimali", "password reset link", "https://"} {
+	for _, leak := range []string{"nimali@example.com", "Nimali", "password reset link", "https://", "smtp down"} {
 		if strings.Contains(log, leak) {
 			t.Errorf("the log leaks %q: %s", leak, log)
 		}

@@ -4,6 +4,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -73,10 +74,23 @@ func (n *Notifier) Suspended(ctx context.Context, to, ownerName, businessName st
 	}))
 }
 
+// emailSendFailureReason classifies a delivery failure for the log. The error
+// text is never logged because an SMTP server can echo the recipient address.
+func emailSendFailureReason(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "send_failed"
+	}
+}
+
 func (n *Notifier) send(ctx context.Context, kind, to string, email emails.Email) {
 	message, err := email.Message(to, n.site)
 	if err != nil {
-		n.logger.ErrorContext(ctx, "merchant email could not be built", "email_kind", kind, "error", err.Error())
+		n.logger.ErrorContext(ctx, "merchant email could not be built", "email_kind", kind, "reason", "build_failed")
 		return
 	}
 	n.dispatch(func() {
@@ -86,7 +100,7 @@ func (n *Notifier) send(ctx context.Context, kind, to string, email emails.Email
 			if err := n.mailer.Send(sendCtx, message); err == nil {
 				return
 			} else {
-				n.logger.ErrorContext(sendCtx, "merchant email was not sent", "email_kind", kind, "attempt", attempt, "error", err.Error())
+				n.logger.ErrorContext(sendCtx, "merchant email was not sent", "email_kind", kind, "attempt", attempt, "reason", emailSendFailureReason(err))
 			}
 			if attempt < maxAttempts {
 				select {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/merchantclient"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
@@ -222,7 +223,7 @@ func TestHandleParcelEventsRejectForeignProducer(t *testing.T) {
 	}
 }
 
-func TestHandleParcelMerchantOwnedIsUnsupported(t *testing.T) {
+func TestHandleParcelMerchantOwnedSendsToApprovedContact(t *testing.T) {
 	tests := []struct {
 		name      string
 		eventType string
@@ -234,23 +235,132 @@ func TestHandleParcelMerchantOwnedIsUnsupported(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			handler, sender, store, contacts := newDomainHandler()
+			handler, sender, store, merchants := newMerchantDomainHandler()
 			body := parcelEnvelope(t, testEventID, test.eventType, test.data)
+
+			if err := handler.Handle(context.Background(), messaging.Message{Body: body}); err != nil {
+				t.Fatalf("Handle() error = %v", err)
+			}
+
+			sent := sender.Sent()
+			if len(sent) != 1 {
+				t.Fatalf("sent = %d emails, want 1", len(sent))
+			}
+			if sent[0].To != "merchant@example.test" {
+				t.Errorf("To = %q, want the merchant contact email", sent[0].To)
+			}
+			for _, want := range []string{"Test Merchant", "Tracking number: " + testTracking} {
+				if !strings.Contains(sent[0].Text, want) {
+					t.Errorf("text does not contain %q:\n%s", want, sent[0].Text)
+				}
+			}
+			if merchants.callCount() != 1 {
+				t.Errorf("merchant lookups = %d, want 1", merchants.callCount())
+			}
+			if !store.has(testEventID) {
+				t.Error("merchant event was not recorded as processed")
+			}
+			delivered := store.deliveredEntries()
+			if len(delivered) != 1 {
+				t.Fatalf("delivered entries = %d, want 1", len(delivered))
+			}
+			entry := delivered[0]
+			if entry.EventID != testEventID || entry.ParcelID != testParcelID || entry.Channel != "EMAIL" ||
+				entry.Recipient != "merchant@example.test" || entry.Subject != sent[0].Subject {
+				t.Errorf("delivered entry = %+v", entry)
+			}
+		})
+	}
+}
+
+func TestHandleParcelMerchantOwnedDuplicateIsIdempotent(t *testing.T) {
+	handler, sender, store, merchants := newMerchantDomainHandler()
+	body := parcelEnvelope(t, testEventID, ParcelStatusChangedEventType, merchantData(statusData("CREATED", "PICKED_UP", "")))
+
+	for range 2 {
+		if err := handler.Handle(context.Background(), messaging.Message{Body: body}); err != nil {
+			t.Fatalf("Handle() error = %v", err)
+		}
+	}
+
+	if len(sender.Sent()) != 1 {
+		t.Errorf("sent = %d emails, want 1", len(sender.Sent()))
+	}
+	if merchants.callCount() != 1 {
+		t.Errorf("merchant lookups = %d, want 1", merchants.callCount())
+	}
+	if delivered := store.deliveredEntries(); len(delivered) != 1 {
+		t.Errorf("delivered entries = %d, want 1", len(delivered))
+	}
+}
+
+func TestHandleParcelMerchantOwnedUnapprovedIsPermanent(t *testing.T) {
+	for _, status := range []string{"PENDING", "SUSPENDED", "REJECTED"} {
+		t.Run(status, func(t *testing.T) {
+			handler, sender, store, merchants := newMerchantDomainHandler()
+			merchants.merchant.Status = status
+			body := parcelEnvelope(t, testEventID, ParcelCreatedEventType, merchantData(createdData()))
 
 			err := handler.Handle(context.Background(), messaging.Message{Body: body})
 			if err == nil || !messaging.IsPermanent(err) {
 				t.Fatalf("Handle() error = %v, want a permanent error", err)
 			}
 			if len(sender.Sent()) != 0 {
-				t.Error("merchant-owned event sent an email")
+				t.Error("unapproved merchant event sent an email")
 			}
-			if contacts.callCount() != 0 {
-				t.Error("merchant-owned event looked up a contact")
-			}
-			if lookups, delivered, failures := store.calls(); lookups != 0 || delivered != 0 || failures != 0 {
-				t.Errorf("merchant-owned event touched the store: %d/%d/%d", lookups, delivered, failures)
+			if store.has(testEventID) {
+				t.Error("unapproved merchant event marked the event processed")
 			}
 		})
+	}
+}
+
+func TestHandleParcelMerchantLookupFailures(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		permanent bool
+	}{
+		{name: "not found", err: merchantclient.ErrNotFound, permanent: true},
+		{name: "unauthorized", err: merchantclient.ErrUnauthorized, permanent: true},
+		{name: "invalid response", err: merchantclient.ErrInvalidResponse, permanent: true},
+		{name: "unavailable", err: merchantclient.ErrUnavailable, permanent: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, sender, store, merchants := newMerchantDomainHandler()
+			merchants.setError(test.err)
+			body := parcelEnvelope(t, testEventID, ParcelCreatedEventType, merchantData(createdData()))
+
+			err := handler.Handle(context.Background(), messaging.Message{Body: body})
+			if err == nil || messaging.IsPermanent(err) != test.permanent {
+				t.Fatalf("Handle() error = %v, permanent = %v", err, test.permanent)
+			}
+			if len(sender.Sent()) != 0 {
+				t.Error("failed merchant lookup sent an email")
+			}
+			if store.has(testEventID) {
+				t.Error("failed merchant lookup marked the event processed")
+			}
+		})
+	}
+}
+
+func TestHandleParcelMerchantOwnedMissingContactIsPermanent(t *testing.T) {
+	handler, sender, store, merchants := newMerchantDomainHandler()
+	merchants.merchant.ContactEmail = "  "
+	body := parcelEnvelope(t, testEventID, ParcelStatusChangedEventType, merchantData(statusData("CREATED", "PICKED_UP", "")))
+
+	err := handler.Handle(context.Background(), messaging.Message{Body: body})
+	if err == nil || !messaging.IsPermanent(err) {
+		t.Fatalf("Handle() error = %v, want a permanent error", err)
+	}
+	if len(sender.Sent()) != 0 {
+		t.Error("missing merchant contact sent an email")
+	}
+	if store.has(testEventID) {
+		t.Error("missing merchant contact marked the event processed")
 	}
 }
 
@@ -292,7 +402,7 @@ func TestHandleParcelEventsRejectInvalidData(t *testing.T) {
 	emptyCustomer := createdData()
 	emptyCustomer["customer_user_id"] = ""
 
-	emptyMerchant := createdData()
+	emptyMerchant := merchantData(createdData())
 	emptyMerchant["merchant_id"] = ""
 
 	nonFailedShortReason := statusData("CREATED", "PICKED_UP", "no")
@@ -482,6 +592,7 @@ func TestHandleParcelDoesNotLogContactData(t *testing.T) {
 		failingSender{err: errors.New("550 " + email + " rejected")},
 		store,
 		contacts,
+		newFakeMerchants(),
 		testSite,
 	)
 	body := parcelEnvelope(t, testEventID, ParcelCreatedEventType, createdData())
@@ -508,7 +619,7 @@ func TestHandleParcelStoreFailures(t *testing.T) {
 		var logs bytes.Buffer
 		store := newFakeStore()
 		store.lookupErr = errors.New(driverText)
-		handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store, newFakeContacts(), testSite)
+		handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store, newFakeContacts(), newFakeMerchants(), testSite)
 		body := parcelEnvelope(t, testEventID, ParcelCreatedEventType, createdData())
 		err := handler.Handle(context.Background(), messaging.Message{Body: body})
 		assertStoreFailureIsSafe(t, err, logs.String(), secret, marker)
@@ -518,7 +629,7 @@ func TestHandleParcelStoreFailures(t *testing.T) {
 		var logs bytes.Buffer
 		store := newFakeStore()
 		store.deliverErr = errors.New(driverText)
-		handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store, newFakeContacts(), testSite)
+		handler := New(slog.New(slog.NewJSONHandler(&logs, nil)), &mailer.Mock{}, store, newFakeContacts(), newFakeMerchants(), testSite)
 		body := parcelEnvelope(t, testEventID, ParcelCreatedEventType, createdData())
 		err := handler.Handle(context.Background(), messaging.Message{Body: body})
 		assertStoreFailureIsSafe(t, err, logs.String(), secret, marker)
@@ -533,6 +644,7 @@ func TestHandleParcelStoreFailures(t *testing.T) {
 			failingSender{err: errors.New("smtp connection refused")},
 			store,
 			newFakeContacts(),
+			newFakeMerchants(),
 			testSite,
 		)
 		body := parcelEnvelope(t, testEventID, ParcelCreatedEventType, createdData())
@@ -543,7 +655,7 @@ func TestHandleParcelStoreFailures(t *testing.T) {
 
 func TestHandleParcelWithoutContactResolver(t *testing.T) {
 	store := newFakeStore()
-	handler := New(slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil)), &mailer.Mock{}, store, nil, testSite)
+	handler := New(slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil)), &mailer.Mock{}, store, nil, nil, testSite)
 	body := parcelEnvelope(t, testEventID, ParcelCreatedEventType, createdData())
 
 	err := handler.Handle(context.Background(), messaging.Message{Body: body})

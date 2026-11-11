@@ -104,7 +104,7 @@ func run() error {
 		IdleTimeout:       120 * time.Second,
 	})
 
-	logger.Info("starting http service", "address", config.Addr(), "environment", config.AppEnv)
+	logger.Info("starting http service", "listen_addr", config.Addr(), "environment", config.AppEnv)
 	logger.Info("starting event consumer",
 		"exchange", config.Exchange,
 		"queue", config.Queue,

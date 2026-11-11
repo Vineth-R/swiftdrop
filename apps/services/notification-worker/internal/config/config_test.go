@@ -453,6 +453,8 @@ func TestLoadFromParsesIdentityAndParcelConfig(t *testing.T) {
 		"INTERNAL_TOKEN":                          "change-me-internal-token",
 		"IDENTITY_BASE_URL":                       "https://identity.example:8443/",
 		"IDENTITY_TIMEOUT":                        "2s",
+		"MERCHANT_BASE_URL":                       "https://merchant.example:8443/",
+		"MERCHANT_TIMEOUT":                        "4s",
 		"NOTIFICATION_PARCEL_CREATED_QUEUE":       "notification.parcel.created.test",
 		"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": "parcel.created.v1",
 		"NOTIFICATION_PARCEL_STATUS_QUEUE":        "notification.parcel.status_changed.test",
@@ -470,6 +472,12 @@ func TestLoadFromParsesIdentityAndParcelConfig(t *testing.T) {
 	}
 	if config.IdentityTimeout != 2*time.Second {
 		t.Fatalf("IdentityTimeout = %v, want 2s", config.IdentityTimeout)
+	}
+	if config.MerchantBaseURL != "https://merchant.example:8443" {
+		t.Fatalf("MerchantBaseURL = %q", config.MerchantBaseURL)
+	}
+	if config.MerchantTimeout != 4*time.Second {
+		t.Fatalf("MerchantTimeout = %v, want 4s", config.MerchantTimeout)
 	}
 	if config.InternalToken != "change-me-internal-token" || config.InternalTokenProblem != "" {
 		t.Fatalf("internal token config = %q/%q", config.InternalToken, config.InternalTokenProblem)
@@ -558,6 +566,8 @@ func TestLoadFromRejectsInvalidIdentityConfig(t *testing.T) {
 	}{
 		{name: "identity base URL", values: map[string]string{"IDENTITY_BASE_URL": "identity:8081"}},
 		{name: "identity timeout", values: map[string]string{"IDENTITY_TIMEOUT": "0s"}},
+		{name: "merchant base URL", values: map[string]string{"MERCHANT_BASE_URL": "merchant:8084"}},
+		{name: "merchant timeout", values: map[string]string{"MERCHANT_TIMEOUT": "0s"}},
 		{name: "duplicate queue", values: map[string]string{"NOTIFICATION_PARCEL_CREATED_QUEUE": "notification.requested.v1"}},
 		{name: "duplicate parcel queue", values: map[string]string{"NOTIFICATION_PARCEL_CREATED_QUEUE": "notification.parcel.status_changed.v1"}},
 		{name: "duplicate routing key", values: map[string]string{"NOTIFICATION_PARCEL_CREATED_ROUTING_KEY": "parcel.status_changed.v1"}},

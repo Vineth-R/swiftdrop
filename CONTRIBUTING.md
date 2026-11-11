@@ -17,13 +17,12 @@ SwiftDrop is a foundation-stage monorepo. Keep changes focused, preserve existin
 
 ## Branch workflow
 
-The current remote default branch is `chore/initial-workspace`. It is a shared coordination branch, not a permanent product mainline.
+The integration branch is `development`. Create feature branches from it and open pull requests into `development`.
 
-- Create feature branches from `chore/initial-workspace`.
-- Do not push directly to the shared branch.
+- Do not push directly to `development` or `main`.
 - Use a short descriptive branch name, for example `feature/parcel-create-endpoint`, `fix/worker-shutdown`, or `docs/onboarding`.
-- When the team establishes a permanent mainline, rename or replace the shared branch deliberately, update the remote default, and protect the new mainline. Until then, do not assume a protected-branch setting or required-review rule is enforced.
-- Rebase or merge from the shared branch only when needed to resolve conflicts. Do not rewrite other contributors' history.
+- Do not assume branch protection or required reviews exist until the team establishes a permanent mainline.
+- Rebase or merge from `development` only when needed to resolve conflicts. Do not rewrite other contributors' history.
 
 ## Commits
 
@@ -33,7 +32,7 @@ The current remote default branch is `chore/initial-workspace`. It is a shared c
 
 ## Pull requests
 
-Open a pull request against `chore/initial-workspace` using [`.github/pull_request_template.md`](.github/pull_request_template.md). Include:
+Open a pull request against `development` using [`.github/pull_request_template.md`](.github/pull_request_template.md). Include:
 
 - A summary of the change and the problem it solves.
 - A linked issue when one exists.
@@ -48,10 +47,10 @@ Keep pull requests small enough to review. Split independent work. Update docume
 No enforced branch protection or required-review configuration is documented in this repository yet. The recommended team default is:
 
 - At least one reviewer approves before merge.
-- All configured CI checks pass for the pull request head.
+- The required checks — `Required CI gate` and `Security gate` — pass for the pull request head.
 - Review comments are resolved or explicitly deferred.
 - The author has run the local checks listed below.
-- Direct pushes to the shared branch are avoided.
+- Direct pushes to `development` or `main` are avoided.
 
 A reviewer should verify behavior, tests, error handling, service ownership, secret safety, and documentation accuracy, not only style.
 
@@ -175,7 +174,6 @@ Only report what you ran. A skipped test is not a pass.
   docker compose up -d postgres
   ```
 
-- No service connects to PostgreSQL yet. Do not add application database access or speculative business tables as part of an unrelated change.
 - Down migrations may drop schemas. Confirm the target database before running them.
 - Follow [`migrations/README.md`](migrations/README.md) for tooling and per-service migration version tables.
 

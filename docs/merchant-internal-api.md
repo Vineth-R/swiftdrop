@@ -1,13 +1,14 @@
 # Merchant internal API
 
-Service-to-service endpoints of the Merchant service for the webhook worker
-(API v1.1 section 13). The machine-readable contract is
+Service-to-service endpoints of the Merchant service for the webhook and
+notification workers (API v1.1 section 13). The machine-readable contract is
 [`contracts/openapi/merchant-internal.yaml`](../contracts/openapi/merchant-internal.yaml).
 
-| Method and path                                          | Caller         | Purpose                                                                                                                  |
-| -------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `GET /internal/merchants/{merchantId}/webhook`           | Webhook worker | Returns `url`, `signingSecret`, `eventTypes` and `isActive`. The only place the plain signing secret leaves the service. |
-| `POST /internal/merchants/{merchantId}/webhook/attempts` | Webhook worker | Records one delivery attempt for the merchant's delivery log (API 8.15). Idempotent.                                     |
+| Method and path                                          | Caller              | Purpose                                                                                                                  |
+| -------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `GET /internal/merchants/{merchantId}/webhook`           | Webhook worker      | Returns `url`, `signingSecret`, `eventTypes` and `isActive`. The only place the plain signing secret leaves the service. |
+| `POST /internal/merchants/{merchantId}/webhook/attempts` | Webhook worker      | Records one delivery attempt for the merchant's delivery log (API 8.15). Idempotent.                                     |
+| `GET /internal/merchants/{merchantId}/contact`           | Notification worker | Returns `ownerUserId`, `businessName`, `contactEmail` and `status` so merchant-owned parcel events can be emailed.       |
 
 ## Access rules
 
@@ -24,6 +25,35 @@ Service-to-service endpoints of the Merchant service for the webhook worker
   under 32 bytes) stops the service at startup, the same rule as the other
   services.
 - Responses carry `Cache-Control: no-store`. The signing secret is never logged.
+
+## Merchant contact lookup
+
+`GET /internal/merchants/{merchantId}/contact` returns the merchant's own
+business contact, not a shopper's details:
+
+```json
+{
+  "data": {
+    "merchantId": "4f1c7a52-0000-4000-8000-000000000002",
+    "ownerUserId": "5f1c7a52-0000-4000-8000-000000000003",
+    "businessName": "ShopZone",
+    "contactEmail": "ops@shopzone.lk",
+    "status": "APPROVED"
+  },
+  "meta": {
+    "requestId": "req_01HF-example",
+    "timestamp": "2026-11-11T09:30:00Z"
+  }
+}
+```
+
+- The recipient is `contactEmail`. Phone and signing secrets are never returned.
+- A `PENDING`, `SUSPENDED` or `REJECTED` merchant is returned with its real
+  status; the notification worker applies its own policy and does not send.
+- Unknown merchants answer `404`; a missing token answers `401` first; a
+  service without a database answers `503`.
+- The notification worker treats `404`, `401`/`403` and malformed responses as
+  permanent, and `5xx`/timeouts as retryable.
 
 ## Recording attempts
 
