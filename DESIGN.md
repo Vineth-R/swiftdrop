@@ -181,7 +181,7 @@ There are exactly four layout templates. Do not invent a fifth.
 | `CourierShell` | signed-in courier screens (mobile first, bottom tabs)      | exists, picked for you by `RoleShell`                                                                           |
 | `PublicLayout` | pages anyone can open, such as public tracking             | exists (`components/layout/public-layout.tsx`), used by the `(public)` route group. Obey rule 11 on such pages. |
 
-**What the `(app)` group does for you.** `app/(app)/layout.tsx` checks the login cookie (a splash, then a redirect to `/login` that returns afterwards), picks the shell for the signed-in role, and shows the 403 and 404 pages inside it. A sidebar entry whose page is not built shows the 404. When the 15-minute access token expires, `api()` renews it and retries.
+**What the `(app)` group does for you.** `app/(app)/layout.tsx` checks the login cookie (a splash, then a redirect to `/login` that returns afterwards), picks the shell for the signed-in role, and shows the 403 and 404 pages inside it. A sidebar entry whose page is not built shows the 404. When the 15-minute access token expires, `api()` renews it and retries. If the session cannot be renewed while the person is on a page, the page stays and the "Your session ended" dialog opens over it; its one button, Log in, goes to `/login` and back to the same address, query string included.
 
 **A public page** goes in `app/(public)/<route>/page.tsx`. The group gives it `PublicLayout` (logo, theme switch, Log in, one reading column) and no login check, so a signed-out visitor and a signed-in one both see it. Everything on it is public: show status, cities and times, never names, phone numbers, addresses or fees (rule 11). `/track` is the worked example (API 4.6): `PageHeader`, then a form, `WaybillStub isPublic` and `Timeline`.
 
@@ -250,14 +250,14 @@ Import from the file with a relative path. Each file starts with a comment that 
 
 **Layout (`components/layout/`)**
 
-| Component      | Use it for                      | Notes                                                                                                                                  |
-| -------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `PageHeader`   | the top of every page           | `title`, `description`, `actions` (max two, one primary)                                                                               |
-| `Section`      | a heading and its content       | `title`, `description`, `actions`. Sections space themselves.                                                                          |
-| `RequireRole`  | limiting a page to some roles   | `roles`, `audience` (a plural noun phrase such as "merchants"). Shows the 403 page inside the shell.                                   |
-| `SystemPage`   | 404, 403, 500 and offline pages | `label`, `title`, children (what to do), `actions`, `reference` (only for a fault on our side). One sentence about what happened.      |
-| `AuthLayout`   | public auth pages only          | `panel`, `width`, children. Used with `AuthHeading`.                                                                                   |
-| `PublicLayout` | pages anyone can open           | `width` (`narrow` reading column, or `wide`), children. Wrapped around the `(public)` route group for you; you rarely use it directly. |
+| Component      | Use it for                      | Notes                                                                                                                                                                                          |
+| -------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PageHeader`   | the top of every page           | `title`, `description`, `actions` (max two, one primary)                                                                                                                                       |
+| `Section`      | a heading and its content       | `title`, `description`, `actions`. Sections space themselves.                                                                                                                                  |
+| `RequireRole`  | limiting a page to some roles   | `roles`, `audience` (a plural noun phrase such as "merchants"). Shows the 403 page inside the shell.                                                                                           |
+| `SystemPage`   | 404, 403, 500 and offline pages | `label`, `title`, children (what to do), `actions`, `reference` (only for a fault on our side), `headingLevel` (leave it at 1; a style-guide demo passes 2). One sentence about what happened. |
+| `AuthLayout`   | public auth pages only          | `panel`, `width`, children. Used with `AuthHeading`.                                                                                                                                           |
+| `PublicLayout` | pages anyone can open           | `width` (`narrow` reading column, or `wide`), children. Wrapped around the `(public)` route group for you; you rarely use it directly.                                                         |
 
 `AppShell`, `CourierShell`, `RoleShell`, `NavList`, `Drawer` and `UserMenu` are internal to the shell. Do not import them in a screen.
 
@@ -314,6 +314,7 @@ Import from the file with a relative path. Each file starts with a comment that 
 
 - `components/auth/form-alerts.tsx`: `ServerFaultAlert` (a fault on our side or the network, with a Reference line for 5xx only) and `RateLimitedAlert` (a 429, with the remaining seconds). Use these instead of writing your own.
 - `components/auth/session-gates.tsx`: `SignedInOnly` and `SignedOutOnly`. The `(app)` and `(auth)` groups already use them.
+- `components/auth/session-expired-dialog.tsx`: `SessionExpiredDialog`, the must-answer "Your session ended" dialog. `SignedInOnly` mounts it when `useSession().isExpired` is true; a screen never renders it.
 - `components/profile/`: `ProfileForm` and `PasswordForm` are the worked examples of a complete form screen.
 
 **Hooks and helpers (`lib/`)**
@@ -328,7 +329,6 @@ These are not built. They are designed and planned and will be added when a scre
 
 | Not built yet                                        | For                                                                                                                                 |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| The "session expired" dialog                         | telling a person their session ended without losing their place (build it from `Modal`; it is not wired into the session yet)       |
 | `Switch`, `Tabs`, `Stepper`, `Popover`, `Breadcrumb` | designed in the design system's library but not built; ask for one when a screen needs it (the delivery wizard will want `Stepper`) |
 
 When the task cannot wait, say so in the pull request instead of styling a one-off, as the design system asks. A new component must follow section 14, use only tokens, appear on `/design` with its states, and have tests.
@@ -377,13 +377,13 @@ const form = useForm<Values>({ recipient: '' }, rules);
 - Put a feature's calls and types in `lib/<feature>-api.ts`, with the field names exactly as `docs/API_Documentation_v1.1.md` writes them. If the API does not match what the screen needs, fix the API document and the contract in the same change; do not work around it in the screen.
 - The session lives in HttpOnly cookies. You never read or store a token.
 - PDF downloads use `apiBlob()` from the same API module, including session renewal and common errors. Creation requests may pass `headers: { 'Idempotency-Key': key }`; preserve that key on retries. `PRICE_CHANGED` exposes a validated numeric `currentFee` for explicit reconfirmation, never server message text.
-- If an access token has expired, `api()` renews the session once and retries. If that fails, the person is sent to the login page. A `401 INVALID_CREDENTIALS` is a wrong password, not an expired session, and is left alone.
+- If an access token has expired, `api()` renews the session once and retries. If that fails, the session-ended dialog opens over the page (someone who never had a session goes straight to the login page). A `401 INVALID_CREDENTIALS` is a wrong password, not an expired session, and is left alone.
 - A failure throws `ApiError`. Decide by `error.code`, never by message text:
 
 | `error.code`                                                                                                                            | It means                                 | What a screen does                                                                         |
 | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `VALIDATION_FAILED`                                                                                                                     | 422: a field is invalid                  | Our own wording beside each field (`error.issues`). Keep the input.                        |
-| `UNAUTHENTICATED`                                                                                                                       | 401: not signed in, or the session ended | Nothing: the shell already sends the person to login.                                      |
+| `UNAUTHENTICATED`                                                                                                                       | 401: not signed in, or the session ended | Nothing: the shell shows the session-ended dialog, or sends a cold visit to login.         |
 | `FORBIDDEN`                                                                                                                             | 403: this role may not do this           | The no-permission state. Do not retry.                                                     |
 | `ACCOUNT_DEACTIVATED`                                                                                                                   | the account was disabled                 | Call `recheck()` from `useSession()`; the shell signs the person out.                      |
 | `NOT_FOUND`                                                                                                                             | 404: missing, or not theirs              | A "not found" state.                                                                       |
@@ -431,7 +431,7 @@ useEffect(() => {
 
 ## 12. Responsive, accessibility and theming
 
-- **375px is the smallest width.** Nothing scrolls sideways and nothing is clipped (rule 08). Touch targets are at least 44px, and 48px on courier screens (use `controlSize="lg"` and `size="lg"` buttons there). Check the screen at about 360–375px and at 1280–1440px.
+- **375px is the smallest width.** Nothing scrolls sideways and nothing is clipped (rule 08). Touch targets are at least 44px, and 48px on courier screens (use `controlSize="lg"` and `size="lg"` buttons there). The kit does the 44px for you: `sm` and `md` buttons, fields, selects, icon buttons and the shell's own buttons are 32 to 40px with a mouse and grow to 44px on a touch screen (`pointer-coarse:`); nothing to add in a screen. A checkbox or radio is its whole 44px row. Check the screen at about 360–375px and at 1280–1440px.
 - **Dark mode.** Switch to dark with the toggle in the top bar and check every surface, border and status colour. Semantic tokens flip by themselves; see section 3 for `ink` and `accent`.
 - **Keyboard.** Tab through the screen: visible focus on everything (rule 09), a sensible order, Escape closes overlays, and focus returns to the control that opened them. A native `<dialog>` (as the navigation drawer uses) gives you the trap and Escape for free.
 - **Semantics.** Every control has a real label. Headings go in order. Use a button for an action and a link for navigation. Never rely on colour alone to carry meaning. ESLint runs `jsx-a11y`: do not silence its warnings.

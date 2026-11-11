@@ -37,13 +37,13 @@ const disabledLook: Record<ButtonVariant, string> = {
 };
 
 const sizes: Record<ButtonSize, string> = {
-  sm: 'h-8 px-3 text-body-sm',
-  md: 'h-10 px-4 text-button',
+  sm: 'h-8 px-3 text-body-sm pointer-coarse:h-11',
+  md: 'h-10 px-4 text-button pointer-coarse:h-11',
   lg: 'h-12 px-5 text-body',
 };
 
 const linkLook =
-  'inline-flex items-center gap-1.5 text-button font-medium text-interactive underline underline-offset-4 hover:text-interactive-hover hover:decoration-2';
+  'inline-flex items-center gap-1.5 text-button font-medium text-interactive underline underline-offset-4 hover:text-interactive-hover hover:decoration-2 pointer-coarse:min-h-11';
 
 const buttonVariants = cva(base, {
   variants: {

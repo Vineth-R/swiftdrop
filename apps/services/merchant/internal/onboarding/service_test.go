@@ -22,6 +22,8 @@ type fakeStore struct {
 	markedApplied bool
 	lastReason    *string
 	lastOperation string
+	// latest is what LatestTransition returns, to stand for a decision made earlier.
+	latest *repository.StatusTransition
 }
 
 func (f *fakeStore) EnsureRegistrationAttempt(_ context.Context, id, key, email string) (repository.RegistrationAttempt, error) {
@@ -78,6 +80,9 @@ func (f *fakeStore) MarkTransitionResult(_ context.Context, _ string, applied bo
 	return nil
 }
 func (f *fakeStore) LatestTransition(context.Context, string, repository.MerchantStatus) (repository.StatusTransition, error) {
+	if f.latest != nil {
+		return *f.latest, nil
+	}
 	return repository.StatusTransition{}, repository.ErrNotFound
 }
 
@@ -121,6 +126,9 @@ type fakeNotifier struct {
 	approved  int
 	rejected  *string
 	suspended *string
+
+	rejectedCalls  int
+	suspendedCalls int
 }
 
 func (f *fakeNotifier) Received(context.Context, string, string, string, string, time.Time) {
@@ -129,9 +137,11 @@ func (f *fakeNotifier) Received(context.Context, string, string, string, string,
 func (f *fakeNotifier) Approved(context.Context, string, string, string, time.Time) { f.approved++ }
 func (f *fakeNotifier) Rejected(_ context.Context, _, _, _ string, reason *string) {
 	f.rejected = reason
+	f.rejectedCalls++
 }
 func (f *fakeNotifier) Suspended(_ context.Context, _, _, _ string, reason *string) {
 	f.suspended = reason
+	f.suspendedCalls++
 }
 
 func validInput() RegisterInput {
@@ -281,6 +291,99 @@ func TestSuspendReturnsPendingSyncWhenIdentityFails(t *testing.T) {
 	}
 	if notifier.suspended == nil && result.IdentitySync != "PENDING" {
 		t.Fatal("suspension email was not requested")
+	}
+}
+
+// An administrator can retry a sync that failed. It reaches Identity again with
+// the same transition, and the merchant is not emailed a second time.
+func TestRetryingAPendingSyncDoesNotEmailTheMerchantAgain(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status repository.MerchantStatus
+		retry  func(*Service) (DecisionResult, error)
+		calls  func(*fakeNotifier) int
+		op     string
+	}{
+		{"suspension", repository.MerchantStatusSuspended,
+			func(s *Service) (DecisionResult, error) {
+				return s.Suspend(context.Background(), "m-1", "admin-1", ptr("Policy breach"))
+			},
+			func(n *fakeNotifier) int { return n.suspendedCalls }, "SUSPEND"},
+		{"rejection", repository.MerchantStatusRejected,
+			func(s *Service) (DecisionResult, error) {
+				return s.Reject(context.Background(), "m-1", "admin-1", nil)
+			},
+			func(n *fakeNotifier) int { return n.rejectedCalls }, "REJECT"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, store, identity, notifier := fixture()
+			store.merchant = repository.Merchant{ID: "m-1", OwnerUserID: "user-1", BusinessName: "ShopZone", Status: test.status}
+			store.latest = &repository.StatusTransition{ID: "t-1", MerchantID: "m-1", Sequence: 3, ToStatus: test.status, SyncStatus: "FAILED"}
+
+			result, err := test.retry(service)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.IdentitySync != "APPLIED" || result.AlreadyDone {
+				t.Fatalf("result = %+v, want a fresh APPLIED sync", result)
+			}
+			if len(identity.lifecycleCalls) != 1 || identity.lifecycleCalls[0].TransitionID != "t-1" ||
+				identity.lifecycleCalls[0].Sequence != 3 || identity.lifecycleCalls[0].Operation != test.op {
+				t.Fatalf("identity calls = %+v, want the stored transition replayed once", identity.lifecycleCalls)
+			}
+			if got := test.calls(notifier); got != 0 {
+				t.Fatalf("the merchant was emailed %d times on a retry, want 0", got)
+			}
+			if !store.markedApplied {
+				t.Fatal("the transition was not marked applied")
+			}
+		})
+	}
+}
+
+func TestRetryStaysPendingWhileIdentityIsDown(t *testing.T) {
+	service, store, identity, notifier := fixture()
+	store.merchant = repository.Merchant{ID: "m-1", OwnerUserID: "user-1", BusinessName: "ShopZone", Status: repository.MerchantStatusSuspended}
+	store.latest = &repository.StatusTransition{ID: "t-1", MerchantID: "m-1", Sequence: 2, ToStatus: repository.MerchantStatusSuspended, SyncStatus: "FAILED"}
+	identity.lifecycleErr = errors.New("identity down")
+
+	result, err := service.Suspend(context.Background(), "m-1", "admin-1", ptr("Policy breach"))
+
+	if err != nil || result.IdentitySync != "PENDING" {
+		t.Fatalf("result = %+v, err = %v, want PENDING", result, err)
+	}
+	if notifier.suspendedCalls != 0 {
+		t.Fatal("a failed retry emailed the merchant")
+	}
+}
+
+func TestADecisionIsEmailedOnceEvenWhenIdentityFailsFirst(t *testing.T) {
+	service, store, identity, notifier := fixture()
+	store.merchant = repository.Merchant{ID: "m-1", OwnerUserID: "user-1", BusinessName: "ShopZone", Status: repository.MerchantStatusApproved}
+	identity.lifecycleErr = errors.New("identity down")
+
+	if _, err := service.Suspend(context.Background(), "m-1", "admin-1", ptr("Policy breach")); err != nil {
+		t.Fatal(err)
+	}
+
+	if notifier.suspendedCalls != 1 {
+		t.Fatalf("suspension emails = %d, want 1 with the decision itself", notifier.suspendedCalls)
+	}
+}
+
+func TestRetryOfASyncThatAlreadyReachedIdentityDoesNothing(t *testing.T) {
+	service, store, identity, notifier := fixture()
+	store.merchant = repository.Merchant{ID: "m-1", OwnerUserID: "user-1", Status: repository.MerchantStatusSuspended}
+	store.latest = &repository.StatusTransition{ID: "t-1", MerchantID: "m-1", Sequence: 2, ToStatus: repository.MerchantStatusSuspended, SyncStatus: "APPLIED"}
+
+	result, err := service.Suspend(context.Background(), "m-1", "admin-1", ptr("Policy breach"))
+
+	if err != nil || !result.AlreadyDone || result.IdentitySync != "APPLIED" {
+		t.Fatalf("result = %+v, err = %v, want AlreadyDone", result, err)
+	}
+	if len(identity.lifecycleCalls) != 0 || notifier.suspendedCalls != 0 {
+		t.Fatal("a finished sync called Identity or sent an email again")
 	}
 }
 

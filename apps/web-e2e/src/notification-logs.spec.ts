@@ -225,6 +225,10 @@ test.describe('notification logs', () => {
     });
     await page.goto('/admin/notification-logs');
 
+    await page
+      .getByRole('dialog', { name: 'Your session ended' })
+      .getByRole('button', { name: 'Log in' })
+      .click();
     await expect(page).toHaveURL(/\/login\?next=%2Fadmin%2Fnotification-logs$/);
     await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
   });

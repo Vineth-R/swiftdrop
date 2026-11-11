@@ -423,7 +423,12 @@ paths:
           in: query
           schema: { type: string }
       responses:
-        '200': { description: A paginated merchant list. }
+        '200':
+          description: >-
+            A paginated merchant list. A REJECTED or SUSPENDED merchant whose
+            status has not yet reached Identity carries `identitySync: PENDING`;
+            repeating the reject or suspend call retries it. The field is left out
+            for every other merchant.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /admin/merchants/{merchantId}:
@@ -439,7 +444,10 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: Full merchant profile. }
+        '200':
+          description: >-
+            Full merchant profile, with `identitySync: PENDING` when a REJECTED or
+            SUSPENDED status has not yet reached Identity (see the list).
         '404': { $ref: '#/components/responses/NotFound' }
   /admin/merchants/{merchantId}/approve:
     post:

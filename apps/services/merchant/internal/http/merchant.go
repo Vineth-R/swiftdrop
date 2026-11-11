@@ -322,9 +322,18 @@ func (h *merchantHandler) list(c *gin.Context) {
 		h.handleRepositoryError(c, err)
 		return
 	}
+	ids := make([]string, 0, len(merchants))
+	for _, merchant := range merchants {
+		ids = append(ids, merchant.ID)
+	}
+	pendingSync, err := h.repository.PendingIdentitySyncs(c.Request.Context(), ids)
+	if err != nil {
+		h.handleRepositoryError(c, err)
+		return
+	}
 	items := make([]merchantDTO, 0, len(merchants))
 	for _, merchant := range merchants {
-		items = append(items, merchantResponse(merchant))
+		items = append(items, adminMerchantResponse(merchant, pendingSync))
 	}
 	httpx.SuccessList(c, http.StatusOK, items, httpx.NewPagination(page, pageSize, total))
 }
@@ -335,7 +344,12 @@ func (h *merchantHandler) adminDetail(c *gin.Context) {
 		h.handleRepositoryError(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
+	pendingSync, err := h.repository.PendingIdentitySyncs(c.Request.Context(), []string{merchant.ID})
+	if err != nil {
+		h.handleRepositoryError(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, adminMerchantResponse(merchant, pendingSync))
 }
 
 func (h *merchantHandler) approve(c *gin.Context) {
@@ -491,8 +505,22 @@ type merchantDTO struct {
 	ApprovedAt         any                       `json:"approvedAt,omitempty"`
 	RejectionReason    *string                   `json:"rejectionReason,omitempty"`
 	SuspensionReason   *string                   `json:"suspensionReason,omitempty"`
-	CreatedAt          any                       `json:"createdAt"`
-	UpdatedAt          any                       `json:"updatedAt"`
+	// IdentitySync is "PENDING" in the administrator's views when a REJECTED or
+	// SUSPENDED status has not yet reached Identity and a retry is needed. It is
+	// left out otherwise.
+	IdentitySync string `json:"identitySync,omitempty"`
+	CreatedAt    any    `json:"createdAt"`
+	UpdatedAt    any    `json:"updatedAt"`
+}
+
+// adminMerchantResponse is merchantResponse plus whether the merchant's status
+// still needs to reach Identity.
+func adminMerchantResponse(merchant repository.Merchant, pendingSync map[string]bool) merchantDTO {
+	dto := merchantResponse(merchant)
+	if pendingSync[merchant.ID] {
+		dto.IdentitySync = "PENDING"
+	}
+	return dto
 }
 
 func merchantResponse(merchant repository.Merchant) merchantDTO {
