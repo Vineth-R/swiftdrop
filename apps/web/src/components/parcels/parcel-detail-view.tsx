@@ -6,6 +6,7 @@ import { formatDateTime, formatKg } from '../../lib/format';
 import {
   getParcel,
   getParcelHistory,
+  getParcelProofPhoto,
   getParcelReceipt,
   type Parcel,
   type ParcelHistory,
@@ -21,6 +22,7 @@ import { KeyValueList } from '../ui/key-value-list';
 import { SkeletonGroup, SkeletonText } from '../ui/skeleton';
 import { StatusChip, statusLabel } from '../ui/status-chip';
 import { Timeline } from '../ui/timeline';
+import { ProofPhotoButton } from '../proof-photo-button';
 import { FeeBreakdown } from './fee-breakdown';
 import { ParcelProblem } from './parcel-problem';
 
@@ -217,6 +219,16 @@ function ParcelDetail({ id }: { id: string }) {
                   </div>
                 )}
             </Section>
+            {parcel.status === 'DELIVERED' && (
+              <Section
+                title="Delivery proof"
+                description="Photos are private and use a short-lived link."
+              >
+                <ProofPhotoButton
+                  load={(signal) => getParcelProofPhoto(id, signal)}
+                />
+              </Section>
+            )}
             <Section title="Delivery timeline">
               {state.history.length === 0 ? (
                 <EmptyState title="No status updates yet">

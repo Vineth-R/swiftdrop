@@ -1,0 +1,162 @@
+name: Production migration and images
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag to publish (defaults to the commit SHA)
+        required: false
+        type: string
+  push:
+    tags:
+      - 'v*'
+      - 'milestone-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate Neon production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Require production secrets
+        env:
+          DATABASE_URL_DIRECT: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
+        run: |
+          if [ -z "${DATABASE_URL_DIRECT}" ]; then
+            echo "::error::NEON_DATABASE_URL_DIRECT is not configured for the production environment."
+            exit 1
+          fi
+
+      - name: Bootstrap schemas
+        env:
+          PGURL: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -i -e PGURL postgres:16-alpine \
+            sh -c 'psql "$PGURL" -X -v ON_ERROR_STOP=1 -f -' \
+            < infra/docker/postgres/init/01-schemas.sql
+
+      - name: Apply migrations once through the direct connection
+        env:
+          DATABASE_URL_DIRECT: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
+          APP_ENV: production
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${PWD}/migrations:/migrations:ro" \
+            -v "${PWD}/scripts/migrate.sh:/usr/local/bin/migrate-all:ro" \
+            --entrypoint /usr/local/bin/migrate-all \
+            -e DATABASE_URL_DIRECT -e APP_ENV \
+            migrate/migrate:v4.18.3 up
+
+      - name: Verify clean migration versions
+        env:
+          DATABASE_URL_DIRECT: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
+          APP_ENV: production
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${PWD}/migrations:/migrations:ro" \
+            -v "${PWD}/scripts/migrate.sh:/usr/local/bin/migrate-all:ro" \
+            --entrypoint /usr/local/bin/migrate-all \
+            -e DATABASE_URL_DIRECT -e APP_ENV \
+            migrate/migrate:v4.18.3 status
+
+  images:
+    name: Publish application images
+    needs: migrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        service:
+          - identity
+          - parcel
+          - pricing
+          - merchant
+          - realtime
+          - ai-assistant
+          - notification-worker
+          - webhook-worker
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        env:
+          TAG: ${{ inputs.image_tag || github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/${owner}/${{ matrix.service }}:${TAG}"
+          docker build \
+            --file infra/docker/go.Dockerfile \
+            --build-arg "SERVICE=${{ matrix.service }}" \
+            --tag "${image}" .
+          docker push "${image}"
+
+  web:
+    name: Publish web image
+    needs: migrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push web
+        env:
+          TAG: ${{ inputs.image_tag || github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/${owner}/web:${TAG}"
+          docker build --file infra/docker/web.Dockerfile --tag "${image}" .
+          docker push "${image}"
+
+  summary:
+    name: Production migration summary
+    needs: [migrate, images, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report
+        run: |
+          {
+            echo "## SwiftDrop production migration"
+            echo ""
+            echo "- Neon migrations applied and verified before image publication."
+            echo "- Images were published to GHCR only; application rollout is a separate approved operation."
+            echo "- No migration was run from a pull request, and no secret was printed."
+          } >> "$GITHUB_STEP_SUMMARY"

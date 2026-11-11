@@ -69,6 +69,32 @@ The seven tables are `parcel.parcels`, `parcel.parcel_status_history`, `parcel.p
 
 Normal cleanup and a deliberate SQL-failure probe were verified: the failure propagated a nonzero exit code and disposable resources were removed. Before/after observations showed the existing 12 SwiftDrop containers remained healthy with unchanged identities/start/restart state and the existing PostgreSQL/RabbitMQ volumes remained unchanged. The active database was not accessed by the runner. These are recorded local results, not a claim that CI or a new run passed when this document was updated.
 
+## Object storage and pooled tests
+
+Object storage integration tests live in `packages/go-common/objectstore` behind
+`integration,storage`. They require a reachable S3-compatible endpoint and fail
+rather than skip when it is missing:
+
+```sh
+make storage-up
+STORAGE_TEST_ENDPOINT='http://localhost:7070' \
+STORAGE_TEST_ACCESS_KEY='swiftdrop' \
+STORAGE_TEST_SECRET_KEY='swiftdrop-s3' \
+make test-storage
+```
+
+The pooled compatibility test lives in `packages/go-common/postgres` behind the
+`integration` tag. It requires a PgBouncer transaction-mode URL:
+
+```sh
+TEST_POOLED_DATABASE_URL='postgres://swiftdrop@127.0.0.1:6432/postgres?sslmode=disable' \
+  go test -race -count=1 -tags=integration -v ./packages/go-common/postgres -run TestPooledTransactionCompatibility
+```
+
+CI runs both jobs on every pull request. Neon staging can also be validated by
+pointing `TEST_POOLED_DATABASE_URL` at its pooled host; never point these tests
+at the production branch.
+
 ## PostgreSQL tests
 
 Dispatch database tests live in `tests/integration/database` behind the `integration` build tag. They verify the parcel assignment and outbox migrations, constraints, indexes, triggers, upgrade paths, and rollback/reapply behavior.

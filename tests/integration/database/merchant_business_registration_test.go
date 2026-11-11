@@ -18,6 +18,7 @@ var merchantUpMigrations = []string{
 	"migrations/merchant/000002_tables.up.sql",
 	"migrations/merchant/000006_merchant_constraints.up.sql",
 	"migrations/merchant/000007_registration_onboarding.up.sql",
+	"migrations/merchant/000008_business_reg_no_optional.up.sql",
 	"migrations/merchant/000009_restore_business_reg_no_required.up.sql",
 }
 
@@ -67,7 +68,7 @@ func expectConstraintViolation(t *testing.T, err error) {
 
 func TestMerchantBusinessRegistrationConstraint(t *testing.T) {
 	ctx, conn := newIsolatedDatabase(t)
-	applyMerchantThrough(t, ctx, conn, 5)
+	applyMerchantThrough(t, ctx, conn, 6)
 
 	validID, err := insertMerchantWithRegistration(ctx, conn, "M9-TEST-1")
 	if err != nil {
@@ -90,10 +91,7 @@ func TestMerchantBusinessRegistrationConstraint(t *testing.T) {
 
 func TestMerchantBusinessRegistrationUpgradeFromVersionEight(t *testing.T) {
 	ctx, conn := newIsolatedDatabase(t)
-	applyMerchantThrough(t, ctx, conn, 4)
-	if _, err := conn.Exec(ctx, `ALTER TABLE merchant.merchants DROP CONSTRAINT IF EXISTS merchants_business_reg_no_present`); err != nil {
-		t.Fatalf("simulate 000008: %v", err)
-	}
+	applyMerchantThrough(t, ctx, conn, 5)
 	applySQLFile(t, ctx, conn, "migrations/merchant/000009_restore_business_reg_no_required.up.sql")
 
 	if _, err := insertMerchantWithRegistration(ctx, conn, "M9-UPGRADE-1"); err != nil {
@@ -115,8 +113,9 @@ func TestMerchantBusinessRegistrationRejectsInvalidExistingRows(t *testing.T) {
 		}
 	}
 	applySQLFile(t, ctx, conn, merchantUpMigrations[3])
+	applySQLFile(t, ctx, conn, merchantUpMigrations[4])
 
-	sql, err := os.ReadFile(repositoryPath(merchantUpMigrations[4]))
+	sql, err := os.ReadFile(repositoryPath(merchantUpMigrations[5]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +128,7 @@ func TestMerchantBusinessRegistrationRejectsInvalidExistingRows(t *testing.T) {
 
 func TestMerchantBusinessRegistrationRollbackAndReapply(t *testing.T) {
 	ctx, conn := newIsolatedDatabase(t)
-	applyMerchantThrough(t, ctx, conn, 5)
+	applyMerchantThrough(t, ctx, conn, 6)
 	applySQLFile(t, ctx, conn, "migrations/merchant/000009_restore_business_reg_no_required.down.sql")
 
 	var count int

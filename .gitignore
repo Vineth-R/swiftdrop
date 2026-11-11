@@ -114,4 +114,11 @@ docker-compose.override.yml
 
 # Go coverage table written by scripts/coverage.sh
 coverage-summary.md
->>>>>>> origin/development
+
+# ==========================================
+# Database dumps and operator reports
+# ==========================================
+
+*.dump
+*.dump.sha256
+/swiftdrop-backups/

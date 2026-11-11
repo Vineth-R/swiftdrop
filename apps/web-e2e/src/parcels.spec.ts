@@ -551,3 +551,39 @@ test('dispatcher route never requests the customer parcel list', async ({
     .toBe(true);
   expect(calls.some((call) => call.key === 'GET /parcels')).toBe(false);
 });
+
+test('customer opens the private proof photo for a delivered parcel', async ({
+  page,
+  context,
+}) => {
+  const delivered = {
+    ...parcel,
+    status: 'DELIVERED',
+    deliveredAt: '2026-11-04T10:00:00Z',
+  };
+  await context.route('https://storage.example/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: 'photo' }),
+  );
+  await signInAs(page, 'CUSTOMER', {
+    [`GET /parcels/${id}`]: ok(delivered),
+    [`GET /parcels/${id}/history`]: ok([
+      {
+        previousStatus: 'OUT_FOR_DELIVERY',
+        status: 'DELIVERED',
+        changedAt: '2026-11-04T10:00:00Z',
+        note: 'Delivered',
+      },
+    ]),
+    [`GET /parcels/${id}/proof/photo`]: ok({
+      url: 'https://storage.example/proof.png',
+      expiresAt: '2026-11-04T11:00:00Z',
+      mimeType: 'image/png',
+      stream: false,
+    }),
+  });
+  await page.goto(`/parcels/${id}`);
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'View proof photo' }).click();
+  const popup = await popupPromise;
+  await popup.waitForURL('https://storage.example/proof.png');
+});
