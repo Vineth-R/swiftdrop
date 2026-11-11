@@ -57,8 +57,10 @@ func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	databaseConfig := postgres.DefaultConfig()
-	databaseConfig.URL = config.DatabaseURL
+	databaseConfig, err := postgres.LoadConfigFromURL(config.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("configure database: %w", err)
+	}
 	database, err := postgres.Open(ctx, databaseConfig)
 	if err != nil {
 		return fmt.Errorf("connect database: %w", err)

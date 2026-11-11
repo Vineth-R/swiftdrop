@@ -53,10 +53,11 @@ func run() error {
 
 	var database *postgres.Pool
 	var pinger postgres.Pinger
-	if config.DatabaseURL != "" {
-		databaseConfig := postgres.DefaultConfig()
-		databaseConfig.URL = config.DatabaseURL
-
+	databaseConfig, configErr := postgres.LoadConfigFromURL(config.DatabaseURL)
+	if configErr != nil {
+		return fmt.Errorf("configure database: %w", configErr)
+	}
+	if databaseConfig.Configured() {
 		database, err = postgres.Open(ctx, databaseConfig)
 		if err != nil {
 			return fmt.Errorf("connect database: %w", err)
