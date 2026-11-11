@@ -268,4 +268,5 @@ CI already runs that suite.
 ## 19. Branch and commits
 
 Branch: `feature/m8-merchant-orders-portal`  
-Commit SHAs and the PR URL are added after the branch is pushed and the PR is opened.
+Implementation commit: `7dc9b16` (`feat(merchant): complete M8 orders and merchant portal`)  
+PR: https://github.com/Vineth-R/swiftdrop/pull/132 (into `development`, not merged)
