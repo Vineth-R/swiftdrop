@@ -50,7 +50,9 @@ test.describe('session check and splash', () => {
 
     await page.goto('/dashboard');
     await expect(page.getByText('Signed in as')).toContainText('Nimal Perera');
-    await expect(page.getByText('CUSTOMER')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Dashboard', exact: true }),
+    ).toBeVisible();
 
     await page.getByRole('button', { name: 'Account menu' }).click();
     await page.getByRole('menuitem', { name: 'Log out' }).click();
@@ -75,7 +77,11 @@ test.describe('session check and splash', () => {
 
     await page.goto('/dashboard');
     await expect(page.getByText('Signed in as')).toContainText('Nimal Perera');
-    const keys = calls.map((call) => call.key);
+    // The dashboard also asks for the customer's parcels; only the session
+    // calls are compared, in the order they were made.
+    const keys = calls
+      .map((call) => call.key)
+      .filter((key) => key.includes('/users/me') || key.includes('/auth/'));
     expect(keys.filter((key, index) => key !== keys[index - 1])).toEqual([
       'GET /users/me',
       'POST /auth/refresh',
