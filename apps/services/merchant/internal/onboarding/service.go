@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/businessreg"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/notify"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/pricingclient"
@@ -123,7 +124,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (RegisterRe
 	fullName := strings.TrimSpace(input.FullName)
 	phone := strings.TrimSpace(input.Phone)
 	businessName := strings.TrimSpace(input.Business.Name)
-	regNo := normalizeRegistrationNumber(input.Business.RegistrationNumber)
+	regNo := businessreg.Normalize(input.Business.RegistrationNumber)
 	contactEmail := strings.ToLower(strings.TrimSpace(input.Business.ContactEmail))
 	if contactEmail == "" {
 		contactEmail = email
@@ -142,7 +143,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (RegisterRe
 	issues.Custom("phone", e164(phone), "must be in E.164 format, for example +94771234567")
 	issues.Custom("password", validPassword(input.Password), "must be at least 8 characters with upper case, lower case and a digit")
 	issues.Length("business.name", businessName, 2, 150, "must be 2 to 150 characters")
-	issues.Custom("business.registrationNumber", validRegistrationNumber(regNo), "must be 3 to 50 characters with at least one digit")
+	issues.Custom("business.registrationNumber", businessreg.Valid(regNo), "must be 3 to 50 characters with at least one digit")
 	issues.Email("business.contactEmail", contactEmail)
 	issues.Custom("business.contactPhone", e164(contactPhone), "must be in E.164 format, for example +94771234567")
 	issues.Length("business.businessAddress", businessAddress, 5, 255, "must be 5 to 255 characters")
@@ -419,27 +420,6 @@ func validateReason(reason *string) string {
 		return "must be at most 1000 characters"
 	}
 	return ""
-}
-
-func normalizeRegistrationNumber(value string) string {
-	fields := strings.Fields(strings.ToUpper(strings.TrimSpace(value)))
-	return strings.Join(fields, " ")
-}
-
-func validRegistrationNumber(value string) bool {
-	if len(value) < 3 || len(value) > 50 {
-		return false
-	}
-	hasDigit := false
-	for _, char := range value {
-		if unicode.IsDigit(char) {
-			hasDigit = true
-		}
-		if !unicode.IsLetter(char) && !unicode.IsDigit(char) && char != ' ' && char != '-' && char != '/' && char != '.' {
-			return false
-		}
-	}
-	return hasDigit
 }
 
 func validPassword(value string) bool {

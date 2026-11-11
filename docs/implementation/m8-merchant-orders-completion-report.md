@@ -20,7 +20,7 @@ The registration and approval implementation was already merged. Merchant profil
 
 | Item                           | Status   | Evidence                                                       |
 | ------------------------------ | -------- | -------------------------------------------------------------- |
-| M8.1 database and registration | Complete | Registration reused; `000009_merchant_order_snapshots`         |
+| M8.1 database and registration | Complete | Registration reused; `000010_merchant_order_snapshots`         |
 | M8.2 report sections 2.3/6.2   | Complete | `docs/merchant-integration.md`, figures                        |
 | M8.3 API-key security          | Complete | Existing implementation preserved; new limit/concurrency tests |
 | M8.4 order APIs                | Complete | `POST/GET /merchant/orders`, `GET /merchant/orders/{orderId}`  |
@@ -148,7 +148,7 @@ rejected before Parcel is called; the merchant order uniqueness remains correct.
 
 ## 12. Database migration and indexes
 
-`000009_merchant_order_snapshots` adds:
+`000010_merchant_order_snapshots` adds:
 
 - `pickup_name`, `pickup_phone`, `pickup_address`, `pickup_city`, `pickup_zone_id`
 - `recipient_phone`, `recipient_address`, `recipient_zone_id`

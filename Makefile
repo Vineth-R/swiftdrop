@@ -3,8 +3,15 @@ SHELL := /bin/sh
 COMPOSE ?= docker compose
 BUILD_SERVICES ?= identity parcel pricing merchant realtime ai-assistant notification-worker webhook-worker web
 BUILD_FLAGS ?=
+MIGRATE_IMAGE ?= migrate/migrate:v4.18.3
+MIGRATE_RUN = docker run --rm \
+	-v "$(CURDIR)/migrations:/migrations:ro" \
+	-v "$(CURDIR)/scripts/migrate.sh:/usr/local/bin/migrate-all:ro" \
+	--entrypoint /usr/local/bin/migrate-all \
+	-e DATABASE_URL -e DATABASE_URL_DIRECT -e APP_ENV -e ALLOW_PRODUCTION_ROLLBACK -e MIGRATE_SERVICES \
+	$(MIGRATE_IMAGE)
 
-.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-down db-verify db-reset seed check-routes test test-db test-access coverage coverage-merchant email-preview email-send-preview
+.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed check-routes test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview
 
 help:
 	@echo "Targets:"
@@ -13,7 +20,14 @@ help:
 	@echo "  make up-build       build images, then run the full make up workflow"
 	@echo "  make down           stop the stack without deleting data"
 	@echo "  make logs           follow service logs"
-	@echo "  make migrate        apply all service migrations"
+	@echo "  make migrate        apply all service migrations (DATABASE_URL_DIRECT when set)"
+	@echo "  make migrate-status print each service migration version and dirty state"
+	@echo "  make migrate-create SERVICE=parcel NAME=description  create a new migration pair"
+	@echo "  make storage-up     start local S3-compatible storage (VersityGW)"
+	@echo "  make db-audit       read-only source database inventory"
+	@echo "  make db-backup      verified local PostgreSQL backup outside the repo"
+	@echo "  make proof-transfer dry-run local proof files into object storage"
+	@echo "  make proof-reconcile compare database proof keys with stored objects"
 	@echo "  make db-verify      verify the documented database baseline (read-only)"
 	@echo "  make seed           create the five deterministic demo users"
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
@@ -81,7 +95,7 @@ ensure-postgres:
 	}
 
 bootstrap-db: ensure-postgres
-	$(COMPOSE) exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -f /docker-entrypoint-initdb.d/01-schemas.sql'
+	COMPOSE="$(COMPOSE)" ./scripts/bootstrap-db.sh
 
 build: preflight
 	@for service in $(BUILD_SERVICES); do \
@@ -103,13 +117,82 @@ down:
 logs:
 	$(COMPOSE) logs -f --tail=100
 
-migrate: preflight bootstrap-db
-	$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate up
+migrate:
+	@if [ -n "$${DATABASE_URL_DIRECT:-}" ]; then \
+		$(MAKE) migrate-remote ARGS=up; \
+	else \
+		$(MAKE) preflight; \
+		./scripts/bootstrap-db.sh; \
+		$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate up; \
+	fi
 
-migrate-down: preflight bootstrap-db
-	$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate down
+migrate-remote:
+	@if [ "$(ARGS)" = "up" ]; then ./scripts/bootstrap-db.sh; fi
+	$(MIGRATE_RUN) $(ARGS)
 
-db-verify: ensure-postgres
+migrate-down:
+	@if [ -n "$${DATABASE_URL_DIRECT:-}" ]; then \
+		$(MAKE) migrate-remote ARGS=down; \
+	else \
+		$(MAKE) preflight; \
+		$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate down; \
+	fi
+
+migrate-status:
+	@if [ -n "$${DATABASE_URL_DIRECT:-}" ]; then \
+		$(MAKE) migrate-remote ARGS=status; \
+	else \
+		$(MAKE) preflight; \
+		$(COMPOSE) run --rm --entrypoint /usr/local/bin/migrate-all migrate status; \
+	fi
+
+migrate-create:
+	@test -n "$(SERVICE)" || { echo "error: SERVICE is required, for example SERVICE=parcel" >&2; exit 2; }
+	@test -n "$(NAME)" || { echo "error: NAME is required, for example NAME=add_index" >&2; exit 2; }
+	docker run --rm -v "$(CURDIR)/migrations:/migrations" \
+		-v "$(CURDIR)/scripts/migrate.sh:/usr/local/bin/migrate-all:ro" \
+		--entrypoint /usr/local/bin/migrate-all \
+		-e MIGRATE_SERVICES="$(SERVICE)" \
+		$(MIGRATE_IMAGE) create "$(SERVICE)" "$(NAME)"
+
+storage-up:
+	$(COMPOSE) --profile storage up -d --wait s3
+	$(COMPOSE) --profile storage run --rm s3-init
+
+storage-down:
+	$(COMPOSE) --profile storage stop s3
+
+db-audit:
+	@if [ -n "$${DATABASE_URL_DIRECT:-}" ]; then \
+		docker run --rm -i -e PGURL="$${DATABASE_URL_DIRECT}" postgres:16-alpine \
+			sh -c 'psql "$$PGURL" -X -v ON_ERROR_STOP=1 -f -' \
+			< scripts/audit-source-db.sql; \
+	else \
+		$(MAKE) ensure-postgres; \
+		$(COMPOSE) exec -T postgres sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -f -' \
+			< scripts/audit-source-db.sql; \
+	fi
+
+db-backup: ensure-postgres
+	BACKUP_SOURCE=compose ./scripts/backup-db.sh
+
+db-backup-remote:
+	BACKUP_SOURCE=url ./scripts/backup-db.sh
+
+db-restore:
+	@test -n "$${BACKUP:-}" || { echo "error: BACKUP=/path/to/dump is required" >&2; exit 2; }
+	./scripts/restore-db.sh "$${BACKUP}"
+
+proof-transfer:
+	go run ./apps/services/parcel/proof-transfer
+
+proof-transfer-apply:
+	go run ./apps/services/parcel/proof-transfer -apply
+
+proof-reconcile:
+	go run ./apps/services/parcel/proof-transfer -reconcile
+
+db-verify:
 	@COMPOSE="$(COMPOSE)" ./scripts/verify-db.sh
 
 seed:
@@ -159,6 +242,26 @@ email-preview:
 
 email-send-preview:
 	go run ./packages/go-common/emails/cmd/preview -out tmp/email-preview -send
+
+test-storage:
+	@if [ -z "$${STORAGE_TEST_ENDPOINT:-}" ]; then \
+		echo "error: STORAGE_TEST_ENDPOINT is required for object storage integration tests." >&2; \
+		echo "       Run 'make storage-up' and export the STORAGE_TEST_* variables." >&2; \
+		exit 1; \
+	fi
+	STORAGE_TEST_ENDPOINT="$${STORAGE_TEST_ENDPOINT}" \
+	STORAGE_TEST_ACCESS_KEY="$${STORAGE_TEST_ACCESS_KEY}" \
+	STORAGE_TEST_SECRET_KEY="$${STORAGE_TEST_SECRET_KEY}" \
+	STORAGE_TEST_BUCKET="$${STORAGE_TEST_BUCKET:-delivery-proofs-test}" \
+	go test -race -count=1 -tags=integration,storage -v ./packages/go-common/objectstore
+
+test-pooled:
+	@if [ -z "$${TEST_POOLED_DATABASE_URL:-}" ]; then \
+		echo "error: TEST_POOLED_DATABASE_URL is required for the PgBouncer compatibility test." >&2; \
+		exit 1; \
+	fi
+	TEST_POOLED_DATABASE_URL="$${TEST_POOLED_DATABASE_URL}" \
+	go test -race -count=1 -tags=integration -v ./packages/go-common/postgres -run TestPooledTransactionCompatibility
 
 test-db:
 	@if [ -z "$${TEST_DATABASE_URL:-}" ]; then \

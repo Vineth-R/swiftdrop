@@ -595,6 +595,70 @@ paths:
         '422': { $ref: '#/components/responses/ParcelValidation' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/proof/photo':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: getParcelProofPhotoURL
+      summary: Get a short-lived delivery proof photo URL
+      tags: [Customer parcels, Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: |
+        CUSTOMER owner, currently assigned COURIER, DISPATCHER or ADMIN. Returns
+        the latest proof that has a photo. S3-compatible providers return a
+        short-lived presigned URL; local development returns `stream: true` and
+        a relative content URL that re-checks the same authorization. No public
+        or permanent URL is ever returned. Cache-Control no-store.
+      responses:
+        '200':
+          description: Short-lived proof photo target.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/ProofPhotoURL' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400': { $ref: '#/components/responses/ParcelValidation' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/proof/photo/content':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: streamParcelProofPhoto
+      summary: Stream a delivery proof photo for local storage
+      tags: [Customer parcels, Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: |
+        Same authorization as the URL endpoint. Used when the configured provider
+        cannot presign (local filesystem). The bytes are read through the Parcel
+        service and never served from a public path. Cache-Control no-store.
+      responses:
+        '200':
+          description: Proof photo bytes.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              example: no-store
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
   /internal/parcels:
     servers: [{ url: 'http://parcel:8082' }]
     post:
@@ -1834,6 +1898,17 @@ components:
           type: string
           enum: [PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
         updatedAt: { type: string, format: date-time }
+    ProofPhotoURL:
+      type: object
+      additionalProperties: false
+      required: [url, expiresAt, mimeType, stream]
+      properties:
+        url: { type: string }
+        expiresAt: { type: string, format: date-time }
+        mimeType: { type: string, enum: [image/jpeg, image/png] }
+        stream:
+          type: boolean
+          description: True when the URL points at the authorized Parcel content route.
     CourierProofUpload:
       type: object
       additionalProperties: false

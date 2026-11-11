@@ -2000,7 +2000,7 @@ Column                               Type                         Constraints   
 
 
 
-Migration 000009 adds the pickup and recipient contact snapshots used by API
+Migration 000010 adds the pickup and recipient contact snapshots used by API
 8.16: pickup_name, pickup_phone, pickup_address, pickup_city,
 pickup_zone_id, recipient_phone, recipient_address and recipient_zone_id.
 They are nullable for pre-M8 rows and are populated for every order created by

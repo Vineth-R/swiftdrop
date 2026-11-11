@@ -84,6 +84,26 @@ test.describe('merchant registration form', () => {
     );
   });
 
+  test('a blank business registration number blocks submission', async ({
+    page,
+  }) => {
+    const { calls } = await open(page, created);
+    await fillValid(page);
+    await page.getByLabel('Business registration number').fill('   ');
+
+    await submit(page).click();
+
+    await expect(
+      page.getByText(
+        'Enter 3 to 50 characters with at least one digit, for example PV 123456.',
+        { exact: true },
+      ),
+    ).toBeVisible();
+    expect(calls.map((call) => call.key)).not.toContain(
+      'POST /merchants/register',
+    );
+  });
+
   test('a mismatched confirmation is caught on the field, and fixing it clears it', async ({
     page,
   }) => {

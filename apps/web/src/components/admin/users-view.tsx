@@ -307,7 +307,7 @@ export function UsersView() {
             placeholder="Name or email"
             maxLength={SEARCH_MAX_LENGTH}
             error={searchError}
-            className="min-w-0 flex-1"
+            className="w-full min-w-0 md:w-auto md:min-w-64 md:flex-1"
           />
           <Select
             id="user-role"

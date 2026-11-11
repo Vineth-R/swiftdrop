@@ -1,4 +1,5 @@
 import { ApiError, api, apiWithMeta, type ApiMeta } from './api';
+import type { ProofPhotoTarget } from './parcels-api';
 import type { ParcelStatus } from './tokens';
 
 export type CompletedDeliveryStatus = 'DELIVERED' | 'FAILED';
@@ -118,6 +119,14 @@ export async function listCourierDeliveries({
 export function getCourierDelivery(parcelId: string, signal?: AbortSignal) {
   return api<CourierDeliveryDetail>(
     `/courier/deliveries/${encodeURIComponent(parcelId)}`,
+    { signal },
+  );
+}
+
+/** Returns a short-lived proof photo target for an assigned delivery. */
+export function getCourierProofPhoto(parcelId: string, signal?: AbortSignal) {
+  return api<ProofPhotoTarget>(
+    `/parcels/${encodeURIComponent(parcelId)}/proof/photo`,
     { signal },
   );
 }

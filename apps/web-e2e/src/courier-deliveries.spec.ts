@@ -570,3 +570,31 @@ test('keeps the courier detail usable at desktop width', async ({ page }) => {
     page.getByRole('heading', { level: 1, name: delivery.trackingNumber }),
   ).toBeVisible();
 });
+
+test('opens a short-lived proof photo when the delivery has one', async ({
+  page,
+  context,
+}) => {
+  const withPhoto = {
+    ...detail,
+    status: 'DELIVERED',
+    proof: { ...detail.proof, hasPhoto: true },
+  };
+  await context.route('https://storage.example/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/jpeg', body: 'photo' }),
+  );
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(withPhoto),
+    [`GET /parcels/${parcelId}/proof/photo`]: ok({
+      url: 'https://storage.example/proof.jpg',
+      expiresAt: '2026-11-05T11:00:00Z',
+      mimeType: 'image/jpeg',
+      stream: false,
+    }),
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'View proof photo' }).click();
+  const popup = await popupPromise;
+  await popup.waitForURL('https://storage.example/proof.jpg');
+});

@@ -4,10 +4,10 @@
 -- Merchant status is PENDING because 000006 requires approved_by and approved_at for APPROVED.
 BEGIN;
 
-INSERT INTO merchant.merchants (id, owner_user_id, business_name, contact_email,
+INSERT INTO merchant.merchants (id, owner_user_id, business_name, business_reg_no, contact_email,
     contact_phone, pickup_address, pickup_zone_id, status, created_at, updated_at)
 VALUES ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000a1',
-    'Test Shop', 't@shop.lk', '+94112223344', '1 Test Rd',
+    'Test Shop', 'M9-0001', 't@shop.lk', '+94112223344', '1 Test Rd',
     '00000000-0000-4000-8000-0000000000b1', 'PENDING', now(), now());
 
 INSERT INTO merchant.merchant_webhooks VALUES
@@ -64,10 +64,10 @@ BEGIN
 END $$;
 
 -- Test 4: a webhook URL that is not HTTPS must be refused (uses a second merchant)
-INSERT INTO merchant.merchants (id, owner_user_id, business_name, contact_email,
+INSERT INTO merchant.merchants (id, owner_user_id, business_name, business_reg_no, contact_email,
     contact_phone, pickup_address, pickup_zone_id, status, created_at, updated_at)
 VALUES ('00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000a2',
-    'Test Shop 2', 't2@shop.lk', '+94112223355', '2 Test Rd',
+    'Test Shop 2', 'M9-0002', 't2@shop.lk', '+94112223355', '2 Test Rd',
     '00000000-0000-4000-8000-0000000000b1', 'PENDING', now(), now());
 DO $$
 BEGIN
