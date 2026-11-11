@@ -52,6 +52,27 @@ async function waitForEmail(
   throw new Error(`timed out waiting for ${subjectPart} to ${to}`);
 }
 
+/** How many messages Mailpit holds for `to` whose subject contains `subjectPart`. */
+async function countEmails(
+  request: APIRequestContext,
+  to: string,
+  subjectPart: string,
+) {
+  const response = await request.get(`${mailpit}/api/v1/messages?limit=100`);
+  if (!response.ok()) return 0;
+  const body = (await response.json()) as {
+    messages?: Array<{
+      Subject?: string;
+      To?: Array<{ Address?: string }>;
+    }>;
+  };
+  return (body.messages ?? []).filter(
+    (message) =>
+      message.Subject?.includes(subjectPart) &&
+      message.To?.some((recipient) => recipient.Address === to),
+  ).length;
+}
+
 function tokenFromEmail(payload: unknown): string {
   const text = JSON.stringify(payload);
   const match = text.match(/\/verify-email\?token=([A-Za-z0-9_-]+)/);
@@ -418,6 +439,39 @@ test.describe('real stack onboarding', () => {
     }
 
     await waitForHealthy('identity');
+
+    // Identity never got the suspension, and the administrator can see that.
+    const adminHeaders = { Authorization: `Bearer ${admin}` };
+    const detail = async () =>
+      (await (
+        await request.get(`/api/v1/admin/merchants/${merchantID}`, {
+          headers: adminHeaders,
+        })
+      ).json()) as { data?: { identitySync?: string } };
+    expect((await detail()).data?.identitySync).toBe('PENDING');
+    await expect
+      .poll(() => countEmails(request, email, 'merchant account is suspended'))
+      .toBe(1);
+
+    // Repeating the suspension replays the same transition now Identity is back.
+    const retried = await request.post(
+      `/api/v1/admin/merchants/${merchantID}/suspend`,
+      {
+        headers: adminHeaders,
+        data: { reason: 'Real-stack suspension check' },
+      },
+    );
+    expect(retried.ok()).toBeTruthy();
+    const retriedBody = (await retried.json()) as {
+      data?: { identitySync?: string };
+    };
+    expect(retriedBody.data?.identitySync).toBe('APPLIED');
+    expect((await detail()).data?.identitySync).toBeUndefined();
+    // The merchant was told once, with the decision, and not again by the retry.
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    expect(
+      await countEmails(request, email, 'merchant account is suspended'),
+    ).toBe(1);
 
     const reapproved = await request.post(
       `/api/v1/admin/merchants/${merchantID}/approve`,

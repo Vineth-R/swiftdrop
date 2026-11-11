@@ -16,6 +16,11 @@ export type Merchant = {
   approvedAt?: string;
   rejectionReason?: string;
   suspensionReason?: string;
+  /**
+   * Set by the administrator's list and detail only: a rejection or suspension
+   * that has not yet reached Identity, so the account may still hold sessions.
+   */
+  identitySync?: 'PENDING';
   createdAt?: string;
   updatedAt?: string;
 };

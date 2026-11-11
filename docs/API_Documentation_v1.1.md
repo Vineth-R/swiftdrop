@@ -3099,6 +3099,11 @@ Pending, rejected and suspended merchants cannot obtain sessions.
 - Rejection reason is optional, nullable and limited to 1,000 characters. Empty
   or whitespace-only values are stored as NULL. The rejection email omits the
   reason when none is provided. Suspension still requires a reason.
+- The administrator's list (8.4) and detail (8.5) carry `identitySync: "PENDING"`
+  for a REJECTED or SUSPENDED merchant whose status has not yet reached Identity,
+  and leave it out otherwise. Repeating the reject or suspend call retries the
+  sync with the same transition. A retry does not email the merchant again, and
+  one that finds the sync already applied answers `alreadyDone: true`.
 - `/merchant/pending` is a public informational page and never shows merchant
   details or rejection reasons.
 
