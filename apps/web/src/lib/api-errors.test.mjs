@@ -30,6 +30,13 @@ test('keeps an unrecognised 409 as CONFLICT', async () => {
   assert.equal(error.status, 409);
 });
 
+test('keeps the API code alongside the screen code', async () => {
+  const error = await readError(problem(422, 'WEBHOOK_URL_NOT_ALLOWED'));
+
+  assert.equal(error.code, 'VALIDATION_FAILED');
+  assert.equal(error.apiCode, 'WEBHOOK_URL_NOT_ALLOWED');
+});
+
 test('reads Retry-After from a 429', async () => {
   const error = await readError(
     problem(429, 'RATE_LIMITED', { 'Retry-After': '30' }),
