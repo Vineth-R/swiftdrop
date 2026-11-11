@@ -1,6 +1,7 @@
 package servicehttp
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -43,6 +44,69 @@ func TestResendVerificationHandlerIsGeneric(t *testing.T) {
 	response := h.do(http.MethodPost, "/auth/resend-verification", `{"email":"not-an-email"}`)
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid email status = %d body = %s", response.Code, response.Body)
+	}
+}
+
+func TestLoginTellsAMerchantOwnerWhereTheApplicationStands(t *testing.T) {
+	h := newHarness(t)
+	h.service.err = &service.MerchantInactiveError{
+		Status: "REJECTED", Reason: "The registration number could not be verified.", SupportEmail: "support@swiftdrop.example",
+	}
+
+	response := h.do(http.MethodPost, "/auth/login", `{"email":"owner@shop.example","password":"Str0ngPass!"}`)
+
+	if response.Code != http.StatusForbidden || errorCode(t, response) != "MERCHANT_ACCOUNT_INACTIVE" {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body)
+	}
+	var body struct {
+		Error struct {
+			Details []struct {
+				Field string `json:"field"`
+				Issue string `json:"issue"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	got := map[string]string{}
+	for _, item := range body.Error.Details {
+		got[item.Field] = item.Issue
+	}
+	want := map[string]string{
+		"status":       "REJECTED",
+		"reason":       "The registration number could not be verified.",
+		"supportEmail": "support@swiftdrop.example",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("details = %v, want %v", got, want)
+	}
+	for field, issue := range want {
+		if got[field] != issue {
+			t.Fatalf("details[%s] = %q, want %q", field, got[field], issue)
+		}
+	}
+}
+
+func TestLoginLeavesOutDetailsThatDoNotExist(t *testing.T) {
+	h := newHarness(t)
+	h.service.err = &service.MerchantInactiveError{Status: "PENDING"}
+
+	response := h.do(http.MethodPost, "/auth/login", `{"email":"owner@shop.example","password":"Str0ngPass!"}`)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body)
+	}
+	if strings.Contains(response.Body.String(), `"reason"`) || strings.Contains(response.Body.String(), `"supportEmail"`) {
+		t.Fatalf("empty reason or support email was sent: %s", response.Body)
+	}
+
+	// The plain refusal has no details at all.
+	h = newHarness(t)
+	h.service.err = service.ErrMerchantAccountInactive
+	response = h.do(http.MethodPost, "/auth/login", `{"email":"owner@shop.example","password":"Str0ngPass!"}`)
+	if strings.Contains(response.Body.String(), `"details"`) {
+		t.Fatalf("the plain refusal carried details: %s", response.Body)
 	}
 }
 

@@ -254,6 +254,18 @@ func (g *GoogleAuth) CompleteGoogleLogin(ctx context.Context, input GoogleCallba
 	if !user.IsActive {
 		return GoogleLoginResult{}, ErrAccountDisabled
 	}
+	if user.Role == auth.RoleMerchant {
+		// A merchant session needs a current approval, as in the password login.
+		// Without this check a suspended merchant whose deactivation is still
+		// pending could start an Identity session through Google.
+		approved, err := g.base.merchantApproved(ctx, user.ID)
+		if err != nil {
+			return GoogleLoginResult{}, err
+		}
+		if !approved {
+			return GoogleLoginResult{}, ErrMerchantAccountInactive
+		}
+	}
 
 	if err := g.store.RecordSuccessfulLogin(ctx, user.ID, now); err != nil {
 		return GoogleLoginResult{}, fmt.Errorf("google login: %w", err)

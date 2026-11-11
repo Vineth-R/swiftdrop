@@ -55,6 +55,7 @@ func authRouterOptions(logger *slog.Logger, config serviceconfig.Config, databas
 		RefreshTTL:           authConfig.RefreshTokenTTL,
 		EmailVerificationTTL: authConfig.EmailVerificationTokenTTL,
 		FrontendBaseURL:      mail.Site.BaseURL,
+		SupportEmail:         mail.Site.SupportEmail,
 		Lockout: lockout.Policy{
 			MaxFailures: authConfig.MaxFailedLogins,
 			Duration:    authConfig.LockoutDuration,

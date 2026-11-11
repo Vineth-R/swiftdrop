@@ -4,6 +4,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type APIResponse,
   type Page,
 } from '@playwright/test';
 
@@ -63,6 +64,30 @@ async function signIn(page: Page, email: string, password: string) {
   await page.locator('#login-email').fill(email);
   await page.locator('#login-password').fill(password);
   await page.getByRole('button', { name: 'Log in' }).click();
+}
+
+/**
+ * One login, answered as it came, for the refusals a test wants to read. It
+ * waits out the shared login rate limit (429) like apiLogin does.
+ */
+async function loginResponse(
+  request: APIRequestContext,
+  email: string,
+  password: string,
+): Promise<APIResponse> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const response = await request.post('/api/v1/auth/login', {
+      data: { email, password },
+    });
+    if (response.status() !== 429) return response;
+    const retryAfter = Number(response.headers()['retry-after']);
+    const waitMs =
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 5000;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(waitMs, 30_000)),
+    );
+  }
+  throw new Error(`login for ${email} stayed rate limited`);
 }
 
 type SessionTokens = { accessToken: string; refreshToken: string };
@@ -217,6 +242,21 @@ async function findMerchantID(
   return id;
 }
 
+/** The `field` and `issue` pairs of a refused login (API 2.2), by field. */
+async function refusalDetails(response: APIResponse) {
+  const body = (await response.json()) as {
+    error?: {
+      code?: string;
+      details?: Array<{ field: string; issue: string }>;
+    };
+  };
+  expect(body.error?.code).toBe('MERCHANT_ACCOUNT_INACTIVE');
+  const details: Record<string, string> = {};
+  for (const item of body.error?.details ?? [])
+    details[item.field] = item.issue;
+  return details;
+}
+
 test.describe('real stack onboarding', () => {
   test('customer registers, verifies email, and signs in', async ({
     page,
@@ -250,7 +290,7 @@ test.describe('real stack onboarding', () => {
     await waitForEmail(request, email, 'SwiftDrop merchant application');
 
     await signIn(page, email, 'Str0ngPass!');
-    await expect(page.getByText('Merchant account not active')).toBeVisible();
+    await expect(page.getByText('Application under review')).toBeVisible();
 
     const admin = await adminToken(page, request);
     const merchantID = await findMerchantID(request, admin, business);
@@ -315,10 +355,15 @@ test.describe('real stack onboarding', () => {
         expect(text).toContain('registration number could not be verified');
       else
         expect(text).not.toContain('registration number could not be verified');
-      const login = await request.post('/api/v1/auth/login', {
-        data: { email, password: 'Str0ngPass!' },
-      });
+      // Logins share one rate limit with registration (10 a minute), and this
+      // suite is close to it, so this stays the one login of this step.
+      const login = await loginResponse(request, email, 'Str0ngPass!');
       expect(login.status()).toBe(403);
+      // After the correct password the owner is told where the application
+      // stands, with the administrator's reason when there is one.
+      const details = await refusalDetails(login);
+      expect(details['status']).toBe('REJECTED');
+      expect(details['reason']).toBe(reason);
     }
   });
 

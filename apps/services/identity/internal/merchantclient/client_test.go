@@ -27,13 +27,31 @@ func TestApprovalReadsStatusAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := client.Approval(context.Background(), "user-1")
-	if err != nil || status != "APPROVED" {
-		t.Fatalf("Approval = %q, %v", status, err)
+	status, reason, err := client.Approval(context.Background(), "user-1")
+	if err != nil || status != "APPROVED" || reason != "" {
+		t.Fatalf("Approval = %q, %q, %v", status, reason, err)
 	}
-	status, err = client.Approval(context.Background(), "missing")
-	if err != nil || status != "" {
-		t.Fatalf("missing Approval = %q, %v", status, err)
+	status, reason, err = client.Approval(context.Background(), "missing")
+	if err != nil || status != "" || reason != "" {
+		t.Fatalf("missing Approval = %q, %q, %v", status, reason, err)
+	}
+}
+
+func TestApprovalReturnsTheAdministratorsReason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"merchantId":"m-1","status":"REJECTED","reason":"Registration number not found."}}`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "token", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, reason, err := client.Approval(context.Background(), "user-1")
+
+	if err != nil || status != "REJECTED" || reason != "Registration number not found." {
+		t.Fatalf("Approval = %q, %q, %v", status, reason, err)
 	}
 }
 
@@ -46,7 +64,7 @@ func TestApprovalMapsServerFailureToUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Approval(context.Background(), "user-1"); !errors.Is(err, ErrUnavailable) {
+	if _, _, err := client.Approval(context.Background(), "user-1"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Approval error = %v, want ErrUnavailable", err)
 	}
 }

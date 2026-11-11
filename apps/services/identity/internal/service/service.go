@@ -48,8 +48,11 @@ type TokenIssuer interface {
 
 // MerchantApprovalChecker reads the current merchant application status from
 // the Merchant service. Merchant logins fail closed when it is unavailable.
+//
+// Approval returns the status (empty when the owner has no merchant record) and,
+// for a REJECTED or SUSPENDED application, the administrator's reason.
 type MerchantApprovalChecker interface {
-	Approval(ctx context.Context, userID string) (string, error)
+	Approval(ctx context.Context, userID string) (status, reason string, err error)
 }
 
 // Config is the policy the service applies.
@@ -57,7 +60,10 @@ type Config struct {
 	RefreshTTL           time.Duration
 	EmailVerificationTTL time.Duration
 	FrontendBaseURL      string
-	Lockout              lockout.Policy
+	// SupportEmail is shown to a merchant whose login is refused. Empty when
+	// none is configured.
+	SupportEmail string
+	Lockout      lockout.Policy
 }
 
 // Option customises a Service.
@@ -271,18 +277,18 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (Session, error) 
 
 	if !user.IsActive {
 		if user.Role == auth.RoleMerchant {
-			return Session{}, ErrMerchantAccountInactive
+			return Session{}, s.inactiveMerchantLogin(ctx, user.ID)
 		}
 		return Session{}, ErrAccountDisabled
 	}
 
 	if user.Role == auth.RoleMerchant {
-		approved, err := s.merchantApproved(ctx, user.ID)
+		status, reason, err := s.merchantStanding(ctx, user.ID)
 		if err != nil {
 			return Session{}, err
 		}
-		if !approved {
-			return Session{}, ErrMerchantAccountInactive
+		if status != "APPROVED" {
+			return Session{}, s.inactiveMerchantError(status, reason)
 		}
 	}
 	if user.Role == auth.RoleCustomer && !user.EmailVerified {

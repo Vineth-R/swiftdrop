@@ -278,6 +278,11 @@ func (h *authHandlers) fail(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrVerificationTokenInvalid):
 		httpx.Error(c, http.StatusBadRequest, "INVALID_OR_EXPIRED_VERIFICATION_TOKEN", "the verification link is invalid or has expired")
 	case errors.Is(err, service.ErrMerchantAccountInactive):
+		var inactive *service.MerchantInactiveError
+		if errors.As(err, &inactive) {
+			httpx.ErrorWithDetails(c, http.StatusForbidden, "MERCHANT_ACCOUNT_INACTIVE", "this merchant account is not active", merchantInactiveDetails(inactive))
+			return
+		}
 		httpx.Error(c, http.StatusForbidden, "MERCHANT_ACCOUNT_INACTIVE", "this merchant account is not active")
 	case errors.Is(err, service.ErrServiceUnavailable):
 		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "a required service is unavailable, try again later")
@@ -295,6 +300,21 @@ func (h *authHandlers) fail(c *gin.Context, err error) {
 		)
 		httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 	}
+}
+
+// merchantInactiveDetails lists what a merchant owner may be told after the
+// correct password: the application status, the administrator's reason when
+// there is one and the support address when one is configured. They use the
+// API's field and issue pairs, so no new error shape is needed.
+func merchantInactiveDetails(inactive *service.MerchantInactiveError) []httpx.ErrorItem {
+	items := []httpx.ErrorItem{{Field: "status", Issue: inactive.Status}}
+	if inactive.Reason != "" {
+		items = append(items, httpx.ErrorItem{Field: "reason", Issue: inactive.Reason})
+	}
+	if inactive.SupportEmail != "" {
+		items = append(items, httpx.ErrorItem{Field: "supportEmail", Issue: inactive.SupportEmail})
+	}
+	return items
 }
 
 // bindJSON reads a bounded JSON body into destination. It answers the client
