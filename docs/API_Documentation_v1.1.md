@@ -616,6 +616,15 @@ service status during merchant login and refresh; if it is unavailable the login
 fails closed with 503. Access tokens carry an `sv` session version that must
 match the current Identity session version.
 
+403 MERCHANT_ACCOUNT_INACTIVE is answered only after the correct password. Its
+`error.details` then say where the application stands, as `field` and `issue`
+pairs: `status` (PENDING, REJECTED or SUSPENDED), `reason` (the administrator's
+text, left out when there is none) and `supportEmail` (left out when none is
+configured). The sign-in screen shows them to the owner. There are no details
+when an administrator switched the account off, or when the status could not be
+read for an already inactive account. Google sign-in applies the same approval
+check as this endpoint.
+
 
 
 Purpose: Authenticates a user with email and password and starts the session using
@@ -4162,6 +4171,27 @@ Method and path                                  Caller to      Purpose
 
 
 
+
+Merchant onboarding adds these internal endpoints. They are specified in
+`contracts/openapi/identity-internal.yaml` and
+`contracts/openapi/merchant-internal.yaml`, and described in
+`docs/identity-internal-api.md` section 1a.
+
+- `POST /internal/merchant-owners` (Merchant to Identity): creates or resumes an
+  inactive MERCHANT account. 201 when created, 200 when resumed with the same
+  password.
+- `POST /internal/merchant-owners/{userId}/lifecycle` (Merchant to Identity):
+  applies one APPROVE, REJECT or SUSPEND exactly once. 409 TRANSITION_ID_CONFLICT,
+  STALE_TRANSITION or NOT_A_MERCHANT_OWNER.
+- `DELETE /internal/merchant-owners/{userId}` (Merchant to Identity): takes back
+  a failed registration. 409 OWNER_NOT_ELIGIBLE for any account that is not an
+  inactive, unverified MERCHANT with no session and no transition.
+- `GET /internal/users/{userId}/session-state` (Merchant to Identity): returns
+  `role`, `isActive` and `sessionVersion`.
+- `GET /internal/merchants/owners/{userId}/approval` (Identity to Merchant):
+  returns `merchantId` and `status`, and for a REJECTED or SUSPENDED merchant the
+  administrator's `reason`. Identity shows the reason to the owner after a
+  correct password and does not log it.
 
 Both internal Parcel endpoints are implemented and documented in
 `contracts/openapi/parcel.yaml`. They require `X-Internal-Token`, fail closed when

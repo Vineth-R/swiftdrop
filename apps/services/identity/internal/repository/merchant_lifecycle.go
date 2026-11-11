@@ -13,6 +13,15 @@ import (
 var (
 	ErrTransitionStale    = errors.New("lifecycle transition sequence is stale")
 	ErrTransitionConflict = errors.New("lifecycle transition ID conflicts with an existing transition")
+
+	// ErrOwnerNotEligible means the account may not be removed as a failed
+	// registration: it is not an inactive, unverified MERCHANT, or it has a
+	// session or a lifecycle transition.
+	ErrOwnerNotEligible = errors.New("merchant owner is not eligible for compensation")
+
+	// ErrNotMerchantOwner means a lifecycle transition was requested for a user
+	// who is not a MERCHANT.
+	ErrNotMerchantOwner = errors.New("user is not a merchant owner")
 )
 
 // SessionState is the current session authority state of a user.
@@ -140,7 +149,7 @@ func (r *Repository) ApplyMerchantLifecycleTransition(
 		return MerchantLifecycleTransition{}, fmt.Errorf("applying lifecycle transition: %w", err)
 	}
 	if auth.Role(role) != auth.RoleMerchant {
-		return MerchantLifecycleTransition{}, errors.New("user is not a merchant")
+		return MerchantLifecycleTransition{}, ErrNotMerchantOwner
 	}
 
 	var existingOperation string
@@ -272,7 +281,7 @@ func (r *Repository) DeletePendingMerchantOwner(ctx context.Context, userID stri
 		return fmt.Errorf("deleting merchant owner: %w", err)
 	}
 	if auth.Role(role) != auth.RoleMerchant || isActive || emailVerified {
-		return errors.New("merchant owner is not eligible for compensation")
+		return ErrOwnerNotEligible
 	}
 	var sessions int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM identity.refresh_tokens WHERE user_id = $1`, userID).Scan(&sessions); err != nil {
@@ -283,7 +292,7 @@ func (r *Repository) DeletePendingMerchantOwner(ctx context.Context, userID stri
 		return fmt.Errorf("deleting merchant owner: %w", err)
 	}
 	if sessions > 0 || transitions > 0 {
-		return errors.New("merchant owner is not eligible for compensation")
+		return ErrOwnerNotEligible
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM identity.users WHERE id = $1`, userID); err != nil {
 		return fmt.Errorf("deleting merchant owner: %w", err)

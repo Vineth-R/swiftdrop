@@ -149,6 +149,9 @@ func (a *InternalAPI) ApplyMerchantLifecycle(ctx context.Context, input Lifecycl
 		return LifecycleResult{}, &ValidationError{Issues: []Issue{{Field: "operation", Issue: "must be APPROVE, REJECT or SUSPEND"}}}
 	}
 	applied, err := a.store.ApplyMerchantLifecycleTransition(ctx, input.UserID, input.TransitionID, input.Sequence, input.Operation, time.Now().UTC())
+	if errors.Is(err, repository.ErrNotFound) {
+		return LifecycleResult{}, ErrUserNotFound
+	}
 	if err != nil {
 		return LifecycleResult{}, err
 	}

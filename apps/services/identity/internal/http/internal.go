@@ -227,6 +227,12 @@ func (h *internalHandlers) fail(c *gin.Context, err error) {
 	case errors.Is(err, repository.ErrTransitionStale):
 		httpx.Error(c, http.StatusConflict, "STALE_TRANSITION", "transition sequence is stale")
 		return
+	case errors.Is(err, repository.ErrOwnerNotEligible):
+		httpx.Error(c, http.StatusConflict, "OWNER_NOT_ELIGIBLE", "the merchant owner account cannot be removed")
+		return
+	case errors.Is(err, repository.ErrNotMerchantOwner):
+		httpx.Error(c, http.StatusConflict, "NOT_A_MERCHANT_OWNER", "the user is not a merchant owner")
+		return
 	}
 	h.logger.ErrorContext(c.Request.Context(), "internal request failed",
 		"request_id", requestid.FromGin(c),

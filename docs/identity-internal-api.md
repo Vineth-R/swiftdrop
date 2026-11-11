@@ -7,8 +7,9 @@ Machine-readable contract: [`contracts/openapi/identity-internal.yaml`](../contr
 | ------------ | -------------------------------------------------------------------------- | ----------------------------------------------- |
 | M6 (Parcel)  | `GET /internal/couriers/{courierId}/eligibility` before assigning a parcel | [1](#1-the-two-endpoints)                       |
 | M1 (Notif.)  | `GET /internal/users/{userId}/contact` to find the recipient               | [1](#1-the-two-endpoints)                       |
+| Merchant     | The merchant-owner, session-state and approval calls                       | [1a](#1a-merchant-onboarding-endpoints)         |
 | M1 (Notif.)  | `packages/go-common/mailer` to send the email                              | [5](#5-m1-sending-email-with-the-shared-mailer) |
-| M1 (Gateway) | Nothing to change for `/internal`; one gap for `/api/v1/admin/users`       | [6](#6-m1-gateway-notes)                        |
+| M1 (Gateway) | Nothing to change for `/internal`; closed the `/api/v1/admin/users` gap    | [6](#6-m1-gateway-notes)                        |
 
 These endpoints are for service-to-service calls only. Nginx never routes `/internal`
 (`infra/nginx/default.conf` returns a JSON `404 NOT_FOUND`), so only containers on the Compose
@@ -83,11 +84,40 @@ Standard envelope: `{"error": {"code": "...", "message": "..."}, "meta": {"reque
 | 401    | `UNAUTHENTICATED`    | `X-Internal-Token` missing or wrong, **or Identity itself has no valid `INTERNAL_TOKEN`**. |
 | 400    | `BAD_REQUEST`        | `X-Request-Id` missing or malformed. The token is checked first.                           |
 | 404    | `NOT_FOUND`          | No such user, or the ID is not a UUID. Treat as "not found".                               |
-| 405    | `METHOD_NOT_ALLOWED` | Anything but `GET`.                                                                        |
+| 405    | `METHOD_NOT_ALLOWED` | A method the path does not offer.                                                          |
 | 500    | `INTERNAL_ERROR`     | Unexpected failure, such as the database being down. Safe to retry.                        |
 
 **Treat `401` as a configuration fault, never as "courier not found".** If your 401s persist, the
 token in your container differs from Identity's (see section 3).
+
+## 1a. Merchant onboarding endpoints
+
+Added with merchant registration. They use the same two headers and the same envelopes as section
+1, and the Merchant service is their only caller. The full schemas are in
+[`identity-internal.yaml`](../contracts/openapi/identity-internal.yaml) and
+[`merchant-internal.yaml`](../contracts/openapi/merchant-internal.yaml).
+
+| Call                                                | Who calls | What it does                                                                                                |
+| --------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------- |
+| `POST /internal/merchant-owners`                    | Merchant  | Creates an **inactive** `MERCHANT` login. `201` when created, `200` when the same email and password retry. |
+| `POST /internal/merchant-owners/{userId}/lifecycle` | Merchant  | Applies one `APPROVE`, `REJECT` or `SUSPEND` exactly once and bumps the session version.                    |
+| `DELETE /internal/merchant-owners/{userId}`         | Merchant  | Takes back a failed registration. Refuses anything that is not a brand-new, never-used owner.               |
+| `GET /internal/users/{userId}/session-state`        | Merchant  | `role`, `isActive` and `sessionVersion`, so a stale access token is refused.                                |
+| `GET /internal/merchants/owners/{userId}/approval`  | Identity  | Served by Merchant. The merchant `status` and, for a rejection or suspension, the admin's `reason`.         |
+
+Refusals the caller can act on are `409`, never `500`:
+
+| Call              | Code                     | Meaning                                                                                      |
+| ----------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
+| `POST`, create    | `EMAIL_ALREADY_EXISTS`   | The email belongs to another account, or to a merchant owner with a different password.      |
+| `POST`, lifecycle | `TRANSITION_ID_CONFLICT` | The transition ID was used before with another user, operation or sequence.                  |
+| `POST`, lifecycle | `STALE_TRANSITION`       | The sequence is not higher than the latest one applied for this user.                        |
+| `POST`, lifecycle | `NOT_A_MERCHANT_OWNER`   | The user is not a `MERCHANT`.                                                                |
+| `DELETE`          | `OWNER_NOT_ELIGIBLE`     | Not an inactive, unverified `MERCHANT`, or it has a session or a transition. Left untouched. |
+
+Two things are personal data. The account password travels once, in the `POST` body, and is hashed
+at once; never log the body. The `reason` from the approval call is the administrator's text for
+one owner: Identity shows it only after a correct password, and neither service logs it.
 
 ## 2. Request timeouts and retries
 
@@ -270,11 +300,11 @@ err = sender.Send(ctx, mailer.Message{
 ## 6. M1 gateway notes
 
 1. `/internal` is already blocked correctly. No change needed.
-2. **Gap:** `/api/v1/admin/users` **without a trailing slash** has no exact-match rule (the other
-   groups, such as `users` and `couriers`, have `location = ... { return 308 ...; }`). It falls through
-   to the web app. The slashed form `/api/v1/admin/users/` is routed correctly, and the frontend
-   should call that form. If you add the rule, note that `return 308 /path/;` drops the query string;
-   use `return 308 /api/v1/admin/users/$is_args$args;`.
+2. **Closed:** `/api/v1/admin/users` without a trailing slash used to have no exact-match rule, so
+   it fell through to the web app and the documented list path (API 2.10) never reached Identity.
+   `infra/nginx/default.conf` now has `location = /api/v1/admin/users` that proxies to Identity
+   like the slashed form, so the query string is kept and there is no redirect to lose the
+   gateway port. The frontend still calls the slashed form.
 3. `GOOGLE_REDIRECT_URI` must be `http://localhost:8080/api/v1/auth/google/callback`. That path is
    already routed to Identity by `location /api/v1/auth/`.
 

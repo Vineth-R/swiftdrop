@@ -201,7 +201,10 @@ paths:
                       revokedSessions: { type: integer }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: TRANSITION_ID_CONFLICT or STALE_TRANSITION. }
+        '409':
+          description: >-
+            `TRANSITION_ID_CONFLICT`, `STALE_TRANSITION`, or `NOT_A_MERCHANT_OWNER`
+            when the user is not a MERCHANT.
   /internal/merchant-owners/{userId}:
     delete:
       operationId: identityInternalDeleteMerchantOwner
@@ -220,7 +223,11 @@ paths:
         '204': { description: Deleted. }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: The account is not eligible for compensation. }
+        '409':
+          description: >-
+            `OWNER_NOT_ELIGIBLE`: the account is not an inactive, unverified
+            MERCHANT, or it has a session or a lifecycle transition. It is left
+            untouched.
 
 components:
   parameters:

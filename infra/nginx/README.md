@@ -47,3 +47,6 @@ Registration routes `/api/v1/auth/verify-email` and
 `/api/v1/auth/resend-verification` use the existing `/api/v1/auth/` proxy.
 Merchant registration uses `/api/v1/merchants/`; admin listing uses the exact
 `/api/v1/admin/merchants` and prefix routes.
+
+`/api/v1/admin/users` (the documented list path, no trailing slash) has its own
+exact rule that proxies to Identity, so it is not sent on to the web app.
