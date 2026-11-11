@@ -75,7 +75,9 @@ returns it only when the request hash matches.
 
 ## Status synchronization
 
-`merchant.sync.queue` is bound to `parcel.status_changed.v1`. The consumer
+`merchant.sync.queue` is bound to `parcel.status_changed.v1`. The service requires
+`RABBITMQ_URL` outside development; local development may omit it and will log a
+warning that synchronization is disabled. The consumer
 validates the envelope, type, version, producer and status fields, then locks the
 merchant order row and applies the event only when `occurred_at` is newer than
 `last_status_at`. The event ID is unique, so a redelivery is a no-op, and the

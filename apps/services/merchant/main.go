@@ -54,6 +54,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := config.ValidateRuntime(); err != nil {
+		return err
+	}
 
 	if config.AppEnv != "development" {
 		gin.SetMode(gin.ReleaseMode)

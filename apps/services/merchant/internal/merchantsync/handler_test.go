@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,5 +145,44 @@ func TestHandleRejectsNonJSONContentType(t *testing.T) {
 	err := testHandler(&fakeStore{}).Handle(context.Background(), messaging.Message{Body: []byte(`{}`), ContentType: "text/plain"})
 	if !messaging.IsPermanent(err) {
 		t.Fatalf("Handle() error = %v, want permanent", err)
+	}
+}
+
+func TestHandleLogsMissingMerchantOrderWithoutSensitiveData(t *testing.T) {
+	var output strings.Builder
+	store := &fakeStore{err: orders.ErrNotFound}
+	handler := New(store, slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	if err := handler.Handle(context.Background(), testMessage(nil)); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	logged := output.String()
+	if !strings.Contains(logged, "merchant order not found for status event") || !strings.Contains(logged, testParcel) {
+		t.Fatalf("missing-order warning was not logged: %s", logged)
+	}
+	for _, sensitive := range []string{"Amali", "+94712345678", "45 Lake Drive"} {
+		if strings.Contains(logged, sensitive) {
+			t.Fatalf("log exposed recipient data %q: %s", sensitive, logged)
+		}
+	}
+}
+
+func TestHandleRejectsShortTrackingAndFailedWithoutReason(t *testing.T) {
+	short := map[string]any{
+		"parcel_id": testParcel, "tracking_number": "SDN1",
+		"previous_status": "CREATED", "status": "IN_TRANSIT", "merchant_id": testMerchant,
+	}
+	if err := testHandler(&fakeStore{}).Handle(context.Background(), testMessage(short)); !messaging.IsPermanent(err) {
+		t.Fatalf("short tracking error = %v, want permanent", err)
+	}
+	failed := map[string]any{
+		"parcel_id": testParcel, "tracking_number": testTracking,
+		"previous_status": "IN_TRANSIT", "status": "FAILED", "merchant_id": testMerchant,
+	}
+	if err := testHandler(&fakeStore{}).Handle(context.Background(), testMessage(failed)); !messaging.IsPermanent(err) {
+		t.Fatalf("FAILED without reason error = %v, want permanent", err)
+	}
+	failed["failure_reason"] = "Recipient refused delivery"
+	if err := testHandler(&fakeStore{applied: true}).Handle(context.Background(), testMessage(failed)); err != nil {
+		t.Fatalf("valid FAILED event error = %v", err)
 	}
 }

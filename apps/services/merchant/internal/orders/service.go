@@ -52,21 +52,24 @@ func (s *Service) Create(ctx context.Context, merchant MerchantProfile, idempote
 	}
 	hash := Hash(normalized)
 
-	existing, err := s.store.OrderByExternalOrderID(ctx, merchant.ID, normalized.ExternalOrderID)
-	if err == nil {
-		return replay(existing, hash)
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return CreateResult{}, fmt.Errorf("look up merchant order: %w", err)
-	}
+	// Check the caller's idempotency key first. If it already names a different
+	// order, the hash differs and the request is a conflict even when the
+	// external order reference also happens to exist.
 	if normalized.IdempotencyKey != "" {
-		existing, err = s.store.OrderByIdempotencyKey(ctx, merchant.ID, normalized.IdempotencyKey)
+		existing, err := s.store.OrderByIdempotencyKey(ctx, merchant.ID, normalized.IdempotencyKey)
 		if err == nil {
 			return replay(existing, hash)
 		}
 		if !errors.Is(err, ErrNotFound) {
 			return CreateResult{}, fmt.Errorf("look up idempotency key: %w", err)
 		}
+	}
+	existing, err := s.store.OrderByExternalOrderID(ctx, merchant.ID, normalized.ExternalOrderID)
+	if err == nil {
+		return replay(existing, hash)
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return CreateResult{}, fmt.Errorf("look up merchant order: %w", err)
 	}
 
 	if s.parcels == nil {
@@ -122,17 +125,18 @@ func (s *Service) Create(ctx context.Context, merchant MerchantProfile, idempote
 	}
 
 	// A concurrent request won the insert. Replay the winner when the payload
-	// is the same, otherwise report the conflict. The Parcel call is safe to
-	// repeat because Parcel replays by (merchantId, externalOrderId).
-	existing, lookupErr := s.store.OrderByExternalOrderID(ctx, merchant.ID, normalized.ExternalOrderID)
-	if lookupErr == nil {
-		return replay(existing, hash)
-	}
+	// is the same, otherwise report the conflict. Check the idempotency key
+	// first for the same reason as the pre-check above. The Parcel call is safe
+	// to repeat because Parcel replays by (merchantId, externalOrderId).
 	if normalized.IdempotencyKey != "" {
-		existing, lookupErr = s.store.OrderByIdempotencyKey(ctx, merchant.ID, normalized.IdempotencyKey)
+		existing, lookupErr := s.store.OrderByIdempotencyKey(ctx, merchant.ID, normalized.IdempotencyKey)
 		if lookupErr == nil {
 			return replay(existing, hash)
 		}
+	}
+	existing, lookupErr := s.store.OrderByExternalOrderID(ctx, merchant.ID, normalized.ExternalOrderID)
+	if lookupErr == nil {
+		return replay(existing, hash)
 	}
 	return CreateResult{}, ErrDuplicateOrder
 }

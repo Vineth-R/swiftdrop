@@ -207,3 +207,20 @@ func TestLoadFromRejectsBadIntegrationSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRuntimeRequiresRabbitMQOutsideDevelopment(t *testing.T) {
+	for _, environment := range []string{"staging", "production"} {
+		t.Run(environment, func(t *testing.T) {
+			config := Config{AppEnv: environment}
+			if err := config.ValidateRuntime(); err == nil {
+				t.Fatalf("ValidateRuntime() accepted %s without RABBITMQ_URL", environment)
+			}
+		})
+	}
+	if err := (Config{AppEnv: "development"}).ValidateRuntime(); err != nil {
+		t.Fatalf("ValidateRuntime(development) requires RABBITMQ_URL: %v", err)
+	}
+	if err := (Config{AppEnv: "production", RabbitMQURL: "amqp://guest:guest@rabbitmq:5672/"}).ValidateRuntime(); err != nil {
+		t.Fatalf("ValidateRuntime(production with broker) error = %v", err)
+	}
+}

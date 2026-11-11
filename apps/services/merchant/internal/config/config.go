@@ -34,9 +34,9 @@ type Config struct {
 	ParcelBaseURL   string
 	ParcelTimeout   time.Duration
 
-	// RabbitMQURL is optional. When it is set, the merchant service also runs
-	// the merchant.sync.queue consumer. When it is empty the HTTP service still
-	// starts and logs a warning; no status synchronization happens.
+	// RabbitMQURL enables the merchant.sync.queue consumer. It may be empty
+	// only in development; outside development a missing URL stops startup so a
+	// production-like deployment cannot silently skip status synchronization.
 	RabbitMQURL            string
 	RabbitMQExchange       string
 	MerchantSyncQueue      string
@@ -51,6 +51,16 @@ type Config struct {
 
 // SyncEnabled reports whether the merchant status consumer should run.
 func (c Config) SyncEnabled() bool { return strings.TrimSpace(c.RabbitMQURL) != "" }
+
+// ValidateRuntime enforces deployment requirements that are not needed by the
+// config parser's focused tests. Local development may run without a broker;
+// staging and production must not silently skip merchant status synchronization.
+func (c Config) ValidateRuntime() error {
+	if !c.SyncEnabled() && c.AppEnv != "development" {
+		return errors.New("RABBITMQ_URL is required outside development for merchant status synchronization")
+	}
+	return nil
+}
 
 func Load() (Config, error) {
 	return LoadFrom(sharedconfig.Load())

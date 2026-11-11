@@ -147,7 +147,7 @@ func TestRegistrationRepository(t *testing.T) {
 	}
 	params := CreateMerchantParams{
 		ID: orderUUID(), OwnerUserID: ownerID, BusinessName: "Registration Shop",
-		BusinessRegNo: "REG-" + ownerID[:8], ContactEmail: "reg@example.test",
+		BusinessRegNo: "REG-2-" + ownerID[:8], ContactEmail: "reg@example.test",
 		ContactPhone: "+94771234567", PickupAddress: "1 Road", PickupZoneID: orderUUID(),
 	}
 	merchant, err := repo.CreatePendingMerchant(ctx, attemptID, params)
@@ -161,7 +161,7 @@ func TestRegistrationRepository(t *testing.T) {
 	}
 	duplicate := params
 	duplicate.ID = orderUUID()
-	duplicate.BusinessRegNo = "REG-OTHER"
+	duplicate.BusinessRegNo = "REG 2 " + orderHex(6)
 	if _, err := repo.CreatePendingMerchant(ctx, attempt2.ID, duplicate); !errors.Is(err, ErrDuplicateApplication) {
 		t.Fatalf("duplicate owner error = %v, want ErrDuplicateApplication", err)
 	}

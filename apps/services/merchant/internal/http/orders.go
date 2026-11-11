@@ -147,7 +147,12 @@ func (h *merchantHandler) getOrder(c *gin.Context) {
 	if !ok || !h.requireApproved(c, merchant) {
 		return
 	}
-	detail, err := h.orders.Detail(c.Request.Context(), identity.MerchantID, c.Param("orderId"))
+	orderID := strings.ToLower(strings.TrimSpace(c.Param("orderId")))
+	if !validation.UUID(orderID) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "order not found")
+		return
+	}
+	detail, err := h.orders.Detail(c.Request.Context(), identity.MerchantID, orderID)
 	if err != nil {
 		h.orderError(c, err)
 		return

@@ -74,9 +74,10 @@ or `DATABASE_URL_DIRECT` for a remote database. See
 [`docs/neon-production.md`](../docs/neon-production.md).
 
 **Development history.** Development contains identity `000004`-`000006` and
-merchant `000007`-`000009`; they are unchanged by this branch. Merchant `000008`
-is the compatibility migration applied to the source/production databases, and
-`000009` restores the mandatory registration-number constraint. The production
+merchant `000007`-`000009`; they are unchanged by this branch, which adds
+`000010_merchant_order_snapshots`. Merchant `000008` is the compatibility
+migration applied to the source/production databases, and `000009` restores the
+mandatory registration-number constraint. The production
 migration work was based on an older feature tree that lacked those files; they
 were recovered there for verification and produced an inventory identical to the
 source database. Development did not need that recovery. The ahead-of-local

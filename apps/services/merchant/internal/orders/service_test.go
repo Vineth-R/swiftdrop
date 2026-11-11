@@ -383,3 +383,28 @@ func mustNormalize(t *testing.T, service *Service, key string, input CreateInput
 	}
 	return normalized
 }
+
+func TestIdempotencyKeyConflictWinsOverExternalOrderReplay(t *testing.T) {
+	store := newFakeStore()
+	parcel := &fakeParcel{result: testParcelResult()}
+	service := New(store, parcel, fakeZones{name: "Colombo"})
+
+	first, err := service.Create(context.Background(), testMerchant(), "key-1", testInput())
+	if err != nil {
+		t.Fatalf("first Create() error = %v", err)
+	}
+	secondInput := testInput()
+	secondInput.ExternalOrderID = "SZ-KEY-TWO"
+	if _, err := service.Create(context.Background(), testMerchant(), "key-2", secondInput); err != nil {
+		t.Fatalf("second Create() error = %v", err)
+	}
+	// key-2 already names SZ-KEY-TWO; reusing it for SZ-100245 must conflict
+	// even though SZ-100245 exists from key-1.
+	if _, err := service.Create(context.Background(), testMerchant(), "key-2", testInput()); !errors.Is(err, ErrDuplicateOrder) {
+		t.Fatalf("Create() error = %v, want ErrDuplicateOrder", err)
+	}
+	if len(parcel.calls) != 2 {
+		t.Fatalf("parcel calls = %d, want 2", len(parcel.calls))
+	}
+	_ = first
+}

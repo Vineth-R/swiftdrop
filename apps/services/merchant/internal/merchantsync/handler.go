@@ -42,6 +42,7 @@ type payload struct {
 	PreviousStatus string `json:"previous_status"`
 	Status         string `json:"status"`
 	MerchantID     string `json:"merchant_id"`
+	FailureReason  string `json:"failure_reason"`
 }
 
 // Handle validates one event and applies it exactly once. Malformed events are
@@ -79,17 +80,20 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 	data.TrackingNumber = strings.TrimSpace(data.TrackingNumber)
 	data.PreviousStatus = strings.TrimSpace(data.PreviousStatus)
 	data.Status = strings.TrimSpace(data.Status)
+	data.FailureReason = strings.TrimSpace(data.FailureReason)
 	switch {
 	case !validation.UUID(data.ParcelID):
 		return messaging.Permanent(errors.New("data.parcel_id must be a UUID"))
 	case data.MerchantID != "" && !validation.UUID(data.MerchantID):
 		return messaging.Permanent(errors.New("data.merchant_id must be a UUID"))
-	case data.TrackingNumber == "" || validation.RuneLength(data.TrackingNumber) > 20:
+	case validation.RuneLength(data.TrackingNumber) < 11 || validation.RuneLength(data.TrackingNumber) > 20:
 		return messaging.Permanent(errors.New("data.tracking_number is invalid"))
 	case !orders.ValidStatus(data.PreviousStatus):
 		return messaging.Permanent(errors.New("data.previous_status is invalid"))
 	case !orders.ValidStatus(data.Status):
 		return messaging.Permanent(errors.New("data.status is invalid"))
+	case data.Status == "FAILED" && (validation.RuneLength(data.FailureReason) < 5 || validation.RuneLength(data.FailureReason) > 255):
+		return messaging.Permanent(errors.New("data.failure_reason is invalid for FAILED"))
 	}
 
 	// The queue is bound to every parcel status event. Customer parcels have no

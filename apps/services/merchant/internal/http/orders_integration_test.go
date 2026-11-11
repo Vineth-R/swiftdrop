@@ -222,7 +222,7 @@ func createHTTPMerchant(t *testing.T, ctx context.Context, repo *repository.Repo
 	merchantID, ownerID = userID(t), userID(t)
 	if err := repo.CreateMerchant(ctx, repository.CreateMerchantParams{
 		ID: merchantID, OwnerUserID: ownerID, BusinessName: "Order API " + merchantID[:8],
-		BusinessRegNo: "API-" + merchantID[:8], ContactEmail: "api-" + merchantID[:8] + "@example.test",
+		BusinessRegNo: "API-2-" + merchantID[:8], ContactEmail: "api-" + merchantID[:8] + "@example.test",
 		ContactPhone: "+94771234567", PickupAddress: "12 Galle Road", PickupZoneID: userID(t),
 	}); err != nil {
 		t.Fatalf("CreateMerchant() error = %v", err)
@@ -315,6 +315,11 @@ func TestMerchantOrderAPIKeyCreateReadReplayAndIsolation(t *testing.T) {
 	status, body = requestJSON(t, router, http.MethodGet, "/merchant/orders/"+created.Data.OrderID, nil, map[string]string{"X-API-Key": otherKey.full})
 	if status != http.StatusNotFound || errorCode(body) != "NOT_FOUND" {
 		t.Fatalf("cross-merchant status = %d (%s)", status, body)
+	}
+
+	status, body = requestJSON(t, router, http.MethodGet, "/merchant/orders/not-a-uuid", nil, map[string]string{"X-API-Key": key.full})
+	if status != http.StatusNotFound || errorCode(body) != "NOT_FOUND" {
+		t.Fatalf("malformed order id status = %d (%s)", status, body)
 	}
 	if bytes.Contains(body, []byte(created.Data.TrackingNumber)) {
 		t.Fatalf("cross-merchant response leaked the tracking number: %s", body)

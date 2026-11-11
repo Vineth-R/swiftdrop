@@ -126,7 +126,7 @@ func createOrderMerchant(t *testing.T, ctx context.Context, repo *Repository) (s
 	merchantID, ownerID := orderUUID(), orderUUID()
 	if err := repo.CreateMerchant(ctx, CreateMerchantParams{
 		ID: merchantID, OwnerUserID: ownerID, BusinessName: "Order Test " + merchantID[:8],
-		BusinessRegNo: "ORDER-" + merchantID[:8], ContactEmail: "order-" + merchantID[:8] + "@example.test",
+		BusinessRegNo: "ORDER-2-" + merchantID[:8], ContactEmail: "order-" + merchantID[:8] + "@example.test",
 		ContactPhone: "+94771234567", PickupAddress: "12 Galle Road", PickupZoneID: orderUUID(),
 	}); err != nil {
 		t.Fatalf("CreateMerchant() error = %v", err)

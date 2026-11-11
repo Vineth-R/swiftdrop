@@ -1,7 +1,7 @@
 # M8 merchant orders and portal — completion report
 
 Branch: `feature/m8-merchant-orders-portal`  
-Base: `origin/development` (`de209dc`)  
+Base: `origin/development` (`b52463d` after the final-review merge)
 Worktree: isolated from the dirty M7 worktree; registration/approval work was already merged.
 
 ## 1. Initial audit
@@ -10,7 +10,7 @@ The registration and approval implementation was already merged. Merchant profil
 
 | Task                           | Existing status                                                                                                                                 | Action taken                                                                             |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| M8.1 database and registration | Registration/approval merged; merchant tables, API-key trigger and order tables existed; order snapshot lacked pickup/recipient contact columns | Reused registration; added migration 000009                                              |
+| M8.1 database and registration | Registration/approval merged; merchant tables, API-key trigger and order tables existed; order snapshot lacked pickup/recipient contact columns | Reused registration; added migration 000010                                              |
 | M8.2 report sections           | `docs/merchant-integration.md` described the target but said the order route was pending                                                        | Updated to the implemented workflow                                                      |
 | M8.3 API keys                  | Format, SHA-256, constant-time compare, revoke, approval gate and 5-key lock/trigger existed                                                    | Preserved; added validation, trigger-error mapping and concurrency/one-time-secret tests |
 | M8.4 order APIs and sync       | No order handlers, repository, Parcel client, OpenAPI paths or consumer                                                                         | Implemented API 8.16-8.18 and `merchant.sync.queue`                                      |
@@ -130,8 +130,9 @@ rejected before Parcel is called; the merchant order uniqueness remains correct.
 - No producer contract change was needed: `parcel.status_changed.v1` already
   carries `parcel_id`, `tracking_number`, `previous_status`, `status`,
   `merchant_id`, and the envelope carries `event_id`/`occurred_at`.
-- Merchant starts the consumer when `RABBITMQ_URL` is set. Without it, the HTTP
-  service starts and logs a warning; synchronization is disabled.
+- Merchant starts the consumer when `RABBITMQ_URL` is set. Local development may
+  omit it (HTTP starts with a warning; synchronization is disabled). Staging and
+  production refuse to start without it.
 
 ## 11. Merchant portal
 
@@ -258,7 +259,7 @@ CI already runs that suite.
 - No browser order form by design; API 8.16 is API-key-only.
 - `externalOrderId` list filtering is an exact match, not a fuzzy search.
 - Contact snapshot columns are nullable for pre-M8 rows; all M8-created orders fill them.
-- The consumer is disabled when `RABBITMQ_URL` is unset (logged).
+- In development the consumer is disabled when `RABBITMQ_URL` is unset (logged). Staging and production refuse to start without it.
 - A merchant-owned parcel without an order snapshot is acknowledged, not dead-lettered.
 - A conflicting concurrent idempotency key can leave an extra Parcel before the
   merchant conflict is detected (merchant order uniqueness remains correct).

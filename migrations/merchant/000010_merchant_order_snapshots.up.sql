@@ -7,9 +7,8 @@
 -- forward-compatible with any pre-M8 rows; every order written by the M8 API
 -- populates them.
 --
--- Version 000008 is intentionally skipped: the registration worktree carries an
--- uncommitted 000008_business_reg_no_optional candidate. Gaps are supported by
--- the migration runner, so using 000009 avoids a future version collision.
+-- This forward migration follows the existing merchant business-registration
+-- chain (000008 compatibility and 000009 restored constraint) on development.
 
 ALTER TABLE merchant.merchant_orders
   ADD COLUMN IF NOT EXISTS pickup_name      VARCHAR(150),
