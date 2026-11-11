@@ -130,7 +130,8 @@ make storage-up
 ```
 
 Starts VersityGW (Compose profile `storage`), waits for health, and creates the
-`delivery-proofs` bucket. Then set:
+`delivery-proofs` bucket. A separate `s3-meta` volume stores object metadata so
+`Content-Type` survives `HeadObject`/presigned reads. Then set:
 
 ```env
 STORAGE_PROVIDER=s3

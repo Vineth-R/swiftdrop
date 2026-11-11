@@ -78,6 +78,10 @@ func TestS3PrivateLifecycle(t *testing.T) {
 	if err != nil || !exists {
 		t.Fatalf("exists = %v, error = %v", exists, err)
 	}
+	info, err := store.Stat(t.Context(), key)
+	if err != nil || info.ContentType != "image/jpeg" || info.Size != int64(len(data)) {
+		t.Fatalf("stat = %+v, error = %v", info, err)
+	}
 
 	presigned, _, err := store.PresignGet(t.Context(), key, time.Minute)
 	if err != nil {

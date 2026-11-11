@@ -105,7 +105,7 @@ services:
   s3:
     image: versity/versitygw:v1.11.0
     profiles: ['storage']
-    command: ['posix', '--nometa', '/data']
+    command: ['posix', '--sidecar', '/meta', '/data']
     environment:
       ROOT_ACCESS_KEY: ${STORAGE_ACCESS_KEY_ID:-swiftdrop}
       ROOT_SECRET_KEY: ${STORAGE_SECRET_ACCESS_KEY:-swiftdrop-s3}
@@ -114,6 +114,7 @@ services:
       - '${S3_PORT:-7070}:7070'
     volumes:
       - s3-data:/data
+      - s3-meta:/meta
     healthcheck:
       test: ['CMD-SHELL', 'nc -z 127.0.0.1 7070']
       interval: 5s
@@ -460,3 +461,4 @@ volumes:
   rabbitmq-data:
   parcel-proofs:
   s3-data:
+  s3-meta:

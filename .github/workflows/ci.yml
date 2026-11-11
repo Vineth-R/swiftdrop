@@ -545,7 +545,8 @@ jobs:
             -e ROOT_SECRET_KEY=swiftdrop-s3 \
             -e VGW_REGION=us-east-1 \
             -v s3gw-data:/data \
-            versity/versitygw:v1.11.0 posix --nometa /data
+            -v s3gw-meta:/meta \
+            versity/versitygw:v1.11.0 posix --sidecar /meta /data
           timeout 60 bash -c 'until curl -s -o /dev/null http://127.0.0.1:7070/; do sleep 1; done'
 
       - name: Run object storage integration tests
