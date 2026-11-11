@@ -18,7 +18,18 @@ if [ -z "${DATABASE_URL_DIRECT:-}" ]; then
     echo "error: DATABASE_URL_DIRECT is required for a restore target" >&2
     exit 2
 fi
-if [ "${APP_ENV:-}" = "production" ] && [ "${ALLOW_PRODUCTION_RESTORE:-}" != "1" ]; then
+if [ -z "${APP_ENV:-}" ]; then
+    echo "error: APP_ENV must be explicitly set before restoring a database" >&2
+    exit 1
+fi
+case "${APP_ENV}" in
+    development | staging | production) ;;
+    *)
+        echo "error: APP_ENV must be development, staging, or production" >&2
+        exit 1
+        ;;
+esac
+if [ "${APP_ENV}" = "production" ] && [ "${ALLOW_PRODUCTION_RESTORE:-}" != "1" ]; then
     echo "error: refusing to restore with APP_ENV=production; set ALLOW_PRODUCTION_RESTORE=1 only after an approved cutover plan" >&2
     exit 1
 fi

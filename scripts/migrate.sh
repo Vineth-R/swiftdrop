@@ -42,6 +42,10 @@ if [ "$direction" = "create" ]; then
 fi
 
 if [ "$direction" = "down" ]; then
+    if [ -z "${APP_ENV:-}" ]; then
+        echo "error: APP_ENV must be explicitly set before rolling back migrations" >&2
+        exit 1
+    fi
     if [ "${APP_ENV:-}" = "production" ] && [ "${ALLOW_PRODUCTION_ROLLBACK:-}" != "1" ]; then
         echo "error: refusing to roll back migrations with APP_ENV=production; set ALLOW_PRODUCTION_ROLLBACK=1 only after an approved rollback plan" >&2
         exit 1

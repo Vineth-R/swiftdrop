@@ -62,7 +62,7 @@ change. The runner never prints either URL.
 ```sh
 make migrate-status   # versions and dirty state
 make migrate          # apply pending migrations
-make migrate-down     # one version per service; refused when APP_ENV=production
+make migrate-down     # one version per service; APP_ENV is required; production requires ALLOW_PRODUCTION_ROLLBACK=1
 make migrate-create SERVICE=parcel NAME=add_my_index
 ```
 
