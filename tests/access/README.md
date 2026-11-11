@@ -47,7 +47,7 @@ Add one `accesskit.Case` to `matrix` in `matrix_test.go`:
 
 ## Ownership cases
 
-`TestCustomerParcelOwnership` creates a real parcel using two authenticated customers and the live pricing quote. It verifies owned list/detail/history/PDF reads and cross-customer 404 responses without parcel data. `TestCourierParcelOwnership` creates a parcel, assigns it to courier A through the real dispatch API, verifies courier A can move it to `PICKED_UP`, and verifies courier B gets `403 FORBIDDEN` on both route forms with no extra status-history or `parcel.status_changed` outbox row. Both tests retain their tagged parcel/history/outbox fixtures because history is append-only; use a disposable local stack. The merchant ownership case remains skipped with its exact request and expected response until that endpoint exists.
+`TestCustomerParcelOwnership` creates a real parcel using two authenticated customers and the live pricing quote. It verifies owned list/detail/history/PDF reads and cross-customer 404 responses without parcel data. `TestCourierParcelOwnership` creates a parcel, assigns it to courier A through the real dispatch API, verifies courier A can move it to `PICKED_UP`, and verifies courier B gets `403 FORBIDDEN` on both route forms with no extra status-history or `parcel.status_changed` outbox row. Both tests retain their tagged parcel/history/outbox fixtures because history is append-only; use a disposable local stack. The merchant ownership case is covered by the merchant order HTTP integration tests and the real-stack merchant order journey: another merchant receives 404 with no order data.
 
 ## Break a rule on purpose
 

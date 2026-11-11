@@ -11,7 +11,7 @@ MIGRATE_RUN = docker run --rm \
 	-e DATABASE_URL -e DATABASE_URL_DIRECT -e APP_ENV -e ALLOW_PRODUCTION_ROLLBACK -e MIGRATE_SERVICES \
 	$(MIGRATE_IMAGE)
 
-.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed check-routes test test-db test-storage test-pooled test-access coverage email-preview email-send-preview
+.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed check-routes test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview
 
 help:
 	@echo "Targets:"
@@ -38,6 +38,7 @@ help:
 	@echo "  make test-db        run PostgreSQL integration tests against TEST_DATABASE_URL"
 	@echo "  make test-access    run the cross-service access tests against the running stack"
 	@echo "  make coverage       run the Go tests and print coverage per service and in total"
+	@echo "  make coverage-merchant  enforce at least 60% merchant coverage with PostgreSQL tests"
 	@echo "  make email-preview  render every email to tmp/email-preview/index.html"
 	@echo "  make email-send-preview  send every email to Mailpit (http://localhost:8025)"
 
@@ -223,6 +224,19 @@ test-access:
 coverage:
 	./scripts/coverage.sh
 
+coverage-merchant:
+	@if [ -z "$${TEST_DATABASE_URL:-}" ]; then \
+		echo "error: TEST_DATABASE_URL is required for merchant coverage." >&2; \
+		exit 1; \
+	fi
+	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -covermode=atomic -coverprofile=merchant-coverage.out ./apps/services/merchant/...
+	@go tool cover -func=merchant-coverage.out | tail -1
+	@percent="$$(go tool cover -func=merchant-coverage.out | awk '/^total:/ {gsub(/%/,"",$$3); print $$3}')"; \
+	 awk -v p="$$percent" 'BEGIN { if (p + 0 < 60) exit 1 }' || { \
+		echo "error: merchant coverage $$percent% is below the required 60%." >&2; \
+		exit 1; \
+	 }
+
 email-preview:
 	go run ./packages/go-common/emails/cmd/preview -out tmp/email-preview
 
@@ -255,7 +269,7 @@ test-db:
 		echo "       The URL must allow CREATE DATABASE; tests create and drop isolated databases." >&2; \
 		exit 1; \
 	fi
-	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/...
+	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" go test -race -count=1 -tags=integration -v ./tests/integration/database/... ./apps/services/pricing/internal/http/... ./apps/services/notification-worker/internal/idempotency/... ./apps/services/notification-worker/internal/notificationlog/... ./apps/services/identity/internal/seed/... ./apps/services/merchant/internal/http/... ./apps/services/merchant/internal/repository/...
 	@command -v migrate >/dev/null 2>&1 || { \
 		echo "error: the golang-migrate 'migrate' CLI must be on PATH for parcel PostgreSQL tests." >&2; \
 		exit 1; \

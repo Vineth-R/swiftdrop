@@ -2,7 +2,7 @@
 
 SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
 
-Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, DISPATCHER/ADMIN parcel reports and the reports screen, and ADMIN notification-log reads and UI are implemented. Customer parcel creation, owned reads, internal merchant creation/summaries and customer screens are implemented. The SwiftDrop Delivery Assistant (Gemini-backed service, chat widget, `/api/v1/ai/chat` gateway route and `ai-assistant` Compose service) is implemented against its [`IMPLEMENTATION_CONTRACT.md`](apps/services/ai-assistant/IMPLEMENTATION_CONTRACT.md). Courier delivery screens, status updates and proof upload/view are implemented. Dispatch status writes, merchant onboarding, SMS notification delivery, webhook delivery, and SSE/persistent realtime replay remain planned. The Realtime WebSocket `/ws` service and its `parcel.status_changed.v1` consumer are implemented. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md), [`docs/ai-assistant.md`](docs/ai-assistant.md) and [`docs/architecture.md`](docs/architecture.md).
+Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, DISPATCHER/ADMIN parcel reports and the reports screen, and ADMIN notification-log reads and UI are implemented. Customer parcel creation, owned reads, internal merchant creation/summaries, merchant registration/approval, merchant orders and the merchant portal are implemented. The SwiftDrop Delivery Assistant (Gemini-backed service, chat widget, `/api/v1/ai/chat` gateway route and `ai-assistant` Compose service) is implemented against its [`IMPLEMENTATION_CONTRACT.md`](apps/services/ai-assistant/IMPLEMENTATION_CONTRACT.md). Courier delivery screens, status updates and proof upload/view are implemented. Dispatch status writes, SMS notification delivery, webhook delivery, and SSE/persistent realtime replay remain planned. The Realtime WebSocket `/ws` service and its `parcel.status_changed.v1` consumer are implemented. See [Current scope](#current-scope), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md), [`docs/ai-assistant.md`](docs/ai-assistant.md) and [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology
 
@@ -21,7 +21,7 @@ Identity authentication, pricing estimates/zones/internal quote and admin config
 | `identity`            | Authentication, admin users, couriers, internal lookups                                             | 8081          |
 | `parcel`              | Anonymous tracking, DISPATCHER/ADMIN reports, and COURIER delivery reads/status updates             | 8082          |
 | `pricing`             | Delivery quotes, zones, and ADMIN pricing configuration                                             | 8083          |
-| `merchant`            | Future merchant accounts, settings, and API credentials                                             | 8084          |
+| `merchant`            | Merchant accounts, orders, API credentials, webhook settings, and status synchronization            | 8084          |
 | `realtime`            | WebSocket `/ws` updates and the `parcel.status_changed.v1` consumer                                 | 8085          |
 | `ai-assistant`        | Gemini-backed SwiftDrop Delivery Assistant with four approved read-only tools                       | 8087          |
 | `notification-worker` | Notification delivery (legacy + customer parcel domain events), email, ADMIN notification-log reads | 8086          |
@@ -243,7 +243,8 @@ Migrations live under `migrations/<service>/` and use `NNNNNN_description.up.sql
 - `000007_registration_onboarding` adds merchant onboarding tables and the required registration-number constraint.
 - `000008_business_reg_no_optional` is the forward compatibility migration applied to the source/production databases.
 - `000009_restore_business_reg_no_required` restores the mandatory registration-number constraint after `000008`.
-- New migrations start at the next unused version (merchant: `000010`).
+- `000010_merchant_order_snapshots` adds the merchant order pickup/recipient snapshots and the `(merchant_id, updated_at)` index.
+- New migrations start at the next unused version (merchant: `000011`).
 
 Apply migrations (PostgreSQL must be running):
 
@@ -332,7 +333,7 @@ The browser only ever calls `/api/v1/...` on its own origin. In development, Nex
 
 Live updates use a WebSocket, and Next proxies `/api/v1` but not `/ws`. For `nx dev`, copy `apps/web/.env.example` to the untracked `apps/web/.env.local` so the client connects to the gateway at `ws://localhost:8080/ws`. Behind the gateway (production and Docker) the client uses the page's own host, so no override is needed.
 
-The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, the role-based `/dashboard` (a customer's recent parcels, a merchant's business and API keys, an administrator's waiting counts, the courier's Today view), `/profile`, `/profile/security`, the COURIER `/history` delivery-history screen, the COURIER delivery detail screen with status updates and proof upload/view, the DISPATCHER/ADMIN `/reports` screen, the ADMIN `/admin/users` and `/admin/notification-logs`, and the public `/track` parcel tracking page. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
+The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, the role-based `/dashboard` (a customer's recent parcels, a merchant's business and API keys, an administrator's waiting counts, the courier's Today view), `/profile`, `/profile/security`, the COURIER `/history` delivery-history screen, the COURIER delivery detail screen with status updates and proof upload/view, the DISPATCHER/ADMIN `/reports` screen, the ADMIN `/admin/users` and `/admin/notification-logs`, the merchant `/merchant/orders` list/detail and Create via API panel, and the public `/track` parcel tracking page. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
 
 ## Run an individual HTTP service
 
@@ -590,7 +591,7 @@ See [Security scanning](docs/security-scanning.md) for scanner versions, thresho
   ```
 
 - **Migration fails with a duplicate version:** check `migrations/<service>/` for repeated six-digit versions. Applied migrations are immutable; add a new forward migration instead of renumbering an applied one.
-- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`, `000007_registration_onboarding`, the compatibility migration `000008_business_reg_no_optional` and `000009_restore_business_reg_no_required`; the current head is `000009` and the next merchant migration starts at `000010`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
+- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`, `000007_registration_onboarding`, the compatibility migration `000008_business_reg_no_optional`, `000009_restore_business_reg_no_required` and `000010_merchant_order_snapshots`; the current head is `000010` and the next merchant migration starts at `000011`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
 - **CI fails on formatting:** run `gofmt -w` on the changed Go files and `pnpm exec prettier --write` on changed documentation or frontend files.
 
 ## Branching and pull requests
@@ -647,11 +648,9 @@ The SwiftDrop Delivery Assistant is implemented end to end: a public global laun
 
 Realtime (`/ws`) is implemented: JWT cookie or `?token=` auth, per-parcel subscriptions for anonymous and customer clients, DISPATCHER/ADMIN `scope: all`, ping/pong, token-expiry and shutdown handling, and an in-process hub. It consumes `parcel.status_changed.v1` on `realtime.parcel.status_changed.v1` and sends only public tracking fields. SSE, persistence/replay and multi-replica fan-out are not implemented; multiple replicas share one queue, so each event reaches only one replica. `/ready` checks PostgreSQL when configured, not the broker consumer. The web `useLiveUpdates` hook exists and is unit-tested, but no business screen consumes it yet.
 
-Merchant-owner follow-up: the merchant repository uses `database/sql` and is not wired to the shared pgx pool or HTTP handlers yet; no schema change is required for that wiring.
+Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: the legacy notification worker, the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` consumer with identity contact resolution, ADMIN notification delivery-log reads and the ADMIN notification-log screen, with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`). Implemented by M10: the DISPATCHER/ADMIN reports screen (`/reports`). The COURIER `/history` delivery-history screen is implemented in the web app against the implemented parcel `GET /courier/deliveries` list and detail reads. The courier Today list, delivery-detail, status-update and proof upload/view screens are also implemented. Merchant registration/approval, merchant order APIs 8.16-8.18, the merchant portal, and `merchant.sync.queue` are implemented.
 
-Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: the legacy notification worker, the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` consumer with identity contact resolution, ADMIN notification delivery-log reads and the ADMIN notification-log screen, with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`). Implemented by M10: the DISPATCHER/ADMIN reports screen (`/reports`). The COURIER `/history` delivery-history screen is implemented in the web app against the implemented parcel `GET /courier/deliveries` list and detail reads. The courier Today list, delivery-detail, status-update and proof upload/view screens are also implemented.
-
-Not implemented: live-stack end-to-end delivery workflow scenarios, M8's merchant order-to-parcel caller and merchant-owned parcel notification contact resolution, SMS notification delivery, webhook signing and delivery retries, the pricing administration UI, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
+Not implemented: live-stack end-to-end delivery workflow scenarios, merchant-owned parcel notification contact resolution, SMS notification delivery, webhook signing and delivery retries, the pricing administration UI, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Report Sections 6.1/8 and Figures 8/9 remain outstanding.
 
 ## Registration and merchant onboarding
 
@@ -661,3 +660,9 @@ email and cannot sign in until it is verified. Merchants register at
 stays PENDING until an administrator approves it at `/admin/merchants`.
 Approval applies a lifecycle-bound session-version transition. Suspension and
 reapproval invalidate old access tokens, so a fresh login is required.
+
+Approved merchants manage API keys at `/api-keys`, view orders at
+`/merchant/orders`, and open `/merchant/orders/{id}` for the fee and synchronized
+status timeline. Order creation is API 8.16, authenticated only by `X-API-Key`;
+the portal never stores or sends a merchant key and instead shows a Create via
+API panel with the request example, error codes and a link to API key management.

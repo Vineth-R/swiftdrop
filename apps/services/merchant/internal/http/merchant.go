@@ -15,6 +15,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/onboarding"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
@@ -47,13 +48,23 @@ type merchantHandler struct {
 	repository         *repository.Repository
 	onboarding         *onboarding.Service
 	identity           *identityclient.Client
+	orders             *orders.Service
 	internalTokenValue string
+	cookieName         string
 	logger             *slog.Logger
 }
 
 func registerMerchantRoutes(router *gin.Engine, options Options) {
 	repo := options.Repository
-	h := &merchantHandler{repository: repo, onboarding: options.Onboarding, identity: options.Identity, internalTokenValue: options.InternalToken, logger: options.Logger}
+	cookie := options.CookieName
+	if cookie == "" {
+		cookie = "sd_access"
+	}
+	h := &merchantHandler{
+		repository: repo, onboarding: options.Onboarding, identity: options.Identity,
+		orders: options.Orders, internalTokenValue: options.InternalToken,
+		cookieName: cookie, logger: options.Logger,
+	}
 
 	limiter := httpx.NewRateLimiter(10, time.Minute)
 	router.POST("/merchants/register", limiter.Middleware(), h.register)
@@ -61,19 +72,18 @@ func registerMerchantRoutes(router *gin.Engine, options Options) {
 
 	merchants := router.Group("/merchants", noStore())
 	admin := router.Group("/admin/merchants", noStore())
+	var manager *auth.TokenManager
 	if options.AccessSecret == "" {
 		merchants.Use(unavailable("authentication is not configured"))
 		admin.Use(unavailable("authentication is not configured"))
 	} else {
-		manager, err := auth.NewTokenManager(options.AccessSecret, time.Minute)
+		var err error
+		manager, err = auth.NewTokenManager(options.AccessSecret, time.Minute)
 		if err == nil {
-			cookie := options.CookieName
-			if cookie == "" {
-				cookie = "sd_access"
-			}
 			merchants.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleMerchant), h.requireSession)
 			admin.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleAdmin))
 		} else {
+			manager = nil
 			merchants.Use(unavailable("authentication is not configured"))
 			admin.Use(unavailable("authentication is not configured"))
 		}
@@ -90,6 +100,8 @@ func registerMerchantRoutes(router *gin.Engine, options Options) {
 	admin.POST("/:merchantId/approve", h.approve)
 	admin.POST("/:merchantId/reject", h.reject)
 	admin.POST("/:merchantId/suspend", h.suspend)
+
+	registerMerchantOrderRoutes(router, h, manager)
 }
 
 func (h *merchantHandler) register(c *gin.Context) {
@@ -117,15 +129,21 @@ func (h *merchantHandler) register(c *gin.Context) {
 }
 
 func (h *merchantHandler) requireSession(c *gin.Context) {
+	if h.requireSessionCore(c) {
+		c.Next()
+	}
+}
+
+func (h *merchantHandler) requireSessionCore(c *gin.Context) bool {
 	claims, ok := auth.ClaimsFrom(c)
 	if !ok || h.identity == nil {
 		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "authentication could not be verified")
-		return
+		return false
 	}
 	state, err := h.identity.SessionState(c.Request.Context(), claims.UserID)
 	if err != nil {
 		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "authentication could not be verified")
-		return
+		return false
 	}
 	if !sessionIsCurrent(claims, state) {
 		if h.logger != nil {
@@ -134,20 +152,20 @@ func (h *merchantHandler) requireSession(c *gin.Context) {
 				"state_role", state.Role, "state_active", state.IsActive, "state_version", state.SessionVersion)
 		}
 		httpx.Error(c, http.StatusUnauthorized, "SESSION_REVOKED", "this session is no longer valid")
-		return
+		return false
 	}
 	merchant, err := h.repository.MerchantByOwnerUserID(c.Request.Context(), claims.UserID)
 	if errors.Is(err, repository.ErrNotFound) {
 		httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_PROVISIONED", "merchant account is not provisioned")
-		return
+		return false
 	}
 	if err != nil {
 		h.internalError(c, "merchant_lookup", "merchant account could not be read", err)
-		return
+		return false
 	}
 	WithIdentity(c, Identity{UserID: claims.UserID, MerchantID: merchant.ID, Role: string(auth.RoleMerchant)})
 	c.Set("merchant.status", merchant.Status)
-	c.Next()
+	return true
 }
 
 func sessionIsCurrent(claims auth.Claims, state identityclient.SessionState) bool {
@@ -252,8 +270,13 @@ func (h *merchantHandler) createKey(c *gin.Context) {
 		return
 	}
 	var request keyRequest
-	if c.ShouldBindJSON(&request) != nil || !validation.Required(request.Name) {
+	if c.ShouldBindJSON(&request) != nil {
 		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a key name is required")
+		return
+	}
+	name := strings.TrimSpace(request.Name)
+	if !validation.Required(name) || validation.RuneLength(name) > 100 || strings.ContainsRune(name, '\x00') {
+		httpx.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "a key name of at most 100 characters is required")
 		return
 	}
 	key, err := apikey.Generate()
@@ -266,7 +289,7 @@ func (h *merchantHandler) createKey(c *gin.Context) {
 		h.internalError(c, "generate_api_key_id", "could not generate API key identifier", err)
 		return
 	}
-	if err := h.repository.CreateAPIClient(c.Request.Context(), repository.CreateAPIClientParams{ID: clientID, MerchantID: identity.MerchantID, Name: strings.TrimSpace(request.Name), KeyPrefix: key.KeyPrefix, LookupID: key.LookupID, KeyHash: key.Hash}); err != nil {
+	if err := h.repository.CreateAPIClient(c.Request.Context(), repository.CreateAPIClientParams{ID: clientID, MerchantID: identity.MerchantID, Name: name, KeyPrefix: key.KeyPrefix, LookupID: key.LookupID, KeyHash: key.Hash}); err != nil {
 		if errors.Is(err, repository.ErrKeyLimit) {
 			httpx.Error(c, http.StatusConflict, "KEY_LIMIT_REACHED", "maximum active API keys reached")
 			return
@@ -274,7 +297,7 @@ func (h *merchantHandler) createKey(c *gin.Context) {
 		h.handleRepositoryError(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusCreated, gin.H{"id": clientID, "name": strings.TrimSpace(request.Name), "apiKey": key.Full, "keyPrefix": key.KeyPrefix})
+	httpx.Success(c, http.StatusCreated, gin.H{"id": clientID, "name": name, "apiKey": key.Full, "keyPrefix": key.KeyPrefix})
 }
 
 func randomUUID() (string, error) {

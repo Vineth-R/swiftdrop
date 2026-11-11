@@ -241,10 +241,12 @@ No script in this repository performs the cutover automatically.
 | Decision               | Recover the exact historical files, never synthesize no-op migrations, never rewrite applied versions                                                                                              |
 | Verification           | A fresh PostgreSQL 16 database migrated with the recovered files produced the same 638-line object inventory as the source and clean versions 6/2/6/7/2; staging was migrated to the same versions |
 
-Future migrations for identity and merchant start above `000006` and `000009`
-respectively once `000009` is applied; production currently remains at merchant
-8. The migration runner still refuses to replay history when a database version
-is ahead of the local files.
+Future migrations for identity and merchant start above `000006` and `000010`
+respectively once `000010` is applied. Production currently remains at merchant
+8, so it must apply `000009_restore_business_reg_no_required` and then
+`000010_merchant_order_snapshots` before any later merchant migration. The
+migration runner still refuses to replay history when a database version is
+ahead of the local files.
 
 ## Known limitations
 

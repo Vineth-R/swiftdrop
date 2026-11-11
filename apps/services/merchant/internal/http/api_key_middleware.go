@@ -13,39 +13,65 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 )
 
+const apiClientIDKey = "merchant.api_client_id"
+
 // MerchantAPIKey authenticates server-to-server requests without exposing the key.
 func MerchantAPIKey(repo *repository.Repository, logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		provided := c.GetHeader("X-API-Key")
-		lookupID, err := apikey.Parse(provided)
-		if err != nil {
-			httpx.Error(c, http.StatusUnauthorized, "INVALID_API_KEY", "invalid merchant API key")
-			return
+		if authenticateAPIKey(c, repo, logger) {
+			c.Next()
 		}
-		client, storedHash, err := repo.APIClientByLookup(c.Request.Context(), lookupID)
-		if err != nil {
-			writeAPIKeyError(c, logger, "lookup_api_key", err)
-			return
-		}
-		if !apikey.EqualHash(storedHash, apikey.Hash(provided)) || client.Status != "ACTIVE" {
-			httpx.Error(c, http.StatusUnauthorized, "INVALID_API_KEY", "invalid merchant API key")
-			return
-		}
-		merchant, err := repo.MerchantByID(c.Request.Context(), client.MerchantID)
-		if err != nil {
-			writeAPIKeyError(c, logger, "load_merchant", err)
-			return
-		}
-		if merchant.Status != repository.MerchantStatusApproved {
-			httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_APPROVED", "merchant approval is required")
-			return
-		}
-		_ = repo.TouchAPIClient(c.Request.Context(), client.ID)
-		// An API key acts for the merchant owner, so identityFrom can accept the
-		// identity (it requires a non-empty UserID) without inventing a user.
-		WithIdentity(c, Identity{UserID: merchant.OwnerUserID, MerchantID: client.MerchantID, Role: "MERCHANT"})
-		c.Next()
 	}
+}
+
+// authenticateAPIKey verifies the key and stores the identity without advancing
+// the Gin chain. It lets the merchant order routes choose between an API key
+// and a session without nesting c.Next() calls.
+func authenticateAPIKey(c *gin.Context, repo *repository.Repository, logger *slog.Logger) bool {
+	if repo == nil {
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "merchant persistence is not configured")
+		return false
+	}
+	provided := c.GetHeader("X-API-Key")
+	lookupID, err := apikey.Parse(provided)
+	if err != nil {
+		httpx.Error(c, http.StatusUnauthorized, "INVALID_API_KEY", "invalid merchant API key")
+		return false
+	}
+	client, storedHash, err := repo.APIClientByLookup(c.Request.Context(), lookupID)
+	if err != nil {
+		writeAPIKeyError(c, logger, "lookup_api_key", err)
+		return false
+	}
+	if !apikey.EqualHash(storedHash, apikey.Hash(provided)) || client.Status != "ACTIVE" {
+		httpx.Error(c, http.StatusUnauthorized, "INVALID_API_KEY", "invalid merchant API key")
+		return false
+	}
+	merchant, err := repo.MerchantByID(c.Request.Context(), client.MerchantID)
+	if err != nil {
+		writeAPIKeyError(c, logger, "load_merchant", err)
+		return false
+	}
+	if merchant.Status != repository.MerchantStatusApproved {
+		httpx.Error(c, http.StatusForbidden, "MERCHANT_NOT_APPROVED", "merchant approval is required")
+		return false
+	}
+	_ = repo.TouchAPIClient(c.Request.Context(), client.ID)
+	c.Set(apiClientIDKey, client.ID)
+	// An API key acts for the merchant owner, so identityFrom can accept the
+	// identity (it requires a non-empty UserID) without inventing a user.
+	WithIdentity(c, Identity{UserID: merchant.OwnerUserID, MerchantID: client.MerchantID, Role: "MERCHANT"})
+	return true
+}
+
+// apiClientIDFrom returns the authenticated key ID when one was used.
+func apiClientIDFrom(c *gin.Context) string {
+	value, ok := c.Get(apiClientIDKey)
+	if !ok {
+		return ""
+	}
+	id, _ := value.(string)
+	return id
 }
 
 // writeAPIKeyError keeps unknown or revoked credentials distinct from a

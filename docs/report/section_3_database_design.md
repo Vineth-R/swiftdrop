@@ -54,6 +54,8 @@ SwiftDrop uses golang-migrate versioned SQL pairs under `migrations/<service>/`,
 | Parcel `000003_dispatch_foundations` | Adds assignment reassignment/audit metadata, its timestamp trigger, and paired outbox aggregate metadata with an index. It does not recreate baseline tables. |
 | Parcel `000004_price_breakdown_total` | Closes the JSON-null price-total CHECK loophole without adding tables or foreign keys. |
 | Merchant `000006_merchant_constraints` | Adds stricter nonblank, approval/rejection, hash-format, amount, JSON-object and currency CHECKs. |
+| Merchant `000007_registration_onboarding` | Adds registration attempts, lifecycle transitions, business address and the unique business-registration index. |
+| Merchant `000010_merchant_order_snapshots` | Adds pickup/recipient contact snapshot columns and the `(merchant_id, updated_at)` order index. |
 
 Recorded isolated PostgreSQL 16.15 verification covers the five-service migration chain, its 26-table inventory, rollback/reapply, relevant constraints and the M5 repository's caller-owned transactions. Recorded CI verification also passed at revision `0106b4a`. These results establish tested source behaviour, not the current contents of a shared deployment or completion of every planned service feature. Down migrations can remove tables or schemas and require a confirmed disposable target; no database operation was performed to prepare this report section.
 

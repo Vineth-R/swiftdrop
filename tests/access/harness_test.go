@@ -171,7 +171,12 @@ func (s *stack) cleanup() {
 	}
 	ids := "'" + strings.Join(s.created, "','") + "'"
 	if err := s.sql(fmt.Sprintf(
-		`DELETE FROM merchant.merchant_status_transitions WHERE merchant_id IN (SELECT id FROM merchant.merchants WHERE owner_user_id IN (%[1]s));
+		`DELETE FROM merchant.merchant_order_status_events WHERE order_id IN (SELECT id FROM merchant.merchant_orders WHERE merchant_id IN (SELECT id FROM merchant.merchants WHERE owner_user_id IN (%[1]s)));
+		 DELETE FROM merchant.merchant_orders WHERE merchant_id IN (SELECT id FROM merchant.merchants WHERE owner_user_id IN (%[1]s));
+		 DELETE FROM merchant.webhook_delivery_attempts WHERE merchant_id IN (SELECT id FROM merchant.merchants WHERE owner_user_id IN (%[1]s));
+		 DELETE FROM merchant.merchant_webhooks WHERE merchant_id IN (SELECT id FROM merchant.merchants WHERE owner_user_id IN (%[1]s));
+		 DELETE FROM merchant.merchant_api_clients WHERE merchant_id IN (SELECT id FROM merchant.merchants WHERE owner_user_id IN (%[1]s));
+		 DELETE FROM merchant.merchant_status_transitions WHERE merchant_id IN (SELECT id FROM merchant.merchants WHERE owner_user_id IN (%[1]s));
 		 DELETE FROM merchant.merchant_registration_attempts WHERE user_id IN (%[1]s);
 		 DELETE FROM merchant.merchants WHERE owner_user_id IN (%[1]s);
 		 DELETE FROM identity.courier_profiles WHERE user_id IN (%[1]s);

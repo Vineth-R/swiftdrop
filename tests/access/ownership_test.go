@@ -11,29 +11,6 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 )
 
-// ownershipCases are the "you can only touch your own" rules from the team task
-// sheet. Each needs two real accounts of the same role and a record owned by
-// one of them, so each needs the owning service's create endpoint. They are
-// listed here with their exact request and answer, so the owner turns each
-// into a real test the day the endpoint exists: create the record as account A,
-// repeat Request as account B, expect Want, and delete the Skip.
-//
-// Keep Want exactly as written. A 404 for another customer's parcel (not 403)
-// is deliberate, so a caller cannot learn that the parcel exists.
-var ownershipCases = []struct {
-	rule    string
-	request string
-	want    string
-	blocked string
-}{
-	{
-		rule:    "a merchant cannot see another merchant's order",
-		request: "GET /api/v1/merchant/orders/{orderId} as merchant B, for an order merchant A created (API 8.18)",
-		want:    "404 NOT_FOUND, with no part of the order in the body",
-		blocked: "the merchant service has no order routes yet and does not verify access tokens",
-	},
-}
-
 // TestCustomerParcelOwnership runs through the public gateway with real login,
 // pricing and parcel persistence. Run the access suite only on a disposable
 // local stack: its tagged parcel/history/outbox fixture is deliberately retained
@@ -164,10 +141,69 @@ func TestCourierParcelOwnership(t *testing.T) {
 	}
 }
 
-func TestOwnership(t *testing.T) {
-	for _, c := range ownershipCases {
-		t.Run(c.rule, func(t *testing.T) {
-			t.Skipf("not checkable yet: %s.\nRequest: %s\nExpect: %s", c.blocked, c.request, c.want)
-		})
+func TestMerchantOrderOwnership(t *testing.T) {
+	s := useStack(t)
+	cmb := s.sqlQuery(t, `SELECT id::text FROM pricing.zones WHERE code = 'CMB'`)
+	kdy := s.sqlQuery(t, `SELECT id::text FROM pricing.zones WHERE code = 'KDY'`)
+	merchantA := s.userIDs[auth.RoleMerchant]
+	if err := s.sql(fmt.Sprintf(
+		`UPDATE merchant.merchants SET pickup_zone_id = '%s' WHERE owner_user_id = '%s';`,
+		cmb, merchantA)); err != nil {
+		t.Fatal(err)
+	}
+
+	keyResponse := s.mustDo(t, http.MethodPost, "/api/v1/merchants/me/keys",
+		`{"name":"access ownership fixture"}`, bearer(s.tokens[auth.RoleMerchant]))
+	var issued struct {
+		APIKey string `json:"apiKey"`
+	}
+	if err := keyResponse.data(&issued); err != nil || keyResponse.status != http.StatusCreated || issued.APIKey == "" {
+		t.Fatalf("create merchant key: HTTP %d; decode %v", keyResponse.status, err)
+	}
+	externalOrderID := "ACCESS-" + randomHex(8)
+	body := fmt.Sprintf(`{
+		"externalOrderId": %q,
+		"recipient": {"name":"Ownership Recipient","phone":"+94712345678","address":"45 Test Street","city":"Kandy","zoneId":%q},
+		"weightKg": 1.5,
+		"sizeCategory": "SMALL"
+	}`, externalOrderID, kdy)
+	created := s.mustDo(t, http.MethodPost, "/api/v1/merchant/orders", body,
+		map[string]string{"X-API-Key": issued.APIKey})
+	var order struct {
+		OrderID        string `json:"orderId"`
+		TrackingNumber string `json:"trackingNumber"`
+	}
+	if err := created.data(&order); err != nil || created.status != http.StatusCreated || order.OrderID == "" {
+		t.Fatalf("create merchant order: HTTP %d; decode %v", created.status, err)
+	}
+
+	otherEmail := "access.merchant.b." + randomHex(4) + "@example.test"
+	otherID, err := s.register(otherEmail, "Str0ngPass!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.sql(fmt.Sprintf(
+		`UPDATE identity.users SET role_id = (SELECT id FROM identity.roles WHERE name = 'MERCHANT'), email_verified = true WHERE id = '%s';`, otherID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.sql(fmt.Sprintf(
+		`INSERT INTO merchant.merchants (owner_user_id, business_name, business_reg_no, business_address, contact_email, contact_phone, pickup_address, pickup_zone_id, status, approved_by, approved_at)
+		 VALUES ('%s', 'Access Merchant B', 'ACCESS-B-%s', '1 Test Road', 'merchantb@example.test', '+94771234567', '1 Test Road', '%s', 'APPROVED', '%s', now());`,
+		otherID, randomHex(4), cmb, s.userIDs[auth.RoleAdmin])); err != nil {
+		t.Fatal(err)
+	}
+	login, sessionB := s.login(t, otherEmail, "Str0ngPass!")
+	if login.status != http.StatusOK || sessionB.AccessToken == "" {
+		t.Fatalf("merchant B login: HTTP %d", login.status)
+	}
+
+	denied := s.mustDo(t, http.MethodGet, "/api/v1/merchant/orders/"+order.OrderID, "", bearer(sessionB.AccessToken))
+	if denied.status != http.StatusNotFound || denied.code() != "NOT_FOUND" {
+		t.Fatalf("cross-merchant order: HTTP %d code %s; want 404 NOT_FOUND", denied.status, denied.code())
+	}
+	for _, private := range []string{order.OrderID, order.TrackingNumber, externalOrderID, "Ownership Recipient", "45 Test Street"} {
+		if strings.Contains(string(denied.body), private) {
+			t.Fatalf("cross-merchant response disclosed %q", private)
+		}
 	}
 }
