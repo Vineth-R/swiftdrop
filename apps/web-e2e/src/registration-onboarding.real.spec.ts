@@ -8,6 +8,8 @@ import {
   type Page,
 } from '@playwright/test';
 
+import { apiLogin, loginRequest } from './support/real-stack';
+
 const mailpit = process.env['MAILPIT_URL'] || 'http://localhost:8025';
 const adminEmail =
   process.env['REAL_STACK_ADMIN_EMAIL'] || 'seed.admin@example.com';
@@ -87,65 +89,13 @@ async function signIn(page: Page, email: string, password: string) {
   await page.getByRole('button', { name: 'Log in' }).click();
 }
 
-/**
- * One login, answered as it came, for the refusals a test wants to read. It
- * waits out the shared login rate limit (429) like apiLogin does.
- */
-async function loginResponse(
+/** One login, answered as it came, for the refusals a test reads. */
+function loginResponse(
   request: APIRequestContext,
   email: string,
   password: string,
 ): Promise<APIResponse> {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const response = await request.post('/api/v1/auth/login', {
-      data: { email, password },
-    });
-    if (response.status() !== 429) return response;
-    const retryAfter = Number(response.headers()['retry-after']);
-    const waitMs =
-      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 5000;
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.min(waitMs, 30_000)),
-    );
-  }
-  throw new Error(`login for ${email} stayed rate limited`);
-}
-
-type SessionTokens = { accessToken: string; refreshToken: string };
-
-async function apiLogin(
-  request: APIRequestContext,
-  email: string,
-  password: string,
-): Promise<SessionTokens> {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const response = await request.post('/api/v1/auth/login', {
-      headers: { 'X-Token-Mode': 'body' },
-      data: { email, password },
-    });
-    if (response.status() === 429) {
-      const retryAfter = Number(response.headers()['retry-after']);
-      const waitMs =
-        Number.isFinite(retryAfter) && retryAfter > 0
-          ? retryAfter * 1000
-          : 5000;
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(waitMs, 30_000)),
-      );
-      continue;
-    }
-    if (!response.ok()) {
-      throw new Error(`login for ${email} returned ${response.status()}`);
-    }
-    const body = (await response.json()) as {
-      data?: SessionTokens;
-    };
-    if (!body.data?.accessToken || !body.data?.refreshToken) {
-      throw new Error('login did not return tokens');
-    }
-    return body.data;
-  }
-  throw new Error(`login for ${email} stayed rate limited`);
+  return loginRequest(request, email, password, { tokenMode: false });
 }
 
 let cachedAdminAccess: string | null = null;
@@ -155,9 +105,8 @@ async function adminToken(
   request: APIRequestContext,
 ): Promise<string> {
   if (cachedAdminAccess) return cachedAdminAccess;
-  const tokens = await apiLogin(request, adminEmail, adminPassword);
-  cachedAdminAccess = tokens.accessToken;
-  return tokens.accessToken;
+  cachedAdminAccess = await apiLogin(request, adminEmail, adminPassword);
+  return cachedAdminAccess;
 }
 
 async function waitForHealthy(service: string, timeoutMs = 60_000) {
@@ -425,7 +374,7 @@ test.describe('real stack onboarding', () => {
       };
       expect(body.data?.identitySync).toBe('PENDING');
       const blocked = await request.get('/api/v1/merchants/me/keys', {
-        headers: { Authorization: `Bearer ${old.accessToken}` },
+        headers: { Authorization: `Bearer ${old}` },
       });
       expect([401, 403, 503]).toContain(blocked.status());
     } finally {
@@ -480,13 +429,13 @@ test.describe('real stack onboarding', () => {
     expect(reapproved.ok()).toBeTruthy();
 
     const stale = await request.get('/api/v1/merchants/me/keys', {
-      headers: { Authorization: `Bearer ${old.accessToken}` },
+      headers: { Authorization: `Bearer ${old}` },
     });
     expect(stale.status()).toBe(401);
 
     const fresh = await apiLogin(request, email, 'Str0ngPass!');
     const allowed = await request.get('/api/v1/merchants/me/keys', {
-      headers: { Authorization: `Bearer ${fresh.accessToken}` },
+      headers: { Authorization: `Bearer ${fresh}` },
     });
     expect(allowed.status()).toBe(200);
   });

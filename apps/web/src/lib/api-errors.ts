@@ -92,6 +92,8 @@ function codeFromStatus(status: number): ApiErrorCode {
 
 export class ApiError extends Error {
   readonly code: ApiErrorCode;
+  /** The API's own code when it had one, for screens that need the finer detail. */
+  readonly apiCode?: string;
   readonly status: number;
   /** The API's request ID. Show it as a "Reference" for server faults only. */
   readonly requestId?: string;
@@ -104,6 +106,7 @@ export class ApiError extends Error {
 
   constructor(init: {
     code: ApiErrorCode;
+    apiCode?: string;
     status: number;
     message?: string;
     requestId?: string;
@@ -114,6 +117,7 @@ export class ApiError extends Error {
     super(init.message ?? init.code);
     this.name = 'ApiError';
     this.code = init.code;
+    this.apiCode = init.apiCode;
     this.status = init.status;
     this.requestId = init.requestId;
     this.retryAfter = init.retryAfter;
@@ -151,6 +155,7 @@ export async function readError(response: Response): Promise<ApiError> {
     code:
       (apiCode && codeFromApi[apiCode]) ||
       (response.status >= 500 ? 'INTERNAL' : codeFromStatus(response.status)),
+    apiCode,
     status: response.status,
     message: body.error?.message,
     requestId:
