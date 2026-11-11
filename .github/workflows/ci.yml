@@ -963,9 +963,14 @@ jobs:
           # accounts and the two courier profiles. Run it in a Go container on
           # the Compose network so it can reach the unpublished PostgreSQL
           # service, rather than adding unsafe SQL writes or publishing a port.
-          set -a
-          . ./.env
-          set +a
+          #
+          # Read the resolved Compose values instead of sourcing .env: some
+          # documented values (for example SMTP_FROM_NAME) contain spaces and
+          # are not shell assignments.
+          compose_config="$(docker compose config --format json)"
+          postgres_user="$(jq -r '.services.postgres.environment.POSTGRES_USER // "swiftdrop"' <<<"${compose_config}")"
+          postgres_password="$(jq -r '.services.postgres.environment.POSTGRES_PASSWORD // "swiftdrop"' <<<"${compose_config}")"
+          postgres_db="$(jq -r '.services.postgres.environment.POSTGRES_DB // "swiftdrop"' <<<"${compose_config}")"
 
           postgres_id="$(docker compose ps -q postgres)"
           test -n "${postgres_id}"
@@ -986,7 +991,7 @@ jobs:
           docker run --rm --network "${network}" \
             -v "${PWD}:/src:ro" -w /src \
             -e GOTOOLCHAIN=local \
-            -e DATABASE_URL="postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable" \
+            -e DATABASE_URL="postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}?sslmode=disable" \
             -e SEED_ADMIN_EMAIL="${admin_email}" \
             -e SEED_ADMIN_PASSWORD="${password}" \
             -e SEED_DISPATCHER_EMAIL="${dispatcher_email}" \
