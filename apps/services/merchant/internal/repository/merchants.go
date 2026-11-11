@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/businessreg"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -60,11 +61,11 @@ type ProfileUpdate struct {
 }
 
 func (r *Repository) CreateMerchant(ctx context.Context, params CreateMerchantParams) error {
-	var businessRegNo any = params.BusinessRegNo
-	if strings.TrimSpace(params.BusinessRegNo) == "" {
-		businessRegNo = nil
+	businessRegNo, err := businessreg.NormalizeValid(params.BusinessRegNo)
+	if err != nil {
+		return ErrInvalidRegistrationNumber
 	}
-	_, err := r.db.Exec(
+	_, err = r.db.Exec(
 		ctx,
 		`INSERT INTO merchant.merchants (
 			id, owner_user_id, business_name, business_reg_no, business_address, contact_email,

@@ -16,6 +16,10 @@
 --                merchant_order_status_events, audit_logs               (7)
 --   notification notification_logs, processed_events                    (2)
 --
+-- merchant 000007 adds the onboarding tables and the required business
+-- registration constraint; merchant 000009 restores that constraint after the
+-- PR #129 compatibility migration. See migrations/README.md.
+--
 -- ADDED BEYOND THE DOCUMENT (marked "ADDED" below):
 --   1  DEFAULT gen_random_uuid() on UUID keys (document says app generated)
 --   2  set_updated_at() trigger on every table that has updated_at

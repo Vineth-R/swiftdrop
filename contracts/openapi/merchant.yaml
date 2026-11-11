@@ -307,7 +307,14 @@ paths:
                     ]
                   properties:
                     name: { type: string }
-                    registrationNumber: { type: string, maxLength: 50 }
+                    registrationNumber:
+                      type: string
+                      minLength: 3
+                      maxLength: 50
+                      description: >-
+                        Required. 3-50 letters, digits, spaces, hyphens, slashes
+                        or dots, with at least one digit. The stored value is
+                        trimmed, whitespace-collapsed and upper-cased.
                     contactEmail: { type: string, format: email }
                     contactPhone: { type: string }
                     businessAddress: { type: string }
