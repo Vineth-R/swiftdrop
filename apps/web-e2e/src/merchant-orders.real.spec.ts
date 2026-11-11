@@ -256,7 +256,9 @@ test.describe('real stack merchant orders', () => {
     await expect(page.getByText(externalOrderID)).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByText('IN TRANSIT').first()).toBeVisible({
+    await expect(
+      page.getByText('IN TRANSIT').filter({ visible: true }).first(),
+    ).toBeVisible({
       timeout: 30_000,
     });
 
@@ -264,7 +266,9 @@ test.describe('real stack merchant orders', () => {
     await expect(page.getByText(externalOrderID)).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByText('IN TRANSIT').first()).toBeVisible({
+    await expect(
+      page.getByText('IN TRANSIT').filter({ visible: true }).first(),
+    ).toBeVisible({
       timeout: 30_000,
     });
 
