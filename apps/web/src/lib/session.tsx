@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -27,6 +28,13 @@ export type SessionState =
 
 type SessionContextValue = {
   session: SessionState;
+  /**
+   * True when a signed-in session ended while its page was open. The state
+   * stays `authenticated` so the page keeps showing; the signed-in gate puts
+   * the "session ended" dialog over it instead of replacing it with the login
+   * page. It is never true for someone who had no session to begin with.
+   */
+  isExpired: boolean;
   signIn: (email: string, password: string) => Promise<User>;
   /** Ends the session on the server. Navigate away when it settles. */
   signOut: () => Promise<void>;
@@ -40,7 +48,11 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionState>({ status: 'loading' });
+  const [isExpired, setIsExpired] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // The expiry listener below is registered once, so it reads the state here.
+  const current = useRef(session);
+  current.current = session;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -66,7 +78,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () =>
       onSessionExpired(() => {
         emitSessionIdentity(null);
-        setSession({ status: 'unauthenticated' });
+        // Someone who was signed in keeps their page and is told, in a dialog.
+        // Someone who never was (a cold visit) goes to the login page at once.
+        if (current.current.status === 'authenticated') {
+          setIsExpired(true);
+        } else {
+          setSession({ status: 'unauthenticated' });
+        }
       }),
     [],
   );
@@ -74,6 +92,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     const user = await login(email, password);
     emitSessionIdentity(user.id);
+    setIsExpired(false);
     setSession({ status: 'authenticated', user });
     return user;
   }, []);
@@ -88,17 +107,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const setUser = useCallback((user: User) => {
     emitSessionIdentity(user.id);
+    setIsExpired(false);
     setSession({ status: 'authenticated', user });
   }, []);
 
   const recheck = useCallback(() => {
+    setIsExpired(false);
     setSession({ status: 'loading' });
     setAttempt((count) => count + 1);
   }, []);
 
   const value = useMemo(
-    () => ({ session, signIn, signOut, setUser, recheck }),
-    [session, signIn, signOut, setUser, recheck],
+    () => ({ session, isExpired, signIn, signOut, setUser, recheck }),
+    [session, isExpired, signIn, signOut, setUser, recheck],
   );
   return <SessionContext value={value}>{children}</SessionContext>;
 }

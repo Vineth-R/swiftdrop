@@ -339,6 +339,7 @@ export function ComponentsSection() {
           <SystemPage
             label="403 · Forbidden"
             title="You do not have access"
+            headingLevel={2}
             actions={<Button variant="secondary">Back to my dashboard</Button>}
           >
             This page is for administrators. You are signed in as a dispatcher,

@@ -139,7 +139,7 @@ export function Field({
 }
 
 const heights: Record<ControlSize, string> = {
-  md: 'h-10',
+  md: 'h-10 pointer-coarse:h-11',
   // 48px on phones, 44px from tablet up; text is 16px on phones so iOS does not zoom.
   lg: 'h-12 md:h-11',
 };

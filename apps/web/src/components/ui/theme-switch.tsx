@@ -44,8 +44,8 @@ export function ThemeSwitch({ variant = 'full', className }: ThemeSwitchProps) {
           title={isCompact ? label : undefined}
           onClick={() => choose(value)}
           className={cn(
-            'inline-flex h-8 items-center justify-center rounded-chip text-label text-text-muted transition-colors duration-fast ease-out-sd hover:bg-surface-2 aria-pressed:bg-surface-2 aria-pressed:text-text',
-            isCompact ? 'w-8' : 'gap-2 px-3',
+            'inline-flex h-8 pointer-coarse:h-11 items-center justify-center rounded-chip text-label text-text-muted transition-colors duration-fast ease-out-sd hover:bg-surface-2 aria-pressed:bg-surface-2 aria-pressed:text-text',
+            isCompact ? 'w-8 pointer-coarse:w-11' : 'gap-2 px-3',
           )}
         >
           <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
