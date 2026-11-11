@@ -539,7 +539,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if pnpm exec playwright install --with-deps chromium; then
+              exit 0
+            fi
+            echo "Chromium dependency install failed (attempt ${attempt}); retrying in 15s"
+            sleep 15
+          done
+          echo "OS dependency install failed; downloading Chromium without apt packages"
+          pnpm exec playwright install chromium
 
       - name: Run Playwright E2E
         run: pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"
@@ -572,11 +582,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install PostgreSQL client and golang-migrate
+      - name: Install golang-migrate
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
           go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
@@ -584,6 +592,10 @@ jobs:
         run: |
           set -euo pipefail
           timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/5432) 2>/dev/null; do sleep 1; done'
+          psql() {
+            docker run --rm -i --network host -v "$GITHUB_WORKSPACE:/work" -w /work \
+              -e PGPASSWORD=swiftdrop postgres:16-alpine psql "$@"
+          }
           psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f infra/docker/postgres/init/01-schemas.sql
           for service in identity pricing parcel merchant notification; do
             url="${TEST_DATABASE_URL}&x-migrations-table=${service}_schema_migrations"
@@ -677,6 +689,20 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+      pgbouncer:
+        image: edoburu/pgbouncer:latest
+        env:
+          DB_HOST: postgres
+          DB_USER: swiftdrop
+          DB_PASSWORD: swiftdrop
+          DB_NAME: postgres
+          POOL_MODE: transaction
+          AUTH_TYPE: trust
+          MAX_CLIENT_CONN: '100'
+          DEFAULT_POOL_SIZE: '20'
+          MAX_PREPARED_STATEMENTS: '200'
+        ports:
+          - 6432:5432
     steps:
       - uses: actions/checkout@v5
 
@@ -685,31 +711,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run PgBouncer in transaction mode
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y pgbouncer
-          sudo systemctl stop pgbouncer 2>/dev/null || true
-          printf '"swiftdrop" ""\n' > /tmp/pgbouncer-userlist.txt
-          cat > /tmp/pgbouncer.ini <<'EOF'
-          [databases]
-          postgres = host=127.0.0.1 port=5432 dbname=postgres user=swiftdrop password=swiftdrop
-
-          [pgbouncer]
-          listen_addr = 127.0.0.1
-          listen_port = 6432
-          auth_type = trust
-          auth_file = /tmp/pgbouncer-userlist.txt
-          pool_mode = transaction
-          max_client_conn = 100
-          default_pool_size = 20
-          max_prepared_statements = 200
-          logfile = /tmp/pgbouncer.log
-          pidfile = /tmp/pgbouncer.pid
-          EOF
-          pgbouncer -d /tmp/pgbouncer.ini
-          timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/6432) 2>/dev/null; do sleep 1; done'
+      - name: Wait for PgBouncer
+        run: timeout 60 bash -c 'until (echo >/dev/tcp/127.0.0.1/6432) 2>/dev/null; do sleep 1; done'
 
       - name: Run pooled compatibility test
         env:
@@ -1060,7 +1063,17 @@ jobs:
             | docker compose exec -T postgres sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if pnpm exec playwright install --with-deps chromium; then
+              exit 0
+            fi
+            echo "Chromium dependency install failed (attempt ${attempt}); retrying in 15s"
+            sleep 15
+          done
+          echo "OS dependency install failed; downloading Chromium without apt packages"
+          pnpm exec playwright install chromium
 
       - name: Run real-stack Playwright
         run: pnpm exec nx run @org/web-e2e:e2e --args="--project=real-stack"
