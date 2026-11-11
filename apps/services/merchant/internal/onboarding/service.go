@@ -307,7 +307,7 @@ func (s *Service) Reject(ctx context.Context, merchantID, actorID string, reason
 		if transition.SyncStatus == "APPLIED" {
 			return DecisionResult{Merchant: merchant, IdentitySync: "APPLIED", AlreadyDone: true}, nil
 		}
-		return s.syncRejection(ctx, merchant, transition)
+		return s.syncRejection(ctx, merchant, transition, false)
 	}
 	transitionID, err := newUUID()
 	if err != nil {
@@ -317,10 +317,13 @@ func (s *Service) Reject(ctx context.Context, merchantID, actorID string, reason
 	if err != nil {
 		return DecisionResult{}, err
 	}
-	return s.syncRejection(ctx, merchant, transition)
+	return s.syncRejection(ctx, merchant, transition, true)
 }
 
-func (s *Service) syncRejection(ctx context.Context, merchant repository.Merchant, transition repository.StatusTransition) (DecisionResult, error) {
+// syncRejection applies the rejection to Identity. The decision email goes out
+// only with the decision itself (notify), never again when an administrator
+// retries a sync that failed, so the merchant is not told twice.
+func (s *Service) syncRejection(ctx context.Context, merchant repository.Merchant, transition repository.StatusTransition, notify bool) (DecisionResult, error) {
 	_, err := s.identity.ApplyLifecycle(ctx, merchant.OwnerUserID, identityclient.LifecycleInput{
 		TransitionID: transition.ID, Sequence: transition.Sequence, Operation: "REJECT",
 	})
@@ -331,8 +334,10 @@ func (s *Service) syncRejection(ctx context.Context, merchant repository.Merchan
 	} else {
 		_ = s.store.MarkTransitionResult(ctx, transition.ID, true, "")
 	}
-	contact := s.contact(ctx, merchant)
-	s.notifier.Rejected(ctx, contact.Email, contact.FullName, merchant.BusinessName, transition.Reason)
+	if notify {
+		contact := s.contact(ctx, merchant)
+		s.notifier.Rejected(ctx, contact.Email, contact.FullName, merchant.BusinessName, transition.Reason)
+	}
 	return DecisionResult{Merchant: merchant, IdentitySync: sync}, nil
 }
 
@@ -353,7 +358,7 @@ func (s *Service) Suspend(ctx context.Context, merchantID, actorID string, reaso
 		if transition.SyncStatus == "APPLIED" {
 			return DecisionResult{Merchant: merchant, IdentitySync: "APPLIED", AlreadyDone: true}, nil
 		}
-		return s.syncSuspension(ctx, merchant, transition)
+		return s.syncSuspension(ctx, merchant, transition, false)
 	}
 	transitionID, err := newUUID()
 	if err != nil {
@@ -363,10 +368,12 @@ func (s *Service) Suspend(ctx context.Context, merchantID, actorID string, reaso
 	if err != nil {
 		return DecisionResult{}, err
 	}
-	return s.syncSuspension(ctx, merchant, transition)
+	return s.syncSuspension(ctx, merchant, transition, true)
 }
 
-func (s *Service) syncSuspension(ctx context.Context, merchant repository.Merchant, transition repository.StatusTransition) (DecisionResult, error) {
+// syncSuspension applies the suspension to Identity. Like syncRejection, it
+// sends the decision email only with the decision, not on a retry.
+func (s *Service) syncSuspension(ctx context.Context, merchant repository.Merchant, transition repository.StatusTransition, notify bool) (DecisionResult, error) {
 	_, err := s.identity.ApplyLifecycle(ctx, merchant.OwnerUserID, identityclient.LifecycleInput{
 		TransitionID: transition.ID, Sequence: transition.Sequence, Operation: "SUSPEND",
 	})
@@ -377,8 +384,10 @@ func (s *Service) syncSuspension(ctx context.Context, merchant repository.Mercha
 	} else {
 		_ = s.store.MarkTransitionResult(ctx, transition.ID, true, "")
 	}
-	contact := s.contact(ctx, merchant)
-	s.notifier.Suspended(ctx, contact.Email, contact.FullName, merchant.BusinessName, transition.Reason)
+	if notify {
+		contact := s.contact(ctx, merchant)
+		s.notifier.Suspended(ctx, contact.Email, contact.FullName, merchant.BusinessName, transition.Reason)
+	}
 	return DecisionResult{Merchant: merchant, IdentitySync: sync}, nil
 }
 

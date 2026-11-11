@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { ApiError } from '@/lib/api';
+import { formatDateTime } from '@/lib/format';
 import {
   approveMerchant,
   getAdminMerchant,
@@ -15,7 +16,11 @@ import { PageHeader } from '../layout/page-header';
 import { Section } from '../layout/section';
 import { Alert } from '../ui/alert';
 import { Button } from '../ui/button';
-import { DataTable, type DataTableColumn } from '../ui/data-table';
+import {
+  DataTable,
+  TablePagination,
+  type DataTableColumn,
+} from '../ui/data-table';
 import { EmptyState } from '../ui/empty-state';
 import { Select } from '../ui/select';
 import { Modal } from '../ui/modal';
@@ -28,15 +33,34 @@ type Action = {
   merchant: Merchant;
 } | null;
 
+/** A time in Sri Lanka time, or a dash when there is none. */
 function displayDate(value?: string | null) {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? '—'
-    : new Intl.DateTimeFormat('en-GB', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(date);
+  return (value && formatDateTime(value)) || '—';
+}
+
+type Notice = { tone: 'success' | 'warning'; text: string } | null;
+
+/** What the page says once a decision is saved and Identity has answered. */
+function syncNotice(
+  kind: 'approve' | 'reject' | 'suspend',
+  identitySync: string | undefined,
+): Notice {
+  if (identitySync === 'PENDING') {
+    return {
+      tone: 'warning',
+      text: 'The decision was saved, but Identity has not applied it yet, so the account may still be signed in. Use Retry sync on that row.',
+    };
+  }
+  if (kind === 'approve') {
+    return { tone: 'success', text: 'Merchant approved and activated.' };
+  }
+  return {
+    tone: 'success',
+    text:
+      kind === 'reject'
+        ? 'Merchant rejected.'
+        : 'Merchant suspended and sessions invalidated.',
+  };
 }
 
 export function MerchantsView() {
@@ -52,9 +76,11 @@ export function MerchantsView() {
   const [selected, setSelected] = useState<Merchant | null>(null);
   const [action, setAction] = useState<Action>(null);
   const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<Notice>(null);
   const pageSize = 20;
 
   useEffect(() => {
@@ -95,9 +121,59 @@ export function MerchantsView() {
     }
   }
 
+  /** Closes the decision dialog and forgets what was typed in it. */
+  function closeAction() {
+    setAction(null);
+    setReason('');
+    setReasonError('');
+    setActionError('');
+  }
+
+  /**
+   * Repeats a rejection or suspension whose status has not reached Identity.
+   * The API replays the same transition, so this is safe to press twice, and it
+   * does not email the merchant again. A suspension needs its reason, so the
+   * stored one is sent with it.
+   */
+  async function retrySync(merchant: Merchant) {
+    if (retrying) return;
+    setRetrying(merchant.id);
+    setNotice(null);
+    setError('');
+    try {
+      const kind = merchant.status === 'REJECTED' ? 'reject' : 'suspend';
+      const result =
+        kind === 'reject'
+          ? await rejectMerchant(merchant.id)
+          : await suspendMerchant(merchant.id, merchant.suspensionReason);
+      setNotice(
+        result.identitySync === 'PENDING'
+          ? {
+              tone: 'warning',
+              text: 'Identity could not be reached again. The account may still be signed in. Try again in a moment.',
+            }
+          : {
+              tone: 'success',
+              text: 'Identity applied the decision. The merchant is signed out everywhere.',
+            },
+      );
+      setRevision((n) => n + 1);
+    } catch {
+      setError('The sync could not be retried. Try again in a moment.');
+    } finally {
+      setRetrying(null);
+    }
+  }
+
   async function submitAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!action || busy) return;
+    // The API refuses a suspension without a reason, and the merchant is emailed
+    // it, so ask for it here instead of sending a request that fails.
+    if (action.kind === 'suspend' && !reason.trim()) {
+      setReasonError('Enter a reason. The merchant sees it in the email.');
+      return;
+    }
     setBusy(true);
     setActionError('');
     try {
@@ -107,18 +183,11 @@ export function MerchantsView() {
           : action.kind === 'reject'
             ? await rejectMerchant(action.merchant.id, reason)
             : await suspendMerchant(action.merchant.id, reason);
-      setNotice(
-        result.identitySync === 'PENDING'
-          ? 'The decision was saved. Account session invalidation is pending; retry from this screen when the identity service is available.'
-          : action.kind === 'approve'
-            ? 'Merchant approved and activated.'
-            : action.kind === 'reject'
-              ? 'Merchant rejected.'
-              : 'Merchant suspended and sessions invalidated.',
-      );
+      setNotice(syncNotice(action.kind, result.identitySync));
       setAction(null);
       setSelected(null);
       setReason('');
+      setReasonError('');
       setRevision((n) => n + 1);
     } catch (err) {
       setActionError(
@@ -157,7 +226,16 @@ export function MerchantsView() {
     {
       key: 'status',
       header: 'Status',
-      cell: (row) => <StatusChip status={row.status} />,
+      cell: (row) => (
+        <div className="flex flex-col items-start gap-1">
+          <StatusChip status={row.status} />
+          {row.identitySync === 'PENDING' ? (
+            <span className="text-caption text-warning">
+              Sign-out pending at Identity
+            </span>
+          ) : null}
+        </div>
+      ),
     },
     {
       key: 'createdAt',
@@ -202,10 +280,22 @@ export function MerchantsView() {
               size="sm"
               onClick={() => {
                 setActionError('');
+                setReasonError('');
                 setAction({ kind: 'suspend', merchant: row });
               }}
             >
               Suspend
+            </Button>
+          ) : null}
+          {row.identitySync === 'PENDING' ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              isLoading={retrying === row.id}
+              isDisabled={retrying !== null}
+              onClick={() => retrySync(row)}
+            >
+              Retry sync
             </Button>
           ) : null}
         </div>
@@ -221,7 +311,7 @@ export function MerchantsView() {
         title="Merchants"
         description="Review business applications and manage account access."
       />
-      {notice ? <Alert tone="success" title={notice} /> : null}
+      {notice ? <Alert tone={notice.tone} title={notice.text} /> : null}
       {error ? (
         <Alert tone="danger" title="Could not load merchants">
           {error}
@@ -275,31 +365,13 @@ export function MerchantsView() {
           isLoading={loading}
           empty={<EmptyState title="No merchant applications" />}
         />
-        {pages > 1 ? (
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-caption text-text-muted">
-              Page {page} of {pages}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                isDisabled={page <= 1 || loading}
-                onClick={() => setPage((value) => Math.max(1, value - 1))}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                isDisabled={page >= pages || loading}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        ) : null}
+        <TablePagination
+          page={page}
+          totalPages={pages}
+          totalItems={total}
+          onPageChange={setPage}
+          isLoading={loading}
+        />
       </Section>
 
       <Modal
@@ -317,8 +389,13 @@ export function MerchantsView() {
           <dl className="grid gap-3 text-body-sm sm:grid-cols-2">
             <div>
               <dt className="text-text-muted">Status</dt>
-              <dd className="mt-1">
+              <dd className="mt-1 flex flex-col items-start gap-1">
                 <StatusChip status={selected.status} />
+                {selected.identitySync === 'PENDING' ? (
+                  <span className="text-caption text-warning">
+                    Sign-out pending at Identity. Use Retry sync on the list.
+                  </span>
+                ) : null}
               </dd>
             </div>
             <div>
@@ -371,7 +448,7 @@ export function MerchantsView() {
 
       <Modal
         isOpen={!!action}
-        onClose={() => setAction(null)}
+        onClose={closeAction}
         title={
           action?.kind === 'approve'
             ? 'Approve application?'
@@ -388,11 +465,7 @@ export function MerchantsView() {
         }
         actions={
           <>
-            <Button
-              variant="secondary"
-              isDisabled={busy}
-              onClick={() => setAction(null)}
-            >
+            <Button variant="secondary" isDisabled={busy} onClick={closeAction}>
               Cancel
             </Button>
             <Button
@@ -423,16 +496,23 @@ export function MerchantsView() {
           {action?.kind !== 'approve' ? (
             <Textarea
               id="merchant-decision-reason"
-              label="Reason (optional)"
+              label={
+                action?.kind === 'suspend' ? 'Reason' : 'Reason (optional)'
+              }
+              isRequired={action?.kind === 'suspend'}
               maxLength={1000}
               showCount
               rows={4}
               value={reason}
-              onChange={(event) => setReason(event.target.value)}
+              error={reasonError || undefined}
+              onChange={(event) => {
+                setReason(event.target.value);
+                setReasonError('');
+              }}
               helper={
                 action?.kind === 'reject'
-                  ? 'This reason is included in the merchant email. Leave it blank to send a neutral rejection.'
-                  : 'This reason is included in the merchant email.'
+                  ? 'The merchant sees this reason in the email and when they try to sign in. Leave it blank to send a neutral rejection.'
+                  : 'Required. The merchant sees this reason in the email and when they try to sign in.'
               }
             />
           ) : (

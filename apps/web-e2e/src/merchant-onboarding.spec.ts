@@ -173,7 +173,7 @@ test.describe('admin merchants', () => {
     await page.getByRole('button', { name: 'Approve' }).click();
     await page.getByRole('button', { name: 'Approve' }).last().click();
     await expect(
-      page.getByText('Account session invalidation is pending'),
+      page.getByText('Identity has not applied it yet'),
     ).toBeVisible();
   });
 });
