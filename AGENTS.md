@@ -73,7 +73,7 @@ Planned responsibilities:
 
 ## Implemented stack
 
-- Go `1.27.3`, one root module: `github.com/Vineth-R/swiftdrop`.
+- Go `1.27.4`, one root module: `github.com/Vineth-R/swiftdrop`.
 - Gin `v1.12.0` for HTTP services.
 - RabbitMQ client `github.com/rabbitmq/amqp091-go v1.16.0`.
 - Next.js 16 App Router, React 19, TypeScript 6, and Tailwind CSS v4 with the SwiftDrop design tokens.
