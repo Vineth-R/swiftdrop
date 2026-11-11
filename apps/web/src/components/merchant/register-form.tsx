@@ -398,7 +398,7 @@ export function MerchantRegisterForm() {
             isRequired
             isMono
             maxLength={50}
-            helper="For example PV 123456. Letters, digits, spaces, hyphens, slashes and dots are accepted."
+            helper="Required. For example PV 123456. Letters, digits, spaces, hyphens, slashes and dots are accepted."
           />
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField

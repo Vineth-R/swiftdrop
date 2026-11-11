@@ -213,6 +213,43 @@ func TestRegisterValidatesRequiredBusinessFields(t *testing.T) {
 	}
 }
 
+func TestRegisterRequiresValidRegistrationNumber(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		valid bool
+	}{
+		{name: "missing", value: "", valid: false},
+		{name: "whitespace", value: "   \t ", valid: false},
+		{name: "too short", value: "PV", valid: false},
+		{name: "no digit", value: "ABCDEF", valid: false},
+		{name: "invalid character", value: "PV_123456", valid: false},
+		{name: "valid and normalized", value: " pv   123456 ", valid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, store, _, _ := fixture()
+			input := validInput()
+			input.Business.RegistrationNumber = tc.value
+			result, err := service.Register(context.Background(), input)
+			if !tc.valid {
+				if err == nil {
+					t.Fatalf("registration number %q was accepted", tc.value)
+				}
+				if store.merchant.ID != "" || store.attempt.ID != "" {
+					t.Fatalf("invalid input reached the store: merchant=%+v attempt=%+v", store.merchant, store.attempt)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.MerchantID == "" || store.merchant.BusinessRegNo == nil || *store.merchant.BusinessRegNo != "PV 123456" {
+				t.Fatalf("result=%+v merchant=%+v", result, store.merchant)
+			}
+		})
+	}
+}
+
 func TestApproveActivatesThenCommits(t *testing.T) {
 	service, store, identity, notifier := fixture()
 	store.merchant = repository.Merchant{ID: "m-1", OwnerUserID: "user-1", BusinessName: "ShopZone", Status: repository.MerchantStatusPending}

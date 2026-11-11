@@ -116,7 +116,10 @@ export function DataTable<Row>({
 
   return (
     <div className={className}>
-      <div className="hidden overflow-x-auto rounded-card border border-line bg-surface md:block">
+      {/* `relative` makes this box the place the table's visually hidden text is
+          positioned against; without it that text sits against the page and a
+          table wider than the box makes the whole page scroll sideways. */}
+      <div className="relative hidden overflow-x-auto rounded-card border border-line bg-surface md:block">
         <table className="w-full border-collapse text-left text-body">
           <caption className="sr-only">{caption}</caption>
           <thead>

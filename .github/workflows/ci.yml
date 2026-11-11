@@ -513,7 +513,7 @@ jobs:
               identity) expected=6 ;;
               pricing) expected=2 ;;
               parcel) expected=6 ;;
-              merchant) expected=8 ;;
+              merchant) expected=9 ;;
               notification) expected=2 ;;
               *) echo "::error::unexpected migration service ${service}"; exit 1 ;;
             esac

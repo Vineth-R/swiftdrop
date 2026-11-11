@@ -4,6 +4,12 @@ SwiftDrop keeps PostgreSQL 16 in Docker for local development and uses the
 existing Neon project for staging and production. The same Go code supports
 both; only environment configuration changes.
 
+> **Repository note (2026-11-11):** this document records the validated cutover
+> to merchant migration 8. The repository now also contains
+> `000009_restore_business_reg_no_required`, which restores the mandatory
+> business-registration constraint. It has **not** been applied to production;
+> production remains at merchant 8 until a separately approved migration window.
+
 ## Verified Neon configuration
 
 These values were read from the Neon API before this integration:
@@ -100,11 +106,13 @@ make migrate-create SERVICE=parcel NAME=add_my_index
   `migrate force <version>` only on an isolated database.
 - Applied migrations are immutable. Add forward migrations; never renumber.
 - Development contains identity `000004`-`000006` and merchant `000007`
-  unchanged. Merchant `000008` is the only new migration and drops the
-  database-level business-registration constraint for create paths that allow
-  the registration number to be omitted. See
-  [Migration history reconciliation](#migration-history-reconciliation). The
-  ahead-of-local version guard remains in place as a safety net.
+  unchanged. Merchant `000008` was the new compatibility migration in this
+  cutover and drops the database-level business-registration constraint for
+  create paths that allowed the registration number to be omitted. The
+  repository now also contains `000009_restore_business_reg_no_required`;
+  production remains at 8 until that migration is separately approved and
+  applied. See [Migration history reconciliation](#migration-history-reconciliation).
+  The ahead-of-local version guard remains in place as a safety net.
 
 ### Staging validation
 
@@ -233,9 +241,10 @@ No script in this repository performs the cutover automatically.
 | Decision               | Recover the exact historical files, never synthesize no-op migrations, never rewrite applied versions                                                                                              |
 | Verification           | A fresh PostgreSQL 16 database migrated with the recovered files produced the same 638-line object inventory as the source and clean versions 6/2/6/7/2; staging was migrated to the same versions |
 
-Future migrations for identity and merchant start above `000006` and `000008`
-respectively. The migration runner still refuses to replay history when a
-database version is ahead of the local files.
+Future migrations for identity and merchant start above `000006` and `000009`
+respectively once `000009` is applied; production currently remains at merchant
+8. The migration runner still refuses to replay history when a database version
+is ahead of the local files.
 
 ## Known limitations
 

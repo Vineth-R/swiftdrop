@@ -5,6 +5,12 @@ transferred and reconciled; production read paths verified; PostgreSQL 18 write
 paths rehearsed on a disposable database. Production traffic has not been
 switched. Development CI is validated; GHCR publication and application deployment remain unverified.**
 
+> **Repository note (2026-11-11):** this report records the production state at
+> merchant migration 8. The repository now includes
+> `000009_restore_business_reg_no_required`, which restores the mandatory
+> business-registration constraint. It has **not** been applied to production;
+> production remains at merchant 8 until a separately approved migration window.
+
 ## A. Source database
 
 | Item                           | Value                                                                                                          |

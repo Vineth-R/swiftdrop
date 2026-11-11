@@ -240,7 +240,10 @@ Migrations live under `migrations/<service>/` and use `NNNNNN_description.up.sql
 - `000001_initial_schema` creates the schema.
 - `000002_tables` is the M1 baseline from [`docs/db.sql`](docs/db.sql) (26 tables, triggers, seeds). Identity `000004`-`000006` and merchant `000007` add four additive tables, making 30 tables in the complete chain.
 - `000006_merchant_constraints` is the merchant-specific forward migration that preserves the merchant checks after the duplicate merchant migration files were removed. Versions `000003`–`000005` are intentionally absent for merchant; the runner accepts gaps.
-- New migrations start at the next unused version (merchant: `000009`).
+- `000007_registration_onboarding` adds merchant onboarding tables and the required registration-number constraint.
+- `000008_business_reg_no_optional` is the forward compatibility migration applied to the source/production databases.
+- `000009_restore_business_reg_no_required` restores the mandatory registration-number constraint after `000008`.
+- New migrations start at the next unused version (merchant: `000010`).
 
 Apply migrations (PostgreSQL must be running):
 
@@ -587,7 +590,7 @@ See [Security scanning](docs/security-scanning.md) for scanner versions, thresho
   ```
 
 - **Migration fails with a duplicate version:** check `migrations/<service>/` for repeated six-digit versions. Applied migrations are immutable; add a new forward migration instead of renumbering an applied one.
-- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`, `000007_registration_onboarding` and the forward compatibility migration `000008_business_reg_no_optional`; the next merchant migration starts at `000009`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
+- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`, `000007_registration_onboarding`, the compatibility migration `000008_business_reg_no_optional` and `000009_restore_business_reg_no_required`; the current head is `000009` and the next merchant migration starts at `000010`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
 - **CI fails on formatting:** run `gofmt -w` on the changed Go files and `pnpm exec prettier --write` on changed documentation or frontend files.
 
 ## Branching and pull requests
