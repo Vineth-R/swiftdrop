@@ -8,7 +8,11 @@ import {
   type Page,
 } from '@playwright/test';
 
-import { apiLogin, loginRequest } from './support/real-stack';
+import {
+  apiLogin,
+  loginRequest,
+  signInThroughForm,
+} from './support/real-stack';
 
 const mailpit = process.env['MAILPIT_URL'] || 'http://localhost:8025';
 const adminEmail =
@@ -83,10 +87,7 @@ function tokenFromEmail(payload: unknown): string {
 }
 
 async function signIn(page: Page, email: string, password: string) {
-  await page.goto('/login');
-  await page.locator('#login-email').fill(email);
-  await page.locator('#login-password').fill(password);
-  await page.getByRole('button', { name: 'Log in' }).click();
+  await signInThroughForm(page, email, password);
 }
 
 /** One login, answered as it came, for the refusals a test reads. */
@@ -228,6 +229,9 @@ async function refusalDetails(response: APIResponse) {
 }
 
 test.describe('real stack onboarding', () => {
+  // Registration email waits and login rate-limit backoff share this budget.
+  test.describe.configure({ timeout: 180_000 });
+
   test('customer registers, verifies email, and signs in', async ({
     page,
     request,

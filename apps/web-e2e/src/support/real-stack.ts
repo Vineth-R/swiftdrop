@@ -85,3 +85,29 @@ export async function apiLogin(
   if (!body.data?.accessToken) throw new Error('login returned no token');
   return body.data.accessToken;
 }
+
+/**
+ * Signs in through the login form, waiting out the shared login rate limit.
+ * Callers assert the page they expect after the helper returns. It does not
+ * assume a successful session: a pending merchant correctly stays on a notice.
+ */
+export async function signInThroughForm(
+  page: import('@playwright/test').Page,
+  email: string,
+  password: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.goto('/login');
+    await page.locator('#login-email').fill(email);
+    await page.locator('#login-password').fill(password);
+    await page.getByRole('button', { name: 'Log in' }).click();
+    await page.waitForTimeout(1000);
+    const limited = await page
+      .getByText('Too many attempts from this device')
+      .isVisible()
+      .catch(() => false);
+    if (!limited) return;
+    await page.waitForTimeout(65_000);
+  }
+  throw new Error('login stayed rate limited');
+}

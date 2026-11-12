@@ -87,14 +87,6 @@ async function approveMerchant(
   return merchantID;
 }
 
-async function signIn(page: Page, email: string, password: string) {
-  await page.goto('/login');
-  await page.locator('#login-email').fill(email);
-  await page.locator('#login-password').fill(password);
-  await page.getByRole('button', { name: 'Log in' }).click();
-  await expect(page.getByText('Signed in as')).toBeVisible({ timeout: 20_000 });
-}
-
 async function registerMerchantByAPI(
   request: APIRequestContext,
   email: string,
@@ -138,7 +130,18 @@ test.describe('real stack merchant webhooks', () => {
     await registerMerchant(page, email, business, colombo.id);
     await approveMerchant(request, admin, business);
 
-    await signIn(page, email, 'Str0ngPass!');
+    const merchantToken = await apiLogin(request, email, 'Str0ngPass!');
+    await page.context().addCookies([
+      {
+        name: 'sd_access',
+        value: merchantToken,
+        domain: 'localhost',
+        path: '/',
+        httpOnly: false,
+        secure: false,
+        sameSite: 'Lax',
+      },
+    ]);
     await page.goto('/webhook');
     await expect(
       page.getByRole('heading', { level: 1, name: 'Webhook' }),
