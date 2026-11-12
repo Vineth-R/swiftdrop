@@ -74,9 +74,9 @@ func run() error {
 		return err
 	}
 	if result.AlreadySeeded {
-		logger.Info("merchant demo seed already applied", "merchant_id", result.Merchant.ID, "status", result.Merchant.Status, "demo_key_created", result.APIKeyCreated, "demo_key_prefix", result.APIKeyPrefix)
+		logger.Info("merchant demo seed already applied", "merchant_id", result.Merchant.ID, "status", result.Merchant.Status)
 		return nil
 	}
-	logger.Info("merchant demo seed complete", "merchant_id", result.Merchant.ID, "status", result.Merchant.Status, "demo_key_created", result.APIKeyCreated, "demo_key_prefix", result.APIKeyPrefix)
+	logger.Info("merchant demo seed complete", "merchant_id", result.Merchant.ID, "status", result.Merchant.Status)
 	return nil
 }
