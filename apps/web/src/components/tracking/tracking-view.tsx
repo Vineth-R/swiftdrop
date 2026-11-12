@@ -3,7 +3,7 @@
 import { Lock } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../../lib/api-errors';
 import { classifyApiError, type ApiProblem } from '../../lib/api-problem';
@@ -17,6 +17,11 @@ import {
 } from '../../lib/tracking-api';
 import { useCountdown } from '../../lib/use-countdown';
 import { useForm, type FormRules } from '../../lib/use-form';
+import {
+  useLiveUpdates,
+  type LiveState,
+  type StatusUpdate,
+} from '../../lib/use-live-updates';
 import {
   serverFieldMessage,
   TRACKING_NUMBER_MESSAGE,
@@ -105,6 +110,55 @@ export function TrackingView() {
 }
 
 /**
+ * A live update moves the parcel on: its status, its last scan and one more
+ * history step. An older update or a repeat changes nothing. A newer update with
+ * the same status only moves the last scan, so the history never shows the same
+ * step twice. Only these three public fields are copied, so a socket message can
+ * never add private text.
+ */
+function withUpdate(tracking: Tracking, update: StatusUpdate): Tracking {
+  const isRepeat = tracking.timeline.some(
+    (event) => event.status === update.status && event.at === update.updatedAt,
+  );
+  const isOlder =
+    new Date(update.updatedAt).getTime() <
+    new Date(tracking.lastUpdatedAt).getTime();
+  if (isRepeat || isOlder) return tracking;
+  if (update.status === tracking.status) {
+    return { ...tracking, lastUpdatedAt: update.updatedAt };
+  }
+  return {
+    ...tracking,
+    status: update.status,
+    lastUpdatedAt: update.updatedAt,
+    timeline: [
+      ...tracking.timeline,
+      { status: update.status, at: update.updatedAt },
+    ],
+  };
+}
+
+/**
+ * A loaded snapshot can arrive after a newer live update. It is the server's
+ * answer, but an older one must not overwrite what the socket has just shown.
+ */
+function isOlderSnapshot(snapshot: Tracking, current: Tracking): boolean {
+  return (
+    new Date(snapshot.lastUpdatedAt).getTime() <
+    new Date(current.lastUpdatedAt).getTime()
+  );
+}
+
+/** The live connection in words, as M10's hook asks. */
+const liveCaptions: Record<LiveState, string> = {
+  live: 'Live. Changes appear here as they happen.',
+  connecting: 'Connecting to live updates. Use Refresh to check now.',
+  reconnecting: 'Connecting to live updates. Use Refresh to check now.',
+  denied: 'Live updates are off. Use Refresh to check for changes.',
+  limited: 'Live updates are off. Use Refresh to check for changes.',
+};
+
+/**
  * The number lives in the address (/track?number=SDK7M2Q9XP4), so a link can be
  * shared and the page refreshed. Everything shown comes from getTracking, which
  * keeps only cities, statuses and times (rule 11).
@@ -117,6 +171,9 @@ function TrackSearch() {
   const [view, setView] = useState<View>({ status: 'idle' });
   // The address does not change when the same number is looked up again.
   const [attempt, setAttempt] = useState(0);
+  // The last request wins: a quiet reload must not overwrite an answer from a
+  // newer Refresh (or a newer lookup), even when both carry the same timestamp.
+  const loadSeq = useRef(0);
 
   const problem = view.status === 'problem' ? view.problem : null;
   const remaining = useCountdown(
@@ -125,6 +182,53 @@ function TrackSearch() {
   const isWaiting = problem?.kind === 'rate-limited' && remaining > 0;
   const isSearching = view.status === 'loading';
   const isRefreshing = view.status === 'found' && view.isRefreshing;
+  const followed =
+    view.status === 'found' ? view.tracking.trackingNumber : undefined;
+
+  // Every load goes through getTracking, so only public fields are kept.
+  const { state: liveState } = useLiveUpdates({
+    trackingNumber: followed,
+    onUpdate: (update) =>
+      setView((current) =>
+        current.status === 'found' &&
+        current.tracking.trackingNumber === update.trackingNumber
+          ? { ...current, tracking: withUpdate(current.tracking, update) }
+          : current,
+      ),
+    // After each (re)connection the socket may have missed changes, so load the
+    // parcel again quietly: no spinner, and a failure leaves the page as it is.
+    onSync: () => {
+      if (followed === undefined) return undefined;
+      const requestId = (loadSeq.current += 1);
+      return getTracking(followed)
+        .then((tracking) => {
+          if (requestId !== loadSeq.current) return;
+          setView((current) => {
+            if (
+              current.status !== 'found' ||
+              current.tracking.trackingNumber !== tracking.trackingNumber
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              tracking: isOlderSnapshot(tracking, current.tracking)
+                ? current.tracking
+                : tracking,
+              isRefreshing: false,
+            };
+          });
+        })
+        .catch(() => {
+          if (requestId !== loadSeq.current) return;
+          setView((current) =>
+            current.status === 'found'
+              ? { ...current, isRefreshing: false }
+              : current,
+          );
+        });
+    },
+  });
 
   // Only a new address replaces the field: Refresh keeps what is being typed.
   useEffect(() => {
@@ -145,13 +249,23 @@ function TrackSearch() {
         ? { ...current, isRefreshing: true }
         : { status: 'loading' },
     );
+    const requestId = (loadSeq.current += 1);
     const controller = new AbortController();
     getTracking(number, controller.signal)
-      .then((tracking) =>
-        setView({ status: 'found', tracking, isRefreshing: false }),
-      )
+      .then((tracking) => {
+        if (requestId !== loadSeq.current) return;
+        setView((current) =>
+          // A manual Refresh also loads the parcel. If the socket already moved
+          // it on while the request was in flight, keep the newer state.
+          current.status === 'found' &&
+          current.tracking.trackingNumber === tracking.trackingNumber &&
+          isOlderSnapshot(tracking, current.tracking)
+            ? { ...current, isRefreshing: false }
+            : { status: 'found', tracking, isRefreshing: false },
+        );
+      })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || requestId !== loadSeq.current) return;
         if (
           error instanceof ApiError &&
           (error.code === 'TRACKING_NOT_FOUND' || error.code === 'NOT_FOUND')
@@ -259,6 +373,7 @@ function TrackSearch() {
           <Found
             tracking={view.tracking}
             isRefreshing={view.isRefreshing}
+            liveState={liveState}
             onRefresh={() => setAttempt((count) => count + 1)}
           />
         )}
@@ -270,10 +385,12 @@ function TrackSearch() {
 function Found({
   tracking,
   isRefreshing,
+  liveState,
   onRefresh,
 }: {
   tracking: Tracking;
   isRefreshing: boolean;
+  liveState: LiveState | 'idle';
   onRefresh: () => void;
 }) {
   const { show } = useToast();
@@ -317,7 +434,6 @@ function Found({
         <Button variant="secondary" size="lg" onClick={copyNumber}>
           Copy number
         </Button>
-        {/* TODO(realtime): subscribe when M10's hook lands */}
         <Button
           variant="secondary"
           size="lg"
@@ -327,6 +443,13 @@ function Found({
           {isRefreshing ? 'Refreshing' : 'Refresh'}
         </Button>
       </div>
+      {liveState !== 'idle' && (
+        // The results container is already a polite live region, so the
+        // caption has no role of its own and is read out only once.
+        <p className="text-body-sm text-text-muted">
+          {liveCaptions[liveState]}
+        </p>
+      )}
       <Card>
         <CardContent>
           <Section
