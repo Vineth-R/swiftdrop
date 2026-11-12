@@ -224,6 +224,9 @@ export function NotificationLogsView() {
                           Created
                         </TableHead>
                         <TableHead className="text-overline uppercase text-text-faint">
+                          Type
+                        </TableHead>
+                        <TableHead className="text-overline uppercase text-text-faint">
                           Recipient
                         </TableHead>
                         <TableHead className="text-overline uppercase text-text-faint">
@@ -243,13 +246,13 @@ export function NotificationLogsView() {
                           <TableCell className="pl-4 text-body-sm text-text-muted">
                             {formatDateTime(log.createdAt)}
                           </TableCell>
+                          <TableCell className="text-body-sm text-text-muted">
+                            {log.channel}
+                          </TableCell>
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               <span className="font-mono text-body-sm">
                                 {log.recipient}
-                              </span>
-                              <span className="text-caption text-text-muted">
-                                {log.channel}
                               </span>
                             </div>
                           </TableCell>

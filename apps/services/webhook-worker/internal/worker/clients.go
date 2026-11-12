@@ -171,6 +171,21 @@ func (m *MerchantClient) Webhook(ctx context.Context, merchantID string) (Webhoo
 	return out, nil
 }
 
+// Delivered reports whether the merchant already recorded a successful
+// delivery for the event. The durable attempt log is the source of truth.
+func (m *MerchantClient) Delivered(ctx context.Context, merchantID, eventID string) (bool, error) {
+	var out struct {
+		Delivered bool `json:"delivered"`
+	}
+	_, err := m.c.do(ctx, "check delivered event", http.MethodGet,
+		"/internal/merchants/"+url.PathEscape(merchantID)+"/webhook/deliveries/"+url.PathEscape(eventID), nil, &out,
+		http.StatusOK)
+	if err != nil {
+		return false, err
+	}
+	return out.Delivered, nil
+}
+
 // RecordAttempt reports one attempt. The endpoint is idempotent: a repeated
 // report answers 200 and changes nothing.
 func (m *MerchantClient) RecordAttempt(ctx context.Context, merchantID string, attempt Attempt) error {

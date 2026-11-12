@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/live"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
@@ -62,5 +63,36 @@ func TestHandleRejectsBadEventsPermanently(t *testing.T) {
 				t.Fatal("bad event was broadcast")
 			}
 		})
+	}
+}
+
+func TestHandleSuppressesDuplicateEventID(t *testing.T) {
+	rec := &recorder{}
+	handler := New(rec)
+	body := event(EventType, `{"tracking_number":"SDK7M2Q9XP4","previous_status":"CREATED","status":"PICKED_UP"}`)
+	for i := 0; i < 2; i++ {
+		if err := handler.Handle(context.Background(), messaging.Message{Body: body}); err != nil {
+			t.Fatalf("Handle %d: %v", i, err)
+		}
+	}
+	if len(rec.updates) != 1 {
+		t.Fatalf("broadcasts = %d, want 1", len(rec.updates))
+	}
+}
+
+func TestDedupeIsBoundedAndExpires(t *testing.T) {
+	now := time.Now()
+	dedupe := &eventDedupe{capacity: 2, ttl: time.Minute, seen: map[string]time.Time{}}
+	if !dedupe.claim("a", now) || !dedupe.claim("b", now) || !dedupe.claim("c", now) {
+		t.Fatal("new IDs must be claimed")
+	}
+	if !dedupe.claim("a", now) {
+		t.Fatal("evicted ID should be claimable again")
+	}
+	if dedupe.claim("c", now) {
+		t.Fatal("recent ID must still be suppressed")
+	}
+	if !dedupe.claim("c", now.Add(2*time.Minute)) {
+		t.Fatal("expired ID should be claimable again")
 	}
 }

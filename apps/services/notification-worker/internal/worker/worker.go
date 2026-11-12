@@ -17,6 +17,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/merchantclient"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
@@ -327,7 +328,7 @@ func (h *Handler) notifyMerchant(
 				"merchant_id", merchantID,
 				"correlation_id", envelope.CorrelationID,
 				"operation", "merchant_contact",
-				"error", err.Error(),
+				"error", err, "error_type", fmt.Sprintf("%T", err),
 			)
 			return messaging.Permanent(err)
 		}
@@ -337,7 +338,7 @@ func (h *Handler) notifyMerchant(
 			"merchant_id", merchantID,
 			"correlation_id", envelope.CorrelationID,
 			"operation", "merchant_contact",
-			"error", err.Error(),
+			"error", err, "error_type", fmt.Sprintf("%T", err),
 		)
 		return err
 	}
@@ -428,7 +429,7 @@ func (h *Handler) notifyCustomer(
 				"parcel_id", parcelID,
 				"correlation_id", envelope.CorrelationID,
 				"operation", "identity_contact",
-				"error", err.Error(),
+				"error", err, "error_type", fmt.Sprintf("%T", err),
 			)
 			return messaging.Permanent(err)
 		}
@@ -437,7 +438,7 @@ func (h *Handler) notifyCustomer(
 			"parcel_id", parcelID,
 			"correlation_id", envelope.CorrelationID,
 			"operation", "identity_contact",
-			"error", err.Error(),
+			"error", err, "error_type", fmt.Sprintf("%T", err),
 		)
 		return err
 	}
@@ -782,6 +783,10 @@ func safeDeliveryError(err error, recipient string) error {
 // collapses whitespace and truncates to the notification_logs.error_message
 // limit without splitting a UTF-8 character.
 func sanitizeErrorMessage(message, recipient string) string {
+	// Redact credential-shaped words and any embedded email addresses before
+	// trimming control characters. The exact recipient is redacted separately
+	// because a formatted mask can differ from the address in an SMTP error.
+	message = logging.RedactText(message)
 	if recipient != "" {
 		message = strings.ReplaceAll(message, recipient, "[REDACTED]")
 	}

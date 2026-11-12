@@ -89,6 +89,22 @@ business contact, not a shopper's details:
   the Merchant service when the attempt is stored and represents the time the
   service recorded the attempt; the worker does not supply it.
 
+## Checking delivered events
+
+`GET /internal/merchants/{merchantId}/webhook/deliveries/{eventId}` answers
+`{"data":{"delivered":true|false}}`. It reads the durable
+`merchant.webhook_delivery_attempts` log and reports whether a successful
+attempt already exists for this merchant and event. The webhook worker calls it
+before sending, so a broker redelivery does not create a second successful
+delivery after the first one was recorded.
+
+The endpoint requires `X-Internal-Token` and a well-formed `X-Request-Id`, and
+its responses are `no-store`. A malformed event UUID answers `400`.
+
+This check cannot guarantee exactly-once delivery across an HTTP boundary. If a
+receiver accepted a webhook and the worker crashed before recording success, a
+redelivery can send it again. Receivers must deduplicate on `eventId`.
+
 ## Trust boundaries
 
 - `INTERNAL_TOKEN` is shared by every internal caller. Any service that holds it

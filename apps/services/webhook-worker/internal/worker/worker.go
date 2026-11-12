@@ -23,6 +23,7 @@ const maxDurationMs = 600000
 // MerchantAPI is what the worker needs from the Merchant service.
 type MerchantAPI interface {
 	Webhook(ctx context.Context, merchantID string) (Webhook, error)
+	Delivered(ctx context.Context, merchantID, eventID string) (bool, error)
 	RecordAttempt(ctx context.Context, merchantID string, attempt Attempt) error
 }
 
@@ -135,6 +136,18 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 	}
 	if !webhook.IsActive || !slices.Contains(webhook.EventTypes, webhookdelivery.EventTypeStatusChanged) {
 		logger.DebugContext(ctx, "webhook is inactive or not subscribed, skipping")
+		return nil
+	}
+
+	// Durable suppression: if this event already recorded a successful
+	// delivery, a broker redelivery must not send it again. The check reads the
+	// merchant's durable attempt log, so it survives worker restarts.
+	delivered, err := h.deps.Merchants.Delivered(ctx, merchantID, envelope.ID)
+	if err != nil {
+		return fmt.Errorf("check delivered event: %w", err)
+	}
+	if delivered {
+		logger.InfoContext(ctx, "webhook already delivered for event, skipping")
 		return nil
 	}
 
