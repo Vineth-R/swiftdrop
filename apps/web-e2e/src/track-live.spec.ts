@@ -225,12 +225,12 @@ test.describe('live updates on /track', () => {
       [KEY]: () => (stale ? { ...ok(tracking), delayMs: 800 } : ok(tracking)),
     });
     let armed = false;
-    let answered = () => undefined;
+    let answered: (() => void) | undefined;
     const staleLoad = new Promise<void>((resolve) => {
-      answered = resolve;
+      answered = () => resolve();
     });
     page.on('response', (response) => {
-      if (armed && response.url().includes(`/tracking/${NUMBER}`)) answered();
+      if (armed && response.url().includes(`/tracking/${NUMBER}`)) answered?.();
     });
     const server = await liveServer(page);
     await page.goto(`/track?number=${NUMBER}`);
