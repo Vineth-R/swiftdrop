@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 )
 
 // MaxLength is the longest URL accepted. It matches the 500 character limit
@@ -85,7 +86,10 @@ func parse(raw string) (*url.URL, error) {
 	if raw == "" {
 		return nil, ErrEmpty
 	}
-	if len(raw) > MaxLength {
+	// Postgres counts characters in VARCHAR(500) and the OpenAPI maxLength is
+	// characters, so count runes too: a multi-byte URL that fits the column
+	// must not be refused for being longer in bytes.
+	if utf8.RuneCountInString(raw) > MaxLength {
 		return nil, ErrTooLong
 	}
 	u, err := url.Parse(raw)

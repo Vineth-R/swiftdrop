@@ -29,6 +29,10 @@ func TestValidate(t *testing.T) {
 		{"too long", "https://shop.example.com/" + strings.Repeat("a", MaxLength), ErrTooLong},
 		{"exactly at the limit", "https://shop.example.com/" + strings.Repeat("a", MaxLength-len("https://shop.example.com/")), nil},
 		{"one over the limit", "https://shop.example.com/" + strings.Repeat("a", MaxLength-len("https://shop.example.com/")+1), ErrTooLong},
+		// Postgres VARCHAR(500) and the OpenAPI maxLength count characters, not
+		// bytes: this URL is 500 characters but 975 bytes.
+		{"multi-byte at the limit", "https://shop.example.com/" + strings.Repeat("é", MaxLength-len("https://shop.example.com/")), nil},
+		{"multi-byte one over", "https://shop.example.com/" + strings.Repeat("é", MaxLength-len("https://shop.example.com/")+1), ErrTooLong},
 		{"relative url", "/hooks/swiftdrop", ErrInvalid},
 		{"no scheme", "shop.example.com/hook", ErrInvalid},
 		{"no host", "https:///hook", ErrInvalid},
