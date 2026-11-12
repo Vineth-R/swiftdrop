@@ -29,19 +29,6 @@ function required(account: 'ADMIN' | 'CUSTOMER' | 'DISPATCHER') {
   return credentials;
 }
 
-async function signIn(
-  page: import('@playwright/test').Page,
-  email: string,
-  password: string,
-  home: RegExp,
-) {
-  await page.goto('/login');
-  await page.locator('#login-email').fill(email);
-  await page.locator('#login-password').fill(password);
-  await page.getByRole('button', { name: 'Log in' }).click();
-  await expect(page).toHaveURL(home);
-}
-
 test('a real notification appears in the ADMIN log with masked PII', async ({
   page,
   request,
@@ -135,7 +122,15 @@ test('a real notification appears in the ADMIN log with masked PII', async ({
     true,
   );
 
-  await signIn(page, admin.email, admin.password, /\/dashboard$/);
+  await page.context().addCookies([
+    {
+      name: 'sd_access',
+      value: adminToken,
+      url: new URL(
+        process.env['REAL_STACK_BASE_URL'] || 'http://localhost:8080',
+      ).origin,
+    },
+  ]);
   await page.goto('/admin/notification-logs');
   await expect(
     page.getByRole('heading', { name: /notification/i }),
@@ -163,9 +158,19 @@ test('a real notification appears in the ADMIN log with masked PII', async ({
 
 test('a DISPATCHER cannot open the ADMIN notification log', async ({
   page,
+  request,
 }) => {
   const dispatcher = required('DISPATCHER');
-  await signIn(page, dispatcher.email, dispatcher.password, /\/unassigned$/);
+  const token = await apiLogin(request, dispatcher.email, dispatcher.password);
+  await page.context().addCookies([
+    {
+      name: 'sd_access',
+      value: token,
+      url: new URL(
+        process.env['REAL_STACK_BASE_URL'] || 'http://localhost:8080',
+      ).origin,
+    },
+  ]);
   await page.goto('/admin/notification-logs');
   await expect(page.getByText('403 · Forbidden')).toBeVisible();
   await expect(page.getByText('You do not have access')).toBeVisible();
