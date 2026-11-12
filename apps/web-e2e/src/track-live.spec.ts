@@ -217,6 +217,45 @@ test.describe('live updates on /track', () => {
     await expect(page.getByText('IN TRANSIT', { exact: true })).toHaveCount(0);
   });
 
+  test('a manual Refresh that returns an older snapshot does not undo a live update', async ({
+    page,
+  }) => {
+    let stale = false;
+    await mockApi(page, {
+      [KEY]: () => (stale ? { ...ok(tracking), delayMs: 800 } : ok(tracking)),
+    });
+    let armed = false;
+    let answered = () => undefined;
+    const staleLoad = new Promise<void>((resolve) => {
+      answered = resolve;
+    });
+    page.on('response', (response) => {
+      if (armed && response.url().includes(`/tracking/${NUMBER}`)) answered();
+    });
+    const server = await liveServer(page);
+    await page.goto(`/track?number=${NUMBER}`);
+    await expect(live(page)).toBeVisible();
+
+    server.send(update());
+    await expect(
+      page.getByText('OUT FOR DELIVERY', { exact: true }),
+    ).toBeVisible();
+
+    // From here on GET returns the old IN_TRANSIT snapshot. Refresh is the
+    // only request in flight, so this is the manual refresh's answer.
+    stale = true;
+    armed = true;
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await staleLoad;
+    await page.evaluate(
+      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    );
+    await expect(
+      page.getByText('OUT FOR DELIVERY', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('IN TRANSIT', { exact: true })).toHaveCount(0);
+  });
+
   test('private text in a socket message never appears', async ({ page }) => {
     await mockApi(page, { [KEY]: ok(tracking) });
     const server = await liveServer(page);

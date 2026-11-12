@@ -232,7 +232,15 @@ function TrackSearch() {
     const controller = new AbortController();
     getTracking(number, controller.signal)
       .then((tracking) =>
-        setView({ status: 'found', tracking, isRefreshing: false }),
+        setView((current) =>
+          // A manual Refresh also loads the parcel. If the socket already moved
+          // it on while the request was in flight, keep the newer state.
+          current.status === 'found' &&
+          current.tracking.trackingNumber === tracking.trackingNumber &&
+          isOlderSnapshot(tracking, current.tracking)
+            ? { ...current, isRefreshing: false }
+            : { status: 'found', tracking, isRefreshing: false },
+        ),
       )
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
