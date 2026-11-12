@@ -43,7 +43,10 @@
 
 - `apps/services/merchant/internal/http/key_management_integration_test.go`
 - `apps/services/merchant/internal/http/merchant_identifier_integration_test.go`
+- `apps/services/merchant/internal/http/orders_integration_test.go` — concurrent same-key, different-payload, many-payload, different-key, cross-merchant and Parcel-failure cases
+- `apps/services/merchant/internal/repository/order_reservation_integration_test.go` — reservation lifecycle and recovery after a database failure following Parcel
 - `tests/integration/database/merchant_order_snapshot_migration_test.go`
+- `tests/integration/database/merchant_order_reservation_migration_test.go`
 - `apps/web-e2e/src/merchant-orders.real.spec.ts`
 
 ## Verification
@@ -69,9 +72,13 @@
 
 The local real-stack run needed `IDENTITY_TIMEOUT=10s` because the local Docker Desktop identity service exceeded the default 3-second timeout during bcrypt work. This was an environment constraint; the test itself passed and no code default was changed.
 
-## Known limitation
+## Concurrent idempotency fix
 
-Two concurrent requests that reuse the same `Idempotency-Key` with different payloads can both reach Parcel before either merchant order insert wins. The second merchant order is rejected with `409 DUPLICATE_ORDER` and merchant order uniqueness is preserved, but the losing request can leave an unreferenced Parcel. Sequential conflicts are rejected before Parcel. This is retained as an accepted limitation and is not presented as fixed.
+Same-key order attempts are now serialized per `(merchant, Idempotency-Key)` with a PostgreSQL session advisory lock. Before Parcel is called, a durable row in `merchant.merchant_order_reservations` records the normalized request hash. A concurrent or subsequent request with a different payload is rejected with `409 DUPLICATE_ORDER` without reaching Parcel. A same-payload retry proceeds and Parcel replays by `(merchantId, externalOrderId)`. The merchant order, initial timeline row and reservation completion commit in one local transaction.
+
+A failed attempt leaves a `FAILED` reservation with the same hash, so a retry with the same payload can proceed while a different payload remains rejected. The advisory lock is released automatically if the process or database session ends.
+
+**Remaining distributed window:** Parcel creation and the Merchant database commit are not one atomic transaction. If Merchant's database remains unavailable after Parcel succeeds, the parcel can exist without a merchant order until a same-payload retry persists it; that retry uses Parcel's replay and does not create a second parcel. Failed reservations are retained to bind the key and can be cleaned up by a future retention job.
 
 ## Remote CI
 

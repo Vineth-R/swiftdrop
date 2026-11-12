@@ -24,7 +24,9 @@ The external merchant system creates a delivery order from its own store. Mercha
 - A request without `Idempotency-Key` still deduplicates by `externalOrderId`.
 - Parcel Operations serializes creation for `(merchantId, externalOrderId)` and replays the existing parcel, so a client timeout followed by a retry does not create a second parcel.
 - If the local insert loses a uniqueness race, Merchant Integration re-reads the winner and replays it only when the request hash matches.
-- **Known limitation:** two concurrent requests that reuse the same `Idempotency-Key` with _different_ payloads can both reach Parcel before either merchant order insert wins. The second merchant order is correctly rejected with `409 DUPLICATE_ORDER` and merchant order uniqueness is preserved, but the losing request can leave an unreferenced Parcel behind. Sequential conflicts are rejected before Parcel. This race is retained as an accepted limitation; fixing it would require a reservation or locking redesign before the external call.
+- **Same-key serialization:** requests that share a merchant and `Idempotency-Key` are serialized by a PostgreSQL session advisory lock. A durable reservation records the normalized request hash before Parcel is called. A concurrent or later request with a different payload is rejected with `409 DUPLICATE_ORDER` before any Parcel call, so it cannot create an unreferenced Parcel.
+- **Failed attempts:** the reservation keeps the original hash when Parcel, Pricing or the local commit fails. A retry with the same payload may proceed and Parcel replays by `(merchantId, externalOrderId)`; a retry with a different payload is rejected before Parcel. A completed merchant order and its reservation commit in one local transaction.
+- **Remaining distributed window:** Parcel creation and the Merchant database commit are separate systems and cannot be one atomic transaction. If Merchant's database stays unavailable after Parcel succeeds, the parcel can exist without a merchant order until a same-payload retry persists it. That retry reuses the stored reservation and Parcel's replay; it does not create a second parcel. Failed reservations are retained to bind the key, and a future retention job can remove old `FAILED` rows.
 
 ### 6.2.3 Status Synchronization
 
@@ -62,9 +64,11 @@ Merchant list and detail reads accept an approved `MERCHANT` session or an API k
 | Capability                                     | Status      | Evidence                                                    |
 | :--------------------------------------------- | :---------- | :---------------------------------------------------------- |
 | API-key-only order creation (8.16)             | Implemented | `POST /merchant/orders`; HTTP and access tests              |
-| Optional `Idempotency-Key` and replay/conflict | Implemented | Order service and concurrent duplicate tests                |
+| Optional `Idempotency-Key` and replay/conflict | Implemented | Order service, reservation and concurrent duplicate tests   |
+| Same-key concurrency protection                | Implemented | Advisory lock, durable reservation, one-parcel race tests   |
 | Real Parcel and Pricing integration            | Implemented | Internal Parcel client and Parcel/Pricing integration tests |
 | Merchant order snapshot and fee snapshot       | Implemented | `merchant.merchant_orders`; migration `000010`              |
+| Durable same-key reservation                   | Implemented | `merchant.merchant_order_reservations`; migration `000011`  |
 | Initial `CREATED` timeline                     | Implemented | Order creation transaction                                  |
 | Merchant-scoped list and detail (8.17–8.18)    | Implemented | Repository, HTTP and access ownership tests                 |
 | `merchant.sync.queue` consumer                 | Implemented | Merchant sync handler and event-flow integration test       |
