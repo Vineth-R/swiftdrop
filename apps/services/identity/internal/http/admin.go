@@ -3,6 +3,7 @@ package servicehttp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -176,7 +177,7 @@ func (h *adminHandlers) requireCurrentAccess(required auth.Role) gin.HandlerFunc
 			httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
 		case err != nil:
 			h.logger.ErrorContext(c.Request.Context(), "could not check the caller's account",
-				"request_id", requestid.FromGin(c), "path", c.FullPath(), "error", err.Error())
+				"request_id", requestid.FromGin(c), "path", c.FullPath(), "error", err, "error_type", fmt.Sprintf("%T", err))
 			httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 		case !access.Active:
 			httpx.Error(c, http.StatusForbidden, "ACCOUNT_DISABLED", "this account has been disabled")

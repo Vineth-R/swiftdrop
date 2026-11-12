@@ -31,6 +31,7 @@ var (
 	textMarshalerType = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
 
 	phonePattern = regexp.MustCompile(`^\+?[0-9][0-9()\s-]{7,}$`)
+	emailPattern = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
 	authPaths    = []string{
 		"/auth/",
 		"/api/v1/auth/",
@@ -59,6 +60,8 @@ var (
 		"connection_string",
 		"connectionstring",
 		"smtp_user",
+		"email",
+		"recipient",
 	}
 )
 
@@ -296,10 +299,27 @@ func isSensitiveKey(key string) bool {
 }
 
 func redactValue(value string) string {
-	if phonePattern.MatchString(strings.TrimSpace(value)) && digitCount(value) >= 9 {
+	trimmed := strings.TrimSpace(value)
+	if phonePattern.MatchString(trimmed) && digitCount(value) >= 9 {
 		return redacted
 	}
+	lower := strings.ToLower(trimmed)
+	for _, word := range []string{"password", "token", "secret", "apikey", "api_key", "authorization"} {
+		if strings.Contains(lower, word) {
+			return redacted
+		}
+	}
+	if emailPattern.MatchString(value) {
+		return emailPattern.ReplaceAllString(value, redacted)
+	}
 	return value
+}
+
+// RedactText applies the same string-level rules to free text, such as a panic
+// value. It is exported for callers that cannot pass a struct or an error value
+// to the redacting slog handler.
+func RedactText(value string) string {
+	return redactValue(value)
 }
 
 func digitCount(value string) int {

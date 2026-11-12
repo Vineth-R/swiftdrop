@@ -183,7 +183,7 @@ func (g *GoogleAuth) StartGoogleLogin(ctx context.Context, redirectTo string) (G
 	now := g.base.nowUTC()
 	// Housekeeping only: a failure here must not stop someone from signing in.
 	if err := g.store.PurgeExpiredOAuthStates(ctx, now); err != nil {
-		g.base.logger.WarnContext(ctx, "could not purge expired oauth states", "error", err.Error())
+		g.base.logger.WarnContext(ctx, "could not purge expired oauth states", "error", err, "error_type", fmt.Sprintf("%T", err))
 	}
 
 	if err := g.store.CreateOAuthState(ctx, repository.NewOAuthState{

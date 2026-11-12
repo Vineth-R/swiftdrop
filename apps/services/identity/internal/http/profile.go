@@ -3,6 +3,7 @@ package servicehttp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -111,7 +112,7 @@ func (h *profileHandlers) get(c *gin.Context) {
 		httpx.Error(c, http.StatusForbidden, "ACCOUNT_DISABLED", "this account has been disabled")
 	case err != nil:
 		h.logger.ErrorContext(c.Request.Context(), "could not read the signed-in user's profile",
-			"request_id", requestid.FromGin(c), "path", c.FullPath(), "error", err.Error())
+			"request_id", requestid.FromGin(c), "path", c.FullPath(), "error", err, "error_type", fmt.Sprintf("%T", err))
 		httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 	default:
 		if !requireSessionVersion(c, claims, profile.SessionVersion) {
@@ -201,7 +202,7 @@ func (h *profileHandlers) fail(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusConflict, "PASSWORD_NOT_SET", "this account signs in with Google and has no password to change")
 	default:
 		h.logger.ErrorContext(c.Request.Context(), "own-account request failed",
-			"request_id", requestid.FromGin(c), "path", c.FullPath(), "error", err.Error())
+			"request_id", requestid.FromGin(c), "path", c.FullPath(), "error", err, "error_type", fmt.Sprintf("%T", err))
 		httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 	}
 }
