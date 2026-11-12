@@ -22,7 +22,7 @@
 --   merchant 000007 merchant_registration_attempts, merchant_status_transitions
 -- merchant 000008 drops the database-level business-registration constraint and
 -- adds no tables; merchant 000009 restores the mandatory constraint after the
--- compatibility window. The complete migrated chain is 30 tables. See
+-- compatibility window. The complete migrated chain is 31 tables. See
 -- migrations/README.md.
 --
 -- ADDED BEYOND THE DOCUMENT (marked "ADDED" below):
