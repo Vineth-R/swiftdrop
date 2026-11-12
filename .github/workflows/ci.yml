@@ -1039,7 +1039,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Prepare local environment
-        run: cp .env.example .env
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          # The webhook routes fail closed when WEBHOOK_SECRET_KEY is unset.
+          # This disposable job gets a random development-only key.
+          webhook_key="$(openssl rand -hex 32)"
+          echo "::add-mask::${webhook_key}"
+          echo "WEBHOOK_SECRET_KEY=${webhook_key}" >> .env
 
       - name: Build all images
         run: make build
