@@ -110,11 +110,16 @@ test.describe('M6 Dispatcher screens', () => {
   test.beforeEach(async ({ page }) => {
     test.setTimeout(60000);
     await page.setViewportSize({ width: 1440, height: 900 });
+    // The All parcels screen now opens a live socket. These tests run without
+    // a backend, so refuse it quietly instead of reaching a real server.
+    await page.routeWebSocket('**/ws', (ws) => ws.close({ code: 1011 }));
   });
 
   test.describe('Role Guard Protection (403)', () => {
     for (const role of ['CUSTOMER', 'COURIER'] as const) {
-      test(`${role} cannot access /unassigned and sees 403`, async ({ page }) => {
+      test(`${role} cannot access /unassigned and sees 403`, async ({
+        page,
+      }) => {
         await signInAs(page, role);
         await page.goto('/unassigned');
 
@@ -170,7 +175,9 @@ test.describe('M6 Dispatcher screens', () => {
   });
 
   test.describe('Unassigned Parcels & Courier Assignment Flow', () => {
-    test('renders list of unassigned parcels in the table', async ({ page }) => {
+    test('renders list of unassigned parcels in the table', async ({
+      page,
+    }) => {
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': pageOf([sampleParcel]),
         'GET /zones': ok([]),
@@ -184,12 +191,12 @@ test.describe('M6 Dispatcher screens', () => {
       await expect(row).toBeVisible({ timeout: 15000 });
       await expect(row).toContainText('Colombo');
       await expect(row).toContainText('Kandy');
-      await expect(
-        row.getByRole('button', { name: /assign/i }),
-      ).toBeVisible();
+      await expect(row.getByRole('button', { name: /assign/i })).toBeVisible();
     });
 
-    test('shows loading skeleton while unassigned parcels load', async ({ page }) => {
+    test('shows loading skeleton while unassigned parcels load', async ({
+      page,
+    }) => {
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': pageOf([sampleParcel]),
         'GET /zones': ok([]),
@@ -205,17 +212,13 @@ test.describe('M6 Dispatcher screens', () => {
       });
 
       await page.goto('/unassigned');
-      await expect(
-        page.getByText('Loading unassigned parcels'),
-      ).toBeAttached();
+      await expect(page.getByText('Loading unassigned parcels')).toBeAttached();
 
       release();
       await expect(
         unassignedTable(page).getByText('SDK7M2Q9XP4'),
       ).toBeVisible();
-      await expect(
-        page.getByText('Loading unassigned parcels'),
-      ).toHaveCount(0);
+      await expect(page.getByText('Loading unassigned parcels')).toHaveCount(0);
     });
 
     test('renders empty state when queue is clear', async ({ page }) => {
@@ -230,11 +233,15 @@ test.describe('M6 Dispatcher screens', () => {
         page.getByRole('heading', { name: 'No unassigned parcels' }),
       ).toBeVisible();
       await expect(
-        page.getByText('All parcels in this queue have been assigned to couriers.'),
+        page.getByText(
+          'All parcels in this queue have been assigned to couriers.',
+        ),
       ).toBeVisible();
     });
 
-    test('renders error alert and retry button on 500 API failure', async ({ page }) => {
+    test('renders error alert and retry button on 500 API failure', async ({
+      page,
+    }) => {
       let failRequest = true;
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': () =>
@@ -244,9 +251,7 @@ test.describe('M6 Dispatcher screens', () => {
 
       await page.goto('/unassigned');
 
-      await expect(
-        page.getByText('Something broke on our side'),
-      ).toBeVisible();
+      await expect(page.getByText('Something broke on our side')).toBeVisible();
       // Must never expose raw server error text
       await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
 
@@ -260,7 +265,9 @@ test.describe('M6 Dispatcher screens', () => {
       ).toBeVisible();
     });
 
-    test('renders rate-limited alert on 429 without exposing raw server words', async ({ page }) => {
+    test('renders rate-limited alert on 429 without exposing raw server words', async ({
+      page,
+    }) => {
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': fail(429, 'RATE_LIMITED', {
           headers: { 'Retry-After': '30' },
@@ -273,43 +280,52 @@ test.describe('M6 Dispatcher screens', () => {
       await expect(
         page.getByText('Too many attempts from this device'),
       ).toBeVisible();
-      await expect(page.getByText(/Wait \d+ seconds and try again/)).toBeVisible();
+      await expect(
+        page.getByText(/Wait \d+ seconds and try again/),
+      ).toBeVisible();
       await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
     });
 
-    test('opens assignment modal and submits courier assignment', async ({ page }) => {
+    test('opens assignment modal and submits courier assignment', async ({
+      page,
+    }) => {
       let assigned = false;
       const { calls } = await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': () =>
           assigned ? pageOf([]) : pageOf([sampleParcel]),
         'GET /zones': ok([]),
         'GET /couriers/': ok([sampleCourier, sampleCourier2]),
-        'PUT /dispatch/parcels/00000000-0000-4000-8000-000000000001/assignment': {
-          status: 200,
-          body: {
-            data: {
-              parcelId: sampleParcel.id,
-              trackingNumber: sampleParcel.trackingNumber,
-              courierId: sampleCourier.id,
-              assignedBy: 'user-dispatcher',
-              assignedAt: '2026-11-02T10:15:00Z',
+        'PUT /dispatch/parcels/00000000-0000-4000-8000-000000000001/assignment':
+          {
+            status: 200,
+            body: {
+              data: {
+                parcelId: sampleParcel.id,
+                trackingNumber: sampleParcel.trackingNumber,
+                courierId: sampleCourier.id,
+                assignedBy: 'user-dispatcher',
+                assignedAt: '2026-11-02T10:15:00Z',
+              },
+              meta: { requestId: REQUEST_ID },
             },
-            meta: { requestId: REQUEST_ID },
           },
-        },
       });
 
       await page.goto('/unassigned');
 
       // Click assign button in table to open modal
-      await unassignedTable(page).getByRole('button', { name: /assign/i }).click();
+      await unassignedTable(page)
+        .getByRole('button', { name: /assign/i })
+        .click();
 
       const dialog = page.getByRole('dialog');
       await expect(
         dialog.getByRole('heading', { name: 'Assign courier' }),
       ).toBeVisible();
       await expect(
-        dialog.getByText(`Assign courier to parcel ${sampleParcel.trackingNumber}.`),
+        dialog.getByText(
+          `Assign courier to parcel ${sampleParcel.trackingNumber}.`,
+        ),
       ).toBeVisible();
 
       // Verify courier options are listed
@@ -325,7 +341,9 @@ test.describe('M6 Dispatcher screens', () => {
 
       // Modal closes and toast appears
       await expect(
-        page.getByText(`Parcel ${sampleParcel.trackingNumber} assigned successfully.`),
+        page.getByText(
+          `Parcel ${sampleParcel.trackingNumber} assigned successfully.`,
+        ),
       ).toBeVisible();
 
       // Verify PUT call was made with courierId
@@ -338,7 +356,9 @@ test.describe('M6 Dispatcher screens', () => {
       );
     });
 
-    test('handles 409 PARCEL_CLOSED cleanly in modal and preserves user inputs', async ({ page }) => {
+    test('handles 409 PARCEL_CLOSED cleanly in modal and preserves user inputs', async ({
+      page,
+    }) => {
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': pageOf([sampleParcel]),
         'GET /zones': ok([]),
@@ -348,7 +368,9 @@ test.describe('M6 Dispatcher screens', () => {
       });
 
       await page.goto('/unassigned');
-      await unassignedTable(page).getByRole('button', { name: /assign/i }).click();
+      await unassignedTable(page)
+        .getByRole('button', { name: /assign/i })
+        .click();
 
       const dialog = page.getByRole('dialog');
       await dialog.locator('#courier-select').selectOption(sampleCourier.id);
@@ -356,9 +378,7 @@ test.describe('M6 Dispatcher screens', () => {
       await dialog.getByRole('button', { name: 'Assign', exact: true }).click();
 
       // Error alert visible in modal
-      await expect(
-        dialog.getByText('Parcel already closed'),
-      ).toBeVisible();
+      await expect(dialog.getByText('Parcel already closed')).toBeVisible();
       await expect(
         dialog.getByText(
           'This parcel is already delivered or closed and cannot be assigned or reassigned.',
@@ -367,11 +387,17 @@ test.describe('M6 Dispatcher screens', () => {
       await expect(dialog.getByText(SERVER_WORDS)).toHaveCount(0);
 
       // Verify user inputs are preserved
-      await expect(dialog.locator('#courier-select')).toHaveValue(sampleCourier.id);
-      await expect(dialog.locator('#assign-reason')).toHaveValue('Express delivery requested');
+      await expect(dialog.locator('#courier-select')).toHaveValue(
+        sampleCourier.id,
+      );
+      await expect(dialog.locator('#assign-reason')).toHaveValue(
+        'Express delivery requested',
+      );
     });
 
-    test('handles 422 COURIER_NOT_ELIGIBLE cleanly in modal and preserves user inputs', async ({ page }) => {
+    test('handles 422 COURIER_NOT_ELIGIBLE cleanly in modal and preserves user inputs', async ({
+      page,
+    }) => {
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/unassigned': pageOf([sampleParcel]),
         'GET /zones': ok([]),
@@ -381,7 +407,9 @@ test.describe('M6 Dispatcher screens', () => {
       });
 
       await page.goto('/unassigned');
-      await unassignedTable(page).getByRole('button', { name: /assign/i }).click();
+      await unassignedTable(page)
+        .getByRole('button', { name: /assign/i })
+        .click();
 
       const dialog = page.getByRole('dialog');
       await dialog.locator('#courier-select').selectOption(sampleCourier.id);
@@ -389,9 +417,7 @@ test.describe('M6 Dispatcher screens', () => {
       await dialog.getByRole('button', { name: 'Assign', exact: true }).click();
 
       // Error alert visible in modal
-      await expect(
-        dialog.getByText('Courier not eligible'),
-      ).toBeVisible();
+      await expect(dialog.getByText('Courier not eligible')).toBeVisible();
       await expect(
         dialog.getByText(
           'This courier is currently unavailable or ineligible for assignment. Please select another courier.',
@@ -400,13 +426,19 @@ test.describe('M6 Dispatcher screens', () => {
       await expect(dialog.getByText(SERVER_WORDS)).toHaveCount(0);
 
       // Verify user inputs are preserved
-      await expect(dialog.locator('#courier-select')).toHaveValue(sampleCourier.id);
-      await expect(dialog.locator('#assign-reason')).toHaveValue('Heavy parcel re-route');
+      await expect(dialog.locator('#courier-select')).toHaveValue(
+        sampleCourier.id,
+      );
+      await expect(dialog.locator('#assign-reason')).toHaveValue(
+        'Heavy parcel re-route',
+      );
     });
   });
 
   test.describe('Courier Workload Screen (/workload)', () => {
-    test('renders courier rows, availability chips, and per-status delivery counts', async ({ page }) => {
+    test('renders courier rows, availability chips, and per-status delivery counts', async ({
+      page,
+    }) => {
       await signInAs(page, 'DISPATCHER', {
         'GET /dispatch/workload': ok(sampleWorkload),
       });
@@ -447,14 +479,18 @@ test.describe('M6 Dispatcher screens', () => {
         workloadTable(page).getByRole('row').filter({ hasText: 'Kasun Silva' }),
       ).toBeVisible();
       await expect(
-        workloadTable(page).getByRole('row').filter({ hasText: 'Amal Fernando' }),
+        workloadTable(page)
+          .getByRole('row')
+          .filter({ hasText: 'Amal Fernando' }),
       ).toBeHidden();
     });
   });
 
   test.describe('All Parcels Search Screen (/parcels as DISPATCHER and ADMIN)', () => {
     for (const role of ['DISPATCHER', 'ADMIN'] as const) {
-      test(`${role} can access /parcels and search parcels`, async ({ page }) => {
+      test(`${role} can access /parcels and search parcels`, async ({
+        page,
+      }) => {
         await signInAs(page, role, {
           'GET /admin/parcels': pageOf([sampleAdminParcel]),
         });
@@ -512,19 +548,20 @@ test.describe('M6 Dispatcher screens', () => {
       const { calls } = await signInAs(page, 'DISPATCHER', {
         'GET /admin/parcels': pageOf([assignedParcel]),
         'GET /couriers/': ok([sampleCourier, sampleCourier2]),
-        'PUT /dispatch/parcels/00000000-0000-4000-8000-000000000002/assignment': {
-          status: 200,
-          body: {
-            data: {
-              parcelId: assignedParcel.id,
-              trackingNumber: assignedParcel.trackingNumber,
-              courierId: sampleCourier2.id,
-              assignedBy: 'user-dispatcher',
-              assignedAt: '2026-11-02T11:00:00Z',
+        'PUT /dispatch/parcels/00000000-0000-4000-8000-000000000002/assignment':
+          {
+            status: 200,
+            body: {
+              data: {
+                parcelId: assignedParcel.id,
+                trackingNumber: assignedParcel.trackingNumber,
+                courierId: sampleCourier2.id,
+                assignedBy: 'user-dispatcher',
+                assignedAt: '2026-11-02T11:00:00Z',
+              },
+              meta: { requestId: REQUEST_ID },
             },
-            meta: { requestId: REQUEST_ID },
           },
-        },
       });
 
       await page.goto('/parcels');
@@ -549,7 +586,9 @@ test.describe('M6 Dispatcher screens', () => {
         .fill('Reassigned due to vehicle breakdown');
 
       // Submit reassignment
-      await dialog.getByRole('button', { name: 'Reassign', exact: true }).click();
+      await dialog
+        .getByRole('button', { name: 'Reassign', exact: true })
+        .click();
 
       // Toast confirmation
       await expect(
@@ -557,9 +596,7 @@ test.describe('M6 Dispatcher screens', () => {
       ).toBeVisible();
 
       // Verify PUT payload included reason and new courier ID
-      const putCall = calls.find((c) =>
-        c.key.includes('/assignment'),
-      );
+      const putCall = calls.find((c) => c.key.includes('/assignment'));
       expect(putCall).toBeDefined();
       expect(putCall?.body).toEqual({
         courierId: sampleCourier2.id,
