@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/pricingclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
@@ -148,6 +149,34 @@ type memRepo struct {
 	merchant    repository.Merchant
 	hasMerchant bool
 	transitions []repository.StatusTransition
+	apiClients  map[string]repository.APIClient
+	apiHashes   map[string]string
+}
+
+func (m *memRepo) APIClientByLookup(_ context.Context, lookupID string) (repository.APIClient, string, error) {
+	if m.apiClients == nil {
+		return repository.APIClient{}, "", repository.ErrNotFound
+	}
+	client, ok := m.apiClients[lookupID]
+	if !ok {
+		return repository.APIClient{}, "", repository.ErrNotFound
+	}
+	return client, m.apiHashes[lookupID], nil
+}
+
+func (m *memRepo) CreateAPIClient(_ context.Context, params repository.CreateAPIClientParams) (repository.APIClient, error) {
+	if m.apiClients == nil {
+		m.apiClients = map[string]repository.APIClient{}
+		m.apiHashes = map[string]string{}
+	}
+	client := repository.APIClient{
+		ID: params.ID, MerchantID: params.MerchantID, Name: params.Name,
+		KeyPrefix: params.KeyPrefix, LookupID: params.LookupID,
+		Status: "ACTIVE", CreatedAt: time.Now().UTC(),
+	}
+	m.apiClients[params.LookupID] = client
+	m.apiHashes[params.LookupID] = params.KeyHash
+	return client, nil
 }
 
 func (m *memRepo) EnsureRegistrationAttempt(_ context.Context, id, key, email string) (repository.RegistrationAttempt, error) {
@@ -476,3 +505,60 @@ func TestRunRejectsUnknownOrInactiveZone(t *testing.T) {
 }
 
 func stringPtr(value string) *string { return &value }
+
+func TestRunCreatesConfiguredAPIKeyIdempotently(t *testing.T) {
+	key, err := apikey.Generate()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	config := testConfig(t)
+	config.MerchantAPIKey = key.Full
+	repo := &memRepo{}
+	identity := newTestIdentity(t, &identityState{createCreated: true})
+
+	first, err := Run(context.Background(), repo, identity, fakeZones{zone: activeZone()}, config)
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if !first.APIKeyCreated || first.APIKeyPrefix == "" {
+		t.Fatalf("first run key result = %+v", first)
+	}
+	if strings.Contains(first.APIKeyPrefix, key.Full) {
+		t.Fatal("result leaked the full key")
+	}
+
+	second, err := Run(context.Background(), repo, identity, fakeZones{zone: activeZone()}, config)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if second.APIKeyCreated {
+		t.Fatal("second run created a duplicate key")
+	}
+	if len(repo.apiClients) != 1 {
+		t.Fatalf("api clients = %d, want 1", len(repo.apiClients))
+	}
+	lookup, _ := apikey.Parse(key.Full)
+	if repo.apiHashes[lookup] != apikey.Hash(key.Full) {
+		t.Fatal("stored hash does not match the configured key")
+	}
+}
+
+func TestRunRejectsAPIKeyCollision(t *testing.T) {
+	key, err := apikey.Generate()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	lookup, _ := apikey.Parse(key.Full)
+	config := testConfig(t)
+	config.MerchantAPIKey = key.Full
+	repo := &memRepo{}
+	repo.apiClients = map[string]repository.APIClient{
+		lookup: {ID: "other", MerchantID: "another-merchant", LookupID: lookup, KeyPrefix: apikey.Prefix + lookup[:8]},
+	}
+	repo.apiHashes = map[string]string{lookup: apikey.Hash("sdk_live_0000000000000000_000000000000000000000000000000000000000000000000")}
+	identity := newTestIdentity(t, &identityState{createCreated: true})
+
+	if _, err := Run(context.Background(), repo, identity, fakeZones{zone: activeZone()}, config); err == nil {
+		t.Fatal("expected a collision error")
+	}
+}
