@@ -1,7 +1,7 @@
 'use client';
 
 import { List, RotateCcw } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   DISPATCH_PAGE_SIZE,
@@ -10,6 +10,7 @@ import {
 } from '../../lib/dispatch-api';
 import { formatDate, formatLkr } from '../../lib/format';
 import type { ParcelStatus } from '../../lib/tokens';
+import { useLiveUpdates, type LiveState } from '../../lib/use-live-updates';
 import { PageHeader } from '../layout/page-header';
 import { RequireRole } from '../layout/require-role';
 import { Section } from '../layout/section';
@@ -25,6 +26,14 @@ import { Select } from '../ui/select';
 import { StatusChip } from '../ui/status-chip';
 import { AssignCourierModal } from './assign-courier-modal';
 import { DispatchAlert } from './dispatch-alerts';
+import {
+  applyLiveStatuses,
+  isOlderUpdate,
+  pruneForSnapshot,
+  pruneToRows,
+  withLiveStatus,
+  type LiveChange,
+} from './live-merge';
 import { usePagedList } from './use-paged-list';
 
 type ReassignTarget = {
@@ -42,6 +51,15 @@ const statusOptions = [
   { value: 'DELIVERED', label: 'Delivered' },
   { value: 'FAILED', label: 'Failed' },
 ];
+
+/** The live connection in words, as M10's hook asks. */
+const liveCaptions: Record<LiveState, string> = {
+  live: 'Live. Parcel statuses change here as they happen.',
+  connecting: 'Connecting to live updates. Reload the page to check now.',
+  reconnecting: 'Connecting to live updates. Reload the page to check now.',
+  denied: 'Live updates are off. Reload the page to check for changes.',
+  limited: 'Live updates are off. Reload the page to check for changes.',
+};
 
 export function DispatcherParcelsView() {
   return (
@@ -66,8 +84,6 @@ function DispatcherParcelsContent() {
     null,
   );
 
-  // TODO(realtime): subscribe when M10's hook lands
-
   const load = useCallback(
     (page: number, signal: AbortSignal) =>
       searchAllParcels(
@@ -88,6 +104,102 @@ function DispatcherParcelsContent() {
   );
 
   const list = usePagedList(load);
+
+  // Live status changes for every parcel (API v1.1 section 9, scope "all"; the
+  // server only allows it for dispatchers and administrators). A row changes in
+  // place. A parcel that is not on this page is ignored: the table is the
+  // server's answer to the filters, and a socket message has too few fields to
+  // add a row. Only the status is copied, so a message cannot add other text.
+  const latest = useRef({ load, page: list.page, rows: list.rows });
+  // Pending changes exist only for rows on screen and for changes that arrive
+  // while a quiet reload is loading (its snapshot may predate them). They are
+  // pruned on every reload and page change, so the set cannot grow with the
+  // parcel history.
+  const liveChanges = useRef(new Map<string, LiveChange>());
+  const changeCount = useRef(0);
+  const syncsInFlight = useRef(0);
+  const nextSyncId = useRef(0);
+  const lastAppliedSync = useRef(0);
+  const syncAbort = useRef<AbortController | null>(null);
+  useEffect(() => {
+    latest.current = { load, page: list.page, rows: list.rows };
+  });
+
+  // A quiet reload is not managed by usePagedList, so cancel it on unmount.
+  useEffect(() => () => syncAbort.current?.abort(), []);
+
+  // A change recorded for a parcel that has left the page has no row to
+  // update. Skip this while a reload is in flight: its answer may add a row.
+  useEffect(() => {
+    if (syncsInFlight.current > 0) return;
+    liveChanges.current = pruneToRows(liveChanges.current, list.rows);
+  }, [list.rows]);
+
+  const { state: liveState } = useLiveUpdates({
+    scope: 'all',
+    onUpdate: (update) => {
+      const seen = liveChanges.current.get(update.trackingNumber);
+      if (isOlderUpdate(update, seen)) return;
+      const rows = latest.current.rows;
+      const isVisible =
+        rows !== null &&
+        rows.some((row) => row.trackingNumber === update.trackingNumber);
+      // Outside a reload there is no snapshot to protect, so keep state only
+      // for a row that can be updated. During one, keep it too in case the
+      // parcel appears in the answer.
+      if (!isVisible && syncsInFlight.current === 0) return;
+      changeCount.current += 1;
+      liveChanges.current.set(update.trackingNumber, {
+        status: update.status,
+        at: update.updatedAt,
+        seq: changeCount.current,
+      });
+      list.setRows((current) =>
+        current === null
+          ? current
+          : current.map((row) =>
+              withLiveStatus(row, liveChanges.current.get(row.trackingNumber)),
+            ),
+      );
+    },
+    // After each (re)connection the socket may have missed changes, so load
+    // this page again quietly: no skeleton, and a failure leaves the table as
+    // it is. A change that arrived while the load was in flight wins over it;
+    // one that arrived before it started is already in the snapshot.
+    onSync: () => {
+      const { load: loadNow, page: pageNow, rows } = latest.current;
+      if (rows === null) return undefined; // the first load is still running
+      const startedAt = changeCount.current;
+      const syncId = (nextSyncId.current += 1);
+      syncsInFlight.current += 1;
+      const signal =
+        syncAbort.current?.signal ??
+        (syncAbort.current = new AbortController()).signal;
+      return loadNow(pageNow, signal)
+        .then(({ data }) => {
+          // The filters or the page moved on while it loaded: drop the answer.
+          if (latest.current.load !== loadNow) return;
+          if (latest.current.page !== pageNow) return;
+          // A newer reload has already answered: do not go back to older data.
+          if (syncId <= lastAppliedSync.current) return;
+          lastAppliedSync.current = syncId;
+          liveChanges.current = pruneForSnapshot(
+            liveChanges.current,
+            data,
+            startedAt,
+          );
+          list.setRows((current) =>
+            current === null
+              ? current
+              : applyLiveStatuses(data, liveChanges.current),
+          );
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          syncsInFlight.current = Math.max(0, syncsInFlight.current - 1);
+        });
+    },
+  });
 
   const hasFilters = Boolean(
     trackingNumber || status || courierId || merchantId || fromDate || toDate,
@@ -115,9 +227,7 @@ function DispatcherParcelsContent() {
     {
       key: 'status',
       header: 'Status',
-      cell: (parcel) => (
-        <StatusChip status={parcel.status as ParcelStatus} />
-      ),
+      cell: (parcel) => <StatusChip status={parcel.status as ParcelStatus} />,
     },
     {
       key: 'pickupCity',
@@ -160,9 +270,7 @@ function DispatcherParcelsContent() {
         const isClosed =
           parcel.status === 'DELIVERED' || parcel.status === 'FAILED';
         if (isClosed) {
-          return (
-            <span className="text-caption text-text-muted">Closed</span>
-          );
+          return <span className="text-caption text-text-muted">Closed</span>;
         }
         return (
           <Button
@@ -194,6 +302,12 @@ function DispatcherParcelsContent() {
         title="All parcels"
         description="Search, filter, and manage all parcels across the network."
       />
+
+      {liveState !== 'idle' && (
+        <p role="status" className="text-body-sm text-text-muted">
+          {liveCaptions[liveState]}
+        </p>
+      )}
 
       <Section
         title="Parcel directory"
