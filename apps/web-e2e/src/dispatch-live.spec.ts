@@ -249,6 +249,55 @@ test.describe('live updates on /parcels', () => {
     );
   });
 
+  test('a change that arrives while a reload fails stays on screen', async ({
+    page,
+  }) => {
+    const server = await liveServer(page);
+    let failing = false;
+    await signInAs(page, 'DISPATCHER', {
+      'GET /admin/parcels': () => {
+        // The quiet reload after subscribing fails, after a delay. Every load
+        // before that answers with the table, so React's extra dev render
+        // cannot fail the first paint.
+        return failing
+          ? {
+              status: 500,
+              delayMs: 800,
+              body: {
+                error: { code: 'INTERNAL', message: 'reload failed' },
+                meta: { requestId: REQUEST_ID },
+              },
+            }
+          : pageOf([FIRST, SECOND]);
+      },
+    });
+    await page.goto('/parcels');
+    await expect(row(page, FIRST.trackingNumber)).toBeVisible();
+
+    const syncRequest = page.waitForRequest((request) =>
+      request.url().includes('/admin/parcels'),
+    );
+    const syncResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/admin/parcels') && response.status() === 500,
+    );
+    failing = true;
+    server.confirm();
+    await syncRequest;
+    server.send(update());
+    await expect(row(page, FIRST.trackingNumber)).toContainText(
+      'OUT FOR DELIVERY',
+    );
+
+    await syncResponse; // the failed reload has now come back
+    await page.evaluate(
+      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    );
+    await expect(row(page, FIRST.trackingNumber)).toContainText(
+      'OUT FOR DELIVERY',
+    );
+  });
+
   test('private text in a socket message never appears', async ({ page }) => {
     const { server } = await openLive(page);
 

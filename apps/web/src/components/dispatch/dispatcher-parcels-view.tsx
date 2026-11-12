@@ -26,6 +26,14 @@ import { Select } from '../ui/select';
 import { StatusChip } from '../ui/status-chip';
 import { AssignCourierModal } from './assign-courier-modal';
 import { DispatchAlert } from './dispatch-alerts';
+import {
+  applyLiveStatuses,
+  isOlderUpdate,
+  pruneForSnapshot,
+  pruneToRows,
+  withLiveStatus,
+  type LiveChange,
+} from './live-merge';
 import { usePagedList } from './use-paged-list';
 
 type ReassignTarget = {
@@ -103,19 +111,43 @@ function DispatcherParcelsContent() {
   // server's answer to the filters, and a socket message has too few fields to
   // add a row. Only the status is copied, so a message cannot add other text.
   const latest = useRef({ load, page: list.page, rows: list.rows });
-  const liveChanges = useRef(
-    new Map<string, { status: string; at: string; seq: number }>(),
-  );
+  // Pending changes exist only for rows on screen and for changes that arrive
+  // while a quiet reload is loading (its snapshot may predate them). They are
+  // pruned on every reload and page change, so the set cannot grow with the
+  // parcel history.
+  const liveChanges = useRef(new Map<string, LiveChange>());
   const changeCount = useRef(0);
+  const syncsInFlight = useRef(0);
+  const nextSyncId = useRef(0);
+  const lastAppliedSync = useRef(0);
+  const syncAbort = useRef<AbortController | null>(null);
   useEffect(() => {
     latest.current = { load, page: list.page, rows: list.rows };
   });
+
+  // A quiet reload is not managed by usePagedList, so cancel it on unmount.
+  useEffect(() => () => syncAbort.current?.abort(), []);
+
+  // A change recorded for a parcel that has left the page has no row to
+  // update. Skip this while a reload is in flight: its answer may add a row.
+  useEffect(() => {
+    if (syncsInFlight.current > 0) return;
+    liveChanges.current = pruneToRows(liveChanges.current, list.rows);
+  }, [list.rows]);
 
   const { state: liveState } = useLiveUpdates({
     scope: 'all',
     onUpdate: (update) => {
       const seen = liveChanges.current.get(update.trackingNumber);
-      if (seen && Date.parse(update.updatedAt) < Date.parse(seen.at)) return;
+      if (isOlderUpdate(update, seen)) return;
+      const rows = latest.current.rows;
+      const isVisible =
+        rows !== null &&
+        rows.some((row) => row.trackingNumber === update.trackingNumber);
+      // Outside a reload there is no snapshot to protect, so keep state only
+      // for a row that can be updated. During one, keep it too in case the
+      // parcel appears in the answer.
+      if (!isVisible && syncsInFlight.current === 0) return;
       changeCount.current += 1;
       liveChanges.current.set(update.trackingNumber, {
         status: update.status,
@@ -126,37 +158,46 @@ function DispatcherParcelsContent() {
         current === null
           ? current
           : current.map((row) =>
-              row.trackingNumber === update.trackingNumber &&
-              row.status !== update.status
-                ? { ...row, status: update.status }
-                : row,
+              withLiveStatus(row, liveChanges.current.get(row.trackingNumber)),
             ),
       );
     },
     // After each (re)connection the socket may have missed changes, so load
     // this page again quietly: no skeleton, and a failure leaves the table as
-    // it is. A live change that arrived after the load started wins over it.
+    // it is. A change that arrived while the load was in flight wins over it;
+    // one that arrived before it started is already in the snapshot.
     onSync: () => {
       const { load: loadNow, page: pageNow, rows } = latest.current;
       if (rows === null) return undefined; // the first load is still running
       const startedAt = changeCount.current;
-      return loadNow(pageNow, new AbortController().signal)
+      const syncId = (nextSyncId.current += 1);
+      syncsInFlight.current += 1;
+      const signal =
+        syncAbort.current?.signal ??
+        (syncAbort.current = new AbortController()).signal;
+      return loadNow(pageNow, signal)
         .then(({ data }) => {
           // The filters or the page moved on while it loaded: drop the answer.
           if (latest.current.load !== loadNow) return;
           if (latest.current.page !== pageNow) return;
+          // A newer reload has already answered: do not go back to older data.
+          if (syncId <= lastAppliedSync.current) return;
+          lastAppliedSync.current = syncId;
+          liveChanges.current = pruneForSnapshot(
+            liveChanges.current,
+            data,
+            startedAt,
+          );
           list.setRows((current) =>
             current === null
               ? current
-              : data.map((row) => {
-                  const live = liveChanges.current.get(row.trackingNumber);
-                  return live && live.seq > startedAt
-                    ? { ...row, status: live.status }
-                    : row;
-                }),
+              : applyLiveStatuses(data, liveChanges.current),
           );
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          syncsInFlight.current = Math.max(0, syncsInFlight.current - 1);
+        });
     },
   });
 
@@ -186,9 +227,7 @@ function DispatcherParcelsContent() {
     {
       key: 'status',
       header: 'Status',
-      cell: (parcel) => (
-        <StatusChip status={parcel.status as ParcelStatus} />
-      ),
+      cell: (parcel) => <StatusChip status={parcel.status as ParcelStatus} />,
     },
     {
       key: 'pickupCity',
@@ -231,9 +270,7 @@ function DispatcherParcelsContent() {
         const isClosed =
           parcel.status === 'DELIVERED' || parcel.status === 'FAILED';
         if (isClosed) {
-          return (
-            <span className="text-caption text-text-muted">Closed</span>
-          );
+          return <span className="text-caption text-text-muted">Closed</span>;
         }
         return (
           <Button
