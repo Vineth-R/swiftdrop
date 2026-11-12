@@ -24,6 +24,9 @@ var (
 	ErrZoneUnavailable = errors.New("pickup zone unavailable")
 	// ErrTrackingMismatch means an event does not belong to the stored parcel.
 	ErrTrackingMismatch = errors.New("parcel status event does not match the merchant order")
+	// ErrReservationLost means the idempotency reservation disappeared while an
+	// order was being committed, so the order must not be committed without it.
+	ErrReservationLost = errors.New("merchant order reservation is no longer available")
 )
 
 // Invalid carries field-level validation issues that are safe to return.
@@ -181,12 +184,29 @@ type ListFilter struct {
 	PageSize        int
 }
 
+const (
+	OrderReservationPending   = "PENDING"
+	OrderReservationCompleted = "COMPLETED"
+	OrderReservationFailed    = "FAILED"
+)
+
+// OrderReservation is the durable idempotency record for one merchant key.
+type OrderReservation struct {
+	ID             string
+	MerchantID     string
+	IdempotencyKey string
+	RequestHash    string
+	Status         string
+	OrderID        *string
+}
+
 // CreateParams is the transaction input for the repository.
 type CreateParams struct {
 	MerchantID      string
 	ExternalOrderID string
 	IdempotencyKey  *string
 	RequestHash     string
+	ReservationID   string
 	ParcelID        string
 	TrackingNumber  string
 	Pickup          Contact

@@ -21,6 +21,7 @@ var merchantUpMigrations = []string{
 	"migrations/merchant/000008_business_reg_no_optional.up.sql",
 	"migrations/merchant/000009_restore_business_reg_no_required.up.sql",
 	"migrations/merchant/000010_merchant_order_snapshots.up.sql",
+	"migrations/merchant/000011_merchant_order_idempotency.up.sql",
 }
 
 func applyMerchantThrough(t *testing.T, ctx context.Context, conn *pgx.Conn, through int) {

@@ -23,13 +23,13 @@ var merchantSnapshotColumns = []string{
 func TestMerchantOrderSnapshotMigration(t *testing.T) {
 	t.Run("a fresh database has every snapshot column and the updated index", func(t *testing.T) {
 		ctx, conn := newIsolatedDatabase(t)
-		applyMerchantThrough(t, ctx, conn, len(merchantUpMigrations))
+		applyMerchantThrough(t, ctx, conn, 7)
 		assertMerchantSnapshotSchema(t, ctx, conn, true)
 	})
 
 	t.Run("pre-M8 rows survive and the columns stay nullable", func(t *testing.T) {
 		ctx, conn := newIsolatedDatabase(t)
-		applyMerchantThrough(t, ctx, conn, len(merchantUpMigrations)-1)
+		applyMerchantThrough(t, ctx, conn, 6)
 		merchantID := insertPreM8Merchant(t, ctx, conn)
 		var orderID string
 		if err := conn.QueryRow(ctx, `
@@ -62,7 +62,7 @@ func TestMerchantOrderSnapshotMigration(t *testing.T) {
 
 	t.Run("rollback removes only the snapshot columns and index, then reapply restores them", func(t *testing.T) {
 		ctx, conn := newIsolatedDatabase(t)
-		applyMerchantThrough(t, ctx, conn, len(merchantUpMigrations))
+		applyMerchantThrough(t, ctx, conn, 7)
 		merchantID := insertPreM8Merchant(t, ctx, conn)
 		var orderID string
 		if err := conn.QueryRow(ctx, `
