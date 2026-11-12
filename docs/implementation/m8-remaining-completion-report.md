@@ -83,3 +83,28 @@ A failed attempt leaves a `FAILED` reservation with the same hash, so a retry wi
 ## Remote CI
 
 Remote CI and the PR URL are recorded in the pull request after the branch is pushed.
+
+## Merchant webhook portal and lifecycle
+
+The merchant portal already contained `/webhook`, the merchant navigation entry, settings, test-send and delivery-log components, and the API v1.1 8.12–8.15 endpoints. The remaining M8/M9 work was the real-stack browser proof, the test-send audit row and the worker lifecycle policy.
+
+| Requirement                                       | Implementation                                                                               | Evidence                                                                      |
+| :------------------------------------------------ | :------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
+| Webhook settings, one-time secret and rotation    | `apps/web/src/components/merchant/webhook-settings.tsx`; `lib/webhook-api.ts`; API 8.12/8.13 | `webhook.spec.ts`; real-stack `merchant-webhooks.real.spec.ts`                |
+| Send test event                                   | `webhook-test-event.tsx`; API 8.14; test attempts recorded through `RecordDeliveryAttempt`   | Merchant handler unit tests; real-stack delivery-log assertion                |
+| Delivery history, filters and pagination          | `webhook-deliveries.tsx`; API 8.15                                                           | Mocked webhook suite; real-stack tracking filter                              |
+| Merchant isolation                                | Session-resolved merchant in `webhook.go`; second merchant returns 404 / empty log           | `webhook.spec.ts`; real-stack cross-merchant assertion                        |
+| Approved-only configuration and test sends        | `webhookHandler.merchant` rejects non-APPROVED merchants                                     | Webhook handler tests                                                         |
+| Worker re-checks approval on every attempt        | `webhook-worker` reads `merchantStatus`; suppresses non-APPROVED merchants                   | Worker tests for pending, rejected, suspended, retry and in-flight suspension |
+| Revoked/inactive webhook suppression              | Internal 404 / `isActive` / event subscription checks                                        | Worker skip and suppression tests                                             |
+| Auditable suppression, no replay on reinstatement | Dead-lettered attempt with a stable reason; no retry scheduled                               | Worker suppression and reinstatement tests                                    |
+| Test attempt visible in delivery log              | API 8.14 records attempt with `SDNTEST0001`, dead-lettered on failure                        | Handler unit tests; real-stack webhook journey                                |
+
+The webhook lifecycle policy is also documented in `docs/webhook-worker.md` and `docs/merchant-internal-api.md`.
+
+### Webhook verification
+
+- Mocked webhook Playwright suite: 19 passed, covering settings, one-time secret, rotation, validation, test send, delivery log filters, pagination, error states and role access.
+- Real-stack `merchant-webhooks.real.spec.ts`: passed. It saves an HTTPS destination, rotates the secret once, sends a test event, sees `SDNTEST0001` in the delivery log, filters by tracking number, and proves a second merchant gets `404 WEBHOOK_NOT_CONFIGURED` and an empty delivery log.
+- Webhook worker unit tests cover approved, pending, rejected and suspended merchants, suspension before retry, in-flight suspension, inactive/unsubscribed/deleted webhooks, auditable suppression and no replay after reinstatement.
+- Event-flow integration passes with the internal webhook response carrying `merchantStatus`.

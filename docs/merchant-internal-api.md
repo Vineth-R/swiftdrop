@@ -4,11 +4,11 @@ Service-to-service endpoints of the Merchant service for the webhook and
 notification workers (API v1.1 section 13). The machine-readable contract is
 [`contracts/openapi/merchant-internal.yaml`](../contracts/openapi/merchant-internal.yaml).
 
-| Method and path                                          | Caller              | Purpose                                                                                                                  |
-| -------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `GET /internal/merchants/{merchantId}/webhook`           | Webhook worker      | Returns `url`, `signingSecret`, `eventTypes` and `isActive`. The only place the plain signing secret leaves the service. |
-| `POST /internal/merchants/{merchantId}/webhook/attempts` | Webhook worker      | Records one delivery attempt for the merchant's delivery log (API 8.15). Idempotent.                                     |
-| `GET /internal/merchants/{merchantId}/contact`           | Notification worker | Returns `ownerUserId`, `businessName`, `contactEmail` and `status` so merchant-owned parcel events can be emailed.       |
+| Method and path                                          | Caller              | Purpose                                                                                                                                    |
+| -------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /internal/merchants/{merchantId}/webhook`           | Webhook worker      | Returns `url`, `signingSecret`, `eventTypes`, `isActive` and `merchantStatus`. The only place the plain signing secret leaves the service. |
+| `POST /internal/merchants/{merchantId}/webhook/attempts` | Webhook worker      | Records one delivery attempt for the merchant's delivery log (API 8.15). Idempotent.                                                       |
+| `GET /internal/merchants/{merchantId}/contact`           | Notification worker | Returns `ownerUserId`, `businessName`, `contactEmail` and `status` so merchant-owned parcel events can be emailed.                         |
 
 ## Access rules
 
@@ -78,6 +78,21 @@ business contact, not a shopper's details:
   it (database design 6.5).
 - `success` is required; a missing field is rejected with
   `422 VALIDATION_ERROR` instead of being treated as `false`.
+
+## Webhook delivery lifecycle
+
+The webhook worker re-reads this endpoint on every attempt. It only sends when
+`merchantStatus` is `APPROVED`, `isActive` is true and
+`parcel.status_changed` is subscribed. A suspended, pending or rejected
+merchant is suppressed before the HTTP request, including on retries. A webhook
+deleted or made inactive between attempts is skipped.
+
+A suppression is recorded as a dead-lettered delivery attempt with a stable
+reason (`merchant_suspended`, `merchant_pending`, `merchant_rejected`,
+`webhook_inactive` or `webhook_not_subscribed`) and is never scheduled for a
+retry. Reinstating a merchant therefore does not replay previously suppressed
+deliveries. A delivery already in progress is allowed to finish.
+
 - `(webhook, eventId, attemptNumber)` is unique. A repeated report answers
   `200` with `recorded: false` and changes nothing; a new attempt answers `201`.
 - Rules: `attemptNumber` 1 to 6; `httpStatus` 100 to 599 or omitted on a timeout;

@@ -3331,7 +3331,11 @@ Access: MERCHANT.
 
 
 
-Purpose: Sends a sample event to the configured URL and reports the result.
+Purpose: Sends a sample event to the configured URL, records the attempt in the
+delivery log (8.15) and reports the result. The sample uses tracking number
+`SDNTEST0001` and event id generated for that send. A failed test is recorded as
+a dead-lettered attempt; it is not retried. The endpoint requires an APPROVED
+merchant.
 
 
 <!-- PDF page 35 -->
@@ -4185,11 +4189,23 @@ Method and path                                  Caller to      Purpose
 
                                                    Merchant       "eventTypes",
 
-                                                                  "isActive" } . This is
+                                                                  "isActive",
 
-                                                                  the only place the
+                                                                  "merchantStatus" } .
 
-                                                                  secret is returned
+                                                                  The worker sends only
+
+                                                                  when merchantStatus is
+
+                                                                  APPROVED; a suppressed
+
+                                                                  delivery is recorded as
+
+                                                                  a dead-lettered attempt.
+
+                                                                  This is the only place
+
+                                                                  the secret is returned
 
 
 
