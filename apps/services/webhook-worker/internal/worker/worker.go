@@ -127,15 +127,24 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 
 	webhook, err := h.deps.Merchants.Webhook(ctx, merchantID)
 	if errors.Is(err, ErrNotConfigured) {
-		logger.DebugContext(ctx, "merchant has no webhook, skipping")
+		logger.WarnContext(ctx, "merchant has no webhook, suppressing delivery", "reason", "webhook_not_configured")
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("load merchant webhook: %w", err)
 	}
-	if !webhook.IsActive || !slices.Contains(webhook.EventTypes, webhookdelivery.EventTypeStatusChanged) {
-		logger.DebugContext(ctx, "webhook is inactive or not subscribed, skipping")
-		return nil
+	if webhook.MerchantStatus != "APPROVED" {
+		reason := "merchant_status_unknown"
+		if strings.TrimSpace(webhook.MerchantStatus) != "" {
+			reason = "merchant_" + strings.ToLower(webhook.MerchantStatus)
+		}
+		return h.suppress(ctx, logger, envelope.ID, merchantID, data, attempt, reason)
+	}
+	if !webhook.IsActive {
+		return h.suppress(ctx, logger, envelope.ID, merchantID, data, attempt, "webhook_inactive")
+	}
+	if !slices.Contains(webhook.EventTypes, webhookdelivery.EventTypeStatusChanged) {
+		return h.suppress(ctx, logger, envelope.ID, merchantID, data, attempt, "webhook_not_subscribed")
 	}
 
 	// Looked up before sending, so a Parcel service outage retries without
@@ -208,6 +217,30 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		logger.ErrorContext(ctx, "webhook delivery failed, dead lettered",
 			"http_status", result.StatusCode, "error", report.ErrorMessage)
 	}
+	return nil
+}
+
+// suppress records why a merchant delivery was not attempted. The event is not
+// scheduled for a retry; reinstating a merchant must not replay a suppressed
+// delivery unless an operator explicitly requeues it. If the audit record
+// cannot be written, the message is dead-lettered rather than retried into a
+// later delivery after the merchant is reinstated.
+func (h *Handler) suppress(ctx context.Context, logger *slog.Logger, eventID, merchantID string, data statusData, attempt int, reason string) error {
+	report := Attempt{
+		EventID:        eventID,
+		ParcelID:       data.ParcelID,
+		TrackingNumber: data.TrackingNumber,
+		AttemptNumber:  attempt,
+		Success:        false,
+		ErrorMessage:   reason,
+		DeadLettered:   true,
+	}
+	if err := h.deps.Merchants.RecordAttempt(ctx, merchantID, report); err != nil {
+		logger.ErrorContext(ctx, "suppressed webhook attempt could not be recorded",
+			"merchant_id", merchantID, "reason", reason)
+		return messaging.Permanent(fmt.Errorf("record suppressed webhook attempt: %w", err))
+	}
+	logger.WarnContext(ctx, "webhook delivery suppressed", "merchant_id", merchantID, "reason", reason)
 	return nil
 }
 

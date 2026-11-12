@@ -45,6 +45,7 @@ const (
 // *repository.Repository satisfies it; tests replace it.
 type internalWebhookStore interface {
 	WebhookByMerchant(ctx context.Context, merchantID string) (repository.Webhook, error)
+	MerchantByID(ctx context.Context, merchantID string) (repository.Merchant, error)
 	RecordDeliveryAttempt(ctx context.Context, p repository.RecordAttemptParams) (bool, error)
 }
 
@@ -151,6 +152,11 @@ func (h *internalWebhookHandler) get(c *gin.Context) {
 		h.fail(c, "get_webhook", err)
 		return
 	}
+	merchant, err := h.store.MerchantByID(ctx, merchantID)
+	if err != nil {
+		h.fail(c, "get_merchant_status", err)
+		return
+	}
 	secret, err := h.cipher.Decrypt(string(webhook.SigningSecretEnc))
 	if err != nil {
 		h.internalError(c, "decrypt_webhook_secret", "could not read signing secret", err)
@@ -161,10 +167,11 @@ func (h *internalWebhookHandler) get(c *gin.Context) {
 		types = []string{}
 	}
 	httpx.Success(c, http.StatusOK, gin.H{
-		"url":           webhook.URL,
-		"signingSecret": secret,
-		"eventTypes":    types,
-		"isActive":      webhook.IsActive,
+		"url":            webhook.URL,
+		"signingSecret":  secret,
+		"eventTypes":     types,
+		"isActive":       webhook.IsActive,
+		"merchantStatus": merchant.Status,
 	})
 }
 
@@ -296,6 +303,10 @@ func safeErrorMessage(message string) *string {
 func (h *internalWebhookHandler) fail(c *gin.Context, operation string, err error) {
 	if errors.Is(err, repository.ErrWebhookNotConfigured) {
 		httpx.Error(c, http.StatusNotFound, "WEBHOOK_NOT_CONFIGURED", "no webhook is configured")
+		return
+	}
+	if errors.Is(err, repository.ErrNotFound) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
 		return
 	}
 	h.internalError(c, operation, "webhook operation failed", err)

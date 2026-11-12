@@ -41,11 +41,12 @@ import (
 // enforced.
 
 const (
-	defaultPage      = 1
-	defaultPageSize  = 20
-	maxPage          = 10_000 // matches the notification-log list limit
-	maxPageSize      = 100
-	maxTrackingChars = 20
+	testEventParcelID = "00000000-0000-4000-8000-000000000001"
+	defaultPage       = 1
+	defaultPageSize   = 20
+	maxPage           = 10_000 // matches the notification-log list limit
+	maxPageSize       = 100
+	maxTrackingChars  = 20
 )
 
 // The small interfaces below let tests replace the database, the encryption
@@ -55,6 +56,7 @@ type webhookStore interface {
 	MerchantByOwnerUserID(ctx context.Context, ownerUserID string) (repository.Merchant, error)
 	WebhookByMerchant(ctx context.Context, merchantID string) (repository.Webhook, error)
 	SaveWebhook(ctx context.Context, p repository.SaveWebhookParams) (repository.WebhookSaveResult, error)
+	RecordDeliveryAttempt(ctx context.Context, p repository.RecordAttemptParams) (bool, error)
 	ListDeliveryAttempts(ctx context.Context, merchantID string, f repository.DeliveryFilter) ([]repository.DeliveryAttempt, int, error)
 }
 
@@ -364,8 +366,44 @@ func (h *webhookHandler) test(c *gin.Context) {
 		h.internalError(c, "generate_event_id", "could not generate event identifier", err)
 		return
 	}
-	result := h.sender.Send(ctx, webhookdelivery.Target{URL: webhook.URL, Secret: secret},
-		webhookdelivery.SampleEvent(eventID, h.now()))
+	sample := webhookdelivery.SampleEvent(eventID, h.now())
+	result := h.sender.Send(ctx, webhookdelivery.Target{URL: webhook.URL, Secret: secret}, sample)
+
+	attemptID, err := randomUUID()
+	if err != nil {
+		h.internalError(c, "generate_attempt_id", "could not record the test attempt", err)
+		return
+	}
+	durationMs := int(result.Duration.Milliseconds())
+	report := repository.RecordAttemptParams{
+		ID:             attemptID,
+		MerchantID:     merchant.ID,
+		EventID:        eventID,
+		ParcelID:       testEventParcelID,
+		TrackingNumber: sample.Data.TrackingNumber,
+		AttemptNumber:  1,
+		Success:        result.Success,
+		DeadLettered:   !result.Success,
+		DurationMS:     &durationMs,
+	}
+	if result.StatusCode >= 100 && result.StatusCode <= 599 {
+		status := result.StatusCode
+		report.HTTPStatus = &status
+	}
+	if !result.Success {
+		message := strings.TrimSpace(result.ErrorMessage)
+		if message == "" {
+			message = "unexpected response status"
+		}
+		if len(message) > maxErrorMessageChars {
+			message = message[:maxErrorMessageChars]
+		}
+		report.ErrorMessage = &message
+	}
+	if _, err := h.store.RecordDeliveryAttempt(ctx, report); err != nil {
+		h.internalError(c, "record_test_attempt", "could not record the test attempt", err)
+		return
+	}
 
 	var httpStatus any // null when no response arrived (timeout, connection error)
 	if result.StatusCode != 0 {
