@@ -207,6 +207,9 @@ func newOrderHTTPFixtureWith(t *testing.T, logger *slog.Logger, notifier *notify
 		t.Fatalf("parse pool config: %v", err)
 	}
 	poolConfig.ConnConfig.Database = databaseName
+	// Keep the fixture responsive with the same small pool CI uses. A waiting
+	// idempotency lock must not be able to starve the lock holder's queries.
+	poolConfig.MaxConns = 4
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		t.Fatalf("create pool: %v", err)

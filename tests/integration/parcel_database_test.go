@@ -131,10 +131,10 @@ func TestParcelServiceMigrationCompatibility(t *testing.T) {
 	database.MigrateAll(t)
 	database.MigrateAll(t)
 	expectedTables := map[string]int{
-		"identity": 9, "pricing": 5, "parcel": 5, "merchant": 9, "notification": 2,
+		"identity": 9, "pricing": 5, "parcel": 5, "merchant": 10, "notification": 2,
 	}
 	expectedVersions := map[string]int{
-		"identity": 6, "pricing": 2, "parcel": 6, "merchant": 10, "notification": 2,
+		"identity": 6, "pricing": 2, "parcel": 6, "merchant": 11, "notification": 2,
 	}
 	for service, expected := range expectedTables {
 		t.Run(service, func(t *testing.T) {

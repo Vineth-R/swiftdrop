@@ -28,6 +28,12 @@ type connectionPool interface {
 // order instead of reaching Parcel, and it lets a different-payload waiter be
 // rejected before Parcel. Parcel has its own short timeout, so the connection is
 // not held indefinitely.
+//
+// Waiting uses pg_try_advisory_lock with a short backoff. A blocking
+// pg_advisory_lock would hold a pooled connection while waiting, and a waiter
+// holding a connection could starve the lock holder's own reservation and
+// order queries when the pool is small. The backoff leaves the pool available
+// to the holder.
 func (r *Repository) WithIdempotencyLock(ctx context.Context, merchantID, idempotencyKey string, fn func(context.Context) error) error {
 	if idempotencyKey == "" {
 		return fn(ctx)
@@ -36,15 +42,35 @@ func (r *Repository) WithIdempotencyLock(ctx context.Context, merchantID, idempo
 	if !ok {
 		return errors.New("merchant order idempotency lock requires a connection pool")
 	}
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("acquire idempotency lock connection: %w", err)
-	}
 	lockKey := advisoryLockKey(merchantID, idempotencyKey)
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lockKey); err != nil {
-		conn.Release()
-		return fmt.Errorf("acquire merchant order idempotency lock: %w", err)
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	var conn *pgxpool.Conn
+	for {
+		candidate, err := pool.Acquire(waitCtx)
+		if err != nil {
+			return fmt.Errorf("acquire idempotency lock connection: %w", err)
+		}
+		var acquired bool
+		if err := candidate.QueryRow(waitCtx, `SELECT pg_try_advisory_lock($1)`, lockKey).Scan(&acquired); err != nil {
+			candidate.Release()
+			return fmt.Errorf("acquire merchant order idempotency lock: %w", err)
+		}
+		if acquired {
+			conn = candidate
+			break
+		}
+		candidate.Release()
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-waitCtx.Done():
+			timer.Stop()
+			return fmt.Errorf("wait for merchant order idempotency lock: %w", waitCtx.Err())
+		case <-timer.C:
+		}
 	}
+
 	defer func() {
 		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
