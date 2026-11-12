@@ -107,9 +107,12 @@ const parcelsTable = (page: Page) =>
   page.getByRole('table', { name: 'All parcels' });
 
 test.describe('M6 Dispatcher screens', () => {
-  test.beforeEach(async ({ page }) => {
+    test.beforeEach(async ({ page }) => {
     test.setTimeout(60000);
     await page.setViewportSize({ width: 1440, height: 900 });
+    // The All parcels screen now opens a live socket. These tests run without
+    // a backend, so refuse it quietly instead of reaching a real server.
+    await page.routeWebSocket('**/ws', (ws) => ws.close({ code: 1011 }));
   });
 
   test.describe('Role Guard Protection (403)', () => {

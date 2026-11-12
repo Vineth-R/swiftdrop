@@ -1,7 +1,7 @@
 'use client';
 
 import { List, RotateCcw } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   DISPATCH_PAGE_SIZE,
@@ -10,6 +10,7 @@ import {
 } from '../../lib/dispatch-api';
 import { formatDate, formatLkr } from '../../lib/format';
 import type { ParcelStatus } from '../../lib/tokens';
+import { useLiveUpdates, type LiveState } from '../../lib/use-live-updates';
 import { PageHeader } from '../layout/page-header';
 import { RequireRole } from '../layout/require-role';
 import { Section } from '../layout/section';
@@ -43,6 +44,15 @@ const statusOptions = [
   { value: 'FAILED', label: 'Failed' },
 ];
 
+/** The live connection in words, as M10's hook asks. */
+const liveCaptions: Record<LiveState, string> = {
+  live: 'Live. Parcel statuses change here as they happen.',
+  connecting: 'Connecting to live updates. Reload the page to check now.',
+  reconnecting: 'Connecting to live updates. Reload the page to check now.',
+  denied: 'Live updates are off. Reload the page to check for changes.',
+  limited: 'Live updates are off. Reload the page to check for changes.',
+};
+
 export function DispatcherParcelsView() {
   return (
     <RequireRole
@@ -66,8 +76,6 @@ function DispatcherParcelsContent() {
     null,
   );
 
-  // TODO(realtime): subscribe when M10's hook lands
-
   const load = useCallback(
     (page: number, signal: AbortSignal) =>
       searchAllParcels(
@@ -88,6 +96,69 @@ function DispatcherParcelsContent() {
   );
 
   const list = usePagedList(load);
+
+  // Live status changes for every parcel (API v1.1 section 9, scope "all"; the
+  // server only allows it for dispatchers and administrators). A row changes in
+  // place. A parcel that is not on this page is ignored: the table is the
+  // server's answer to the filters, and a socket message has too few fields to
+  // add a row. Only the status is copied, so a message cannot add other text.
+  const latest = useRef({ load, page: list.page, rows: list.rows });
+  const liveChanges = useRef(
+    new Map<string, { status: string; at: string; seq: number }>(),
+  );
+  const changeCount = useRef(0);
+  useEffect(() => {
+    latest.current = { load, page: list.page, rows: list.rows };
+  });
+
+  const { state: liveState } = useLiveUpdates({
+    scope: 'all',
+    onUpdate: (update) => {
+      const seen = liveChanges.current.get(update.trackingNumber);
+      if (seen && Date.parse(update.updatedAt) < Date.parse(seen.at)) return;
+      changeCount.current += 1;
+      liveChanges.current.set(update.trackingNumber, {
+        status: update.status,
+        at: update.updatedAt,
+        seq: changeCount.current,
+      });
+      list.setRows((current) =>
+        current === null
+          ? current
+          : current.map((row) =>
+              row.trackingNumber === update.trackingNumber &&
+              row.status !== update.status
+                ? { ...row, status: update.status }
+                : row,
+            ),
+      );
+    },
+    // After each (re)connection the socket may have missed changes, so load
+    // this page again quietly: no skeleton, and a failure leaves the table as
+    // it is. A live change that arrived after the load started wins over it.
+    onSync: () => {
+      const { load: loadNow, page: pageNow, rows } = latest.current;
+      if (rows === null) return undefined; // the first load is still running
+      const startedAt = changeCount.current;
+      return loadNow(pageNow, new AbortController().signal)
+        .then(({ data }) => {
+          // The filters or the page moved on while it loaded: drop the answer.
+          if (latest.current.load !== loadNow) return;
+          if (latest.current.page !== pageNow) return;
+          list.setRows((current) =>
+            current === null
+              ? current
+              : data.map((row) => {
+                  const live = liveChanges.current.get(row.trackingNumber);
+                  return live && live.seq > startedAt
+                    ? { ...row, status: live.status }
+                    : row;
+                }),
+          );
+        })
+        .catch(() => undefined);
+    },
+  });
 
   const hasFilters = Boolean(
     trackingNumber || status || courierId || merchantId || fromDate || toDate,
@@ -194,6 +265,12 @@ function DispatcherParcelsContent() {
         title="All parcels"
         description="Search, filter, and manage all parcels across the network."
       />
+
+      {liveState !== 'idle' && (
+        <p role="status" className="text-body-sm text-text-muted">
+          {liveCaptions[liveState]}
+        </p>
+      )}
 
       <Section
         title="Parcel directory"
