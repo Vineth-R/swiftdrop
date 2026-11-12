@@ -3,7 +3,7 @@
 import { Lock } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../../lib/api-errors';
 import { classifyApiError, type ApiProblem } from '../../lib/api-problem';
@@ -171,6 +171,9 @@ function TrackSearch() {
   const [view, setView] = useState<View>({ status: 'idle' });
   // The address does not change when the same number is looked up again.
   const [attempt, setAttempt] = useState(0);
+  // The last request wins: a quiet reload must not overwrite an answer from a
+  // newer Refresh (or a newer lookup), even when both carry the same timestamp.
+  const loadSeq = useRef(0);
 
   const problem = view.status === 'problem' ? view.problem : null;
   const remaining = useCountdown(
@@ -194,20 +197,37 @@ function TrackSearch() {
       ),
     // After each (re)connection the socket may have missed changes, so load the
     // parcel again quietly: no spinner, and a failure leaves the page as it is.
-    onSync: () =>
-      followed === undefined
-        ? undefined
-        : getTracking(followed)
-            .then((tracking) =>
-              setView((current) =>
-                current.status === 'found' &&
-                current.tracking.trackingNumber === tracking.trackingNumber &&
-                !isOlderSnapshot(tracking, current.tracking)
-                  ? { ...current, tracking }
-                  : current,
-              ),
-            )
-            .catch(() => undefined),
+    onSync: () => {
+      if (followed === undefined) return undefined;
+      const requestId = (loadSeq.current += 1);
+      return getTracking(followed)
+        .then((tracking) => {
+          if (requestId !== loadSeq.current) return;
+          setView((current) => {
+            if (
+              current.status !== 'found' ||
+              current.tracking.trackingNumber !== tracking.trackingNumber
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              tracking: isOlderSnapshot(tracking, current.tracking)
+                ? current.tracking
+                : tracking,
+              isRefreshing: false,
+            };
+          });
+        })
+        .catch(() => {
+          if (requestId !== loadSeq.current) return;
+          setView((current) =>
+            current.status === 'found'
+              ? { ...current, isRefreshing: false }
+              : current,
+          );
+        });
+    },
   });
 
   // Only a new address replaces the field: Refresh keeps what is being typed.
@@ -229,9 +249,11 @@ function TrackSearch() {
         ? { ...current, isRefreshing: true }
         : { status: 'loading' },
     );
+    const requestId = (loadSeq.current += 1);
     const controller = new AbortController();
     getTracking(number, controller.signal)
-      .then((tracking) =>
+      .then((tracking) => {
+        if (requestId !== loadSeq.current) return;
         setView((current) =>
           // A manual Refresh also loads the parcel. If the socket already moved
           // it on while the request was in flight, keep the newer state.
@@ -240,10 +262,10 @@ function TrackSearch() {
           isOlderSnapshot(tracking, current.tracking)
             ? { ...current, isRefreshing: false }
             : { status: 'found', tracking, isRefreshing: false },
-        ),
-      )
+        );
+      })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || requestId !== loadSeq.current) return;
         if (
           error instanceof ApiError &&
           (error.code === 'TRACKING_NOT_FOUND' || error.code === 'NOT_FOUND')
