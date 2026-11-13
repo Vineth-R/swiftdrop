@@ -86,6 +86,7 @@ export async function apiLogin(
   return body.data.accessToken;
 }
 
+
 /**
  * Signs in through the login form, waiting out the shared login rate limit.
  * Callers assert the page they expect after the helper returns. It does not
@@ -110,4 +111,82 @@ export async function signInThroughForm(
     await page.waitForTimeout(65_000);
   }
   throw new Error('login stayed rate limited');
+}
+
+type Zone = { id: string; name: string };
+
+const contact = (name: string, zone: Zone) => ({
+  name,
+  phone: '+94771234567',
+  address: '12 Test Lane',
+  city: zone.name,
+  zoneId: zone.id,
+});
+
+export type CreatedParcel = { id: string; trackingNumber: string };
+
+/**
+ * Creates a parcel the way the booking form does (zones, fee estimate, then
+ * POST /parcels), for the customer who owns `token`. It looks for a pair of
+ * zones that has a price, so it does not depend on the seed's zone names.
+ */
+export async function createParcel(
+  request: APIRequestContext,
+  token: string,
+  idempotencyKey: string,
+): Promise<CreatedParcel> {
+  const auth = { Authorization: `Bearer ${token}` };
+
+  const zonesResponse = await request.get('/api/v1/zones');
+  if (!zonesResponse.ok()) throw new Error('zones could not be loaded');
+  const zones = ((await zonesResponse.json()) as { data: Zone[] }).data;
+
+  for (const from of zones) {
+    for (const to of zones) {
+      if (from.id === to.id) continue;
+      const estimate = await request.post('/api/v1/pricing/estimate', {
+        headers: auth,
+        data: {
+          originZoneId: from.id,
+          destinationZoneId: to.id,
+          weightKg: 1,
+          sizeCategory: 'SMALL',
+        },
+      });
+      if (!estimate.ok()) continue;
+      const fee = ((await estimate.json()) as { data: { total: number } }).data
+        .total;
+
+      const created = await request.post('/api/v1/parcels', {
+        headers: { ...auth, 'Idempotency-Key': idempotencyKey },
+        data: {
+          sender: contact('Test Sender', from),
+          recipient: contact('Test Recipient', to),
+          weightKg: 1,
+          sizeCategory: 'SMALL',
+          expectedFee: fee,
+        },
+      });
+      if (created.status() !== 201) {
+        throw new Error(
+          `creating a parcel returned ${created.status()}: ${await created.text()}`,
+        );
+      }
+      const data = ((await created.json()) as { data: CreatedParcel }).data;
+      return { id: data.id, trackingNumber: data.trackingNumber };
+    }
+  }
+  throw new Error('no priced pair of zones in the seed data');
+}
+
+/** The signed-in user's id (GET /users/me). */
+export async function apiUserId(
+  request: APIRequestContext,
+  token: string,
+): Promise<string> {
+  const response = await request.get('/api/v1/users/me', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok()) throw new Error(`/users/me returned ${response.status()}`);
+  return ((await response.json()) as { data: { id: string } }).data.id;
 }
