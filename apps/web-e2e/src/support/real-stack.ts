@@ -86,7 +86,6 @@ export async function apiLogin(
   return body.data.accessToken;
 }
 
-
 /**
  * Signs in through the login form, waiting out the shared login rate limit.
  * Callers assert the page they expect after the helper returns. It does not
@@ -187,6 +186,7 @@ export async function apiUserId(
   const response = await request.get('/api/v1/users/me', {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!response.ok()) throw new Error(`/users/me returned ${response.status()}`);
+  if (!response.ok())
+    throw new Error(`/users/me returned ${response.status()}`);
   return ((await response.json()) as { data: { id: string } }).data.id;
 }

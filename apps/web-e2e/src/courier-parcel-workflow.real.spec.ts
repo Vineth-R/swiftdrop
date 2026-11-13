@@ -12,17 +12,14 @@ import {
   apiUserId,
   createParcel,
   credentialsForRun,
+  signInThroughForm,
   type Credentials,
 } from './support/real-stack';
 
 const LIVE_TIMEOUT = 20_000;
 
 type CourierStatus =
-  | 'PICKED_UP'
-  | 'IN_TRANSIT'
-  | 'OUT_FOR_DELIVERY'
-  | 'DELIVERED'
-  | 'FAILED';
+  'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'FAILED';
 
 /**
  * Real stack: a customer's parcel is assigned to the first courier. The courier
@@ -192,10 +189,8 @@ test.describe('courier parcel workflow on the real stack', () => {
 });
 
 async function signIn(page: Page, credentials: Credentials): Promise<void> {
-  await page.goto('/login');
-  await page.locator('#login-email').fill(credentials.email);
-  await page.locator('#login-password').fill(credentials.password);
-  await page.getByRole('button', { name: 'Log in' }).click();
+  // The shared helper waits out the one-minute login rate limit.
+  await signInThroughForm(page, credentials.email, credentials.password);
   await expect(page.locator('#login-email')).toHaveCount(0);
 }
 
