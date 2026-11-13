@@ -174,9 +174,12 @@ paths:
       summary: Send a sample event (8.14)
       description: >-
         Sends a signed sample `parcel.status_changed` event to the configured
-        URL. A failed delivery still returns 200 with `delivered: false`;
-        `httpStatus` is `null` on timeout or connection failure. Internal error
-        details are never returned.
+        URL and records the attempt in the delivery log (8.15). The sample uses
+        tracking number `SDNTEST0001`. A failed delivery still returns 200 with
+        `delivered: false` and is recorded as a dead-lettered attempt; it is not
+        retried. `httpStatus` is `null` on timeout or connection failure.
+        Internal error details are never returned. Requires an APPROVED
+        merchant.
       tags: [Merchant webhook]
       security:
         - AccessCookie: []
@@ -373,23 +376,70 @@ paths:
     get:
       operationId: merchantListKeys
       summary: List API keys (8.9)
+      description: >-
+        Key metadata for the authenticated merchant. The secret part of a key is
+        never returned after creation.
       security:
         - AccessCookie: []
         - BearerAuth: []
       responses:
-        '200': { description: Key metadata. }
+        '200':
+          description: Key metadata, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MerchantAPIKey'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: MERCHANT_NOT_APPROVED. }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
     post:
       operationId: merchantCreateKey
       summary: Create an API key (8.10)
+      description: >-
+        Approved merchants only. The full key is returned exactly once in this
+        response; later reads expose only its prefix. At most five active keys
+        are allowed.
       security:
         - AccessCookie: []
         - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 100 }
       responses:
-        '201': { description: Created; the full key is returned once. }
+        '201':
+          description: Created; the full key is returned once.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MerchantAPIKeyCreated'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: MERCHANT_NOT_APPROVED. }
         '409': { description: KEY_LIMIT_REACHED. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /merchants/me/keys/{keyId}:
     delete:
       operationId: merchantRevokeKey
@@ -404,7 +454,10 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '204': { description: Revoked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: MERCHANT_NOT_APPROVED. }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /merchant/orders:
     post:
       operationId: merchantCreateOrder
@@ -771,6 +824,31 @@ components:
         totalPages:
           type: integer
           minimum: 0
+    MerchantAPIKey:
+      type: object
+      additionalProperties: false
+      required: [id, name, keyPrefix, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 100 }
+        keyPrefix:
+          { type: string, description: Display prefix only; never the secret. }
+        status: { type: string, enum: [ACTIVE, REVOKED] }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: string, format: date-time, nullable: true }
+    MerchantAPIKeyCreated:
+      type: object
+      additionalProperties: false
+      required: [id, name, keyPrefix, apiKey, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 100 }
+        keyPrefix: { type: string }
+        apiKey:
+          type: string
+          description: The full key. This is the only time it is returned.
+        createdAt: { type: string, format: date-time }
     MerchantOrderContact:
       type: object
       additionalProperties: false

@@ -31,7 +31,7 @@ Sends all of them to Mailpit, so you see them the way a mail app does, at <http:
 | Merchant approved                                                          | An admin approves (8.6)                                  | merchant            | Live                                                                       |
 | Merchant rejected, with or without a reason                                | An admin rejects (8.7)                                   | merchant            | Live; the reason is optional                                               |
 | Merchant suspended, with the reason                                        | An admin suspends (8.8)                                  | merchant            | Live                                                                       |
-| API key created (security notice)                                          | A merchant creates a key (8.10)                          | merchant            | Template ready; M8 sends it                                                |
+| API key created (security notice)                                          | A merchant creates a key (8.10)                          | merchant            | Live; the prefix is shown, never the secret                                |
 | Parcel created, picked up, in transit, out for delivery, delivered, failed | The parcel's status changes (`parcel.status_changed.v1`) | notification worker | Templates ready; the worker renders them once producers publish the events |
 
 "Live" means a person gets the email today when they do the action. "Template ready" means the email exists, is tested and previews, and the owning service calls it.

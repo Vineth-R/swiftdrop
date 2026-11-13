@@ -74,6 +74,15 @@ func (n *Notifier) Suspended(ctx context.Context, to, ownerName, businessName st
 	}))
 }
 
+// APIKeyCreated sends a security notice for a newly created key. Only the
+// display prefix is passed; the secret and its hash never enter an email.
+func (n *Notifier) APIKeyCreated(ctx context.Context, to, ownerName, keyName, keyPrefix string, createdAt time.Time) {
+	n.send(ctx, "merchant_api_key_created", to, emails.MerchantAPIKeyCreated(emails.MerchantAPIKeyData{
+		OwnerName: ownerName, KeyName: keyName, KeyPrefix: keyPrefix,
+		CreatedAt: emails.FormatTime(createdAt), KeysURL: n.site.URL("/api-keys"),
+	}))
+}
+
 // emailSendFailureReason classifies a delivery failure for the log. The error
 // text is never logged because an SMTP server can echo the recipient address.
 func emailSendFailureReason(err error) string {

@@ -7,7 +7,7 @@ import {
   type Page,
 } from '@playwright/test';
 
-import { apiLogin } from './support/real-stack';
+import { apiLogin, signInThroughForm } from './support/real-stack';
 
 const adminEmail =
   process.env['REAL_STACK_ADMIN_EMAIL'] || 'seed.admin@example.com';
@@ -22,10 +22,7 @@ function uniqueEmail(prefix: string) {
 }
 
 async function signIn(page: Page, email: string, password: string) {
-  await page.goto('/login');
-  await page.locator('#login-email').fill(email);
-  await page.locator('#login-password').fill(password);
-  await page.getByRole('button', { name: 'Log in' }).click();
+  await signInThroughForm(page, email, password);
   await expect(page.getByText('Signed in as')).toBeVisible({ timeout: 20_000 });
 }
 
@@ -251,6 +248,26 @@ test.describe('real stack merchant orders', () => {
 
     await page.reload();
     await expect(page.getByText('IN TRANSIT').first()).toBeVisible();
+
+    await page.goto('/dashboard');
+    await expect(page.getByText(externalOrderID)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(
+      page.getByText('IN TRANSIT').filter({ visible: true }).first(),
+    ).toBeVisible({
+      timeout: 30_000,
+    });
+
+    await page.goto('/merchant/orders');
+    await expect(page.getByText(externalOrderID)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(
+      page.getByText('IN TRANSIT').filter({ visible: true }).first(),
+    ).toBeVisible({
+      timeout: 30_000,
+    });
 
     const otherEmail = uniqueEmail('merchant-orders-other');
     const otherBusiness = `Other Orders ${Date.now()}`;

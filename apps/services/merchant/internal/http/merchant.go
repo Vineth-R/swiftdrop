@@ -15,6 +15,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/notify"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/onboarding"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
@@ -50,6 +51,7 @@ type merchantHandler struct {
 	onboarding         *onboarding.Service
 	identity           *identityclient.Client
 	orders             *orders.Service
+	notifier           *notify.Notifier
 	internalTokenValue string
 	cookieName         string
 	logger             *slog.Logger
@@ -63,8 +65,8 @@ func registerMerchantRoutes(router *gin.Engine, options Options) {
 	}
 	h := &merchantHandler{
 		repository: repo, onboarding: options.Onboarding, identity: options.Identity,
-		orders: options.Orders, internalTokenValue: options.InternalToken,
-		cookieName: cookie, logger: options.Logger,
+		orders: options.Orders, notifier: options.Notifier,
+		internalTokenValue: options.InternalToken, cookieName: cookie, logger: options.Logger,
 	}
 
 	limiter := httpx.NewRateLimiter(10, time.Minute)
@@ -290,7 +292,8 @@ func (h *merchantHandler) createKey(c *gin.Context) {
 		h.internalError(c, "generate_api_key_id", "could not generate API key identifier", err)
 		return
 	}
-	if err := h.repository.CreateAPIClient(c.Request.Context(), repository.CreateAPIClientParams{ID: clientID, MerchantID: identity.MerchantID, Name: name, KeyPrefix: key.KeyPrefix, LookupID: key.LookupID, KeyHash: key.Hash}); err != nil {
+	client, err := h.repository.CreateAPIClient(c.Request.Context(), repository.CreateAPIClientParams{ID: clientID, MerchantID: identity.MerchantID, Name: name, KeyPrefix: key.KeyPrefix, LookupID: key.LookupID, KeyHash: key.Hash})
+	if err != nil {
 		if errors.Is(err, repository.ErrKeyLimit) {
 			httpx.Error(c, http.StatusConflict, "KEY_LIMIT_REACHED", "maximum active API keys reached")
 			return
@@ -298,7 +301,27 @@ func (h *merchantHandler) createKey(c *gin.Context) {
 		h.handleRepositoryError(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusCreated, gin.H{"id": clientID, "name": name, "apiKey": key.Full, "keyPrefix": key.KeyPrefix})
+	httpx.Success(c, http.StatusCreated, gin.H{"id": client.ID, "name": client.Name, "apiKey": key.Full, "keyPrefix": client.KeyPrefix, "createdAt": client.CreatedAt})
+	h.notifyAPIKeyCreated(c.Request.Context(), merchant, client.Name, client.KeyPrefix, client.CreatedAt)
+}
+
+// notifyAPIKeyCreated sends the security notice for a new key. The key itself
+// never leaves the handler: only its display prefix is passed to the email.
+// A delivery or Identity failure must not affect the already-created key.
+func (h *merchantHandler) notifyAPIKeyCreated(ctx context.Context, merchant repository.Merchant, name, prefix string, createdAt time.Time) {
+	if h.notifier == nil {
+		return
+	}
+	to, owner := merchant.ContactEmail, merchant.BusinessName
+	if h.identity != nil {
+		if contact, err := h.identity.Contact(ctx, merchant.OwnerUserID); err == nil && contact.Email != "" {
+			to = contact.Email
+			if contact.FullName != "" {
+				owner = contact.FullName
+			}
+		}
+	}
+	h.notifier.APIKeyCreated(ctx, to, owner, name, prefix, createdAt)
 }
 
 func randomUUID() (string, error) {
@@ -316,7 +339,16 @@ func (h *merchantHandler) revokeKey(c *gin.Context) {
 	if !ok || !h.requireApproved(c, merchant) {
 		return
 	}
-	if err := h.repository.RevokeAPIClient(c.Request.Context(), identity.MerchantID, c.Param("keyId")); err != nil {
+	keyID := strings.ToLower(strings.TrimSpace(c.Param("keyId")))
+	if !validation.UUID(keyID) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "API key not found")
+		return
+	}
+	if err := h.repository.RevokeAPIClient(c.Request.Context(), identity.MerchantID, keyID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "API key not found")
+			return
+		}
 		h.handleRepositoryError(c, err)
 		return
 	}
@@ -363,7 +395,12 @@ func (h *merchantHandler) list(c *gin.Context) {
 }
 
 func (h *merchantHandler) adminDetail(c *gin.Context) {
-	merchant, err := h.repository.MerchantByID(c.Request.Context(), c.Param("merchantId"))
+	merchantID := strings.ToLower(strings.TrimSpace(c.Param("merchantId")))
+	if !validation.UUID(merchantID) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+		return
+	}
+	merchant, err := h.repository.MerchantByID(c.Request.Context(), merchantID)
 	if err != nil {
 		h.handleRepositoryError(c, err)
 		return
@@ -393,13 +430,18 @@ func (h *merchantHandler) suspend(c *gin.Context) {
 }
 
 func (h *merchantHandler) decide(c *gin.Context, action string) {
-	if h.onboarding == nil {
-		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "merchant lifecycle is not configured")
-		return
-	}
 	claims, ok := auth.ClaimsFrom(c)
 	if !ok {
 		httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
+		return
+	}
+	merchantID := strings.ToLower(strings.TrimSpace(c.Param("merchantId")))
+	if !validation.UUID(merchantID) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+		return
+	}
+	if h.onboarding == nil {
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "merchant lifecycle is not configured")
 		return
 	}
 	var reason *string
@@ -424,11 +466,11 @@ func (h *merchantHandler) decide(c *gin.Context, action string) {
 	)
 	switch action {
 	case "approve":
-		result, err = h.onboarding.Approve(c.Request.Context(), c.Param("merchantId"), claims.UserID)
+		result, err = h.onboarding.Approve(c.Request.Context(), merchantID, claims.UserID)
 	case "reject":
-		result, err = h.onboarding.Reject(c.Request.Context(), c.Param("merchantId"), claims.UserID, reason)
+		result, err = h.onboarding.Reject(c.Request.Context(), merchantID, claims.UserID, reason)
 	default:
-		result, err = h.onboarding.Suspend(c.Request.Context(), c.Param("merchantId"), claims.UserID, reason)
+		result, err = h.onboarding.Suspend(c.Request.Context(), merchantID, claims.UserID, reason)
 	}
 	if err != nil {
 		h.onboardingError(c, err)
@@ -449,7 +491,12 @@ func (h *merchantHandler) internalApproval(c *gin.Context) {
 		httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "a valid X-Request-Id header is required")
 		return
 	}
-	merchant, err := h.repository.MerchantByOwnerUserID(c.Request.Context(), c.Param("userId"))
+	ownerUserID := strings.ToLower(strings.TrimSpace(c.Param("userId")))
+	if !validation.UUID(ownerUserID) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+		return
+	}
+	merchant, err := h.repository.MerchantByOwnerUserID(c.Request.Context(), ownerUserID)
 	if errors.Is(err, repository.ErrNotFound) {
 		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
 		return

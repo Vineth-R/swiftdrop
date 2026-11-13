@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/notify"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/onboarding"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
@@ -18,6 +19,7 @@ type Options struct {
 	Onboarding    *onboarding.Service
 	Identity      *identityclient.Client
 	Orders        *orders.Service
+	Notifier      *notify.Notifier
 	AccessSecret  string
 	CookieName    string
 	InternalToken string

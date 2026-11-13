@@ -29,8 +29,10 @@ paths:
       description: >-
         Returns the merchant's webhook configuration including the decrypted
         signing secret. The worker signs each delivery with `signingSecret` and
-        skips the delivery when `isActive` is false or the event type is not in
-        `eventTypes`. Answers 503 when the service has no `WEBHOOK_SECRET_KEY`.
+        suppresses the delivery when `isActive` is false, the event type is not
+        in `eventTypes`, or `merchantStatus` is not APPROVED. A suppressed
+        delivery is recorded as a dead-lettered attempt with a stable reason.
+        Answers 503 when the service has no `WEBHOOK_SECRET_KEY`.
       parameters:
         - $ref: '#/components/parameters/InternalToken'
         - $ref: '#/components/parameters/RequestId'
@@ -48,6 +50,7 @@ paths:
                   signingSecret: whsec_example_secret
                   eventTypes: [parcel.status_changed]
                   isActive: true
+                  merchantStatus: APPROVED
                 meta:
                   {
                     requestId: req_01HF-example,
@@ -244,7 +247,7 @@ components:
       properties:
         data:
           type: object
-          required: [url, signingSecret, eventTypes, isActive]
+          required: [url, signingSecret, eventTypes, isActive, merchantStatus]
           properties:
             url: { type: string, format: uri }
             signingSecret:
@@ -254,6 +257,12 @@ components:
               type: array
               items: { type: string, enum: [parcel.status_changed] }
             isActive: { type: boolean }
+            merchantStatus:
+              type: string
+              enum: [PENDING, APPROVED, REJECTED, SUSPENDED]
+              description: >-
+                Current merchant approval status. The worker only sends when
+                this is APPROVED.
         meta:
           $ref: '#/components/schemas/SuccessMeta'
     AttemptRequest:

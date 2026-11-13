@@ -83,11 +83,11 @@ func TestAPIClientRepository(t *testing.T) {
 			ID: orderUUID(), MerchantID: merchantID, Name: "key",
 			KeyPrefix: "sdk_live_abcd", LookupID: orderHex(8), KeyHash: orderHex(32),
 		}
-		if err := repo.CreateAPIClient(ctx, params); err != nil {
+		if _, err := repo.CreateAPIClient(ctx, params); err != nil {
 			t.Fatalf("CreateAPIClient(%d) error = %v", i, err)
 		}
 	}
-	if err := repo.CreateAPIClient(ctx, CreateAPIClientParams{
+	if _, err := repo.CreateAPIClient(ctx, CreateAPIClientParams{
 		ID: orderUUID(), MerchantID: merchantID, Name: "sixth",
 		KeyPrefix: "sdk_live_abcd", LookupID: orderHex(8), KeyHash: orderHex(32),
 	}); !errors.Is(err, ErrKeyLimit) {
@@ -101,7 +101,7 @@ func TestAPIClientRepository(t *testing.T) {
 	lookup := orderHex(8)
 	hash := orderHex(32)
 	params := CreateAPIClientParams{ID: orderUUID(), MerchantID: merchantID, Name: "lookup", KeyPrefix: "sdk_live_ab", LookupID: lookup, KeyHash: hash}
-	_ = repo.CreateAPIClient(ctx, params) // sixth may fail; the row must already exist for lookup
+	_, _ = repo.CreateAPIClient(ctx, params) // sixth may fail; the row must already exist for lookup
 	client, stored, err := repo.APIClientByLookup(ctx, lookup)
 	if err != nil {
 		// The limit is five, so revoke one first and retry.
@@ -111,7 +111,7 @@ func TestAPIClientRepository(t *testing.T) {
 		if err := repo.RevokeAPIClient(ctx, merchantID, keys[0].ID); err != nil {
 			t.Fatalf("RevokeAPIClient() error = %v", err)
 		}
-		if err := repo.CreateAPIClient(ctx, params); err != nil {
+		if _, err := repo.CreateAPIClient(ctx, params); err != nil {
 			t.Fatalf("CreateAPIClient(after revoke) error = %v", err)
 		}
 		client, stored, err = repo.APIClientByLookup(ctx, lookup)

@@ -2860,6 +2860,8 @@ Request body:
 
             "registrationNumber": "PV 123456",
 
+            "businessAddress": "88 Galle Road, Colombo 03",
+
             "contactEmail": "support@shopzone.lk",
 
             "contactPhone": "+94112223344",
@@ -3040,7 +3042,9 @@ Access: ADMIN.
 
 
 
-Purpose: Rejects a pending application and records the required reason.
+Purpose: Rejects a pending application and optionally records a merchant-facing
+reason. An empty or whitespace-only reason is stored as NULL and omitted from the
+email.
 
 
 
@@ -3050,7 +3054,8 @@ Request body: { "reason": "Business registration could not be verified" }
 
 Response 200: { "data": { "id": "m1a2...", "status": "REJECTED" } } . Errors:
 
-404, 409 INVALID_MERCHANT_STATE (allowed from PENDING), 422 (reason required).
+404, 409 INVALID_MERCHANT_STATE (allowed from PENDING), 422 (reason longer than
+1,000 characters).
 
 Audited.
 
@@ -3326,7 +3331,11 @@ Access: MERCHANT.
 
 
 
-Purpose: Sends a sample event to the configured URL and reports the result.
+Purpose: Sends a sample event to the configured URL, records the attempt in the
+delivery log (8.15) and reports the result. The sample uses tracking number
+`SDNTEST0001` and event id generated for that send. A failed test is recorded as
+a dead-lettered attempt; it is not retried. The endpoint requires an APPROVED
+merchant.
 
 
 <!-- PDF page 35 -->
@@ -3900,7 +3909,7 @@ These webhook business retries are separate from shared RabbitMQ consumer retrie
 | `realtime.queue` | `parcel.assigned.v1`, `parcel.status_changed.v1` | Realtime Service |
 | `merchant.sync.queue` | `parcel.status_changed.v1` | Merchant Integration |
 
-Queue names are deployment details. The implemented durable queues are `notification.requested.v1` (legacy), `notification.parcel.created.v1`, `notification.parcel.status_changed.v1`, `webhook.parcel.status_changed.v1` and `realtime.parcel.status_changed.v1`; do not treat the target names in this table as evidence that they are running. `merchant.sync.queue` has no consumer, queue declaration, migration or Compose wiring. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
+Queue names are deployment details. The implemented durable queues are `notification.requested.v1` (legacy), `notification.parcel.created.v1`, `notification.parcel.status_changed.v1`, `webhook.parcel.status_changed.v1`, `realtime.parcel.status_changed.v1` and `merchant.sync.queue`; do not treat the target names in this table as evidence that they are running. The merchant service declares and consumes `merchant.sync.queue`; the event-flow integration test exercises the consumer against PostgreSQL and RabbitMQ. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
 
 Failure topology is derived by the shared consumer: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. A retry is dead-lettered to its owning queue through the default exchange, so it cannot reach another worker bound to the same event. The legacy name `swiftdrop.dlx` is not the implemented exchange. Messages are persistent, and consumers deduplicate by `event_id`.
 
@@ -4180,11 +4189,23 @@ Method and path                                  Caller to      Purpose
 
                                                    Merchant       "eventTypes",
 
-                                                                  "isActive" } . This is
+                                                                  "isActive",
 
-                                                                  the only place the
+                                                                  "merchantStatus" } .
 
-                                                                  secret is returned
+                                                                  The worker sends only
+
+                                                                  when merchantStatus is
+
+                                                                  APPROVED; a suppressed
+
+                                                                  delivery is recorded as
+
+                                                                  a dead-lettered attempt.
+
+                                                                  This is the only place
+
+                                                                  the secret is returned
 
 
 
@@ -4223,10 +4244,10 @@ Both internal Parcel endpoints are implemented and documented in
 `contracts/openapi/parcel.yaml`. They require `X-Internal-Token`, fail closed when
 it is not configured, and remain unreachable through the public gateway.
 The trusted Merchant caller must supply the verified merchant owner's identity
-user ID as `createdByUserId`. This completes the previously planned request
-contract: DB v1.1 requires `created_by_user_id` to identify the customer or
-merchant owner, and a merchant ID is not a user ID. No existing Merchant order
-caller was present when this field was added. M8 must send it when wiring orders.
+user ID as `createdByUserId`. This completes the request contract: DB v1.1
+requires `created_by_user_id` to identify the customer or merchant owner, and a
+merchant ID is not a user ID. The M8 merchant order caller sends the verified
+merchant owner's user ID; Parcel never derives it from the merchant ID.
 
  POST /internal/parcels request:
 

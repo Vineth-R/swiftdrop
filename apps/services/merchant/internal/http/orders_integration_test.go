@@ -27,6 +27,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/notify"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/parcelclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
@@ -44,14 +45,28 @@ type fakeParcel struct {
 	byOrder   map[string][]byte
 	responses map[string]orders.ParcelResult
 	timeouts  map[string]bool
+	failOnce  map[string]bool
 	calls     int
+	created   int
 }
 
 func newFakeParcel() *fakeParcel {
 	return &fakeParcel{
 		byOrder: map[string][]byte{}, responses: map[string]orders.ParcelResult{},
-		timeouts: map[string]bool{},
+		timeouts: map[string]bool{}, failOnce: map[string]bool{},
 	}
+}
+
+func (f *fakeParcel) createdCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.created
+}
+
+func (f *fakeParcel) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 func (f *fakeParcel) server() *httptest.Server {
@@ -62,6 +77,7 @@ func (f *fakeParcel) server() *httptest.Server {
 		}
 		body, _ := io.ReadAll(r.Body)
 		var input struct {
+			MerchantID      string `json:"merchantId"`
 			ExternalOrderID string `json:"externalOrderId"`
 			Recipient       struct {
 				Name string `json:"name"`
@@ -70,6 +86,7 @@ func (f *fakeParcel) server() *httptest.Server {
 			SizeCategory string  `json:"sizeCategory"`
 		}
 		_ = json.Unmarshal(body, &input)
+		orderKey := input.MerchantID + "|" + input.ExternalOrderID
 
 		f.mu.Lock()
 		if input.ExternalOrderID == "SZ-ROUTE-FAIL" {
@@ -78,33 +95,41 @@ func (f *fakeParcel) server() *httptest.Server {
 			_, _ = io.WriteString(w, `{"error":{"code":"ROUTE_NOT_SERVICEABLE","message":"no route"}}`)
 			return
 		}
-		if !f.timeouts[input.ExternalOrderID] && input.ExternalOrderID == "SZ-TIMEOUT" {
-			f.timeouts[input.ExternalOrderID] = true
+		if !f.timeouts[orderKey] && input.ExternalOrderID == "SZ-TIMEOUT" {
+			f.timeouts[orderKey] = true
 			f.mu.Unlock()
 			time.Sleep(150 * time.Millisecond)
 			return
 		}
+		if input.ExternalOrderID == "SZ-OUTAGE" && !f.failOnce[orderKey] {
+			f.failOnce[orderKey] = true
+			f.mu.Unlock()
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":{"code":"SERVICE_UNAVAILABLE"}}`)
+			return
+		}
 		f.calls++
-		if previous, ok := f.byOrder[input.ExternalOrderID]; ok {
+		if previous, ok := f.byOrder[orderKey]; ok {
 			if string(previous) != string(body) {
 				f.mu.Unlock()
 				w.WriteHeader(http.StatusConflict)
 				_, _ = io.WriteString(w, `{"error":{"code":"IDEMPOTENCY_CONFLICT"}}`)
 				return
 			}
-			result := f.responses[input.ExternalOrderID]
+			result := f.responses[orderKey]
 			f.mu.Unlock()
 			writeParcelSuccess(w, result)
 			return
 		}
+		f.created++
 		result := orders.ParcelResult{
-			ParcelID:       fmt.Sprintf("00000000-0000-4000-8000-%012d", f.calls),
-			TrackingNumber: fmt.Sprintf("SDN%08d", f.calls),
+			ParcelID:       fmt.Sprintf("00000000-0000-4000-8000-%012d", f.created),
+			TrackingNumber: fmt.Sprintf("SDN%08d", f.created),
 			Status:         "CREATED",
 			Fee:            orders.Fee{Currency: "LKR", BaseFee: 45000, WeightCharge: 10000, Total: 55000},
 		}
-		f.byOrder[input.ExternalOrderID] = body
-		f.responses[input.ExternalOrderID] = result
+		f.byOrder[orderKey] = body
+		f.responses[orderKey] = result
 		f.mu.Unlock()
 		writeParcelSuccess(w, result)
 	}))
@@ -121,6 +146,14 @@ func writeParcelSuccess(w http.ResponseWriter, result orders.ParcelResult) {
 
 func newOrderHTTPFixture(t *testing.T) (context.Context, *repository.Repository, *pgxpool.Pool, *gin.Engine, *fakeParcel) {
 	t.Helper()
+	return newOrderHTTPFixtureWith(t, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+}
+
+func newOrderHTTPFixtureWith(t *testing.T, logger *slog.Logger, notifier *notify.Notifier) (context.Context, *repository.Repository, *pgxpool.Pool, *gin.Engine, *fakeParcel) {
+	t.Helper()
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not set; skipping merchant order HTTP tests")
@@ -174,6 +207,9 @@ func newOrderHTTPFixture(t *testing.T) (context.Context, *repository.Repository,
 		t.Fatalf("parse pool config: %v", err)
 	}
 	poolConfig.ConnConfig.Database = databaseName
+	// Keep the fixture responsive with the same small pool CI uses. A waiting
+	// idempotency lock must not be able to starve the lock holder's queries.
+	poolConfig.MaxConns = 4
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		t.Fatalf("create pool: %v", err)
@@ -200,10 +236,10 @@ func newOrderHTTPFixture(t *testing.T) (context.Context, *repository.Repository,
 	if err != nil {
 		t.Fatalf("identityclient.New() error = %v", err)
 	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := NewWithOptions(Options{
 		Repository: repo, Identity: identity,
 		Orders:       orders.New(repo, parcelClient, staticZones{name: "Colombo"}),
+		Notifier:     notifier,
 		AccessSecret: testJWTSecret, CookieName: "sd_access", InternalToken: "internal-token", Logger: logger,
 	})
 	return ctx, repo, pool, router, parcel
@@ -438,6 +474,270 @@ func TestMerchantOrderConcurrentDuplicateCreatesOneOrder(t *testing.T) {
 	}
 }
 
+func TestMerchantOrderConcurrentSameKeyDifferentPayloadCreatesOneParcel(t *testing.T) {
+	ctx, repo, pool, router, parcel := newOrderHTTPFixture(t)
+	for iteration := 0; iteration < 5; iteration++ {
+		merchantID, _ := createHTTPMerchant(t, ctx, repo)
+		approve(t, ctx, repo, merchantID)
+		key := newKey(t, ctx, repo, merchantID, fmt.Sprintf("race-%d", iteration))
+		idempotencyKey := fmt.Sprintf("race-key-%d", iteration)
+		before := parcel.createdCount()
+
+		first := orderBody(fmt.Sprintf("SZ-RACE-A-%d", iteration))
+		second := orderBody(fmt.Sprintf("SZ-RACE-B-%d", iteration))
+		second["recipient"].(map[string]any)["name"] = "Another Recipient"
+		statuses := runConcurrentOrders(t, router, key.full, idempotencyKey, first, second)
+
+		created, conflicts := countStatuses(t, statuses, http.StatusCreated, http.StatusConflict)
+		if created != 1 || conflicts != 1 {
+			t.Fatalf("iteration %d: created=%d conflicts=%d statuses=%v", iteration, created, conflicts, statuses)
+		}
+		if got := parcel.createdCount() - before; got != 1 {
+			t.Fatalf("iteration %d: parcels created = %d, want 1", iteration, got)
+		}
+		assertReservationCompleted(t, ctx, pool, merchantID, idempotencyKey)
+		var ordersCount int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM merchant.merchant_orders
+			WHERE merchant_id = $1 AND idempotency_key = $2`, merchantID, idempotencyKey).Scan(&ordersCount); err != nil {
+			t.Fatalf("count merchant orders: %v", err)
+		}
+		if ordersCount != 1 {
+			t.Fatalf("iteration %d: merchant orders = %d, want 1", iteration, ordersCount)
+		}
+	}
+}
+
+func TestMerchantOrderConcurrentSameKeySamePayloadReplaysOneParcel(t *testing.T) {
+	ctx, repo, pool, router, parcel := newOrderHTTPFixture(t)
+	merchantID, _ := createHTTPMerchant(t, ctx, repo)
+	approve(t, ctx, repo, merchantID)
+	key := newKey(t, ctx, repo, merchantID, "same")
+	before := parcel.createdCount()
+	beforeCalls := parcel.callCount()
+
+	body := orderBody("SZ-SAME-RACE")
+	statuses := runConcurrentOrders(t, router, key.full, "same-race-key", body, body)
+	created, replayed := countStatuses(t, statuses, http.StatusCreated, http.StatusOK)
+	if created != 1 || replayed != 1 {
+		t.Fatalf("created=%d replayed=%d statuses=%v", created, replayed, statuses)
+	}
+	if got := parcel.createdCount() - before; got != 1 {
+		t.Fatalf("parcels created = %d, want 1", got)
+	}
+	if got := parcel.callCount() - beforeCalls; got != 1 {
+		t.Fatalf("parcel calls = %d, want 1", got)
+	}
+	assertReservationCompleted(t, ctx, pool, merchantID, "same-race-key")
+}
+
+func TestMerchantOrderConcurrentManyPayloadsSameKeyCreateOneParcel(t *testing.T) {
+	ctx, repo, pool, router, parcel := newOrderHTTPFixture(t)
+	merchantID, _ := createHTTPMerchant(t, ctx, repo)
+	approve(t, ctx, repo, merchantID)
+	key := newKey(t, ctx, repo, merchantID, "many")
+	before := parcel.createdCount()
+
+	bodies := make([]map[string]any, 0, 5)
+	for i := 0; i < 5; i++ {
+		body := orderBody(fmt.Sprintf("SZ-MANY-%d", i))
+		body["recipient"].(map[string]any)["name"] = fmt.Sprintf("Recipient %d", i)
+		bodies = append(bodies, body)
+	}
+	statuses := runConcurrentOrders(t, router, key.full, "many-race-key", bodies...)
+	created, conflicts := countStatuses(t, statuses, http.StatusCreated, http.StatusConflict)
+	if created != 1 || conflicts != 4 {
+		t.Fatalf("created=%d conflicts=%d statuses=%v", created, conflicts, statuses)
+	}
+	if got := parcel.createdCount() - before; got != 1 {
+		t.Fatalf("parcels created = %d, want 1", got)
+	}
+	assertReservationCompleted(t, ctx, pool, merchantID, "many-race-key")
+}
+
+func TestMerchantOrderDifferentKeysCreateSeparateParcels(t *testing.T) {
+	ctx, repo, _, router, parcel := newOrderHTTPFixture(t)
+	merchantID, _ := createHTTPMerchant(t, ctx, repo)
+	approve(t, ctx, repo, merchantID)
+	firstKey := newKey(t, ctx, repo, merchantID, "first")
+	secondKey := newKey(t, ctx, repo, merchantID, "second")
+	before := parcel.createdCount()
+
+	var wg sync.WaitGroup
+	statuses := make(chan int, 2)
+	for i, pair := range []struct {
+		key  string
+		body map[string]any
+	}{
+		{key: firstKey.full, body: orderBody("SZ-DIFFERENT-KEY-A")},
+		{key: secondKey.full, body: orderBody("SZ-DIFFERENT-KEY-B")},
+	} {
+		wg.Add(1)
+		go func(index int, apiKey string, body map[string]any) {
+			defer wg.Done()
+			status, _ := requestJSON(t, router, http.MethodPost, "/merchant/orders", body,
+				map[string]string{"X-API-Key": apiKey, "Idempotency-Key": fmt.Sprintf("different-key-%d", index)})
+			statuses <- status
+		}(i, pair.key, pair.body)
+	}
+	wg.Wait()
+	close(statuses)
+	collected := make([]int, 0, 2)
+	for status := range statuses {
+		collected = append(collected, status)
+	}
+	created, _ := countStatuses(t, collected, http.StatusCreated)
+	if created != 2 {
+		t.Fatalf("created=%d, want 2", created)
+	}
+	if got := parcel.createdCount() - before; got != 2 {
+		t.Fatalf("parcels created = %d, want 2", got)
+	}
+}
+
+func TestMerchantOrderDifferentMerchantsSameExternalOrderID(t *testing.T) {
+	ctx, repo, _, router, parcel := newOrderHTTPFixture(t)
+	firstMerchant, _ := createHTTPMerchant(t, ctx, repo)
+	secondMerchant, _ := createHTTPMerchant(t, ctx, repo)
+	approve(t, ctx, repo, firstMerchant)
+	approve(t, ctx, repo, secondMerchant)
+	firstKey := newKey(t, ctx, repo, firstMerchant, "first")
+	secondKey := newKey(t, ctx, repo, secondMerchant, "second")
+	before := parcel.createdCount()
+
+	for i, apiKey := range []string{firstKey.full, secondKey.full} {
+		status, body := requestJSON(t, router, http.MethodPost, "/merchant/orders", orderBody("SZ-SHARED-EXTERNAL"),
+			map[string]string{"X-API-Key": apiKey, "Idempotency-Key": fmt.Sprintf("shared-%d", i)})
+		if status != http.StatusCreated {
+			t.Fatalf("merchant %d status = %d (%s)", i, status, body)
+		}
+	}
+	if got := parcel.createdCount() - before; got != 2 {
+		t.Fatalf("parcels created = %d, want 2", got)
+	}
+}
+
+func TestMerchantOrderReplayByExternalOrderWithAnotherKeyIsRepeatable(t *testing.T) {
+	ctx, repo, _, router, parcel := newOrderHTTPFixture(t)
+	merchantID, _ := createHTTPMerchant(t, ctx, repo)
+	approve(t, ctx, repo, merchantID)
+	firstKey := newKey(t, ctx, repo, merchantID, "first")
+	secondKey := newKey(t, ctx, repo, merchantID, "second")
+	before := parcel.createdCount()
+	body := orderBody("SZ-SHARED-REPLAY")
+
+	status, response := requestJSON(t, router, http.MethodPost, "/merchant/orders", body,
+		map[string]string{"X-API-Key": firstKey.full, "Idempotency-Key": "first-key"})
+	if status != http.StatusCreated {
+		t.Fatalf("first key status = %d (%s)", status, response)
+	}
+	status, response = requestJSON(t, router, http.MethodPost, "/merchant/orders", body,
+		map[string]string{"X-API-Key": secondKey.full, "Idempotency-Key": "second-key"})
+	if status != http.StatusOK {
+		t.Fatalf("second key replay status = %d (%s)", status, response)
+	}
+	status, response = requestJSON(t, router, http.MethodPost, "/merchant/orders", body,
+		map[string]string{"X-API-Key": secondKey.full, "Idempotency-Key": "second-key"})
+	if status != http.StatusOK {
+		t.Fatalf("repeat second key status = %d (%s)", status, response)
+	}
+	if got := parcel.createdCount() - before; got != 1 {
+		t.Fatalf("parcels created = %d, want 1", got)
+	}
+}
+
+func TestMerchantOrderParcelFailureLeavesRetryableReservation(t *testing.T) {
+	ctx, repo, pool, router, parcel := newOrderHTTPFixture(t)
+	merchantID, _ := createHTTPMerchant(t, ctx, repo)
+	approve(t, ctx, repo, merchantID)
+	key := newKey(t, ctx, repo, merchantID, "outage")
+	body := orderBody("SZ-OUTAGE")
+	idempotencyKey := "outage-key"
+
+	status, response := requestJSON(t, router, http.MethodPost, "/merchant/orders", body,
+		map[string]string{"X-API-Key": key.full, "Idempotency-Key": idempotencyKey})
+	if status != http.StatusServiceUnavailable || errorCode(response) != "SERVICE_UNAVAILABLE" {
+		t.Fatalf("first attempt status = %d (%s)", status, response)
+	}
+	assertReservationStatus(t, ctx, pool, merchantID, idempotencyKey, "FAILED")
+
+	different := orderBody("SZ-OUTAGE-OTHER")
+	different["recipient"].(map[string]any)["name"] = "Someone Else"
+	status, response = requestJSON(t, router, http.MethodPost, "/merchant/orders", different,
+		map[string]string{"X-API-Key": key.full, "Idempotency-Key": idempotencyKey})
+	if status != http.StatusConflict || errorCode(response) != "DUPLICATE_ORDER" {
+		t.Fatalf("different payload after failure status = %d (%s)", status, response)
+	}
+	if parcel.createdCount() != 0 {
+		t.Fatalf("a rejected request created a parcel")
+	}
+
+	status, response = requestJSON(t, router, http.MethodPost, "/merchant/orders", body,
+		map[string]string{"X-API-Key": key.full, "Idempotency-Key": idempotencyKey})
+	if status != http.StatusCreated {
+		t.Fatalf("retry status = %d (%s)", status, response)
+	}
+	assertReservationCompleted(t, ctx, pool, merchantID, idempotencyKey)
+	if parcel.createdCount() != 1 {
+		t.Fatalf("parcels created = %d, want 1", parcel.createdCount())
+	}
+}
+
+func runConcurrentOrders(t *testing.T, router http.Handler, apiKey, idempotencyKey string, bodies ...map[string]any) []int {
+	t.Helper()
+	var wg sync.WaitGroup
+	statuses := make(chan int, len(bodies))
+	for _, body := range bodies {
+		wg.Add(1)
+		go func(body map[string]any) {
+			defer wg.Done()
+			status, _ := requestJSON(t, router, http.MethodPost, "/merchant/orders", body,
+				map[string]string{"X-API-Key": apiKey, "Idempotency-Key": idempotencyKey})
+			statuses <- status
+		}(body)
+	}
+	wg.Wait()
+	close(statuses)
+	result := make([]int, 0, len(bodies))
+	for status := range statuses {
+		result = append(result, status)
+	}
+	return result
+}
+
+func countStatuses(t *testing.T, statuses []int, want ...int) (int, int) {
+	t.Helper()
+	counts := map[int]int{}
+	for _, status := range statuses {
+		counts[status]++
+	}
+	if len(want) == 0 {
+		return 0, 0
+	}
+	return counts[want[0]], counts[want[len(want)-1]]
+}
+
+func assertReservationCompleted(t *testing.T, ctx context.Context, pool *pgxpool.Pool, merchantID, key string) {
+	t.Helper()
+	assertReservationStatus(t, ctx, pool, merchantID, key, "COMPLETED")
+}
+
+func assertReservationStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, merchantID, key, want string) {
+	t.Helper()
+	var status string
+	var orderID *string
+	if err := pool.QueryRow(ctx, `SELECT status, order_id::text
+		FROM merchant.merchant_order_reservations
+		WHERE merchant_id = $1 AND idempotency_key = $2`, merchantID, key).Scan(&status, &orderID); err != nil {
+		t.Fatalf("read reservation: %v", err)
+	}
+	if status != want {
+		t.Fatalf("reservation status = %q, want %q", status, want)
+	}
+	if want == "COMPLETED" && orderID == nil {
+		t.Fatal("completed reservation has no order id")
+	}
+}
+
 func TestMerchantOrderTimeoutDoesNotPersistThenRetrySucceeds(t *testing.T) {
 	ctx, repo, _, router, _ := newOrderHTTPFixture(t)
 	merchantID, _ := createHTTPMerchant(t, ctx, repo)
@@ -494,7 +794,7 @@ func TestMerchantAPIKeyLimitIsConcurrencySafe(t *testing.T) {
 				results <- err
 				return
 			}
-			err = repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
+			_, err = repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
 				ID: urlUUID(), MerchantID: merchantID, Name: fmt.Sprintf("key-%d", index),
 				KeyPrefix: key.KeyPrefix, LookupID: key.LookupID, KeyHash: key.Hash,
 			})
