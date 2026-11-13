@@ -117,6 +117,7 @@ func run() error {
 	servicehttp.Mount(router, servicehttp.Options{
 		Repository: merchantRepo, Onboarding: onboardingService, Identity: identityClient,
 		Orders:       orderService,
+		Notifier:     mail.Notifier,
 		AccessSecret: config.AccessSecret, CookieName: config.CookieName,
 		InternalToken: config.InternalToken, Logger: logger,
 	})

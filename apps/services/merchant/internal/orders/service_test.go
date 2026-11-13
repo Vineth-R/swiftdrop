@@ -47,15 +47,20 @@ func testParcelResult() ParcelResult {
 }
 
 type fakeStore struct {
-	byExternal  map[string]Order
-	byKey       map[string]Order
-	createCalls int
-	createErr   error
-	conflict    bool
+	byExternal      map[string]Order
+	byKey           map[string]Order
+	reservations    map[string]*OrderReservation
+	reservationKeys map[string]string
+	createCalls     int
+	createErr       error
+	conflict        bool
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{byExternal: map[string]Order{}, byKey: map[string]Order{}}
+	return &fakeStore{
+		byExternal: map[string]Order{}, byKey: map[string]Order{},
+		reservations: map[string]*OrderReservation{}, reservationKeys: map[string]string{},
+	}
 }
 
 func (s *fakeStore) OrderByExternalOrderID(_ context.Context, merchantID, externalOrderID string) (Order, error) {
@@ -68,6 +73,15 @@ func (s *fakeStore) OrderByExternalOrderID(_ context.Context, merchantID, extern
 func (s *fakeStore) OrderByIdempotencyKey(_ context.Context, merchantID, key string) (Order, error) {
 	if order, ok := s.byKey[merchantID+"|"+key]; ok {
 		return order, nil
+	}
+	return Order{}, ErrNotFound
+}
+
+func (s *fakeStore) OrderByID(_ context.Context, merchantID, orderID string) (Order, error) {
+	for _, order := range s.byExternal {
+		if order.MerchantID == merchantID && order.ID == orderID {
+			return order, nil
+		}
 	}
 	return Order{}, ErrNotFound
 }
@@ -98,7 +112,53 @@ func (s *fakeStore) CreateOrder(_ context.Context, params CreateParams) (Order, 
 	if conflict {
 		return Order{}, ErrDuplicateOrder
 	}
+	if params.ReservationID != "" {
+		if reservation, ok := s.reservations[params.ReservationID]; ok {
+			reservation.Status = OrderReservationCompleted
+			reservation.OrderID = &order.ID
+		}
+	}
 	return order, nil
+}
+
+func (s *fakeStore) WithIdempotencyLock(_ context.Context, _, _ string, fn func(context.Context) error) error {
+	return fn(context.Background())
+}
+
+func (s *fakeStore) ReserveOrderAttempt(_ context.Context, merchantID, key, hash string) (OrderReservation, error) {
+	lookup := merchantID + "|" + key
+	if id, ok := s.reservationKeys[lookup]; ok {
+		reservation := s.reservations[id]
+		if reservation.RequestHash != hash {
+			return OrderReservation{}, ErrDuplicateOrder
+		}
+		if reservation.Status != OrderReservationCompleted {
+			reservation.Status = OrderReservationPending
+		}
+		return *reservation, nil
+	}
+	reservation := &OrderReservation{
+		ID: "res-" + key, MerchantID: merchantID, IdempotencyKey: key,
+		RequestHash: hash, Status: OrderReservationPending,
+	}
+	s.reservations[reservation.ID] = reservation
+	s.reservationKeys[lookup] = reservation.ID
+	return *reservation, nil
+}
+
+func (s *fakeStore) CompleteOrderAttempt(_ context.Context, reservationID, orderID string) error {
+	if reservation, ok := s.reservations[reservationID]; ok {
+		reservation.Status = OrderReservationCompleted
+		reservation.OrderID = &orderID
+	}
+	return nil
+}
+
+func (s *fakeStore) FailOrderAttempt(_ context.Context, reservationID, _ string) error {
+	if reservation, ok := s.reservations[reservationID]; ok && reservation.Status != OrderReservationCompleted {
+		reservation.Status = OrderReservationFailed
+	}
+	return nil
 }
 
 func (s *fakeStore) OrderDetail(context.Context, string, string) (Detail, error) {

@@ -644,7 +644,7 @@ func (f *fakeMerchantAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/webhook"):
-		_, _ = w.Write([]byte(`{"data":{"url":"https://merchant.example.test/hook","signingSecret":"whsec_eventflow","eventTypes":["parcel.status_changed"],"isActive":true}}`))
+		_, _ = w.Write([]byte(`{"data":{"url":"https://merchant.example.test/hook","signingSecret":"whsec_eventflow","eventTypes":["parcel.status_changed"],"isActive":true,"merchantStatus":"APPROVED"}}`))
 	case strings.Contains(r.URL.Path, "/webhook/deliveries/"):
 		eventID := path.Base(r.URL.Path)
 		f.mu.Lock()

@@ -281,7 +281,7 @@ func newKey(t *testing.T, ctx context.Context, repo *repository.Repository, merc
 		t.Fatalf("apikey.Generate returned error: %v", err)
 	}
 	id := userID(t)
-	if err := repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
+	if _, err := repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
 		ID: id, MerchantID: merchantID, Name: name, KeyPrefix: key.KeyPrefix, LookupID: key.LookupID, KeyHash: key.Hash,
 	}); err != nil {
 		t.Fatalf("CreateAPIClient returned error: %v", err)

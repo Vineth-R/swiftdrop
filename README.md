@@ -240,7 +240,7 @@ Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`. To switch b
 Migrations live under `migrations/<service>/` and use `NNNNNN_description.up.sql` / `.down.sql`. Applied migrations are immutable.
 
 - `000001_initial_schema` creates the schema.
-- `000002_tables` is the M1 baseline from [`docs/db.sql`](docs/db.sql) (26 tables, triggers, seeds). Identity `000004`-`000006` and merchant `000007` add four additive tables, making 30 tables in the complete chain.
+- `000002_tables` is the M1 baseline from [`docs/db.sql`](docs/db.sql) (26 tables, triggers, seeds). Identity `000004`-`000006`, merchant `000007` and merchant `000011` add five additive tables, making 31 tables in the complete chain.
 - `000006_merchant_constraints` is the merchant-specific forward migration that preserves the merchant checks after the duplicate merchant migration files were removed. Versions `000003`–`000005` are intentionally absent for merchant; the runner accepts gaps.
 - `000007_registration_onboarding` adds merchant onboarding tables and the required registration-number constraint.
 - `000008_business_reg_no_optional` is the forward compatibility migration applied to the source/production databases.
@@ -257,7 +257,7 @@ make migrate
 
 `make migrate` runs `scripts/migrate.sh` inside the pinned `migrate/migrate:v4.18.3` container. The migrate service receives a `DATABASE_URL` that Compose builds from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` (from `.env` or exported variables), so custom credentials are honored, and it never prints the URL. It bootstraps `public.set_updated_at()` and applies identity → pricing → parcel → merchant → notification, each with its own `<service>_schema_migrations` version table.
 
-Expected result: 30 tables and seeds `5/5/25/4/4`.
+Expected result: 31 tables and seeds `5/5/25/4/4`.
 
 Verify the baseline without writing to the database:
 
@@ -657,7 +657,7 @@ See [Security scanning](docs/security-scanning.md) for scanner versions, thresho
   ```
 
 - **Migration fails with a duplicate version:** check `migrations/<service>/` for repeated six-digit versions. Applied migrations are immutable; add a new forward migration instead of renumbering an applied one.
-- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`, `000007_registration_onboarding`, the compatibility migration `000008_business_reg_no_optional`, `000009_restore_business_reg_no_required` and `000010_merchant_order_snapshots`; the current head is `000010` and the next merchant migration starts at `000011`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
+- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`, `000007_registration_onboarding`, the compatibility migration `000008_business_reg_no_optional`, `000009_restore_business_reg_no_required`, `000010_merchant_order_snapshots` and `000011_merchant_order_idempotency`; the current head is `000011` and the next merchant migration starts at `000012`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
 - **CI fails on formatting:** run `gofmt -w` on the changed Go files and `pnpm exec prettier --write` on changed documentation or frontend files.
 
 ## Branching and pull requests
@@ -680,7 +680,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 
 - [`DESIGN.md`](DESIGN.md): the frontend design guide. Read it before building or changing any screen in `apps/web`.
 - [`docs/architecture.md`](docs/architecture.md): service boundaries, routing, lifecycle, messaging, and readiness.
-- [`docs/db.sql`](docs/db.sql): canonical 26-table baseline (five schemas, triggers, seeds); additive migrations bring the current chain to 30 tables.
+- [`docs/db.sql`](docs/db.sql): canonical 26-table baseline (five schemas, triggers, seeds); additive migrations bring the current chain to 31 tables.
 - [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md) and [`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md): product API and database design sources.
 - [`docs/how-to-error-logging.md`](docs/how-to-error-logging.md): adopting the shared error envelope and safe logging.
 - [`docs/security-scanning.md`](docs/security-scanning.md): automated security scanners, thresholds, SBOMs, exceptions, and gate troubleshooting.
@@ -698,7 +698,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 
 Implemented: repository structure, service entry points, health and readiness endpoints, environment configuration with case-insensitive and trimmed values, structured logging, request IDs, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB HTTP header limit, shared infrastructure, event envelope and message framing validation, bounded RabbitMQ retry and dead-letter routing with publisher confirms, reconnect backoff with jitter, unit and broker-backed messaging integration tests, one Playwright example test run Chromium-only in CI, Dockerfiles, Compose infrastructure, Nginx routing, migration and event conventions, Nx targets, CI, and documentation.
 
-Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema migrations (30 tables and reference seeds, including the recovered identity/merchant additive migrations), forward merchant constraints, Mailpit, published gateway and development infrastructure ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
+Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema migrations (31 tables and reference seeds, including the recovered identity/merchant additive migrations), forward merchant constraints, Mailpit, published gateway and development infrastructure ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
 
 M4 implemented: `POST /pricing/estimate`, `GET /zones`, authenticated internal quote/zone lookups, ADMIN pricing configuration with transactional audit logging, exact decimal LKR calculations, bounded public rate limiting, trusted-proxy handling, and anonymous `GET /tracking/{trackingNumber}` backed by real parcel/status-history rows. M5 consumes the real internal quote and persists its exact LKR total and snake_case `price_breakdown` atomically with the parcel, initial history and PENDING outbox data. Customer creation/read/history/PDF APIs, internal merchant creation/summary and the `/new`, `/parcels`, `/parcels/{id}` screens are implemented. See [M5 evidence](docs/m5-complete-parcel-flow.md) for verification and remaining dependencies.
 

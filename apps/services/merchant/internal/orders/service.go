@@ -11,9 +11,14 @@ import (
 type Store interface {
 	OrderByExternalOrderID(ctx context.Context, merchantID, externalOrderID string) (Order, error)
 	OrderByIdempotencyKey(ctx context.Context, merchantID, key string) (Order, error)
+	OrderByID(ctx context.Context, merchantID, orderID string) (Order, error)
 	CreateOrder(ctx context.Context, params CreateParams) (Order, error)
 	OrderDetail(ctx context.Context, merchantID, orderID string) (Detail, error)
 	ListOrders(ctx context.Context, filter ListFilter) ([]Order, int, error)
+	WithIdempotencyLock(ctx context.Context, merchantID, idempotencyKey string, fn func(context.Context) error) error
+	ReserveOrderAttempt(ctx context.Context, merchantID, idempotencyKey, requestHash string) (OrderReservation, error)
+	CompleteOrderAttempt(ctx context.Context, reservationID, orderID string) error
+	FailOrderAttempt(ctx context.Context, reservationID, reason string) error
 }
 
 // ParcelClient creates a parcel through the trusted internal contract.
@@ -42,6 +47,11 @@ type CreateResult struct {
 
 // Create applies API 8.16 idempotency, creates the parcel through Parcel
 // Operations, and persists the snapshot plus the initial CREATED timeline row.
+//
+// A request with an Idempotency-Key is serialised per (merchant, key) by a
+// PostgreSQL advisory lock. A durable reservation records the normalized
+// request hash before Parcel is called, so a concurrent or later request with
+// the same key and a different payload is rejected without creating a parcel.
 func (s *Service) Create(ctx context.Context, merchant MerchantProfile, idempotencyKey string, in CreateInput) (CreateResult, error) {
 	if s == nil || s.store == nil {
 		return CreateResult{}, ErrParcelUnavailable
@@ -52,13 +62,47 @@ func (s *Service) Create(ctx context.Context, merchant MerchantProfile, idempote
 	}
 	hash := Hash(normalized)
 
+	if normalized.IdempotencyKey == "" {
+		return s.createAttempt(ctx, merchant, normalized, hash, "")
+	}
+
+	var result CreateResult
+	err = s.store.WithIdempotencyLock(ctx, merchant.ID, normalized.IdempotencyKey, func(lockCtx context.Context) error {
+		reservation, err := s.store.ReserveOrderAttempt(lockCtx, merchant.ID, normalized.IdempotencyKey, hash)
+		if err != nil {
+			return err
+		}
+		if reservation.Status == OrderReservationCompleted {
+			if reservation.OrderID == nil {
+				return fmt.Errorf("load completed reservation order: %w", ErrNotFound)
+			}
+			existing, lookupErr := s.store.OrderByID(lockCtx, merchant.ID, *reservation.OrderID)
+			if lookupErr != nil {
+				return fmt.Errorf("load completed reservation order: %w", lookupErr)
+			}
+			result, err = replay(existing, hash)
+			return err
+		}
+		result, err = s.createAttempt(lockCtx, merchant, normalized, hash, reservation.ID)
+		if err != nil {
+			_ = s.store.FailOrderAttempt(lockCtx, reservation.ID, reservationFailureReason(err))
+		}
+		return err
+	})
+	if err != nil {
+		return CreateResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) createAttempt(ctx context.Context, merchant MerchantProfile, normalized Normalized, hash, reservationID string) (CreateResult, error) {
 	// Check the caller's idempotency key first. If it already names a different
 	// order, the hash differs and the request is a conflict even when the
 	// external order reference also happens to exist.
 	if normalized.IdempotencyKey != "" {
 		existing, err := s.store.OrderByIdempotencyKey(ctx, merchant.ID, normalized.IdempotencyKey)
 		if err == nil {
-			return replay(existing, hash)
+			return s.replayExisting(ctx, existing, hash, reservationID)
 		}
 		if !errors.Is(err, ErrNotFound) {
 			return CreateResult{}, fmt.Errorf("look up idempotency key: %w", err)
@@ -66,7 +110,7 @@ func (s *Service) Create(ctx context.Context, merchant MerchantProfile, idempote
 	}
 	existing, err := s.store.OrderByExternalOrderID(ctx, merchant.ID, normalized.ExternalOrderID)
 	if err == nil {
-		return replay(existing, hash)
+		return s.replayExisting(ctx, existing, hash, reservationID)
 	}
 	if !errors.Is(err, ErrNotFound) {
 		return CreateResult{}, fmt.Errorf("look up merchant order: %w", err)
@@ -107,6 +151,7 @@ func (s *Service) Create(ctx context.Context, merchant MerchantProfile, idempote
 		ExternalOrderID: normalized.ExternalOrderID,
 		IdempotencyKey:  key,
 		RequestHash:     hash,
+		ReservationID:   reservationID,
 		ParcelID:        parcel.ParcelID,
 		TrackingNumber:  parcel.TrackingNumber,
 		Pickup:          normalized.Pickup,
@@ -131,14 +176,50 @@ func (s *Service) Create(ctx context.Context, merchant MerchantProfile, idempote
 	if normalized.IdempotencyKey != "" {
 		existing, lookupErr := s.store.OrderByIdempotencyKey(ctx, merchant.ID, normalized.IdempotencyKey)
 		if lookupErr == nil {
-			return replay(existing, hash)
+			return s.replayExisting(ctx, existing, hash, reservationID)
 		}
 	}
 	existing, lookupErr := s.store.OrderByExternalOrderID(ctx, merchant.ID, normalized.ExternalOrderID)
 	if lookupErr == nil {
-		return replay(existing, hash)
+		return s.replayExisting(ctx, existing, hash, reservationID)
 	}
 	return CreateResult{}, ErrDuplicateOrder
+}
+
+func (s *Service) replayExisting(ctx context.Context, existing Order, hash, reservationID string) (CreateResult, error) {
+	result, err := replay(existing, hash)
+	if err != nil {
+		return CreateResult{}, err
+	}
+	if reservationID != "" {
+		_ = s.store.CompleteOrderAttempt(ctx, reservationID, existing.ID)
+	}
+	return result, nil
+}
+
+// reservationFailureReason classifies a failure without storing error text that
+// could contain merchant or recipient data.
+func reservationFailureReason(err error) string {
+	var invalid *Invalid
+	var upstream *UpstreamInvalid
+	switch {
+	case errors.As(err, &invalid):
+		return "validation"
+	case errors.As(err, &upstream):
+		return "parcel_validation"
+	case errors.Is(err, ErrDuplicateOrder):
+		return "duplicate"
+	case errors.Is(err, ErrParcelUnavailable):
+		return "parcel_unavailable"
+	case errors.Is(err, ErrZoneUnavailable):
+		return "zone_unavailable"
+	case errors.Is(err, ErrReservationLost):
+		return "reservation_lost"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "canceled"
+	default:
+		return "internal"
+	}
 }
 
 func replay(existing Order, hash string) (CreateResult, error) {

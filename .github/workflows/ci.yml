@@ -609,8 +609,8 @@ jobs:
             exit 1
           fi
           tables="$(psql "$TEST_DATABASE_URL" -X -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('identity','pricing','parcel','merchant','notification') AND table_type='BASE TABLE'")"
-          if [ "${tables}" != "30" ]; then
-            echo "::error::expected 30 migrated tables, found ${tables}"
+          if [ "${tables}" != "31" ]; then
+            echo "::error::expected 31 migrated tables, found ${tables}"
             exit 1
           fi
           versions="$(psql "$TEST_DATABASE_URL" -X -At -F '|' -c "SELECT 'identity',version FROM public.identity_schema_migrations UNION ALL SELECT 'pricing',version FROM public.pricing_schema_migrations UNION ALL SELECT 'parcel',version FROM public.parcel_schema_migrations UNION ALL SELECT 'merchant',version FROM public.merchant_schema_migrations UNION ALL SELECT 'notification',version FROM public.notification_schema_migrations ORDER BY 1")"
@@ -620,7 +620,7 @@ jobs:
               identity) expected=6 ;;
               pricing) expected=2 ;;
               parcel) expected=6 ;;
-              merchant) expected=10 ;;
+              merchant) expected=11 ;;
               notification) expected=2 ;;
               *) echo "::error::unexpected migration service ${service}"; exit 1 ;;
             esac
@@ -1041,7 +1041,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Prepare local environment
-        run: cp .env.example .env
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          # The webhook routes fail closed when WEBHOOK_SECRET_KEY is unset.
+          # This disposable job gets a random development-only key.
+          webhook_key="$(openssl rand -hex 32)"
+          echo "::add-mask::${webhook_key}"
+          echo "WEBHOOK_SECRET_KEY=${webhook_key}" >> .env
 
       - name: Build all images
         run: make build

@@ -36,37 +36,44 @@ type CreateAPIClientParams struct {
 	KeyHash    string
 }
 
-func (r *Repository) CreateAPIClient(ctx context.Context, params CreateAPIClientParams) error {
+func (r *Repository) CreateAPIClient(ctx context.Context, params CreateAPIClientParams) (APIClient, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin API key creation: %w", err)
+		return APIClient{}, fmt.Errorf("begin API key creation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var merchantID string
 	if err := tx.QueryRow(ctx, `SELECT id FROM merchant.merchants WHERE id = $1 FOR UPDATE`, params.MerchantID).Scan(&merchantID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
+			return APIClient{}, ErrNotFound
 		}
-		return fmt.Errorf("lock merchant for API key: %w", err)
+		return APIClient{}, fmt.Errorf("lock merchant for API key: %w", err)
 	}
 	var active int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM merchant.merchant_api_clients WHERE merchant_id = $1 AND status = 'ACTIVE'`, params.MerchantID).Scan(&active); err != nil {
-		return fmt.Errorf("count active API keys: %w", err)
+		return APIClient{}, fmt.Errorf("count active API keys: %w", err)
 	}
 	if active >= MaxActiveAPIKeys {
-		return ErrKeyLimit
+		return APIClient{}, ErrKeyLimit
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO merchant.merchant_api_clients (id, merchant_id, name, key_prefix, lookup_id, key_hash) VALUES ($1, $2, $3, $4, $5, $6)`, params.ID, params.MerchantID, params.Name, params.KeyPrefix, params.LookupID, params.KeyHash); err != nil {
+	var client APIClient
+	err = tx.QueryRow(ctx, `INSERT INTO merchant.merchant_api_clients (id, merchant_id, name, key_prefix, lookup_id, key_hash)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, merchant_id, name, key_prefix, lookup_id, status, last_used_at, created_at, revoked_at`,
+		params.ID, params.MerchantID, params.Name, params.KeyPrefix, params.LookupID, params.KeyHash,
+	).Scan(&client.ID, &client.MerchantID, &client.Name, &client.KeyPrefix, &client.LookupID,
+		&client.Status, &client.LastUsedAt, &client.CreatedAt, &client.RevokedAt)
+	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23514" && strings.Contains(pgErr.Message, "KEY_LIMIT_REACHED") {
-			return ErrKeyLimit
+			return APIClient{}, ErrKeyLimit
 		}
-		return fmt.Errorf("create API key: %w", err)
+		return APIClient{}, fmt.Errorf("create API key: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit API key creation: %w", err)
+		return APIClient{}, fmt.Errorf("commit API key creation: %w", err)
 	}
-	return nil
+	return client, nil
 }
 
 func (r *Repository) APIClientsByMerchant(ctx context.Context, merchantID string) ([]APIClient, error) {

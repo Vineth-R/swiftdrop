@@ -39,8 +39,10 @@ type fakeStore struct {
 	filter       repository.DeliveryFilter
 	attempts     []repository.DeliveryAttempt
 	total        int
+	recorded     []repository.RecordAttemptParams
 	merchantErr  error
 	saveErr      error
+	recordErr    error
 	lookupCalled bool
 }
 
@@ -85,6 +87,14 @@ func (s *fakeStore) SaveWebhook(_ context.Context, p repository.SaveWebhookParam
 		return repository.WebhookSaveResult{Webhook: *s.webhook, SecretStored: true}, nil
 	}
 	return repository.WebhookSaveResult{Webhook: *s.webhook, SecretStored: false}, nil
+}
+
+func (s *fakeStore) RecordDeliveryAttempt(_ context.Context, p repository.RecordAttemptParams) (bool, error) {
+	if s.recordErr != nil {
+		return false, s.recordErr
+	}
+	s.recorded = append(s.recorded, p)
+	return true, nil
 }
 
 func (s *fakeStore) ListDeliveryAttempts(_ context.Context, _ string, f repository.DeliveryFilter) ([]repository.DeliveryAttempt, int, error) {
@@ -428,6 +438,16 @@ func TestTestSendReportsDelivery(t *testing.T) {
 	if f.sender.event.Type != webhookdelivery.EventTypeStatusChanged {
 		t.Fatalf("sample event type = %q", f.sender.event.Type)
 	}
+	if len(f.store.recorded) != 1 {
+		t.Fatalf("recorded attempts = %d, want 1", len(f.store.recorded))
+	}
+	attempt := f.store.recorded[0]
+	if attempt.EventID != f.sender.event.ID || attempt.ParcelID != testEventParcelID ||
+		attempt.TrackingNumber != "SDNTEST0001" || attempt.AttemptNumber != 1 ||
+		!attempt.Success || attempt.DeadLettered || attempt.HTTPStatus == nil ||
+		*attempt.HTTPStatus != 200 || attempt.DurationMS == nil || *attempt.DurationMS != 182 {
+		t.Fatalf("recorded test attempt = %+v", attempt)
+	}
 }
 
 func TestTestSendFailureIsStill200WithNullStatus(t *testing.T) {
@@ -445,6 +465,15 @@ func TestTestSendFailureIsStill200WithNullStatus(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "timed out") {
 		t.Fatal("the internal error message leaked into the response")
+	}
+	if len(f.store.recorded) != 1 {
+		t.Fatalf("recorded attempts = %d, want 1", len(f.store.recorded))
+	}
+	attempt := f.store.recorded[0]
+	if attempt.Success || !attempt.DeadLettered || attempt.HTTPStatus != nil ||
+		attempt.ErrorMessage == nil || *attempt.ErrorMessage != "request timed out" ||
+		attempt.DurationMS == nil || *attempt.DurationMS != 10000 {
+		t.Fatalf("recorded failed test attempt = %+v", attempt)
 	}
 }
 

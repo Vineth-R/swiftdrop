@@ -27,9 +27,11 @@ const (
 
 type fakeInternalStore struct {
 	webhook      *repository.Webhook
+	merchant     repository.Merchant
 	recorded     []repository.RecordAttemptParams
 	duplicate    bool
 	getErr       error
+	merchantErr  error
 	recordErr    error
 	delivered    bool
 	deliveredErr error
@@ -51,6 +53,16 @@ func (s *fakeInternalStore) DeliveredEvent(_ context.Context, _, _ string) (bool
 	return s.delivered, s.deliveredErr
 }
 
+func (s *fakeInternalStore) MerchantByID(_ context.Context, merchantID string) (repository.Merchant, error) {
+	if s.merchantErr != nil {
+		return repository.Merchant{}, s.merchantErr
+	}
+	if s.merchant.ID == "" {
+		return repository.Merchant{ID: merchantID, Status: repository.MerchantStatusApproved}, nil
+	}
+	return s.merchant, nil
+}
+
 func (s *fakeInternalStore) RecordDeliveryAttempt(_ context.Context, p repository.RecordAttemptParams) (bool, error) {
 	if s.recordErr != nil {
 		return false, s.recordErr
@@ -66,10 +78,13 @@ type internalFixture struct {
 
 func newInternalFixture(token string, withStore, withCipher bool) *internalFixture {
 	gin.SetMode(gin.TestMode)
-	store := &fakeInternalStore{webhook: &repository.Webhook{
-		ID: "w1", MerchantID: internalTestMerchant, URL: "https://shopzone.lk/hooks/swiftdrop",
-		SigningSecretEnc: []byte("v1:whsec_real_secret"), EventTypes: []string{"parcel.status_changed"}, IsActive: true,
-	}}
+	store := &fakeInternalStore{
+		webhook: &repository.Webhook{
+			ID: "w1", MerchantID: internalTestMerchant, URL: "https://shopzone.lk/hooks/swiftdrop",
+			SigningSecretEnc: []byte("v1:whsec_real_secret"), EventTypes: []string{"parcel.status_changed"}, IsActive: true,
+		},
+		merchant: repository.Merchant{ID: internalTestMerchant, Status: repository.MerchantStatusApproved},
+	}
 	router := httpx.NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	var s internalWebhookStore
 	if withStore {
@@ -200,7 +215,7 @@ func TestInternalWebhookGetReturnsTheDecryptedSecret(t *testing.T) {
 		t.Fatalf("Cache-Control = %q, want no-store", got)
 	}
 	data, _ := decodeBody(t, recorder)["data"].(map[string]any)
-	if data["url"] != "https://shopzone.lk/hooks/swiftdrop" || data["signingSecret"] != "whsec_real_secret" || data["isActive"] != true {
+	if data["url"] != "https://shopzone.lk/hooks/swiftdrop" || data["signingSecret"] != "whsec_real_secret" || data["isActive"] != true || data["merchantStatus"] != "APPROVED" {
 		t.Fatalf("data = %v", data)
 	}
 	types, _ := data["eventTypes"].([]any)

@@ -11,7 +11,7 @@ WITH checks(check_name, expected, actual) AS (
   FROM information_schema.schemata
   WHERE schema_name IN ('identity', 'pricing', 'parcel', 'merchant', 'notification')
   UNION ALL
-  SELECT 'tables', 30, count(*)::int
+  SELECT 'tables', 31, count(*)::int
   FROM information_schema.tables
   WHERE table_schema IN ('identity', 'pricing', 'parcel', 'merchant', 'notification')
     AND table_type = 'BASE TABLE'

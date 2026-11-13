@@ -39,15 +39,23 @@ func TestNotifierSendsEveryMerchantEmail(t *testing.T) {
 	n.Approved(ctx, "owner@example.test", "Owner", "Shop", now)
 	n.Rejected(ctx, "owner@example.test", "Owner", "Shop", nil)
 	n.Suspended(ctx, "owner@example.test", "Owner", "Shop", ptr("review"))
+	n.APIKeyCreated(ctx, "owner@example.test", "Owner", "Production", "sdk_live_ab12cd34", now)
 	n.Wait()
 
-	if len(sender.messages) != 4 {
-		t.Fatalf("messages = %d, want 4", len(sender.messages))
+	if len(sender.messages) != 5 {
+		t.Fatalf("messages = %d, want 5", len(sender.messages))
 	}
 	for _, message := range sender.messages {
 		if message.To != "owner@example.test" || message.Subject == "" {
 			t.Fatalf("message = %+v", message)
 		}
+	}
+	keyMessage := sender.messages[4]
+	if !strings.Contains(keyMessage.Text, "sdk_live_ab12cd34") || !strings.Contains(keyMessage.Text, "never email the key") {
+		t.Fatalf("key notice must show the prefix and the security warning:\n%s", keyMessage.Text)
+	}
+	if strings.Contains(keyMessage.Text, "sdk_live_ab12cd34_") {
+		t.Fatalf("key notice leaked the full key shape:\n%s", keyMessage.Text)
 	}
 }
 

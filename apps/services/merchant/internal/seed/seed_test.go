@@ -164,7 +164,7 @@ func (m *memRepo) APIClientByLookup(_ context.Context, lookupID string) (reposit
 	return client, m.apiHashes[lookupID], nil
 }
 
-func (m *memRepo) CreateAPIClient(_ context.Context, params repository.CreateAPIClientParams) error {
+func (m *memRepo) CreateAPIClient(_ context.Context, params repository.CreateAPIClientParams) (repository.APIClient, error) {
 	if m.apiClients == nil {
 		m.apiClients = map[string]repository.APIClient{}
 		m.apiHashes = map[string]string{}
@@ -176,8 +176,7 @@ func (m *memRepo) CreateAPIClient(_ context.Context, params repository.CreateAPI
 	}
 	m.apiClients[params.LookupID] = client
 	m.apiHashes[params.LookupID] = params.KeyHash
-	_ = client
-	return nil
+	return client, nil
 }
 
 func (m *memRepo) EnsureRegistrationAttempt(_ context.Context, id, key, email string) (repository.RegistrationAttempt, error) {

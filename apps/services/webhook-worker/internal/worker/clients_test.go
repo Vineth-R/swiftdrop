@@ -26,13 +26,13 @@ func TestMerchantWebhook(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":{"code":"WEBHOOK_NOT_CONFIGURED"}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":{"url":"https://x.example/h","signingSecret":"s","eventTypes":["parcel.status_changed"],"isActive":true}}`))
+		_, _ = w.Write([]byte(`{"data":{"url":"https://x.example/h","signingSecret":"s","eventTypes":["parcel.status_changed"],"isActive":true,"merchantStatus":"APPROVED"}}`))
 	}))
 	defer srv.Close()
 	c := NewMerchantClient(srv.URL, "tok", time.Second)
 
 	w, err := c.Webhook(context.Background(), "m-1")
-	if err != nil || w.URL != "https://x.example/h" || w.SigningSecret != "s" || !w.IsActive {
+	if err != nil || w.URL != "https://x.example/h" || w.SigningSecret != "s" || !w.IsActive || w.MerchantStatus != "APPROVED" {
 		t.Fatalf("Webhook() = %+v, %v", w, err)
 	}
 	if _, err := c.Webhook(context.Background(), "m-404"); !errors.Is(err, ErrNotConfigured) {
@@ -100,7 +100,7 @@ func TestMerchantClientPropagatesInboundRequestID(t *testing.T) {
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get(requestid.Header)
-		_, _ = w.Write([]byte(`{"data":{"url":"https://x.example/h","signingSecret":"s","eventTypes":[],"isActive":true}}`))
+		_, _ = w.Write([]byte(`{"data":{"url":"https://x.example/h","signingSecret":"s","eventTypes":[],"isActive":true,"merchantStatus":"APPROVED"}}`))
 	}))
 	defer srv.Close()
 
@@ -117,7 +117,7 @@ func TestMerchantClientGeneratesRequestIDWithoutInbound(t *testing.T) {
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get(requestid.Header)
-		_, _ = w.Write([]byte(`{"data":{"url":"https://x.example/h","signingSecret":"s","eventTypes":[],"isActive":true}}`))
+		_, _ = w.Write([]byte(`{"data":{"url":"https://x.example/h","signingSecret":"s","eventTypes":[],"isActive":true,"merchantStatus":"APPROVED"}}`))
 	}))
 	defer srv.Close()
 

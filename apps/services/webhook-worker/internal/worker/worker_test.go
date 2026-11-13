@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,11 +57,15 @@ type fakeSender struct {
 	calls  int
 	target webhookdelivery.Target
 	event  webhookdelivery.Event
+	onSend func()
 }
 
 func (f *fakeSender) Send(_ context.Context, t webhookdelivery.Target, e webhookdelivery.Event) webhookdelivery.Result {
 	f.calls++
 	f.target, f.event = t, e
+	if f.onSend != nil {
+		f.onSend()
+	}
 	return f.result
 }
 
@@ -89,7 +94,7 @@ func newRig() *rig {
 	return &rig{
 		merchants: &fakeMerchants{webhook: Webhook{
 			URL: "https://merchant.example.com/hook", SigningSecret: "whsec_test",
-			EventTypes: []string{"parcel.status_changed"}, IsActive: true,
+			EventTypes: []string{"parcel.status_changed"}, IsActive: true, MerchantStatus: "APPROVED",
 		}},
 		sender:    &fakeSender{result: webhookdelivery.Result{StatusCode: 200, Success: true, Duration: 120 * time.Millisecond}},
 		scheduler: &fakeScheduler{},
@@ -218,17 +223,14 @@ func TestHandleFailureWithoutMessageGetsDefault(t *testing.T) {
 	}
 }
 
-func TestHandleSkips(t *testing.T) {
+func TestHandleSkipsWithoutWebhookOrMerchant(t *testing.T) {
 	tests := map[string]struct {
 		data   string
 		mutate func(*rig)
 	}{
-		"no merchant":      {data: `{"parcel_id":"p","tracking_number":"T","status":"DELIVERED"}`},
-		"blank merchant":   {data: `{"parcel_id":"p","tracking_number":"T","status":"DELIVERED","merchant_id":" "}`},
-		"not configured":   {data: fullData, mutate: func(r *rig) { r.merchants.webhookErr = ErrNotConfigured }},
-		"inactive":         {data: fullData, mutate: func(r *rig) { r.merchants.webhook.IsActive = false }},
-		"not subscribed":   {data: fullData, mutate: func(r *rig) { r.merchants.webhook.EventTypes = []string{"other"} }},
-		"no subscriptions": {data: fullData, mutate: func(r *rig) { r.merchants.webhook.EventTypes = nil }},
+		"no merchant":    {data: `{"parcel_id":"p","tracking_number":"T","status":"DELIVERED"}`},
+		"blank merchant": {data: `{"parcel_id":"p","tracking_number":"T","status":"DELIVERED","merchant_id":" "}`},
+		"not configured": {data: fullData, mutate: func(r *rig) { r.merchants.webhookErr = ErrNotConfigured }},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -240,9 +242,124 @@ func TestHandleSkips(t *testing.T) {
 				t.Fatalf("Handle() error: %v", err)
 			}
 			if r.sender.calls != 0 || len(r.merchants.attempts) != 0 || r.scheduler.calls != 0 {
-				t.Fatal("a skipped event must not send, record or schedule")
+				t.Fatal("a skip without a webhook must not send, record or schedule")
 			}
 		})
+	}
+}
+
+func TestHandleSuppressesInactiveOrUnsubscribed(t *testing.T) {
+	tests := map[string]struct {
+		mutate func(*rig)
+		reason string
+	}{
+		"inactive":         {mutate: func(r *rig) { r.merchants.webhook.IsActive = false }, reason: "webhook_inactive"},
+		"not subscribed":   {mutate: func(r *rig) { r.merchants.webhook.EventTypes = []string{"other"} }, reason: "webhook_not_subscribed"},
+		"no subscriptions": {mutate: func(r *rig) { r.merchants.webhook.EventTypes = nil }, reason: "webhook_not_subscribed"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := newRig()
+			tt.mutate(r)
+			if err := r.handler().Handle(context.Background(), message(t, fullData, nil)); err != nil {
+				t.Fatalf("Handle() error: %v", err)
+			}
+			if r.sender.calls != 0 || r.scheduler.calls != 0 {
+				t.Fatal("a suppressed event must not send or schedule")
+			}
+			if len(r.merchants.attempts) != 1 {
+				t.Fatalf("attempts = %d, want one suppression record", len(r.merchants.attempts))
+			}
+			a := r.merchants.attempts[0]
+			if a.Success || !a.DeadLettered || a.NextRetryAt != nil || a.ErrorMessage != tt.reason {
+				t.Fatalf("suppression attempt = %+v", a)
+			}
+		})
+	}
+}
+
+func TestHandleSuppressesNonApprovedMerchant(t *testing.T) {
+	for _, status := range []string{"PENDING", "REJECTED", "SUSPENDED"} {
+		t.Run(status, func(t *testing.T) {
+			r := newRig()
+			r.merchants.webhook.MerchantStatus = status
+			if err := r.handler().Handle(context.Background(), message(t, fullData, nil)); err != nil {
+				t.Fatalf("Handle() error: %v", err)
+			}
+			if r.sender.calls != 0 || r.scheduler.calls != 0 {
+				t.Fatal("a non-approved merchant must not receive a delivery")
+			}
+			if len(r.merchants.attempts) != 1 {
+				t.Fatalf("attempts = %d, want one suppression record", len(r.merchants.attempts))
+			}
+			a := r.merchants.attempts[0]
+			wantReason := "merchant_" + strings.ToLower(status)
+			if a.Success || !a.DeadLettered || a.NextRetryAt != nil || a.ErrorMessage != wantReason {
+				t.Fatalf("suppression attempt = %+v", a)
+			}
+		})
+	}
+	t.Run("unknown status", func(t *testing.T) {
+		r := newRig()
+		r.merchants.webhook.MerchantStatus = ""
+		if err := r.handler().Handle(context.Background(), message(t, fullData, nil)); err != nil {
+			t.Fatalf("Handle() error: %v", err)
+		}
+		if r.sender.calls != 0 || len(r.merchants.attempts) != 1 || r.merchants.attempts[0].ErrorMessage != "merchant_status_unknown" {
+			t.Fatalf("unexpected suppression: sends=%d attempts=%+v", r.sender.calls, r.merchants.attempts)
+		}
+	})
+}
+
+func TestHandleRechecksSuspensionBeforeRetry(t *testing.T) {
+	r := newRig()
+	r.sender.result = webhookdelivery.Result{StatusCode: 503, ErrorMessage: "server error", Duration: time.Second}
+	if err := r.handler().Handle(context.Background(), message(t, fullData, nil)); err != nil {
+		t.Fatalf("first attempt: %v", err)
+	}
+	if r.scheduler.calls != 1 {
+		t.Fatal("the first failure should schedule a retry")
+	}
+
+	r.merchants.webhook.MerchantStatus = "SUSPENDED"
+	if err := r.handler().Handle(context.Background(), message(t, fullData, map[string]any{attemptHeader: int32(2)})); err != nil {
+		t.Fatalf("retry after suspension: %v", err)
+	}
+	if r.sender.calls != 1 {
+		t.Fatalf("sends = %d, want only the first attempt", r.sender.calls)
+	}
+	if r.scheduler.calls != 1 {
+		t.Fatal("a suspended retry must not be scheduled again")
+	}
+	last := r.merchants.attempts[len(r.merchants.attempts)-1]
+	if last.AttemptNumber != 2 || last.ErrorMessage != "merchant_suspended" || !last.DeadLettered {
+		t.Fatalf("retry suppression = %+v", last)
+	}
+}
+
+func TestHandleAllowsInFlightSuspensionToFinish(t *testing.T) {
+	r := newRig()
+	r.sender.onSend = func() { r.merchants.webhook.MerchantStatus = "SUSPENDED" }
+	if err := r.handler().Handle(context.Background(), message(t, fullData, nil)); err != nil {
+		t.Fatalf("Handle() error: %v", err)
+	}
+	if r.sender.calls != 1 {
+		t.Fatal("a delivery already in progress may finish")
+	}
+	if len(r.merchants.attempts) != 1 || !r.merchants.attempts[0].Success {
+		t.Fatalf("successful in-flight attempt = %+v", r.merchants.attempts)
+	}
+}
+
+func TestSuppressedDeliveryIsNotReplayedOnReinstatement(t *testing.T) {
+	r := newRig()
+	r.merchants.webhook.MerchantStatus = "SUSPENDED"
+	if err := r.handler().Handle(context.Background(), message(t, fullData, nil)); err != nil {
+		t.Fatalf("suppressed delivery: %v", err)
+	}
+	r.merchants.webhook.MerchantStatus = "APPROVED"
+	if r.scheduler.calls != 0 || r.sender.calls != 0 {
+		t.Fatal("reinstatement must not replay a suppressed delivery")
 	}
 }
 

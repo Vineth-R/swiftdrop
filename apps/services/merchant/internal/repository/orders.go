@@ -79,6 +79,13 @@ func (r *Repository) OrderByIdempotencyKey(ctx context.Context, merchantID, key 
 		WHERE o.merchant_id = $1 AND o.idempotency_key = $2`, merchantID, key))
 }
 
+// OrderByID finds one merchant-scoped order by its primary key.
+func (r *Repository) OrderByID(ctx context.Context, merchantID, orderID string) (orders.Order, error) {
+	return scanOrder(r.db.QueryRow(ctx, `SELECT `+orderColumns+`
+		FROM merchant.merchant_orders o
+		WHERE o.merchant_id = $1 AND o.id = $2`, merchantID, orderID))
+}
+
 // CreateOrder persists the snapshot and the initial CREATED timeline row in one
 // transaction. Unique violations are reported as orders.ErrDuplicateOrder.
 func (r *Repository) CreateOrder(ctx context.Context, params orders.CreateParams) (orders.Order, error) {
@@ -119,6 +126,18 @@ func (r *Repository) CreateOrder(ctx context.Context, params orders.CreateParams
 		(order_id, event_id, previous_status, status, occurred_at)
 		VALUES ($1, gen_random_uuid(), NULL, $2, $3)`, order.ID, order.Status, order.CreatedAt); err != nil {
 		return orders.Order{}, fmt.Errorf("insert initial merchant order timeline: %w", err)
+	}
+	if params.ReservationID != "" {
+		result, err := tx.Exec(ctx, `UPDATE merchant.merchant_order_reservations
+			SET status = 'COMPLETED', order_id = $2, last_error = NULL
+			WHERE id = $1 AND request_hash = $3`,
+			params.ReservationID, order.ID, params.RequestHash)
+		if err != nil {
+			return orders.Order{}, fmt.Errorf("complete merchant order reservation: %w", err)
+		}
+		if result.RowsAffected() != 1 {
+			return orders.Order{}, orders.ErrReservationLost
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return orders.Order{}, fmt.Errorf("commit merchant order creation: %w", err)

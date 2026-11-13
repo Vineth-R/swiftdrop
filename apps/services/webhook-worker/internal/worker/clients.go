@@ -24,10 +24,11 @@ var ErrNotConfigured = errors.New("merchant has no webhook configured")
 
 // Webhook is what the Merchant service returns to the worker (internal GET).
 type Webhook struct {
-	URL           string   `json:"url"`
-	SigningSecret string   `json:"signingSecret"`
-	EventTypes    []string `json:"eventTypes"`
-	IsActive      bool     `json:"isActive"`
+	URL            string   `json:"url"`
+	SigningSecret  string   `json:"signingSecret"`
+	EventTypes     []string `json:"eventTypes"`
+	IsActive       bool     `json:"isActive"`
+	MerchantStatus string   `json:"merchantStatus"`
 }
 
 // Attempt is one delivery report for the merchant's delivery log. The JSON

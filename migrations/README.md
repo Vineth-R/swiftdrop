@@ -34,7 +34,7 @@ Current chain:
 - `000005_outbox_event_types` (parcel) reasserts the approved unversioned outbox contract, widens `outbox_events.last_error` to `TEXT`, and adds the published-event cleanup and current-courier workload indexes. It does not store `.v1` labels; the relay maps storage labels to versioned bus names.
 - `000006_customer_parcel_list_index` (parcel) adds the additive `idx_parcels_customer_created_id` btree on `(customer_user_id, created_at, id)` for the ordered customer list. The existing `parcels_customer_idx` only covers the owner predicate; the new index supports both sort directions with a backward scan and does not modify any applied migration.
 - `000006_merchant_constraints` is the merchant service's forward migration. It adds the stricter merchant CHECK constraints through additive `ALTER TABLE` statements.
-- The baseline remains 26 tables; identity `000004`-`000006` and merchant `000007` add four additive tables, so the complete chain is 30 tables.
+- The baseline remains 26 tables; identity `000004`-`000006`, merchant `000007` and merchant `000011` add five additive tables, so the complete chain is 31 tables.
 - `000009_restore_business_reg_no_required` (merchant) restores the mandatory registration-number constraint after `000008`. It drops any existing constraint, adds the NULL/whitespace check `NOT VALID`, then validates existing rows. If existing data is invalid, validation fails instead of inventing values.
 - `000010_merchant_order_snapshots` (merchant) adds the pickup and recipient contact snapshot columns needed by API 8.16 and the `(merchant_id, updated_at)` order-list index. It is additive and nullable for pre-M8 rows.
 
@@ -46,7 +46,7 @@ Current chain:
 
 **Parcel history:** a dispatch feature branch briefly proposed `000002_parcels` and `000003_parcel_assignments_and_outbox`. Both duplicated tables already created by the applied `000002_tables` baseline, and the second reused the `000003` version. They were never applied to the shared baseline database and were replaced by `000003_dispatch_foundations` before merge. Parcel migrations continue from `000004`; the current parcel head is `000006_customer_parcel_list_index`.
 
-**Merchant history:** `000002_merchants`, `000003_api_clients`, `000004_orders_and_events`, and `000005_audit_logs` were removed. They duplicated the applied `000002_tables` baseline (including its version number) and re-created existing tables without `IF NOT EXISTS`, which made the migration source invalid. They were never applied to the shared baseline database. The useful constraints were preserved in `000006_merchant_constraints`; redundant index variants were not re-added. The current merchant head is `000010_merchant_order_snapshots`; the next merchant migration starts at `000011`.
+**Merchant history:** `000002_merchants`, `000003_api_clients`, `000004_orders_and_events`, and `000005_audit_logs` were removed. They duplicated the applied `000002_tables` baseline (including its version number) and re-created existing tables without `IF NOT EXISTS`, which made the migration source invalid. They were never applied to the shared baseline database. The useful constraints were preserved in `000006_merchant_constraints`; redundant index variants were not re-added. `000010_merchant_order_snapshots` adds the M8 order snapshots. `000011_merchant_order_idempotency` adds the durable idempotency reservation table used to serialise same-key order attempts. The current merchant head is `000011`; the next merchant migration starts at `000012`.
 
 A database that somehow applied the merchant variant as version 2 instead of the baseline is not supported; it lacks baseline-only tables such as `merchant_webhooks` and `webhook_delivery_attempts` and must be rebuilt by its owner. The shared and fresh databases follow the baseline-first chain.
 
@@ -75,7 +75,7 @@ or `DATABASE_URL_DIRECT` for a remote database. See
 
 **Development history.** Development contains identity `000004`-`000006` and
 merchant `000007`-`000009`; they are unchanged by this branch, which adds
-`000010_merchant_order_snapshots`. Merchant `000008` is the compatibility
+`000010_merchant_order_snapshots` and `000011_merchant_order_idempotency`. Merchant `000008` is the compatibility
 migration applied to the source/production databases, and `000009` restores the
 mandatory registration-number constraint. The production
 migration work was based on an older feature tree that lacked those files; they
@@ -116,6 +116,7 @@ This is **destructive** and applies to the database resolved by Compose; it does
 | `000001_initial_schema`                                | Drops the service schema with `CASCADE`, including any remaining objects. This is a separate rollback from version 1.                                                                                                                                                                 |
 | `000006_merchant_constraints` (merchant version 6 → 2) | Removes the added CHECK constraints; retains the merchant schema and baseline tables. Version gaps do not imply extra rollback steps.                                                                                                                                                 |
 | `000010_merchant_order_snapshots` (merchant)           | Drops the pickup/recipient snapshot columns and the `(merchant_id, updated_at)` index. Order summary rows remain; their contact snapshots are lost.                                                                                                                                   |
+| `000011_merchant_order_idempotency` (merchant)         | Drops the merchant order reservation table. Existing merchant orders and timelines are unaffected.                                                                                                                                                                                    |
 
 For parcel, `000002 DOWN` drops `parcels`, `parcel_status_history`, `parcel_assignments`, `delivery_proofs` and `outbox_events`, together with the explicitly dropped parcel triggers/functions. For notification it drops `notification_logs` and `processed_events`. Neither `000002` DOWN file drops its schema; the corresponding `000001` DOWN files do. Reapplying `000002` recreates the baseline objects but cannot recover deleted rows. Use destructive rollback only on a disposable database, never the active development database.
 

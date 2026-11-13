@@ -34,7 +34,7 @@ type Repository interface {
 	onboarding.Store
 	MerchantByContactEmail(ctx context.Context, contactEmail string) (repository.Merchant, error)
 	APIClientByLookup(ctx context.Context, lookupID string) (repository.APIClient, string, error)
-	CreateAPIClient(ctx context.Context, params repository.CreateAPIClientParams) error
+	CreateAPIClient(ctx context.Context, params repository.CreateAPIClientParams) (repository.APIClient, error)
 }
 
 // ZoneSource resolves the pickup zone code from pricing.zones. It is read-only.
@@ -172,7 +172,7 @@ func finish(ctx context.Context, repo Repository, merchant repository.Merchant, 
 	}
 
 	prefix := apikey.Prefix + lookupID[:8]
-	if err := repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
+	if _, err := repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
 		ID:         uuid.NewString(),
 		MerchantID: merchant.ID,
 		Name:       "Demo API key",
