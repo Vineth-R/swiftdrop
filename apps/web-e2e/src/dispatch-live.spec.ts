@@ -32,7 +32,7 @@ const SECOND = parcel({
   status: 'PICKED_UP',
 });
 
-function pageOf(data: unknown[]): Reply {
+function pageOf(data: unknown[], totalPages = 1): Reply {
   return {
     status: 200,
     body: {
@@ -43,7 +43,7 @@ function pageOf(data: unknown[]): Reply {
           page: 1,
           pageSize: 20,
           totalItems: data.length,
-          totalPages: 1,
+          totalPages,
         },
       },
     },
@@ -364,5 +364,316 @@ test.describe('live updates on /parcels', () => {
     ).toBeVisible();
     await expect(table(page)).toHaveCount(0);
     expect(server.connections()).toBe(0);
+  });
+});
+
+const unassignedTable = (page: Page) =>
+  page.getByRole('table', { name: 'Unassigned parcels' });
+const unassignedRow = (page: Page, trackingNumber: string) =>
+  unassignedTable(page).getByRole('row').filter({ hasText: trackingNumber });
+
+const sampleUnassigned1 = {
+  id: '00000000-0000-4000-8000-000000000001',
+  trackingNumber: FIRST.trackingNumber,
+  senderName: 'Nimal Perera',
+  senderPhone: '+94771234567',
+  recipientName: 'Sunil Silva',
+  recipientPhone: '+94719876543',
+  pickupAddress: '12 Galle Road',
+  pickupCity: 'Colombo',
+  pickupZoneId: '00000000-0000-4000-8000-000000000010',
+  dropoffAddress: '45 Lake Drive',
+  dropoffCity: 'Kandy',
+  dropoffZoneId: '00000000-0000-4000-8000-000000000020',
+  weightKg: 2.5,
+  sizeCategory: 'SMALL',
+  createdAt: '2026-11-02T10:00:00Z',
+};
+
+const sampleUnassigned2 = {
+  id: '00000000-0000-4000-8000-000000000002',
+  trackingNumber: SECOND.trackingNumber,
+  senderName: 'Amali Fernando',
+  senderPhone: '+94772233445',
+  recipientName: 'Kamal Jayasinghe',
+  recipientPhone: '+94712345678',
+  pickupAddress: '24 Flower Road',
+  pickupCity: 'Colombo',
+  pickupZoneId: '00000000-0000-4000-8000-000000000010',
+  dropoffAddress: '88 Temple Road',
+  dropoffCity: 'Galle',
+  dropoffZoneId: '00000000-0000-4000-8000-000000000030',
+  weightKg: 1.2,
+  sizeCategory: 'SMALL',
+  createdAt: '2026-11-02T11:00:00Z',
+};
+
+async function openLiveUnassigned(
+  page: Page,
+  handlers: Record<string, Handler> = {},
+  beforeConfirm: () => void = () => undefined,
+) {
+  const server = await liveServer(page);
+  const session = await signInAs(page, 'DISPATCHER', {
+    'GET /zones': {
+      status: 200,
+      body: { data: [], meta: { requestId: REQUEST_ID } },
+    },
+    'GET /dispatch/unassigned': pageOf([sampleUnassigned1, sampleUnassigned2]),
+    ...handlers,
+  });
+  await page.goto('/unassigned');
+  await expect(
+    unassignedRow(page, sampleUnassigned1.trackingNumber),
+  ).toBeVisible();
+  beforeConfirm();
+  server.confirm();
+  await expect(live(page)).toBeVisible();
+  return { server, ...session };
+}
+
+test.describe('live updates on /unassigned', () => {
+  test.beforeEach(async ({ page }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+  });
+
+  test('subscribes with scope: all', async ({ page }) => {
+    const { server } = await openLiveUnassigned(page);
+    expect(server.subscriptions).toEqual([{ type: 'subscribe', scope: 'all' }]);
+  });
+
+  test('removes parcel from unassigned queue when status advances beyond CREATED', async ({
+    page,
+  }) => {
+    const { server } = await openLiveUnassigned(page);
+    await expect(
+      unassignedRow(page, sampleUnassigned1.trackingNumber),
+    ).toBeVisible();
+
+    server.send(
+      update({
+        trackingNumber: sampleUnassigned1.trackingNumber,
+        status: 'PICKED_UP',
+      }),
+    );
+
+    await expect(
+      unassignedRow(page, sampleUnassigned1.trackingNumber),
+    ).toHaveCount(0);
+    await expect(
+      unassignedRow(page, sampleUnassigned2.trackingNumber),
+    ).toBeVisible();
+  });
+
+  test('refreshes pagination metadata after a live removal', async ({
+    page,
+  }) => {
+    const many = [
+      sampleUnassigned1,
+      ...Array.from({ length: 40 }, (_, index) => ({
+        ...sampleUnassigned2,
+        id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, '0')}`,
+        trackingNumber: `SDKMANY${String(index).padStart(4, '0')}`,
+      })),
+    ];
+    let removed = false;
+    const { server } = await openLiveUnassigned(page, {
+      'GET /dispatch/unassigned': () =>
+        removed ? pageOf(many.slice(1), 2) : pageOf(many, 3),
+    });
+
+    await expect(page.getByText('Page 1 of 3 · 41 results')).toBeVisible();
+
+    removed = true;
+    server.send(
+      update({
+        trackingNumber: sampleUnassigned1.trackingNumber,
+        status: 'PICKED_UP',
+      }),
+    );
+
+    await expect(page.getByText('Page 1 of 2 · 40 results')).toBeVisible();
+  });
+
+  test('quietly refetches unassigned queue on reconnect / sync', async ({
+    page,
+  }) => {
+    let subscribed = false;
+    await openLiveUnassigned(
+      page,
+      {
+        'GET /dispatch/unassigned': () =>
+          pageOf(
+            subscribed
+              ? [sampleUnassigned2]
+              : [sampleUnassigned1, sampleUnassigned2],
+          ),
+      },
+      () => {
+        subscribed = true;
+      },
+    );
+
+    await expect(
+      unassignedRow(page, sampleUnassigned1.trackingNumber),
+    ).toHaveCount(0);
+    await expect(
+      unassignedRow(page, sampleUnassigned2.trackingNumber),
+    ).toBeVisible();
+    await expect(unassignedTable(page)).toBeVisible();
+  });
+
+  test('shows reconnection indicator when socket disconnects', async ({
+    page,
+  }) => {
+    const { server } = await openLiveUnassigned(page);
+    server.close(1011);
+    await expect(
+      page.getByText(
+        'Connecting to live updates. Reload the page to check now.',
+      ),
+    ).toBeVisible();
+    await expect(
+      unassignedRow(page, sampleUnassigned1.trackingNumber),
+    ).toBeVisible();
+  });
+});
+
+const workloadTable = (page: Page) =>
+  page.getByRole('table', { name: 'Courier workload' });
+const workloadRow = (page: Page, courierName: string) =>
+  workloadTable(page).getByRole('row').filter({ hasText: courierName });
+
+const sampleWorkloadItems = [
+  {
+    courierId: '00000000-0000-4000-8000-0000000000c1',
+    fullName: 'Kasun Silva',
+    isAvailable: true,
+    activeDeliveries: 4,
+    byStatus: {
+      CREATED: 1,
+      PICKED_UP: 1,
+      IN_TRANSIT: 1,
+      OUT_FOR_DELIVERY: 1,
+    },
+  },
+  {
+    courierId: '00000000-0000-4000-8000-0000000000c2',
+    fullName: 'Amal Fernando',
+    isAvailable: true,
+    activeDeliveries: 1,
+    byStatus: {
+      CREATED: 1,
+      PICKED_UP: 0,
+      IN_TRANSIT: 0,
+      OUT_FOR_DELIVERY: 0,
+    },
+  },
+];
+
+async function openLiveWorkload(
+  page: Page,
+  handlers: Record<string, Handler> = {},
+  beforeConfirm: () => void = () => undefined,
+) {
+  const server = await liveServer(page);
+  const session = await signInAs(page, 'DISPATCHER', {
+    'GET /dispatch/workload': {
+      status: 200,
+      body: {
+        data: sampleWorkloadItems,
+        meta: { requestId: REQUEST_ID },
+      },
+    },
+    ...handlers,
+  });
+  await page.goto('/workload');
+  await expect(workloadRow(page, 'Kasun Silva')).toBeVisible();
+  beforeConfirm();
+  server.confirm();
+  await expect(live(page)).toBeVisible();
+  return { server, ...session };
+}
+
+test.describe('live updates on /workload', () => {
+  test.beforeEach(async ({ page }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+  });
+
+  test('subscribes with scope: all', async ({ page }) => {
+    const { server } = await openLiveWorkload(page);
+    expect(server.subscriptions).toEqual([{ type: 'subscribe', scope: 'all' }]);
+  });
+
+  test('triggers quiet refetch and updates active deliveries on live event', async ({
+    page,
+  }) => {
+    let updateDelivered = false;
+    const { server } = await openLiveWorkload(page, {
+      'GET /dispatch/workload': () => ({
+        status: 200,
+        body: {
+          data: [
+            {
+              ...sampleWorkloadItems[0],
+              activeDeliveries: updateDelivered ? 5 : 4,
+            },
+            sampleWorkloadItems[1],
+          ],
+          meta: { requestId: REQUEST_ID },
+        },
+      }),
+    });
+
+    await expect(workloadRow(page, 'Kasun Silva')).toContainText('4');
+
+    updateDelivered = true;
+    server.send(update());
+
+    await expect(workloadRow(page, 'Kasun Silva')).toContainText('5');
+    await expect(workloadTable(page)).toBeVisible();
+  });
+
+  test('quietly refetches workload on reconnect / sync', async ({ page }) => {
+    let subscribed = false;
+    await openLiveWorkload(
+      page,
+      {
+        'GET /dispatch/workload': () => ({
+          status: 200,
+          body: {
+            data: [
+              {
+                ...sampleWorkloadItems[0],
+                activeDeliveries: subscribed ? 8 : 4,
+              },
+              sampleWorkloadItems[1],
+            ],
+            meta: { requestId: REQUEST_ID },
+          },
+        }),
+      },
+      () => {
+        subscribed = true;
+      },
+    );
+
+    await expect(workloadRow(page, 'Kasun Silva')).toContainText('8');
+    await expect(workloadTable(page)).toBeVisible();
+  });
+
+  test('shows reconnection indicator when socket disconnects', async ({
+    page,
+  }) => {
+    const { server } = await openLiveWorkload(page);
+    server.close(1011);
+    await expect(
+      page.getByText(
+        'Connecting to live updates. Reload the page to check now.',
+      ),
+    ).toBeVisible();
+    await expect(workloadRow(page, 'Kasun Silva')).toBeVisible();
   });
 });

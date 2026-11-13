@@ -63,6 +63,7 @@ export function usePagedList<Row>(
     page,
     setPage,
     pagination,
+    setPagination,
     refresh,
     isLoading: rows === null && error === null,
   };
