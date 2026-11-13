@@ -1,7 +1,7 @@
 'use client';
 
 import { Package, RotateCcw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   DISPATCH_PAGE_SIZE,
@@ -11,6 +11,7 @@ import {
   type Zone,
 } from '../../lib/dispatch-api';
 import { formatDate, formatKg } from '../../lib/format';
+import { useLiveUpdates, type LiveState } from '../../lib/use-live-updates';
 import { PageHeader } from '../layout/page-header';
 import { RequireRole } from '../layout/require-role';
 import { Section } from '../layout/section';
@@ -26,6 +27,15 @@ import { Select } from '../ui/select';
 import { AssignCourierModal } from './assign-courier-modal';
 import { DispatchAlert } from './dispatch-alerts';
 import { usePagedList } from './use-paged-list';
+
+/** The live connection in words, as M10's hook asks. */
+const liveCaptions: Record<LiveState, string> = {
+  live: 'Live. Parcel statuses change here as they happen.',
+  connecting: 'Connecting to live updates. Reload the page to check now.',
+  reconnecting: 'Connecting to live updates. Reload the page to check now.',
+  denied: 'Live updates are off. Reload the page to check for changes.',
+  limited: 'Live updates are off. Reload the page to check for changes.',
+};
 
 export function UnassignedView() {
   return (
@@ -75,6 +85,61 @@ function UnassignedContent() {
   );
 
   const list = usePagedList(load);
+
+  const latest = useRef({ load, page: list.page, rows: list.rows });
+  const nextSyncId = useRef(0);
+  const lastAppliedSync = useRef(0);
+  const syncAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    latest.current = { load, page: list.page, rows: list.rows };
+  });
+
+  useEffect(() => () => syncAbort.current?.abort(), []);
+
+  const quietRefetch = useCallback(() => {
+    const { load: loadNow, page: pageNow, rows } = latest.current;
+    if (rows === null) return undefined;
+    const syncId = (nextSyncId.current += 1);
+    const signal =
+      syncAbort.current?.signal ??
+      (syncAbort.current = new AbortController()).signal;
+    return loadNow(pageNow, signal)
+      .then(({ data, meta }) => {
+        if (latest.current.load !== loadNow) return;
+        if (latest.current.page !== pageNow) return;
+        if (syncId <= lastAppliedSync.current) return;
+        lastAppliedSync.current = syncId;
+        const next = meta.pagination ?? null;
+        const lastPage = Math.max(next?.totalPages ?? 1, 1);
+        // A live removal can empty the last page. Re-run the normal load so the
+        // hook clamps the page and clears its loading state.
+        if (pageNow > lastPage) {
+          list.setPage(lastPage);
+          return;
+        }
+        list.setPagination(next);
+        list.setRows(data);
+      })
+      .catch(() => undefined);
+  }, [list]);
+
+  const { state: liveState } = useLiveUpdates({
+    scope: 'all',
+    onUpdate: (update) => {
+      if (update.status !== 'CREATED') {
+        list.setRows((current) =>
+          current === null
+            ? current
+            : current.filter((p) => p.trackingNumber !== update.trackingNumber),
+        );
+      }
+      quietRefetch();
+    },
+    onSync: () => {
+      quietRefetch();
+    },
+  });
 
   const hasFilters = Boolean(selectedZone || fromDate || toDate);
 
@@ -163,6 +228,12 @@ function UnassignedContent() {
         title="Unassigned parcels"
         description="Parcels waiting for a courier assignment."
       />
+
+      {liveState !== 'idle' && (
+        <p role="status" className="text-body-sm text-text-muted">
+          {liveCaptions[liveState]}
+        </p>
+      )}
 
       <Section
         title="Unassigned queue"

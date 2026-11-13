@@ -189,12 +189,18 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 	if recipients[customerEmail] != 1 || recipients[merchantEmail] != 1 {
 		t.Fatalf("notification recipients = %v", recipients)
 	}
-	if got := scalar(t, pool, "SELECT count(*) FROM notification.notification_logs WHERE status='SENT'"); got != "2" {
-		t.Errorf("SENT notification logs = %s, want 2", got)
-	}
-	if got := scalar(t, pool, "SELECT count(*) FROM notification.processed_events"); got != "2" {
-		t.Errorf("processed events = %s, want 2", got)
-	}
+	// The worker sends the email before it commits the SENT log and the
+	// processed-event row in one transaction. Waiting for the mail alone races
+	// that commit, so poll the database condition instead of asserting at once.
+	waitUntil(t, eventWaitTimeout, "notification log and processed events committed", func() error {
+		if got := scalar(t, pool, "SELECT count(*) FROM notification.notification_logs WHERE status='SENT'"); got != "2" {
+			return fmt.Errorf("SENT notification logs = %s, want 2", got)
+		}
+		if got := scalar(t, pool, "SELECT count(*) FROM notification.processed_events"); got != "2" {
+			return fmt.Errorf("processed events = %s, want 2", got)
+		}
+		return nil
+	})
 	if got := scalar(t, pool, "SELECT recipient FROM notification.notification_logs WHERE event_id='"+merchantEnvelope.ID+"'"); got != merchantEmail {
 		t.Errorf("merchant notification recipient = %q, want %q", got, merchantEmail)
 	}

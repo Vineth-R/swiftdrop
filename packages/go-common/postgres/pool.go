@@ -138,6 +138,17 @@ func (p *Pool) Begin(ctx context.Context) (pgx.Tx, error) {
 	return p.pool.Begin(ctx)
 }
 
+// Acquire borrows a dedicated connection. Callers that keep session state on a
+// connection, such as a session-scoped advisory lock, must use this instead of
+// the pool-level helpers, which may run each statement on a different
+// connection.
+func (p *Pool) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
+	if p == nil || p.pool == nil {
+		return nil, ErrNotConfigured
+	}
+	return p.pool.Acquire(ctx)
+}
+
 func nextDelay(current, maximum time.Duration) time.Duration {
 	next := current * 2
 	if next <= 0 {
