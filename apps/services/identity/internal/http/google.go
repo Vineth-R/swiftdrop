@@ -3,6 +3,7 @@ package servicehttp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -141,7 +142,7 @@ func (h *googleHandlers) callbackFailed(c *gin.Context, err error) {
 	}
 	h.logger.Log(c.Request.Context(), level, "google sign-in failed",
 		"request_id", requestid.FromGin(c),
-		"error", err.Error(),
+		"error", err, "error_type", fmt.Sprintf("%T", err),
 	)
 	c.Redirect(http.StatusFound, googleFailurePath)
 }
@@ -154,7 +155,7 @@ func (h *googleHandlers) fail(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrOAuthProvider):
 		h.logger.WarnContext(c.Request.Context(), "google sign-in provider error",
 			"request_id", requestid.FromGin(c),
-			"error", err.Error(),
+			"error", err, "error_type", fmt.Sprintf("%T", err),
 		)
 		httpx.Error(c, http.StatusBadGateway, "OAUTH_PROVIDER_ERROR", "google sign-in failed")
 	case errors.Is(err, service.ErrGoogleEmailNotVerified):

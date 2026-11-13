@@ -8,6 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/google/uuid"
+
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/businessreg"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/onboarding"
@@ -30,6 +33,8 @@ var errIdentityEmailExists = errors.New("identity account already exists without
 type Repository interface {
 	onboarding.Store
 	MerchantByContactEmail(ctx context.Context, contactEmail string) (repository.Merchant, error)
+	APIClientByLookup(ctx context.Context, lookupID string) (repository.APIClient, string, error)
+	CreateAPIClient(ctx context.Context, params repository.CreateAPIClientParams) (repository.APIClient, error)
 }
 
 // ZoneSource resolves the pickup zone code from pricing.zones. It is read-only.
@@ -41,6 +46,11 @@ type ZoneSource interface {
 type Result struct {
 	Merchant      repository.Merchant
 	AlreadySeeded bool
+
+	// APIKeyCreated is true when the run inserted the configured demo key.
+	// APIKeyPrefix is safe to log; the full key never leaves the caller.
+	APIKeyCreated bool
+	APIKeyPrefix  string
 }
 
 // Run creates a MERCHANT identity owner through Identity's internal API and a
@@ -84,7 +94,7 @@ func Run(ctx context.Context, repo Repository, identity onboarding.Identity, zon
 	existing, err := repo.MerchantByContactEmail(ctx, config.ContactEmail)
 	switch {
 	case err == nil:
-		return completeExisting(ctx, service, existing, config)
+		return completeExisting(ctx, repo, service, existing, config)
 	case !errors.Is(err, repository.ErrNotFound):
 		return Result{}, fmt.Errorf("look up seeded merchant: %w", err)
 	}
@@ -125,14 +135,56 @@ func Run(ctx context.Context, repo Repository, identity onboarding.Identity, zon
 		if err != nil {
 			return Result{}, fmt.Errorf("read seeded merchant: %w", err)
 		}
-		return Result{Merchant: merchant, AlreadySeeded: true}, nil
+		return finish(ctx, repo, merchant, true, config)
 	}
 
 	approval, err := service.Approve(ctx, registered.MerchantID, seedAdminActorID)
 	if err != nil {
 		return Result{}, fmt.Errorf("approve seeded merchant: %w", err)
 	}
-	return Result{Merchant: approval.Merchant}, nil
+	return finish(ctx, repo, approval.Merchant, false, config)
+}
+
+// finish ensures the optional demo API key exists and reports its non-secret
+// prefix. It never stores or logs the full key.
+func finish(ctx context.Context, repo Repository, merchant repository.Merchant, already bool, config Config) (Result, error) {
+	result := Result{Merchant: merchant, AlreadySeeded: already}
+	if config.MerchantAPIKey == "" {
+		return result, nil
+	}
+
+	lookupID, err := apikey.Parse(config.MerchantAPIKey)
+	if err != nil {
+		return Result{}, errors.New("SEED_MERCHANT_API_KEY is not a valid merchant API key")
+	}
+	expectedHash := apikey.Hash(config.MerchantAPIKey)
+
+	existing, storedHash, err := repo.APIClientByLookup(ctx, lookupID)
+	switch {
+	case err == nil:
+		if existing.MerchantID != merchant.ID || !apikey.EqualHash(storedHash, expectedHash) {
+			return Result{}, errors.New("SEED_MERCHANT_API_KEY collides with an existing key owned by another merchant; use a new key")
+		}
+		result.APIKeyPrefix = existing.KeyPrefix
+		return result, nil
+	case !errors.Is(err, repository.ErrNotFound):
+		return Result{}, fmt.Errorf("look up seeded API key: %w", err)
+	}
+
+	prefix := apikey.Prefix + lookupID[:8]
+	if _, err := repo.CreateAPIClient(ctx, repository.CreateAPIClientParams{
+		ID:         uuid.NewString(),
+		MerchantID: merchant.ID,
+		Name:       "Demo API key",
+		KeyPrefix:  prefix,
+		LookupID:   lookupID,
+		KeyHash:    expectedHash,
+	}); err != nil {
+		return Result{}, fmt.Errorf("create seeded API key: %w", err)
+	}
+	result.APIKeyCreated = true
+	result.APIKeyPrefix = prefix
+	return result, nil
 }
 
 func issueSummary(issues []onboarding.ValidationIssue) string {
@@ -146,10 +198,10 @@ func issueSummary(issues []onboarding.ValidationIssue) string {
 	return strings.Join(parts, "; ")
 }
 
-func completeExisting(ctx context.Context, service *onboarding.Service, merchant repository.Merchant, config Config) (Result, error) {
+func completeExisting(ctx context.Context, repo Repository, service *onboarding.Service, merchant repository.Merchant, config Config) (Result, error) {
 	switch merchant.Status {
 	case repository.MerchantStatusApproved:
-		return Result{Merchant: merchant, AlreadySeeded: true}, nil
+		return finish(ctx, repo, merchant, true, config)
 	case repository.MerchantStatusPending:
 		if merchant.BusinessRegNo == nil || businessreg.Normalize(*merchant.BusinessRegNo) != config.BusinessRegNo {
 			return Result{}, fmt.Errorf("contact email %s already belongs to a different merchant; use a different SEED_MERCHANT_CONTACT_EMAIL", config.ContactEmail)
@@ -158,7 +210,7 @@ func completeExisting(ctx context.Context, service *onboarding.Service, merchant
 		if err != nil {
 			return Result{}, fmt.Errorf("approve pending seeded merchant: %w", err)
 		}
-		return Result{Merchant: approval.Merchant}, nil
+		return finish(ctx, repo, approval.Merchant, false, config)
 	default:
 		return Result{}, fmt.Errorf("merchant %s is %s; refusing to modify an existing merchant", merchant.ID, merchant.Status)
 	}

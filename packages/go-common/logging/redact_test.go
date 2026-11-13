@@ -450,3 +450,25 @@ func TestIsAuthPath(t *testing.T) {
 		t.Fatal("IsAuthPath() should be false for a business path")
 	}
 }
+
+func TestRedactTextRemovesEmailsAndCredentialWords(t *testing.T) {
+	if got := RedactText("panic while loading user@example.com"); got == "panic while loading user@example.com" || !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("email was not redacted: %q", got)
+	}
+	if got := RedactText("password=hunter2"); got != "[REDACTED]" {
+		t.Fatalf("credential-shaped text = %q, want [REDACTED]", got)
+	}
+}
+
+func TestEmailAndRecipientAttributesAreSensitive(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(NewRedactingHandler(slog.NewJSONHandler(&buffer, nil)))
+	logger.Info("contact", "email", "seed.customer@example.com", "recipient", "+94771234567")
+	output := buffer.String()
+	if strings.Contains(output, "seed.customer@example.com") || strings.Contains(output, "+94771234567") {
+		t.Fatalf("sensitive attributes leaked: %s", output)
+	}
+	if !strings.Contains(output, "[REDACTED]") {
+		t.Fatalf("expected redaction marker in %s", output)
+	}
+}

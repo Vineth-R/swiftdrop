@@ -51,3 +51,24 @@ ON CONFLICT ON CONSTRAINT webhook_attempt_uq DO NOTHING`,
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// DeliveredEvent reports whether this merchant's webhook already recorded a
+// successful delivery for the event. It lets the webhook worker suppress a
+// duplicate delivery when the same event is redelivered after success.
+//
+// It is deliberately a read of the durable attempt log, not an in-memory flag,
+// so the guarantee survives worker restarts. It cannot close the window where
+// a receiver accepted a request and the worker crashed before recording it;
+// receivers must still deduplicate on eventId.
+func (r *Repository) DeliveredEvent(ctx context.Context, merchantID, eventID string) (bool, error) {
+	var delivered bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM `+attemptsTable+`
+			WHERE merchant_id = $1::uuid AND event_id = $2::uuid AND success
+		)`, merchantID, eventID).Scan(&delivered)
+	if err != nil {
+		return false, fmt.Errorf("check delivered webhook event: %w", err)
+	}
+	return delivered, nil
+}

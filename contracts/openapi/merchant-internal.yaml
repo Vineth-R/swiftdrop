@@ -131,6 +131,62 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /internal/merchants/{merchantId}/webhook/deliveries/{eventId}:
+    get:
+      operationId: merchantInternalWebhookDelivered
+      summary: Check whether a webhook event was already delivered (API v1.1 section 13)
+      description: >-
+        Reports whether the merchant's durable delivery log contains a
+        successful attempt for the event. The webhook worker calls this before
+        sending, so a redelivered event does not produce a second successful
+        delivery. This is a read-only service-to-service endpoint: it requires
+        `X-Internal-Token` and a well-formed `X-Request-Id`, and the response is
+        never cached.
+
+
+        This cannot close the window where a receiver accepted a request and
+        the worker crashed before recording it. Receivers must still
+        deduplicate on `eventId`.
+      parameters:
+        - $ref: '#/components/parameters/InternalToken'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/MerchantId'
+        - name: eventId
+          in: path
+          required: true
+          description: The event UUID from the envelope.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The delivery state for the event.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [delivered]
+                    properties:
+                      delivered:
+                        type: boolean
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+              example:
+                data:
+                  delivered: true
+                meta:
+                  requestId: req_01HF-example
+                  timestamp: '2026-11-04T09:30:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
   /internal/merchants/{merchantId}/contact:
     get:
       operationId: merchantInternalContact

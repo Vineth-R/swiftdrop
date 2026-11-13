@@ -345,7 +345,41 @@ func checkRepository(root string) []string {
 			violations = append(violations, fmt.Sprintf("%s/main.go must initialize httpx.NewRouter in main or run", service))
 		}
 	}
+	violations = append(violations, scanUnsafePatterns(servicesDir)...)
 	sort.Strings(violations)
+	return violations
+}
+
+// scanUnsafePatterns rejects the small set of unsafe logging and error-response
+// patterns that are easy to reintroduce: stdout logging, raw error strings in
+// structured logs, and hand-written error JSON. Tests are excluded because
+// they intentionally exercise failure paths.
+func scanUnsafePatterns(servicesDir string) []string {
+	var violations []string
+	_ = filepath.WalkDir(servicesDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		relative, _ := filepath.Rel(filepath.Join(servicesDir, "..", ".."), path)
+		// Operator CLIs and demo seeds print human-readable output by design.
+		operatorCLI := strings.Contains(relative, "/proof-transfer/") || strings.Contains(relative, "/seed/")
+		for lineNumber, line := range strings.Split(string(content), "\n") {
+			trimmed := strings.TrimSpace(line)
+			switch {
+			case !operatorCLI && (strings.Contains(trimmed, "fmt.Println(") || strings.Contains(trimmed, "log.Println(")):
+				violations = append(violations, fmt.Sprintf("%s:%d must not log to stdout; use packages/go-common/logging", relative, lineNumber+1))
+			case strings.Contains(trimmed, `"error", err.Error()`):
+				violations = append(violations, fmt.Sprintf("%s:%d logs a raw error string; pass the error value and error_type", relative, lineNumber+1))
+			case (strings.Contains(trimmed, "c.JSON(") || strings.Contains(trimmed, "c.AbortWithStatusJSON(")) && strings.Contains(trimmed, `"error"`):
+				violations = append(violations, fmt.Sprintf("%s:%d hand-writes an error response; use packages/go-common/httpx", relative, lineNumber+1))
+			}
+		}
+		return nil
+	})
 	return violations
 }
 

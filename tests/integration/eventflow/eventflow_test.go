@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -266,6 +267,20 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 	}
 	if got := scalar(t, pool, "SELECT count(*) FROM notification.notification_logs"); got != "2" {
 		t.Errorf("notification logs after duplicate = %s, want 2", got)
+	}
+
+	// Duplicate webhook and realtime delivery must not add side effects.
+	if err := webhook.Handle(ctx, messaging.Message{Body: merchantBody}); err != nil {
+		t.Fatalf("duplicate webhook: %v", err)
+	}
+	if got := len(sender.calls()); got != 1 {
+		t.Errorf("webhook deliveries after duplicate = %d, want 1", got)
+	}
+	if err := realtime.Handle(ctx, messaging.Message{Body: merchantBody}); err != nil {
+		t.Fatalf("duplicate realtime: %v", err)
+	}
+	if got := len(broadcaster.updates()); got != 2 {
+		t.Errorf("realtime updates after duplicate = %d, want 2", got)
 	}
 
 	// A transient identity failure is retryable and does not send or mark the event.
@@ -630,6 +645,18 @@ func (f *fakeMerchantAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/webhook"):
 		_, _ = w.Write([]byte(`{"data":{"url":"https://merchant.example.test/hook","signingSecret":"whsec_eventflow","eventTypes":["parcel.status_changed"],"isActive":true,"merchantStatus":"APPROVED"}}`))
+	case strings.Contains(r.URL.Path, "/webhook/deliveries/"):
+		eventID := path.Base(r.URL.Path)
+		f.mu.Lock()
+		delivered := false
+		for _, attempt := range f.recorded {
+			if attempt.EventID == eventID && attempt.Success {
+				delivered = true
+				break
+			}
+		}
+		f.mu.Unlock()
+		_, _ = fmt.Fprintf(w, `{"data":{"delivered":%t}}`, delivered)
 	case strings.HasSuffix(r.URL.Path, "/webhook/attempts"):
 		var attempt webhookevents.Attempt
 		if err := json.NewDecoder(r.Body).Decode(&attempt); err != nil {

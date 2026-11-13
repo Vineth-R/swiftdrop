@@ -888,6 +888,13 @@ func TestSanitizeErrorMessage(t *testing.T) {
 		}
 	})
 
+	t.Run("redacts a different embedded email", func(t *testing.T) {
+		got := sanitizeErrorMessage("550 other@example.com rejected", "customer@example.com")
+		if strings.Contains(got, "other@example.com") {
+			t.Fatalf("embedded email was not redacted: %q", got)
+		}
+	})
+
 	t.Run("collapses whitespace", func(t *testing.T) {
 		if got := sanitizeErrorMessage("  a\t\tb  ", ""); got != "a b" {
 			t.Fatalf("got %q, want %q", got, "a b")
