@@ -370,3 +370,52 @@ func TestNewServerHardening(t *testing.T) {
 		t.Fatalf("MaxHeaderBytes = %d, want %d", custom.MaxHeaderBytes, 2<<20)
 	}
 }
+
+func TestErrorWithFieldsKeepsStandardEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := NewRouter(discardLogger())
+	router.GET("/", func(c *gin.Context) {
+		ErrorWithFields(c, http.StatusConflict, "PRICE_CHANGED", "fee changed", map[string]any{"currentFee": 550.0, "code": "IGNORED"})
+	})
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set(requestid.Header, "req-fields")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	var body struct {
+		Error map[string]any `json:"error"`
+		Meta  struct {
+			RequestID string `json:"requestId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if body.Error["code"] != "PRICE_CHANGED" {
+		t.Fatalf("code = %v", body.Error["code"])
+	}
+	if body.Error["currentFee"] != 550.0 {
+		t.Fatalf("currentFee = %v", body.Error["currentFee"])
+	}
+	if body.Meta.RequestID != "req-fields" {
+		t.Fatalf("requestId = %q", body.Meta.RequestID)
+	}
+}
+
+func TestRecoveryRedactsSensitivePanicValue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, buffer := bufferLogger()
+	router := NewRouter(logger)
+	router.GET("/panic-secret", func(*gin.Context) {
+		panic("token=super-secret-value")
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/panic-secret", nil))
+
+	if strings.Contains(buffer.String(), "super-secret-value") {
+		t.Fatalf("panic value leaked into logs: %s", buffer.String())
+	}
+	if !strings.Contains(buffer.String(), "[REDACTED]") {
+		t.Fatalf("panic value was not redacted: %s", buffer.String())
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/live"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
@@ -21,13 +23,72 @@ type Broadcaster interface {
 	Broadcast(update live.Update) int
 }
 
+const (
+	defaultDedupeCapacity = 4096
+	defaultDedupeTTL      = 10 * time.Minute
+)
+
 // Handler implements messaging.Handler.
 type Handler struct {
-	hub Broadcaster
+	hub    Broadcaster
+	dedupe *eventDedupe
 }
 
+// New returns a consumer with the default bounded deduplication window.
 func New(hub Broadcaster) *Handler {
-	return &Handler{hub: hub}
+	return NewWithDedupe(hub, defaultDedupeCapacity, defaultDedupeTTL)
+}
+
+// NewWithDedupe returns a consumer that suppresses a repeated event ID within
+// a bounded, process-local window. Deduplication is not shared across replicas
+// and does not survive a restart; durable replay remains future work.
+func NewWithDedupe(hub Broadcaster, capacity int, ttl time.Duration) *Handler {
+	if capacity < 1 {
+		capacity = defaultDedupeCapacity
+	}
+	if ttl <= 0 {
+		ttl = defaultDedupeTTL
+	}
+	return &Handler{hub: hub, dedupe: &eventDedupe{capacity: capacity, ttl: ttl, seen: make(map[string]time.Time)}}
+}
+
+type eventDedupe struct {
+	mu       sync.Mutex
+	capacity int
+	ttl      time.Duration
+	seen     map[string]time.Time
+	order    []string
+}
+
+// claim records the event ID and reports whether it is new. The caller sends
+// only when claim returns true.
+func (d *eventDedupe) claim(id string, now time.Time) bool {
+	if id == "" {
+		return true
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	for len(d.order) > 0 {
+		oldest := d.order[0]
+		expiry, ok := d.seen[oldest]
+		if ok && now.Before(expiry) {
+			break
+		}
+		d.order = d.order[1:]
+		delete(d.seen, oldest)
+	}
+	if _, exists := d.seen[id]; exists {
+		return false
+	}
+	d.seen[id] = now.Add(d.ttl)
+	d.order = append(d.order, id)
+	for len(d.order) > d.capacity {
+		oldest := d.order[0]
+		d.order = d.order[1:]
+		delete(d.seen, oldest)
+	}
+	return true
 }
 
 // payload lists only the fields API v1.1 section 9 lets clients see. Anything
@@ -67,6 +128,9 @@ func (h *Handler) Handle(_ context.Context, message messaging.Message) error {
 		return messaging.Permanent(fmt.Errorf("invalid previous_status %q", data.PreviousStatus))
 	}
 
+	if !h.dedupe.claim(envelope.ID, time.Now()) {
+		return nil
+	}
 	h.hub.Broadcast(live.Update{
 		TrackingNumber: data.TrackingNumber,
 		PreviousStatus: data.PreviousStatus,

@@ -31,13 +31,13 @@ func callInternal(router *gin.Engine, method, path, token string) *httptest.Resp
 	return recorder
 }
 
-func TestRegisterInternalWebhooksAddsTwoRoutes(t *testing.T) {
+func TestRegisterInternalWebhooksAddsThreeRoutes(t *testing.T) {
 	router := gin.New()
 	if err := registerInternalWebhooks(router, nil, internalConfig(testWebhookKey, testInternalToken), quietLogger()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(router.Routes()); got != 2 {
-		t.Fatalf("routes = %d, want 2", got)
+	if got := len(router.Routes()); got != 3 {
+		t.Fatalf("routes = %d, want 3", got)
 	}
 }
 

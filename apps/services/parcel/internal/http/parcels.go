@@ -93,7 +93,9 @@ func (h *parcelHandlers) failure(c *gin.Context, err error) bool {
 	case errors.As(err, &invalid):
 		httpx.ErrorWithDetails(c, 422, "VALIDATION_ERROR", "one or more fields are invalid", httpx.ErrorItems(invalid.Issues))
 	case errors.As(err, &changed):
-		c.AbortWithStatusJSON(409, gin.H{"error": gin.H{"code": "PRICE_CHANGED", "message": "the delivery fee has changed; confirm the current fee", "currentFee": changed.CurrentFee.Total}, "meta": gin.H{"requestId": requestid.FromGin(c)}})
+		httpx.ErrorWithFields(c, 409, "PRICE_CHANGED", "the delivery fee has changed; confirm the current fee", map[string]any{
+			"currentFee": changed.CurrentFee.Total,
+		})
 	case errors.As(err, &pricing):
 		httpx.Error(c, 422, pricing.Code, "the selected parcel cannot be priced")
 	case errors.Is(err, parcels.ErrConflict):

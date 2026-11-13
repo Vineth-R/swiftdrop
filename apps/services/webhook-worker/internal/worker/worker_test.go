@@ -19,16 +19,22 @@ var testNow = time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 // fakes record what the handler does, so tests can assert on it.
 
 type fakeMerchants struct {
-	webhook    Webhook
-	webhookErr error
-	recordErr  error
-	attempts   []Attempt
-	merchantID string
+	webhook      Webhook
+	webhookErr   error
+	delivered    bool
+	deliveredErr error
+	recordErr    error
+	attempts     []Attempt
+	merchantID   string
 }
 
 func (f *fakeMerchants) Webhook(_ context.Context, merchantID string) (Webhook, error) {
 	f.merchantID = merchantID
 	return f.webhook, f.webhookErr
+}
+
+func (f *fakeMerchants) Delivered(_ context.Context, _, _ string) (bool, error) {
+	return f.delivered, f.deliveredErr
 }
 
 func (f *fakeMerchants) RecordAttempt(_ context.Context, _ string, a Attempt) error {
@@ -470,5 +476,20 @@ func TestClampDuration(t *testing.T) {
 	}
 	if got := clampDuration(1500 * time.Millisecond); got != 1500 {
 		t.Fatalf("normal = %d", got)
+	}
+}
+
+func TestHandleSkipsAlreadyDeliveredEvent(t *testing.T) {
+	rig := newRig()
+	rig.merchants.delivered = true
+	handler := rig.handler()
+	if err := handler.Handle(context.Background(), message(t, fullData, nil)); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if rig.sender.calls != 0 {
+		t.Fatalf("sent %d deliveries for an already-delivered event", rig.sender.calls)
+	}
+	if len(rig.merchants.attempts) != 0 {
+		t.Fatalf("recorded %d attempts for an already-delivered event", len(rig.merchants.attempts))
 	}
 }

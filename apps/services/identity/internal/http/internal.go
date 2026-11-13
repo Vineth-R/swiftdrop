@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -237,7 +238,7 @@ func (h *internalHandlers) fail(c *gin.Context, err error) {
 	h.logger.ErrorContext(c.Request.Context(), "internal request failed",
 		"request_id", requestid.FromGin(c),
 		"path", c.FullPath(),
-		"error", err.Error(),
+		"error", err, "error_type", fmt.Sprintf("%T", err),
 	)
 	httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 }

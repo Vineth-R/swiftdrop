@@ -26,14 +26,16 @@ const (
 )
 
 type fakeInternalStore struct {
-	webhook     *repository.Webhook
-	merchant    repository.Merchant
-	recorded    []repository.RecordAttemptParams
-	duplicate   bool
-	getErr      error
-	merchantErr error
-	recordErr   error
-	merchantIDs []string
+	webhook      *repository.Webhook
+	merchant     repository.Merchant
+	recorded     []repository.RecordAttemptParams
+	duplicate    bool
+	getErr       error
+	merchantErr  error
+	recordErr    error
+	delivered    bool
+	deliveredErr error
+	merchantIDs  []string
 }
 
 func (s *fakeInternalStore) WebhookByMerchant(_ context.Context, merchantID string) (repository.Webhook, error) {
@@ -45,6 +47,10 @@ func (s *fakeInternalStore) WebhookByMerchant(_ context.Context, merchantID stri
 		return repository.Webhook{}, repository.ErrWebhookNotConfigured
 	}
 	return *s.webhook, nil
+}
+
+func (s *fakeInternalStore) DeliveredEvent(_ context.Context, _, _ string) (bool, error) {
+	return s.delivered, s.deliveredErr
 }
 
 func (s *fakeInternalStore) MerchantByID(_ context.Context, merchantID string) (repository.Merchant, error) {
@@ -514,5 +520,48 @@ func TestIsCanonicalUUID(t *testing.T) {
 		if isCanonicalUUID(bad) {
 			t.Errorf("%q accepted", bad)
 		}
+	}
+}
+
+func TestInternalWebhookDeliveredEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fixture := newInternalFixture(internalTestToken, true, true)
+	fixture.store.delivered = true
+
+	path := "/internal/merchants/" + internalTestMerchant + "/webhook/deliveries/" + internalTestEvent
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("X-Internal-Token", internalTestToken)
+	request.Header.Set("X-Request-Id", "req-delivered")
+	recorder := httptest.NewRecorder()
+	fixture.router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"delivered":true`) {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
+func TestInternalWebhookDeliveredRequiresTokenAndUUID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fixture := newInternalFixture(internalTestToken, true, true)
+	path := "/internal/merchants/" + internalTestMerchant + "/webhook/deliveries/" + internalTestEvent
+
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("X-Request-Id", "req-delivered")
+	recorder := httptest.NewRecorder()
+	fixture.router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("missing token status = %d", recorder.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/internal/merchants/"+internalTestMerchant+"/webhook/deliveries/not-a-uuid", nil)
+	request.Header.Set("X-Internal-Token", internalTestToken)
+	request.Header.Set("X-Request-Id", "req-delivered")
+	recorder = httptest.NewRecorder()
+	fixture.router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("bad uuid status = %d", recorder.Code)
 	}
 }

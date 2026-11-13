@@ -1,5 +1,12 @@
 # SwiftDrop AI Delivery Assistant — Final Technical Audit
 
+> **Policy update (M1 completion):** The AI assistant is a core SwiftDrop
+> component and must remain in `development` and in `release/m1-complete`.
+> Earlier statements in this audit about keeping `main` AI-free are superseded;
+> `main` is stale and is not the release base. Use
+> [`docs/ai-release-checklist.md`](ai-release-checklist.md) for the current
+> release requirements.
+
 Date: 2026-11-08
 Auditor: Lead audit (Agent 1), with independent reviews by Gemini, backend security, frontend and infrastructure agents.
 Repository: `Vineth-R/swiftdrop`
