@@ -1,6 +1,15 @@
 package repository
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
+)
+
+// The idempotency lock borrows a dedicated connection from the service pool.
+// Keep the shared pool satisfying that seam so order creation with an
+// Idempotency-Key cannot regress to an internal error at runtime.
+var _ connectionPool = (*postgres.Pool)(nil)
 
 func TestNewRequiresDatabase(t *testing.T) {
 	repository, err := New(nil)
