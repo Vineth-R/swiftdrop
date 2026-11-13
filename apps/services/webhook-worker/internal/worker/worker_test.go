@@ -127,6 +127,35 @@ func message(t *testing.T, data string, headers map[string]any) messaging.Messag
 	return messaging.Message{Body: statusBody(t, data), Headers: headers}
 }
 
+// A broker may redeliver a message (at-least-once). The worker does not
+// de-duplicate: each delivery is sent and recorded, and the event ID stays the
+// same so the merchant can discard the repeat (API v1.1, section 10).
+func TestHandleSameEventTwiceKeepsEventID(t *testing.T) {
+	r := newRig()
+	h := r.handler()
+
+	var ids []string
+	r.sender.onSend = func() { ids = append(ids, r.sender.event.ID) }
+
+	for i := 0; i < 2; i++ {
+		if err := h.Handle(context.Background(), message(t, fullData, nil)); err != nil {
+			t.Fatalf("Handle() #%d error: %v", i+1, err)
+		}
+	}
+	const want = "11111111-2222-4333-8444-555555555555"
+	if r.sender.calls != 2 || len(ids) != 2 || ids[0] != want || ids[1] != want {
+		t.Fatalf("calls = %d, event IDs = %v, want two sends of %s", r.sender.calls, ids, want)
+	}
+	if len(r.merchants.attempts) != 2 {
+		t.Fatalf("attempts = %d, want 2", len(r.merchants.attempts))
+	}
+	for i, a := range r.merchants.attempts {
+		if a.EventID != want || !a.Success || a.AttemptNumber != 1 {
+			t.Fatalf("attempt %d = %+v", i, a)
+		}
+	}
+}
+
 func TestHandleDelivers(t *testing.T) {
 	r := newRig()
 	order := "ORDER-9"
