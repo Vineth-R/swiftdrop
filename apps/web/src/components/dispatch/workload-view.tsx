@@ -1,13 +1,14 @@
 'use client';
 
 import { RotateCcw, Truck } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ApiError } from '../../lib/api';
 import {
   getCourierWorkload,
   type CourierWorkload,
 } from '../../lib/dispatch-api';
+import { useLiveUpdates, type LiveState } from '../../lib/use-live-updates';
 import { PageHeader } from '../layout/page-header';
 import { RequireRole } from '../layout/require-role';
 import { Section } from '../layout/section';
@@ -37,6 +38,15 @@ const availabilityOptions = [
   { value: 'unavailable', label: 'Unavailable only' },
 ];
 
+/** The live connection in words, as M10's hook asks. */
+const liveCaptions: Record<LiveState, string> = {
+  live: 'Live. Parcel statuses change here as they happen.',
+  connecting: 'Connecting to live updates. Reload the page to check now.',
+  reconnecting: 'Connecting to live updates. Reload the page to check now.',
+  denied: 'Live updates are off. Reload the page to check for changes.',
+  limited: 'Live updates are off. Reload the page to check for changes.',
+};
+
 function WorkloadContent() {
   const [data, setData] = useState<CourierWorkload[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,6 +54,18 @@ function WorkloadContent() {
 
   const [search, setSearch] = useState('');
   const [availability, setAvailability] = useState('');
+
+  const dataRef = useRef(data);
+  useEffect(() => {
+    dataRef.current = data;
+  });
+
+  const syncsInFlight = useRef(0);
+  const nextSyncId = useRef(0);
+  const lastAppliedSync = useRef(0);
+  const syncAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => () => syncAbort.current?.abort(), []);
 
   const loadData = useCallback(() => {
     const controller = new AbortController();
@@ -67,6 +89,35 @@ function WorkloadContent() {
 
     return () => controller.abort();
   }, []);
+
+  const quietRefetch = useCallback(() => {
+    if (dataRef.current === null) return undefined;
+    const syncId = (nextSyncId.current += 1);
+    syncsInFlight.current += 1;
+    const signal =
+      syncAbort.current?.signal ??
+      (syncAbort.current = new AbortController()).signal;
+    return getCourierWorkload(signal)
+      .then((items) => {
+        if (syncId <= lastAppliedSync.current) return;
+        lastAppliedSync.current = syncId;
+        setData(items);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        syncsInFlight.current = Math.max(0, syncsInFlight.current - 1);
+      });
+  }, []);
+
+  const { state: liveState } = useLiveUpdates({
+    scope: 'all',
+    onUpdate: () => {
+      quietRefetch();
+    },
+    onSync: () => {
+      quietRefetch();
+    },
+  });
 
   useEffect(() => {
     const abort = loadData();
@@ -176,6 +227,12 @@ function WorkloadContent() {
           </Button>
         }
       />
+
+      {liveState !== 'idle' && (
+        <p role="status" className="text-body-sm text-text-muted">
+          {liveCaptions[liveState]}
+        </p>
+      )}
 
       <Section
         title="Fleet workload"
