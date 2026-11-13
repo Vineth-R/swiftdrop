@@ -179,3 +179,41 @@ func TestRecordDeliveryAttemptsAreScopedToTheMerchant(t *testing.T) {
 		}
 	}
 }
+
+func TestDeliveredEventReadsSuccessfulAttemptOnly(t *testing.T) {
+	ctx, _, repo := newWebhookTestPool(t)
+	merchantID, _ := createOwnedMerchant(t, ctx, repo)
+	saveWebhook(t, ctx, repo, repository.SaveWebhookParams{
+		MerchantID: merchantID, URL: "https://shopzone.lk/hooks", IsActive: true, CandidateSecretEnc: []byte("v1:secret"),
+	})
+	eventID := userID(t)
+
+	delivered, err := repo.DeliveredEvent(ctx, merchantID, eventID)
+	if err != nil || delivered {
+		t.Fatalf("before success: delivered = %v, err = %v", delivered, err)
+	}
+
+	failed := attemptParams(t, merchantID, eventID, 1)
+	if _, err := repo.RecordDeliveryAttempt(ctx, failed); err != nil {
+		t.Fatalf("record failed attempt: %v", err)
+	}
+	delivered, err = repo.DeliveredEvent(ctx, merchantID, eventID)
+	if err != nil || delivered {
+		t.Fatalf("failed attempt must not count as delivered: %v, %v", delivered, err)
+	}
+
+	success := attemptParams(t, merchantID, eventID, 2)
+	success.Success = true
+	if _, err := repo.RecordDeliveryAttempt(ctx, success); err != nil {
+		t.Fatalf("record success: %v", err)
+	}
+	delivered, err = repo.DeliveredEvent(ctx, merchantID, eventID)
+	if err != nil || !delivered {
+		t.Fatalf("after success: delivered = %v, err = %v", delivered, err)
+	}
+
+	other, err := repo.DeliveredEvent(ctx, merchantID, userID(t))
+	if err != nil || other {
+		t.Fatalf("unrelated event: delivered = %v, err = %v", other, err)
+	}
+}

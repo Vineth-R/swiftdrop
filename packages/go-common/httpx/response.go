@@ -48,6 +48,31 @@ func ErrorWithDetails(c *gin.Context, status int, code, message string, details 
 	})
 }
 
+// ErrorWithFields writes the standard error envelope and adds extra,
+// API-specific fields to the error object. code, message and requestId cannot
+// be overridden by fields. This keeps additive fields inside the documented
+// shape instead of hand-writing a second error format.
+func ErrorWithFields(c *gin.Context, status int, code, message string, fields map[string]any) {
+	body := map[string]any{
+		"error": map[string]any{
+			"code":    code,
+			"message": message,
+		},
+		"meta": map[string]any{
+			"requestId": requestid.FromGin(c),
+		},
+	}
+	errorObject, _ := body["error"].(map[string]any)
+	for key, value := range fields {
+		switch key {
+		case "code", "message":
+			continue
+		}
+		errorObject[key] = value
+	}
+	c.AbortWithStatusJSON(status, body)
+}
+
 // ErrorItems converts shared validation issues into the API v1.1 details
 // shape. It preserves the caller's order and returns nil for no issues.
 func ErrorItems(issues []validation.Issue) []ErrorItem {

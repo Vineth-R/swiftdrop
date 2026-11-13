@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
 )
 
@@ -86,7 +87,8 @@ func Recovery(logger *slog.Logger) gin.HandlerFunc {
 				"request_id", requestID,
 				"method", c.Request.Method,
 				"path", c.Request.URL.Path,
-				"panic", fmt.Sprint(recovered),
+				"panic", logging.RedactText(fmt.Sprint(recovered)),
+				"panic_type", fmt.Sprintf("%T", recovered),
 				"stack", string(debug.Stack()),
 			)
 

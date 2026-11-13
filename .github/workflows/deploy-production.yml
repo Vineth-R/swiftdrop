@@ -111,6 +111,7 @@ jobs:
           owner="$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           image="ghcr.io/${owner}/${{ matrix.service }}:${TAG}"
           docker build \
+            --platform linux/amd64 \
             --file infra/docker/go.Dockerfile \
             --build-arg "SERVICE=${{ matrix.service }}" \
             --tag "${image}" .
@@ -142,7 +143,7 @@ jobs:
           set -euo pipefail
           owner="$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           image="ghcr.io/${owner}/web:${TAG}"
-          docker build --file infra/docker/web.Dockerfile --tag "${image}" .
+          docker build --platform linux/amd64 --file infra/docker/web.Dockerfile --tag "${image}" .
           docker push "${image}"
 
   summary:

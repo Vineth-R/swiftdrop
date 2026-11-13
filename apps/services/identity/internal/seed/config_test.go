@@ -151,3 +151,33 @@ func TestConfigValidateRejectsWrongRoleCounts(t *testing.T) {
 		t.Fatal("Validate accepted the wrong role counts")
 	}
 }
+
+func TestValidateTarget(t *testing.T) {
+	tests := []struct {
+		name        string
+		appEnv      string
+		url         string
+		allowRemote bool
+		wantErr     bool
+	}{
+		{name: "local development", appEnv: "development", url: "postgres://u:p@localhost:5432/db?sslmode=disable"},
+		{name: "compose service in development", appEnv: "development", url: "postgres://u:p@postgres:5432/db?sslmode=disable"},
+		{name: "loopback v6", appEnv: "staging", url: "postgres://u:p@[::1]:5432/db"},
+		{name: "production refused", appEnv: "production", url: "postgres://u:p@localhost:5432/db", wantErr: true},
+		{name: "remote refused", appEnv: "development", url: "postgres://u:p@db.example.com:5432/db", wantErr: true},
+		{name: "remote allowed explicitly", appEnv: "development", url: "postgres://u:p@db.example.com:5432/db", allowRemote: true},
+		{name: "compose service refused outside development", appEnv: "staging", url: "postgres://u:p@postgres:5432/db", wantErr: true},
+		{name: "malformed url", appEnv: "development", url: "not-a-url", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateTarget(test.appEnv, test.url, test.allowRemote)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ValidateTarget error = %v, wantErr %v", err, test.wantErr)
+			}
+			if err != nil && strings.Contains(err.Error(), "u:p") {
+				t.Fatalf("error leaked credentials: %v", err)
+			}
+		})
+	}
+}

@@ -1,0 +1,162 @@
+<mxfile host="app.diagrams.net" modified="2026-11-12T00:00:00.000Z" agent="SwiftDrop" version="24.0.0">
+  <diagram id="figure-7-platform-architecture" name="Figure 7 - Platform Architecture">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Figure 7 — SwiftDrop platform architecture (Compose deployment)" style="text;html=1;fontSize=20;fontStyle=1;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="900" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="client" value="Browser / API client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="620" y="80" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="nginx" value="Nginx gateway&#xa;:8080&#xa;(single public edge)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="600" y="190" width="240" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="web" value="Next.js web&#xa;:3000" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="80" y="320" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="identity" value="identity :8081&#xa;auth, users, couriers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="300" y="320" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="pricing" value="pricing :8083&#xa;zones, quotes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="520" y="320" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="parcel" value="parcel :8082&#xa;parcels, dispatch, proofs, outbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="740" y="320" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="merchant" value="merchant :8084&#xa;orders, API keys, webhooks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="320" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="realtime" value="realtime :8085&#xa;WebSocket /ws" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="320" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ai" value="ai-assistant :8087&#xa;Gemini + 4 read-only tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="230" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pg" value="PostgreSQL 16&#xa;identity · pricing · parcel · merchant · notification" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="280" y="620" width="420" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="mq" value="RabbitMQ&#xa;swiftdrop.events (topic)&#xa;retry.v2 · DLQ queues" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="760" y="620" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="mail" value="SMTP / Mailpit&#xa;:1025 · UI :8025" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="620" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="Private object storage&#xa;local FS / VersityGW / Neon" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="620" width="210" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="notif" value="notification-worker&#xa;parcel.created · parcel.status_changed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="760" y="470" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="webhook" value="webhook-worker&#xa;signed retries + durable dedupe" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="470" width="240" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gemini" value="Google Gemini API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="540" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="receiver" value="Merchant HTTPS receiver" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="470" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ci" value="GitHub Actions CI/CD&#xa;tests · scans · amd64 images · release smoke" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="800" width="330" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" edge="1" parent="1" source="client" target="nginx" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="nginx" target="web" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="nginx" target="identity" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="nginx" target="pricing" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="nginx" target="parcel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="nginx" target="merchant" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="nginx" target="realtime" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="nginx" target="ai" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e9" edge="1" parent="1" source="identity" target="pg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="pricing" target="pg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="parcel" target="pg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="merchant" target="pg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="parcel" target="mq" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=outbox relay;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e14" edge="1" parent="1" source="mq" target="notif" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="mq" target="webhook" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="mq" target="realtime" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=status_changed;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="mq" target="merchant" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=merchant.sync;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e18" edge="1" parent="1" source="notif" target="mail" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="notif" target="identity" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=internal contact;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="notif" target="merchant" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=internal contact;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e21" edge="1" parent="1" source="webhook" target="merchant" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=internal webhook;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e22" edge="1" parent="1" source="webhook" target="parcel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=internal summary;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="webhook" target="receiver" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=signed HTTPS;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e24" edge="1" parent="1" source="ai" target="gemini" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e25" edge="1" parent="1" source="ai" target="pricing" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=tools;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e26" edge="1" parent="1" source="ai" target="parcel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=tools;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e27" edge="1" parent="1" source="parcel" target="s3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;label=proofs;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e28" edge="1" parent="1" source="ci" target="nginx" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;label=build + smoke;verticalAlign=bottom;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

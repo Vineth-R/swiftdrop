@@ -55,7 +55,7 @@ export function NotificationLogCard({ log }: { log: NotificationLog }) {
             {log.recipient}
           </span>
           <span className="text-caption text-text-muted">
-            {log.channel} · {formatDateTime(log.createdAt)}
+            Type {log.channel} · {formatDateTime(log.createdAt)}
           </span>
         </div>
         <NotificationLogStatusBadge status={log.status} />

@@ -47,6 +47,7 @@ type internalWebhookStore interface {
 	WebhookByMerchant(ctx context.Context, merchantID string) (repository.Webhook, error)
 	MerchantByID(ctx context.Context, merchantID string) (repository.Merchant, error)
 	RecordDeliveryAttempt(ctx context.Context, p repository.RecordAttemptParams) (bool, error)
+	DeliveredEvent(ctx context.Context, merchantID, eventID string) (bool, error)
 }
 
 // InternalWebhookConfig wires the internal webhook routes. An empty Token
@@ -94,6 +95,7 @@ func registerInternalWebhookRoutes(router *gin.Engine, store internalWebhookStor
 	}
 	group.GET("", h.get)
 	group.POST("/attempts", h.record)
+	group.GET("/deliveries/:eventId", h.delivered)
 	return h
 }
 
@@ -323,4 +325,25 @@ func (h *internalWebhookHandler) internalError(c *gin.Context, operation, messag
 		)
 	}
 	httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)
+}
+
+// delivered implements
+// GET /internal/merchants/{merchantId}/webhook/deliveries/{eventId}.
+// It answers whether a successful attempt is already recorded for the event.
+func (h *internalWebhookHandler) delivered(c *gin.Context) {
+	merchantID, ok := h.merchantID(c)
+	if !ok {
+		return
+	}
+	eventID := c.Param("eventId")
+	if !isCanonicalUUID(eventID) {
+		httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "eventId must be a UUID")
+		return
+	}
+	delivered, err := h.store.DeliveredEvent(c.Request.Context(), merchantID, eventID)
+	if err != nil {
+		h.internalError(c, "check_delivered_event", "could not read the webhook delivery state", err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"delivered": delivered})
 }

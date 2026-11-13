@@ -12,6 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/businessreg"
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
@@ -47,6 +48,11 @@ type Config struct {
 	PickupAddress     string
 	PickupZoneCode    string
 	AllowRemoteTarget bool
+
+	// MerchantAPIKey is optional. When supplied it must be a syntactically
+	// valid merchant API key; only its SHA-256 hash is stored and the full
+	// value is never logged.
+	MerchantAPIKey string
 }
 
 // LoadConfig reads and validates the merchant demo seed from the environment.
@@ -133,6 +139,13 @@ func LoadConfig(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	merchantAPIKey := strings.TrimSpace(loader.String("SEED_MERCHANT_API_KEY", ""))
+	if merchantAPIKey != "" {
+		if _, err := apikey.Parse(merchantAPIKey); err != nil {
+			return Config{}, errors.New("SEED_MERCHANT_API_KEY is not a valid merchant API key (expected sdk_live_<16 hex>_<48 hex>)")
+		}
+	}
+
 	config := Config{
 		AppEnv:          appEnv,
 		DatabaseURL:     databaseURL,
@@ -152,6 +165,7 @@ func LoadConfig(loader sharedconfig.Loader) (Config, error) {
 		PickupAddress:     pickupAddress,
 		PickupZoneCode:    strings.ToUpper(strings.TrimSpace(pickupZoneCode)),
 		AllowRemoteTarget: allowRemote,
+		MerchantAPIKey:    merchantAPIKey,
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err

@@ -5,6 +5,7 @@ package seed
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
@@ -181,6 +182,37 @@ func (c Config) Validate() error {
 		return errors.New("demo seed must contain one ADMIN, one DISPATCHER, two COURIER and one CUSTOMER account")
 	}
 	return nil
+}
+
+// ValidateTarget refuses production and, by default, a non-local database
+// target before the seed opens a connection. The seed is a local development
+// tool and must never write demo accounts to a shared or production database.
+// Errors never include the database URL or any credential.
+func ValidateTarget(appEnv, databaseURL string, allowRemote bool) error {
+	if strings.EqualFold(strings.TrimSpace(appEnv), "production") {
+		return errors.New("refusing to run the identity demo seed when APP_ENV=production")
+	}
+
+	parsed, err := url.Parse(strings.TrimSpace(databaseURL))
+	if err != nil || parsed.Hostname() == "" {
+		return errors.New("DATABASE_URL must be a valid PostgreSQL URL with a host")
+	}
+
+	host := strings.ToLower(parsed.Hostname())
+	// "postgres" is the Compose service name used by make seed-demo. It is
+	// accepted only in development, where the Compose target is disposable.
+	if isLocalDatabaseHost(host) || (host == "postgres" && appEnv == "development") || allowRemote {
+		return nil
+	}
+	return fmt.Errorf("refusing to seed a non-local database host %q; set ALLOW_REMOTE_SEED=1 only for a disposable database", host)
+}
+
+func isLocalDatabaseHost(host string) bool {
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return strings.HasSuffix(host, ".local")
 }
 
 func requiredEmail(loader sharedconfig.Loader, key string) (string, error) {

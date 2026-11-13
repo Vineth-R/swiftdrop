@@ -143,28 +143,30 @@ If `.env` is missing and required variables are not exported, or `JWT_ACCESS_SEC
 
 ### Command reference
 
-| Command                        | What it does                                                       |
-| ------------------------------ | ------------------------------------------------------------------ |
-| `make build`                   | Build all application images; does not start containers            |
-| `make up`                      | Start existing images, wait for health, migrate, verify routes     |
-| `make up-build`                | Build images, then run the full `make up` workflow                 |
-| `docker compose up --build -d` | Start only; **builds but does not migrate**                        |
-| `make migrate`                 | Apply all service migrations (uses `DATABASE_URL_DIRECT` when set) |
-| `make migrate-status`          | Print each migration version and fail on dirty state               |
-| `make migrate-create`          | Create a migration pair (`SERVICE=parcel NAME=description`)        |
-| `make storage-up`              | Start local S3-compatible storage and create the proof bucket      |
-| `make db-audit`                | Read-only source database inventory                                |
-| `make db-backup`               | Verified local PostgreSQL backup outside the repository            |
-| `make proof-transfer`          | Dry-run local proof files into object storage                      |
-| `make proof-reconcile`         | Compare database proof keys with stored objects                    |
-| `make db-verify`               | Verify the documented database baseline (read-only)                |
-| `make project-name`            | Print the resolved Compose project name                            |
-| `make seed`                    | Create the five deterministic demo users                           |
-| `make migrate-down`            | Roll back **one migration per service** (destructive; see below)   |
-| `make check-routes`            | Verify gateway routing against the running stack                   |
-| `make logs`                    | Follow logs                                                        |
-| `make down`                    | Stop containers; keeps volumes and data                            |
-| `make db-reset`                | Delete local volumes and rebuild (destructive)                     |
+| Command                        | What it does                                                                  |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| `make build`                   | Build all application images; does not start containers                       |
+| `make up`                      | Start existing images, wait for health, migrate, verify routes                |
+| `make up-build`                | Build images, then run the full `make up` workflow                            |
+| `docker compose up --build -d` | Start only; **builds but does not migrate**                                   |
+| `make migrate`                 | Apply all service migrations (uses `DATABASE_URL_DIRECT` when set)            |
+| `make migrate-status`          | Print each migration version and fail on dirty state                          |
+| `make migrate-create`          | Create a migration pair (`SERVICE=parcel NAME=description`)                   |
+| `make storage-up`              | Start local S3-compatible storage and create the proof bucket                 |
+| `make db-audit`                | Read-only source database inventory                                           |
+| `make db-backup`               | Verified local PostgreSQL backup outside the repository                       |
+| `make proof-transfer`          | Dry-run local proof files into object storage                                 |
+| `make proof-reconcile`         | Compare database proof keys with stored objects                               |
+| `make db-verify`               | Verify the documented database baseline (read-only)                           |
+| `make project-name`            | Print the resolved Compose project name                                       |
+| `make seed`                    | Create the five deterministic demo users                                      |
+| `make seed-parcels`            | Create one demo parcel for each canonical status                              |
+| `make seed-demo`               | Seed users, merchant, API key and parcels through Compose                     |
+| `make migrate-down`            | Roll back **one migration per service** (destructive; see below)              |
+| `make check-routes`            | Verify gateway routing against the running stack                              |
+| `make logs`                    | Follow logs                                                                   |
+| `make down`                    | Stop containers; keeps volumes and data                                       |
+| `make db-reset`                | Delete local volumes and rebuild (destructive; requires `CONFIRM_DB_RESET=1`) |
 
 Start only what you need:
 
@@ -532,7 +534,7 @@ The identity service reads `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOG
 
 ### Demo seed
 
-`make seed` creates one ADMIN, one DISPATCHER, two COURIER accounts with valid courier profiles, and one CUSTOMER. It is a local development tool and never runs during service startup, Compose startup, or migrations. It seeds identity users only; merchants, API keys, parcels, orders, notifications and delivery logs are intentionally excluded until their dependencies are ready.
+`make seed` creates one ADMIN, one DISPATCHER, two COURIER accounts with valid courier profiles, and one CUSTOMER. It is a local development tool and never runs during service startup, Compose startup, or migrations. It refuses `APP_ENV=production` and a non-local database unless `ALLOW_REMOTE_SEED=1` is set for a disposable target. It repairs a missing courier profile on a rerun without changing the user.
 
 The command reads process environment variables; it does not load `.env` automatically. Export `DATABASE_URL` and all ten values before running it:
 
@@ -552,7 +554,7 @@ Compose PostgreSQL is internal and does not publish a host port. To seed from th
 
 ### Merchant demo seed
 
-`make seed-merchant` creates one APPROVED merchant demo account: an Identity MERCHANT owner plus its merchant record. It goes through the real registration and admin-approval paths, is idempotent, and never runs during service startup, Compose startup, or migrations. It requires `DATABASE_URL`, a reachable Identity service (`IDENTITY_BASE_URL`, default `http://localhost:8081`), `INTERNAL_TOKEN`, and the `SEED_MERCHANT_*` variables, including an explicit `SEED_MERCHANT_PASSWORD` with no default. It refuses `APP_ENV=production`. Export the values before running:
+`make seed-merchant` creates one APPROVED merchant demo account: an Identity MERCHANT owner plus its merchant record. It goes through the real registration and admin-approval paths, is idempotent, and never runs during service startup, Compose startup, or migrations. It requires `DATABASE_URL`, a reachable Identity service (`IDENTITY_BASE_URL`, default `http://localhost:8081`), `INTERNAL_TOKEN`, and the `SEED_MERCHANT_*` variables, including an explicit `SEED_MERCHANT_PASSWORD` with no default. It refuses `APP_ENV=production`. Optionally set `SEED_MERCHANT_API_KEY` to create a demo API key; only its hash is stored and the full value is never logged. Export the values before running:
 
 ```sh
 export DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/swiftdrop?sslmode=disable'
@@ -565,6 +567,27 @@ make seed-merchant
 ```
 
 See [`.env.example`](.env.example) for the complete variable set and safe local placeholders.
+
+### Unified demo seed and demo API key
+
+`make seed-demo` seeds everything through the Compose network: the five demo
+accounts, the approved merchant, an optional known API key, and one parcel for
+each canonical status (`CREATED`, `PICKED_UP`, `IN_TRANSIT`,
+`OUT_FOR_DELIVERY`, `DELIVERED`, `FAILED`). It is idempotent: reruns create no
+duplicates and never overwrite existing rows.
+
+```sh
+export SEED_MERCHANT_PASSWORD='<your-merchant-password>'
+# Generate a demo key and export it for this run. The template leaves it blank;
+# there is no predictable default.
+export SEED_MERCHANT_API_KEY="$(printf 'sdk_live_%s_%s' "$(openssl rand -hex 8)" "$(openssl rand -hex 24)")"
+make seed-demo
+```
+
+Only the SHA-256 hash of `SEED_MERCHANT_API_KEY` is stored. The full key is
+never logged; it is the value you supplied. The seeded merchant can then call
+API 8.16 with `Authorization: Bearer <key>`. `make seed-parcels` runs only the
+parcel step and requires the five demo accounts to exist first.
 
 Stop containers without deleting data:
 
