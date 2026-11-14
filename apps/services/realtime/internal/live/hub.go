@@ -7,9 +7,12 @@ type Subscriber interface {
 	// Deliver queues an update for the connection without blocking. It returns
 	// false when the connection cannot keep up.
 	Deliver(Update) bool
+	// DeliverAssignment queues an assignment notice for the connection without
+	// blocking. It returns false when the connection cannot keep up.
+	DeliverAssignment(AssignmentUpdate) bool
 	// Overflow is called once, after the hub has removed the subscriber, when
-	// Deliver returned false. The connection should be closed; the client will
-	// reconnect and fetch the current state again.
+	// Deliver or DeliverAssignment returned false. The connection should be
+	// closed; the client will reconnect and fetch the current state again.
 	Overflow()
 }
 
@@ -157,17 +160,46 @@ func (h *Hub) Broadcast(update Update) int {
 	}
 	h.mu.RUnlock()
 
-	if len(overflowed) > 0 {
-		h.mu.Lock()
-		for _, subscriber := range overflowed {
-			h.remove(subscriber)
-		}
-		h.mu.Unlock()
-		for _, subscriber := range overflowed {
-			subscriber.Overflow()
-		}
-	}
+	h.dropOverflowed(overflowed)
 	return delivered
+}
+
+// BroadcastAssignment sends an assignment notice to every connection that
+// follows everything (dispatch and admin), each at most once. It never sends to
+// a per-parcel public subscriber: assignment is an operational event. It never
+// blocks: a connection that cannot keep up is removed and told to close. It
+// returns the number of connections the notice was queued for.
+func (h *Hub) BroadcastAssignment(update AssignmentUpdate) int {
+	h.mu.RLock()
+	delivered := 0
+	var overflowed []Subscriber
+	for subscriber := range h.followAll {
+		if subscriber.DeliverAssignment(update) {
+			delivered++
+			continue
+		}
+		overflowed = append(overflowed, subscriber)
+	}
+	h.mu.RUnlock()
+
+	h.dropOverflowed(overflowed)
+	return delivered
+}
+
+// dropOverflowed removes subscribers that could not keep up and tells them to
+// close. It is called after the read lock is released.
+func (h *Hub) dropOverflowed(overflowed []Subscriber) {
+	if len(overflowed) == 0 {
+		return
+	}
+	h.mu.Lock()
+	for _, subscriber := range overflowed {
+		h.remove(subscriber)
+	}
+	h.mu.Unlock()
+	for _, subscriber := range overflowed {
+		subscriber.Overflow()
+	}
 }
 
 // Connections returns how many connections hold at least one subscription.

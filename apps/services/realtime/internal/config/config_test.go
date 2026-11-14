@@ -63,6 +63,12 @@ func TestLoadFromDefaults(t *testing.T) {
 	if config.RoutingKey != "parcel.status_changed.v1" {
 		t.Fatalf("RoutingKey = %q", config.RoutingKey)
 	}
+	if config.AssignedQueue != "realtime.parcel.assigned.v1" {
+		t.Fatalf("AssignedQueue = %q", config.AssignedQueue)
+	}
+	if config.AssignedRoutingKey != "parcel.assigned.v1" {
+		t.Fatalf("AssignedRoutingKey = %q", config.AssignedRoutingKey)
+	}
 	if config.Prefetch != 10 || config.MaxRetries != 3 {
 		t.Fatalf("Prefetch = %d, MaxRetries = %d", config.Prefetch, config.MaxRetries)
 	}
@@ -173,15 +179,17 @@ func TestLoadFromRejectsBadBrokerURLWithoutLeakingIt(t *testing.T) {
 
 func TestLoadFromBrokerSettings(t *testing.T) {
 	loader := loaderFor(valid(map[string]string{
-		"RABBITMQ_EXCHANGE":        "custom.events",
-		"REALTIME_QUEUE":           "realtime.custom",
-		"REALTIME_ROUTING_KEY":     "parcel.custom.v1",
-		"RABBITMQ_PREFETCH":        "5",
-		"RABBITMQ_HANDLER_TIMEOUT": "10s",
-		"RABBITMQ_MAX_RETRIES":     "0",
-		"RABBITMQ_RETRY_DELAY":     "2s",
-		"RABBITMQ_RECONNECT_MIN":   "2s",
-		"RABBITMQ_RECONNECT_MAX":   "20s",
+		"RABBITMQ_EXCHANGE":             "custom.events",
+		"REALTIME_QUEUE":                "realtime.custom",
+		"REALTIME_ROUTING_KEY":          "parcel.custom.v1",
+		"REALTIME_ASSIGNED_QUEUE":       "realtime.assigned.custom",
+		"REALTIME_ASSIGNED_ROUTING_KEY": "parcel.assigned.custom.v1",
+		"RABBITMQ_PREFETCH":             "5",
+		"RABBITMQ_HANDLER_TIMEOUT":      "10s",
+		"RABBITMQ_MAX_RETRIES":          "0",
+		"RABBITMQ_RETRY_DELAY":          "2s",
+		"RABBITMQ_RECONNECT_MIN":        "2s",
+		"RABBITMQ_RECONNECT_MAX":        "20s",
 	}))
 	config, err := LoadFrom(loader)
 	if err != nil {
@@ -189,6 +197,9 @@ func TestLoadFromBrokerSettings(t *testing.T) {
 	}
 	if config.Exchange != "custom.events" || config.Queue != "realtime.custom" || config.RoutingKey != "parcel.custom.v1" {
 		t.Fatalf("topology = %q / %q / %q", config.Exchange, config.Queue, config.RoutingKey)
+	}
+	if config.AssignedQueue != "realtime.assigned.custom" || config.AssignedRoutingKey != "parcel.assigned.custom.v1" {
+		t.Fatalf("assigned topology = %q / %q", config.AssignedQueue, config.AssignedRoutingKey)
 	}
 	if config.Prefetch != 5 || config.MaxRetries != 0 || config.RetryDelay != 2*time.Second {
 		t.Fatalf("prefetch = %d, retries = %d, delay = %s", config.Prefetch, config.MaxRetries, config.RetryDelay)

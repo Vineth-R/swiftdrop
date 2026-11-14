@@ -21,6 +21,7 @@ import (
 
 	notificationevents "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/eventtest"
 	parcelevents "github.com/Vineth-R/swiftdrop/apps/services/parcel/eventtest"
+	realtimeevents "github.com/Vineth-R/swiftdrop/apps/services/realtime/eventtest"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
@@ -68,11 +69,11 @@ func TestParcelCreationAndAssignmentPublishVersionedEvents(t *testing.T) {
 	startConsumerWithRoutingKey(t, ctx, rabbitURL, exchange, notificationQueue, "parcel.created.v1", notification, logger)
 	waitForConsumer(t, rabbitURL, notificationQueue)
 
-	// No product consumer handles parcel.assigned.v1 yet (the realtime service
-	// is status-only per API v1.1 section 9.3), so bind a sink to prove the
-	// event is published and routable rather than unroutable.
-	assignedSink := &recordingHandler{}
-	startConsumerWithRoutingKey(t, ctx, rabbitURL, exchange, assignedQueue, "parcel.assigned.v1", assignedSink, logger)
+	// The real realtime assignment consumer binds parcel.assigned.v1 and turns
+	// it into a privacy-safe dispatch notice.
+	assignmentBroadcaster := &recordingAssignmentBroadcaster{}
+	assignedConsumer := realtimeevents.NewAssignmentConsumer(assignmentBroadcaster)
+	startConsumerWithRoutingKey(t, ctx, rabbitURL, exchange, assignedQueue, "parcel.assigned.v1", assignedConsumer, logger)
 	waitForConsumer(t, rabbitURL, assignedQueue)
 
 	// Real parcel creation transaction: parcel + initial history + parcel.created.
@@ -157,17 +158,22 @@ func TestParcelCreationAndAssignmentPublishVersionedEvents(t *testing.T) {
 		t.Errorf("assigned data = %v", assignedData)
 	}
 
-	// The assigned event is routed to a bound queue (it is not unroutable).
-	waitUntil(t, eventWaitTimeout, "assigned event delivered to a bound queue", func() error {
-		ids := assignedSink.ids()
-		if len(ids) < 1 {
-			return fmt.Errorf("sink received %d assigned events", len(ids))
+	// The assignment event is routed to the real consumer, which emits only the
+	// tracking number and event time. The courier and assigner IDs never reach a
+	// client.
+	waitUntil(t, eventWaitTimeout, "assignment notice delivered", func() error {
+		notices := assignmentBroadcaster.updates()
+		if len(notices) < 1 {
+			return fmt.Errorf("assignment broadcaster received %d notices", len(notices))
 		}
-		if ids[0] != assigned.ID {
-			return fmt.Errorf("sink received event %s, want %s", ids[0], assigned.ID)
+		if notices[0].TrackingNumber != tracking {
+			return fmt.Errorf("assignment notice tracking = %s, want %s", notices[0].TrackingNumber, tracking)
 		}
 		return nil
 	})
+	if body := string(assignmentBroadcaster.updates()[0].Message()); strings.Contains(body, courierID) || strings.Contains(body, dispatcherID) {
+		t.Errorf("assignment notice leaks an identity: %s", body)
+	}
 
 	// The created branch drives a real notification email to the customer.
 	waitUntil(t, eventWaitTimeout, "created notification email", func() error {
@@ -196,27 +202,24 @@ func numericValue(value int64, exponent int32) pgtype.Numeric {
 	return pgtype.Numeric{Int: big.NewInt(value), Exp: exponent, Valid: true}
 }
 
-// recordingHandler is a sink consumer that records the event IDs it receives.
-type recordingHandler struct {
-	mu       sync.Mutex
-	eventIDs []string
+// recordingAssignmentBroadcaster records the assignment notices the real
+// consumer emits.
+type recordingAssignmentBroadcaster struct {
+	mu    sync.Mutex
+	items []realtimeevents.AssignmentUpdate
 }
 
-func (h *recordingHandler) Handle(_ context.Context, message messaging.Message) error {
-	var envelope messaging.Envelope
-	if err := json.Unmarshal(message.Body, &envelope); err != nil {
-		return nil
-	}
-	h.mu.Lock()
-	h.eventIDs = append(h.eventIDs, envelope.ID)
-	h.mu.Unlock()
-	return nil
+func (b *recordingAssignmentBroadcaster) BroadcastAssignment(update realtimeevents.AssignmentUpdate) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.items = append(b.items, update)
+	return 1
 }
 
-func (h *recordingHandler) ids() []string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return append([]string(nil), h.eventIDs...)
+func (b *recordingAssignmentBroadcaster) updates() []realtimeevents.AssignmentUpdate {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]realtimeevents.AssignmentUpdate(nil), b.items...)
 }
 
 func publishedByKey(t *testing.T, items []capturedPublish) map[string]messaging.Envelope {

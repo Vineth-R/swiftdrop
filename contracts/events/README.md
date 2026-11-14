@@ -218,13 +218,16 @@ The internal trigger for the target flow is `parcel.status_changed.v1`, produced
   - `notification.parcel.created.v1` (bound to `parcel.created.v1`)
   - `notification.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
   - `webhook.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
+  - `realtime.parcel.status_changed.v1` (bound to `parcel.status_changed.v1`)
+  - `realtime.parcel.assigned.v1` (bound to `parcel.assigned.v1`; dispatch assignment notices)
   - `merchant.sync.queue` (bound to `parcel.status_changed.v1`; merchant order snapshot and timeline synchronization)
 - Consumer bindings:
   - Notification worker: `parcel.created.v1`, `parcel.status_changed.v1` (implemented for customer-owned and merchant-owned parcels)
   - Webhook worker: `parcel.status_changed.v1` (implemented; signed delivery, attempt recording and business retries)
-  - Realtime: `parcel.status_changed.v1` (implemented; in-process WebSocket fan-out, no replay). `parcel.assigned.v1` remains a target.
+  - Realtime: `parcel.status_changed.v1` and `parcel.assigned.v1` (implemented on separate durable queues; in-process WebSocket fan-out, no replay). Status updates reach per-parcel and scope-all subscribers; assignment notices reach only authenticated DISPATCHER/ADMIN `scope: all` subscribers as the additive `parcel.assigned.updated` message, which carries only `trackingNumber` and `updatedAt`.
   - Merchant integration: `parcel.status_changed.v1` (implemented; updates the merchant order status and timeline exactly once, newest event wins)
-- The realtime consumer validates the envelope and only reads `tracking_number`, `previous_status`, `status`, and `occurred_at` from `parcel.status_changed.v1`; private fields are not decoded or forwarded to clients.
+- The realtime status consumer validates the envelope and only reads `tracking_number`, `previous_status`, `status`, and `occurred_at` from `parcel.status_changed.v1`; private fields are not decoded or forwarded to clients.
+- The realtime assignment consumer validates the envelope and only reads `tracking_number` and `occurred_at` from `parcel.assigned.v1`; `courier_id`, `assigned_by` and `previous_courier_id` are not decoded, so they cannot be forwarded.
 - Queue names are deployment details. Do not rename or redeclare an existing durable queue with different arguments. The notification worker's parcel consumers use separate durable queues; future consumers should add new durable queues or an explicit queue migration rather than changing an existing queue's arguments.
 - Failure resources use the shared implementation: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. The retry queue dead-letters to its owning queue through the default exchange, so retries stay queue-isolated. The API v1.1 legacy name `swiftdrop.dlx` is not the implemented exchange.
 - Multiple workers may consume the same versioned event through separate queues; each queue has its own retry queue, so a retry is never delivered to another worker. The retry queue name carries a topology suffix because durable queue arguments are immutable; the legacy `<queue>.retry` retry queue is no longer written to, and should be drained and deleted after upgrading.
@@ -237,7 +240,7 @@ The following are the current implementation status of the documented contracts:
 - Parcel creation bus publication and assignment writers: implemented through the M6 relay. M7 courier status writers are implemented.
 - Notification domain-event consumer: implemented for customer-owned and merchant-owned `parcel.created.v1` and `parcel.status_changed.v1`. Customer contacts resolve through Identity; merchant contacts resolve through the merchant internal contact endpoint; unapproved or missing merchant contacts are permanent failures. The legacy `notification.requested.v1` consumer remains.
 - Webhook delivery, signing, attempt logging and the six business retries: implemented.
-- Realtime consumer: implemented for `parcel.status_changed.v1`.
+- Realtime consumer: implemented for `parcel.status_changed.v1` and `parcel.assigned.v1` on separate durable queues. Assignment notices are additive and dispatch-only (`parcel.assigned.updated`); they trigger an authoritative refetch and never carry courier or assigner identity.
 - Merchant integration consumer: implemented on `merchant.sync.queue`; it updates the merchant-owned order snapshot and timeline exactly once and ignores non-merchant parcels.
 
 Do not claim an event is published or delivered merely because a schema, queue name, or database table exists.

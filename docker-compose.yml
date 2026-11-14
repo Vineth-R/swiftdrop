@@ -337,6 +337,8 @@ services:
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       REALTIME_QUEUE: ${REALTIME_QUEUE:-realtime.parcel.status_changed.v1}
       REALTIME_ROUTING_KEY: ${REALTIME_ROUTING_KEY:-parcel.status_changed.v1}
+      REALTIME_ASSIGNED_QUEUE: ${REALTIME_ASSIGNED_QUEUE:-realtime.parcel.assigned.v1}
+      REALTIME_ASSIGNED_ROUTING_KEY: ${REALTIME_ASSIGNED_ROUTING_KEY:-parcel.assigned.v1}
       REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-}
     depends_on:
       postgres:
