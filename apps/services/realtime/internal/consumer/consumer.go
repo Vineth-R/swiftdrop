@@ -14,13 +14,22 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
 
-// EventType is the only event this consumer understands.
+// EventType is the status event this consumer understands.
 const EventType = "parcel.status_changed.v1"
 
-// Broadcaster delivers an update to the clients following it. *live.Hub
+// AssignmentEventType is the assignment event this consumer understands.
+const AssignmentEventType = "parcel.assigned.v1"
+
+// Broadcaster delivers a status update to the clients following it. *live.Hub
 // satisfies it.
 type Broadcaster interface {
 	Broadcast(update live.Update) int
+}
+
+// AssignmentBroadcaster delivers an assignment notice to dispatch clients.
+// *live.Hub satisfies it.
+type AssignmentBroadcaster interface {
+	BroadcastAssignment(update live.AssignmentUpdate) int
 }
 
 const (
@@ -43,13 +52,17 @@ func New(hub Broadcaster) *Handler {
 // a bounded, process-local window. Deduplication is not shared across replicas
 // and does not survive a restart; durable replay remains future work.
 func NewWithDedupe(hub Broadcaster, capacity int, ttl time.Duration) *Handler {
+	return &Handler{hub: hub, dedupe: newEventDedupe(capacity, ttl)}
+}
+
+func newEventDedupe(capacity int, ttl time.Duration) *eventDedupe {
 	if capacity < 1 {
 		capacity = defaultDedupeCapacity
 	}
 	if ttl <= 0 {
 		ttl = defaultDedupeTTL
 	}
-	return &Handler{hub: hub, dedupe: &eventDedupe{capacity: capacity, ttl: ttl, seen: make(map[string]time.Time)}}
+	return &eventDedupe{capacity: capacity, ttl: ttl, seen: make(map[string]time.Time)}
 }
 
 type eventDedupe struct {
@@ -135,6 +148,65 @@ func (h *Handler) Handle(_ context.Context, message messaging.Message) error {
 		TrackingNumber: data.TrackingNumber,
 		PreviousStatus: data.PreviousStatus,
 		Status:         data.Status,
+		UpdatedAt:      envelope.OccurredAt,
+	})
+	return nil
+}
+
+// assignmentPayload lists only the fields an assignment notice needs. The
+// courier, assigner and any other identifiers are never decoded, so they cannot
+// be forwarded to clients.
+type assignmentPayload struct {
+	TrackingNumber string `json:"tracking_number"`
+}
+
+// AssignmentHandler turns parcel.assigned.v1 broker events into assignment
+// notices for dispatch clients. It is a separate handler because the assignment
+// queue uses its own routing key and the message carries no status fields.
+type AssignmentHandler struct {
+	hub    AssignmentBroadcaster
+	dedupe *eventDedupe
+}
+
+// NewAssignment returns an assignment consumer with the default bounded
+// deduplication window.
+func NewAssignment(hub AssignmentBroadcaster) *AssignmentHandler {
+	return NewAssignmentWithDedupe(hub, defaultDedupeCapacity, defaultDedupeTTL)
+}
+
+// NewAssignmentWithDedupe returns an assignment consumer that suppresses a
+// repeated event ID within a bounded, process-local window.
+func NewAssignmentWithDedupe(hub AssignmentBroadcaster, capacity int, ttl time.Duration) *AssignmentHandler {
+	return &AssignmentHandler{hub: hub, dedupe: newEventDedupe(capacity, ttl)}
+}
+
+// Handle decodes one assignment message. Malformed or unexpected events are
+// permanent errors: retrying cannot fix them.
+func (h *AssignmentHandler) Handle(_ context.Context, message messaging.Message) error {
+	var envelope messaging.Envelope
+	if err := json.NewDecoder(bytes.NewReader(message.Body)).Decode(&envelope); err != nil {
+		return messaging.Permanent(fmt.Errorf("decode envelope: %w", err))
+	}
+	if err := envelope.Validate(); err != nil {
+		return messaging.Permanent(fmt.Errorf("invalid envelope: %w", err))
+	}
+	if envelope.Type != AssignmentEventType {
+		return messaging.Permanent(fmt.Errorf("unexpected event type %q", envelope.Type))
+	}
+
+	var data assignmentPayload
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		return messaging.Permanent(fmt.Errorf("decode data: %w", err))
+	}
+	if !live.ValidTrackingNumber(data.TrackingNumber) {
+		return messaging.Permanent(fmt.Errorf("invalid tracking_number %q", data.TrackingNumber))
+	}
+
+	if !h.dedupe.claim(envelope.ID, time.Now()) {
+		return nil
+	}
+	h.hub.BroadcastAssignment(live.AssignmentUpdate{
+		TrackingNumber: data.TrackingNumber,
 		UpdatedAt:      envelope.OccurredAt,
 	})
 	return nil

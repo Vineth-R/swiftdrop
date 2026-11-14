@@ -24,8 +24,8 @@ func TestParcelMigrations(t *testing.T) {
 	); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 6 || dirty {
-		t.Fatalf("migration state = %d dirty=%v, want version 6 clean", version, dirty)
+	if version != 7 || dirty {
+		t.Fatalf("migration state = %d dirty=%v, want version 7 clean", version, dirty)
 	}
 	tablesToCheck := []string{
 		"parcels", "parcel_status_history", "parcel_assignments", "delivery_proofs", "outbox_events",
@@ -116,8 +116,8 @@ func TestParcelMigrations(t *testing.T) {
 	); err != nil {
 		t.Fatalf("read reapplied migration version: %v", err)
 	}
-	if version != 6 || dirty {
-		t.Fatalf("reapplied migration state = %d dirty=%v, want version 6 clean", version, dirty)
+	if version != 7 || dirty {
+		t.Fatalf("reapplied migration state = %d dirty=%v, want version 7 clean", version, dirty)
 	}
 }
 
@@ -134,7 +134,7 @@ func TestParcelServiceMigrationCompatibility(t *testing.T) {
 		"identity": 9, "pricing": 5, "parcel": 5, "merchant": 10, "notification": 2,
 	}
 	expectedVersions := map[string]int{
-		"identity": 6, "pricing": 2, "parcel": 6, "merchant": 11, "notification": 2,
+		"identity": 6, "pricing": 2, "parcel": 7, "merchant": 11, "notification": 2,
 	}
 	for service, expected := range expectedTables {
 		t.Run(service, func(t *testing.T) {

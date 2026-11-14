@@ -1574,11 +1574,35 @@ Column                     Type                            Constraints          
 
 
 
+  claim_token                UUID                            NULL                 Relay claim token (additive,
+
+                                                                                  migration 000007); scopes
+
+                                                                                  terminal updates to one relay
+
+
+
+  claimed_at                 TIMESTAMPTZ                     NULL                 Claim time (additive, migration
+
+                                                                                  000007); a claim older than
+
+                                                                                  the stale window is reclaimable
+
 
 
 Index: (status, created_at) . The event type uses an underscore while the routing key
 
 uses dots. This matches API section 11.3.
+
+The relay claims a batch atomically with `FOR UPDATE SKIP LOCKED` before the
+
+broker publish, so two Parcel replicas take disjoint rows and never publish the
+
+same event. The claim commits before the publish, so no row lock is held across
+
+the network call; a crashed replica's stale claim is reclaimed after the window,
+
+and every terminal update is scoped to the claim token. See `migrations/parcel/000007_outbox_claim.up.sql`.
 
 
 

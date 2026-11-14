@@ -32,16 +32,20 @@ type Config struct {
 	// public host, so list every host users open.
 	AllowedOrigins []string
 
-	RabbitMQURL    string
-	Exchange       string
-	Queue          string
-	RoutingKey     string
-	Prefetch       int
-	HandlerTimeout time.Duration
-	MaxRetries     int
-	RetryDelay     time.Duration
-	ReconnectMin   time.Duration
-	ReconnectMax   time.Duration
+	RabbitMQURL string
+	Exchange    string
+	Queue       string
+	RoutingKey  string
+	// AssignedQueue and AssignedRoutingKey bind the parcel.assigned.v1 consumer
+	// that drives dispatch assignment notices.
+	AssignedQueue      string
+	AssignedRoutingKey string
+	Prefetch           int
+	HandlerTimeout     time.Duration
+	MaxRetries         int
+	RetryDelay         time.Duration
+	ReconnectMin       time.Duration
+	ReconnectMax       time.Duration
 }
 
 func Load() (Config, error) {
@@ -89,6 +93,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	// The loader trims values, and a blank value falls back to the default.
 	queue := loader.String("REALTIME_QUEUE", "realtime.parcel.status_changed.v1")
 	routingKey := loader.String("REALTIME_ROUTING_KEY", "parcel.status_changed.v1")
+	assignedQueue := loader.String("REALTIME_ASSIGNED_QUEUE", "realtime.parcel.assigned.v1")
+	assignedRoutingKey := loader.String("REALTIME_ASSIGNED_ROUTING_KEY", "parcel.assigned.v1")
 
 	prefetch, err := loader.Int("RABBITMQ_PREFETCH", 10)
 	if err != nil {
@@ -133,23 +139,25 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 
 	return Config{
-		Port:           port,
-		AppEnv:         appEnv,
-		LogLevel:       logLevel,
-		DatabaseURL:    loader.String("DATABASE_URL", ""),
-		AccessSecret:   accessSecret,
-		CookieName:     loader.String("COOKIE_NAME", "sd_access"),
-		AllowedOrigins: allowedOrigins,
-		RabbitMQURL:    rabbitMQURL,
-		Exchange:       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
-		Queue:          queue,
-		RoutingKey:     routingKey,
-		Prefetch:       prefetch,
-		HandlerTimeout: handlerTimeout,
-		MaxRetries:     maxRetries,
-		RetryDelay:     retryDelay,
-		ReconnectMin:   reconnectMin,
-		ReconnectMax:   reconnectMax,
+		Port:               port,
+		AppEnv:             appEnv,
+		LogLevel:           logLevel,
+		DatabaseURL:        loader.String("DATABASE_URL", ""),
+		AccessSecret:       accessSecret,
+		CookieName:         loader.String("COOKIE_NAME", "sd_access"),
+		AllowedOrigins:     allowedOrigins,
+		RabbitMQURL:        rabbitMQURL,
+		Exchange:           loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
+		Queue:              queue,
+		RoutingKey:         routingKey,
+		AssignedQueue:      assignedQueue,
+		AssignedRoutingKey: assignedRoutingKey,
+		Prefetch:           prefetch,
+		HandlerTimeout:     handlerTimeout,
+		MaxRetries:         maxRetries,
+		RetryDelay:         retryDelay,
+		ReconnectMin:       reconnectMin,
+		ReconnectMax:       reconnectMax,
 	}, nil
 }
 

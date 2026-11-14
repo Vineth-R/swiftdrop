@@ -8,10 +8,11 @@ import (
 )
 
 type fakeSubscriber struct {
-	mu        sync.Mutex
-	updates   []Update
-	capacity  int
-	overflows int
+	mu          sync.Mutex
+	updates     []Update
+	assignments []AssignmentUpdate
+	capacity    int
+	overflows   int
 }
 
 func newSubscriber(capacity int) *fakeSubscriber {
@@ -25,6 +26,16 @@ func (f *fakeSubscriber) Deliver(update Update) bool {
 		return false
 	}
 	f.updates = append(f.updates, update)
+	return true
+}
+
+func (f *fakeSubscriber) DeliverAssignment(update AssignmentUpdate) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.assignments) >= f.capacity {
+		return false
+	}
+	f.assignments = append(f.assignments, update)
 	return true
 }
 
@@ -255,5 +266,31 @@ func TestHubIsSafeForConcurrentUse(t *testing.T) {
 	wg.Wait()
 	if hub.Connections() != 0 {
 		t.Fatalf("Connections() = %d, want 0", hub.Connections())
+	}
+}
+
+func TestBroadcastAssignmentReachesOnlyFollowersOfEverything(t *testing.T) {
+	hub := NewHub()
+	dispatch := newSubscriber(10)
+	oneParcel := newSubscriber(10)
+	if err := hub.Apply(dispatch, ClientMessage{Action: ActionSubscribe, All: true}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if err := hub.Apply(oneParcel, follow(trackingNumber)); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	update := AssignmentUpdate{TrackingNumber: trackingNumber}
+	if got := hub.BroadcastAssignment(update); got != 1 {
+		t.Fatalf("BroadcastAssignment() = %d, want 1", got)
+	}
+	if len(dispatch.assignments) != 1 || dispatch.assignments[0].TrackingNumber != trackingNumber {
+		t.Fatalf("dispatch assignments = %+v", dispatch.assignments)
+	}
+	if len(oneParcel.assignments) != 0 {
+		t.Errorf("per-parcel subscriber received an assignment notice")
+	}
+	if len(oneParcel.updates) != 0 {
+		t.Errorf("per-parcel subscriber received a status update from an assignment")
 	}
 }
