@@ -1,9 +1,9 @@
 # Phase 2 — Security, Reliability and Scalability Hardening
 
-Status: implementation complete on `feat/phase-2-security-reliability`; pull
-request open for owner review. Phase 1 (PR #151) was merged into `development`
-at merge commit `19ef83c226ddec1aa4c828d0f9c2e6f80d9efb76`; Phase 2 started from
-that commit.
+Status: merged into `development` by PR #154 at merge commit
+`e94eee7a11ba6d9ef217f39d1d93c6a4353991b0`. Phase 1 (PR #151) was merged into
+`development` at merge commit `19ef83c226ddec1aa4c828d0f9c2e6f80d9efb76`; Phase
+2 started from that commit.
 
 ## 1. Repository audit
 
