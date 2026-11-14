@@ -188,9 +188,13 @@ Observed during this implementation:
 - `node --test "tests/contracts/*.test.mjs"` — 16 pass (event + OpenAPI).
 - `go test ./tests/scripts/` — pass (including path-filter and Compose rotation mapping).
 - `make test-access` — 40 endpoints checked across anonymous and five roles; pass.
+  CI runs it with a disposable `WEBHOOK_SECRET_KEY` so the webhook routes are
+  exercised through authentication instead of their fail-closed `503` path.
 - Merchant PostgreSQL integration suite — pass (including the previously flaky test).
 - Identity token cleanup PostgreSQL integration test — pass.
-- Real-stack administrative specs — 3 pass (users, pricing, reports).
+- Real-stack administrative specs — 3 pass (users, pricing, reports). The
+  reports journey also accepts the seeded stack's empty range while still
+  requiring both report responses.
 - Real-stack security spec — 3 pass (headers/CSP, CSRF, WebSocket).
 - Previously flaky Playwright subset — 9 pass together with production build.
 - Full mocked Chromium suite — **733/733 pass** locally with the production build
@@ -207,6 +211,10 @@ Observed during this implementation:
   original configuration and returned to ready.
 - k6 public/auth/WebSocket baseline — recorded in the performance document.
 - `docker compose config` and `nginx -t` — pass.
+- PR #156 required CI checks — all pass on run `43638409766`, including Go
+  checks, frontend checks/typecheck, Playwright, PostgreSQL/RabbitMQ/event-flow
+  integration, access tests, real-stack onboarding, Docker builds and security
+  scans. The PR is mergeable and awaits review.
 
 ## 6. Remaining limitations
 
