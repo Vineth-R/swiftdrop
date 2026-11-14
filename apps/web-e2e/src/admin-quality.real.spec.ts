@@ -105,10 +105,15 @@ test.describe('real-stack administrative screens', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Reports' }),
     ).toBeVisible({ timeout: REAL_TIMEOUT });
-    const outcomes = page.getByRole('heading', { level: 2, name: 'Outcomes' });
+    const outcomesHeading = page.getByRole('heading', {
+      level: 2,
+      name: 'Outcomes',
+    });
     const empty = page.getByText('No parcels in this range');
-    await expect(outcomes.or(empty)).toBeVisible({ timeout: REAL_TIMEOUT });
-    if (await outcomes.isVisible()) {
+    await expect(outcomesHeading.or(empty)).toBeVisible({
+      timeout: REAL_TIMEOUT,
+    });
+    if (await outcomesHeading.isVisible()) {
       await expect(
         page.getByRole('heading', { level: 2, name: 'Daily parcels' }),
       ).toBeVisible({ timeout: REAL_TIMEOUT });
