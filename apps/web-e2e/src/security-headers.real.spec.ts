@@ -67,12 +67,11 @@ test.describe('gateway security regression', () => {
     page,
   }) => {
     await page.goto('/track');
+    const wsBase = new URL(page.url()).origin.replace(/^http/, 'ws');
     const result = await page.evaluate(
-      () =>
+      (base) =>
         new Promise<string>((resolve) => {
-          const socket = new WebSocket(
-            `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`,
-          );
+          const socket = new WebSocket(`${base}/ws`);
           const timer = setTimeout(() => {
             socket.close();
             resolve('timeout');
@@ -87,6 +86,7 @@ test.describe('gateway security regression', () => {
             resolve('error');
           };
         }),
+      wsBase,
     );
     expect(result).toBe('open');
   });

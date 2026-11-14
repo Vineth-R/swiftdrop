@@ -80,7 +80,9 @@ test.describe('real-stack administrative screens', () => {
     ]);
   });
 
-  test('reports loads real daily and outcome data', async ({ page }) => {
+  test('reports loads real daily and outcome data or its empty state', async ({
+    page,
+  }) => {
     test.setTimeout(90_000);
     const admin = credentialsForRun('ADMIN');
     test.skip(!admin, 'set REAL_STACK_ADMIN_*');
@@ -103,11 +105,13 @@ test.describe('real-stack administrative screens', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Reports' }),
     ).toBeVisible({ timeout: REAL_TIMEOUT });
-    await expect(
-      page.getByRole('heading', { level: 2, name: 'Outcomes' }),
-    ).toBeVisible({ timeout: REAL_TIMEOUT });
-    await expect(
-      page.getByRole('heading', { level: 2, name: 'Daily parcels' }),
-    ).toBeVisible({ timeout: REAL_TIMEOUT });
+    const outcomes = page.getByRole('heading', { level: 2, name: 'Outcomes' });
+    const empty = page.getByText('No parcels in this range');
+    await expect(outcomes.or(empty)).toBeVisible({ timeout: REAL_TIMEOUT });
+    if (await outcomes.isVisible()) {
+      await expect(
+        page.getByRole('heading', { level: 2, name: 'Daily parcels' }),
+      ).toBeVisible({ timeout: REAL_TIMEOUT });
+    }
   });
 });

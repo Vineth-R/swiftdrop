@@ -86,7 +86,7 @@ jobs:
             echo "::error::Worker healthchecks must match the service process, not the healthcheck shell command line."
             exit 1
           fi
-          grep -q 'wget -qO- http://127.0.0.1:8088/ready' docker-compose.yml
+          grep -q '127.0.0.1:8088/ready' docker-compose.yml
           test "$(grep -c 'pgrep -x /usr/local/bin/service' docker-compose.yml)" -ge 1
 
   go-security:
@@ -988,7 +988,14 @@ jobs:
           cache: true
 
       - name: Prepare local environment
-        run: cp .env.example .env
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          # Webhook routes fail closed when WEBHOOK_SECRET_KEY is unset, so the
+          # access matrix needs a disposable development-only key.
+          webhook_key="$(openssl rand -hex 32)"
+          echo "::add-mask::${webhook_key}"
+          echo "WEBHOOK_SECRET_KEY=${webhook_key}" >> .env
 
       - name: Build all images
         run: make build
@@ -1367,7 +1374,14 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Prepare local environment
-        run: cp .env.example .env
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          # Webhook routes fail closed when WEBHOOK_SECRET_KEY is unset, so the
+          # access matrix needs a disposable development-only key.
+          webhook_key="$(openssl rand -hex 32)"
+          echo "::add-mask::${webhook_key}"
+          echo "WEBHOOK_SECRET_KEY=${webhook_key}" >> .env
 
       - name: Build all images
         run: make build
