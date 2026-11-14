@@ -140,22 +140,33 @@ async function submitWithRateLimitRetry(
 ) {
   const button = page.getByRole('button', { name: buttonName });
   const success = page.getByText(successText);
+  const rateLimited = page.getByText('Too many attempts from this device');
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await button.click();
     try {
       await success.waitFor({ timeout: 8_000 });
       return;
     } catch {
-      const error = page.getByText(/could not|already|is invalid|is required/i);
+      // The public register page's footer literally says "Already have one?
+      // Log in", so arbitrary page text must never be read as a submit error.
+      // A real failure is a danger alert (role="alert"); rate limiting is the
+      // one alert that means "wait and try again" rather than "stop".
+      if (await rateLimited.isVisible().catch(() => false)) {
+        await expect(button).toBeEnabled({ timeout: 75_000 });
+        if (await success.isVisible().catch(() => false)) return;
+        continue;
+      }
+      const alert = page.getByRole('alert');
       if (
-        await error
+        await alert
           .first()
           .isVisible()
           .catch(() => false)
       ) {
-        throw new Error(`form failed: ${await error.first().innerText()}`);
+        throw new Error(`form failed: ${await alert.first().innerText()}`);
       }
       await expect(button).toBeEnabled({ timeout: 75_000 });
+      if (await success.isVisible().catch(() => false)) return;
     }
   }
   throw new Error(`${buttonName} stayed rate limited`);

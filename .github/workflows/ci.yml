@@ -619,7 +619,7 @@ jobs:
             case "$service" in
               identity) expected=6 ;;
               pricing) expected=2 ;;
-              parcel) expected=6 ;;
+              parcel) expected=7 ;;
               merchant) expected=11 ;;
               notification) expected=2 ;;
               *) echo "::error::unexpected migration service ${service}"; exit 1 ;;
@@ -881,6 +881,7 @@ jobs:
             SERVICE=${{ matrix.service }}
           push: false
           load: true
+          platforms: linux/amd64
           tags: swiftdrop/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=go
           cache-to: type=gha,mode=max,scope=go
@@ -893,6 +894,7 @@ jobs:
           file: infra/docker/web.Dockerfile
           push: false
           load: true
+          platforms: linux/amd64
           tags: swiftdrop/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
@@ -1344,6 +1346,9 @@ jobs:
       startsWith(github.ref, 'refs/tags/milestone-')
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      DOCKER_DEFAULT_PLATFORM: linux/amd64
+      MAILPIT_URL: http://localhost:8025
     steps:
       - uses: actions/checkout@v5
 
@@ -1364,6 +1369,9 @@ jobs:
 
       - name: Verify routes
         run: ./scripts/check-routes.sh
+
+      - name: Verify registration, login, refresh and logout
+        run: ./scripts/smoke-release.sh
 
       - name: Stop the stack
         if: always()

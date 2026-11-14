@@ -60,7 +60,6 @@ function WorkloadContent() {
     dataRef.current = data;
   });
 
-  const syncsInFlight = useRef(0);
   const nextSyncId = useRef(0);
   const lastAppliedSync = useRef(0);
   const syncAbort = useRef<AbortController | null>(null);
@@ -93,7 +92,6 @@ function WorkloadContent() {
   const quietRefetch = useCallback(() => {
     if (dataRef.current === null) return undefined;
     const syncId = (nextSyncId.current += 1);
-    syncsInFlight.current += 1;
     const signal =
       syncAbort.current?.signal ??
       (syncAbort.current = new AbortController()).signal;
@@ -103,10 +101,7 @@ function WorkloadContent() {
         lastAppliedSync.current = syncId;
         setData(items);
       })
-      .catch(() => undefined)
-      .finally(() => {
-        syncsInFlight.current = Math.max(0, syncsInFlight.current - 1);
-      });
+      .catch(() => undefined);
   }, []);
 
   const { state: liveState } = useLiveUpdates({

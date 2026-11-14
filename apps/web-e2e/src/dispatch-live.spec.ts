@@ -32,7 +32,7 @@ const SECOND = parcel({
   status: 'PICKED_UP',
 });
 
-function pageOf(data: unknown[]): Reply {
+function pageOf(data: unknown[], totalPages = 1): Reply {
   return {
     status: 200,
     body: {
@@ -43,7 +43,7 @@ function pageOf(data: unknown[]): Reply {
           page: 1,
           pageSize: 20,
           totalItems: data.length,
-          totalPages: 1,
+          totalPages,
         },
       },
     },
@@ -466,6 +466,36 @@ test.describe('live updates on /unassigned', () => {
     ).toBeVisible();
   });
 
+  test('refreshes pagination metadata after a live removal', async ({
+    page,
+  }) => {
+    const many = [
+      sampleUnassigned1,
+      ...Array.from({ length: 40 }, (_, index) => ({
+        ...sampleUnassigned2,
+        id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, '0')}`,
+        trackingNumber: `SDKMANY${String(index).padStart(4, '0')}`,
+      })),
+    ];
+    let removed = false;
+    const { server } = await openLiveUnassigned(page, {
+      'GET /dispatch/unassigned': () =>
+        removed ? pageOf(many.slice(1), 2) : pageOf(many, 3),
+    });
+
+    await expect(page.getByText('Page 1 of 3 · 41 results')).toBeVisible();
+
+    removed = true;
+    server.send(
+      update({
+        trackingNumber: sampleUnassigned1.trackingNumber,
+        status: 'PICKED_UP',
+      }),
+    );
+
+    await expect(page.getByText('Page 1 of 2 · 40 results')).toBeVisible();
+  });
+
   test('quietly refetches unassigned queue on reconnect / sync', async ({
     page,
   }) => {
@@ -475,7 +505,9 @@ test.describe('live updates on /unassigned', () => {
       {
         'GET /dispatch/unassigned': () =>
           pageOf(
-            subscribed ? [sampleUnassigned2] : [sampleUnassigned1, sampleUnassigned2],
+            subscribed
+              ? [sampleUnassigned2]
+              : [sampleUnassigned1, sampleUnassigned2],
           ),
       },
       () => {

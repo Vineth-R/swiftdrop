@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -188,12 +189,18 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 	if recipients[customerEmail] != 1 || recipients[merchantEmail] != 1 {
 		t.Fatalf("notification recipients = %v", recipients)
 	}
-	if got := scalar(t, pool, "SELECT count(*) FROM notification.notification_logs WHERE status='SENT'"); got != "2" {
-		t.Errorf("SENT notification logs = %s, want 2", got)
-	}
-	if got := scalar(t, pool, "SELECT count(*) FROM notification.processed_events"); got != "2" {
-		t.Errorf("processed events = %s, want 2", got)
-	}
+	// The worker sends the email before it commits the SENT log and the
+	// processed-event row in one transaction. Waiting for the mail alone races
+	// that commit, so poll the database condition instead of asserting at once.
+	waitUntil(t, eventWaitTimeout, "notification log and processed events committed", func() error {
+		if got := scalar(t, pool, "SELECT count(*) FROM notification.notification_logs WHERE status='SENT'"); got != "2" {
+			return fmt.Errorf("SENT notification logs = %s, want 2", got)
+		}
+		if got := scalar(t, pool, "SELECT count(*) FROM notification.processed_events"); got != "2" {
+			return fmt.Errorf("processed events = %s, want 2", got)
+		}
+		return nil
+	})
 	if got := scalar(t, pool, "SELECT recipient FROM notification.notification_logs WHERE event_id='"+merchantEnvelope.ID+"'"); got != merchantEmail {
 		t.Errorf("merchant notification recipient = %q, want %q", got, merchantEmail)
 	}
@@ -266,6 +273,20 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 	}
 	if got := scalar(t, pool, "SELECT count(*) FROM notification.notification_logs"); got != "2" {
 		t.Errorf("notification logs after duplicate = %s, want 2", got)
+	}
+
+	// Duplicate webhook and realtime delivery must not add side effects.
+	if err := webhook.Handle(ctx, messaging.Message{Body: merchantBody}); err != nil {
+		t.Fatalf("duplicate webhook: %v", err)
+	}
+	if got := len(sender.calls()); got != 1 {
+		t.Errorf("webhook deliveries after duplicate = %d, want 1", got)
+	}
+	if err := realtime.Handle(ctx, messaging.Message{Body: merchantBody}); err != nil {
+		t.Fatalf("duplicate realtime: %v", err)
+	}
+	if got := len(broadcaster.updates()); got != 2 {
+		t.Errorf("realtime updates after duplicate = %d, want 2", got)
 	}
 
 	// A transient identity failure is retryable and does not send or mark the event.
@@ -630,6 +651,18 @@ func (f *fakeMerchantAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/webhook"):
 		_, _ = w.Write([]byte(`{"data":{"url":"https://merchant.example.test/hook","signingSecret":"whsec_eventflow","eventTypes":["parcel.status_changed"],"isActive":true,"merchantStatus":"APPROVED"}}`))
+	case strings.Contains(r.URL.Path, "/webhook/deliveries/"):
+		eventID := path.Base(r.URL.Path)
+		f.mu.Lock()
+		delivered := false
+		for _, attempt := range f.recorded {
+			if attempt.EventID == eventID && attempt.Success {
+				delivered = true
+				break
+			}
+		}
+		f.mu.Unlock()
+		_, _ = fmt.Fprintf(w, `{"data":{"delivered":%t}}`, delivered)
 	case strings.HasSuffix(r.URL.Path, "/webhook/attempts"):
 		var attempt webhookevents.Attempt
 		if err := json.NewDecoder(r.Body).Decode(&attempt); err != nil {
@@ -654,8 +687,13 @@ func (f *fakeMerchantAPI) attempts() []webhookevents.Attempt {
 
 func startConsumer(t *testing.T, ctx context.Context, rabbitURL, exchange, queue string, handler messaging.Handler, logger *slog.Logger) {
 	t.Helper()
+	startConsumerWithRoutingKey(t, ctx, rabbitURL, exchange, queue, routingKey, handler, logger)
+}
+
+func startConsumerWithRoutingKey(t *testing.T, ctx context.Context, rabbitURL, exchange, queue, key string, handler messaging.Handler, logger *slog.Logger) {
+	t.Helper()
 	config := messaging.ConsumerConfig{
-		URL: rabbitURL, Exchange: exchange, Queue: queue, RoutingKey: routingKey,
+		URL: rabbitURL, Exchange: exchange, Queue: queue, RoutingKey: key,
 		Prefetch: 1, HandlerTimeout: 10 * time.Second, MaxRetries: 1, RetryDelay: time.Second,
 		ReconnectMin: 100 * time.Millisecond, ReconnectMax: time.Second,
 	}

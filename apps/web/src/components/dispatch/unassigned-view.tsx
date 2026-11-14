@@ -87,7 +87,6 @@ function UnassignedContent() {
   const list = usePagedList(load);
 
   const latest = useRef({ load, page: list.page, rows: list.rows });
-  const syncsInFlight = useRef(0);
   const nextSyncId = useRef(0);
   const lastAppliedSync = useRef(0);
   const syncAbort = useRef<AbortController | null>(null);
@@ -102,22 +101,27 @@ function UnassignedContent() {
     const { load: loadNow, page: pageNow, rows } = latest.current;
     if (rows === null) return undefined;
     const syncId = (nextSyncId.current += 1);
-    syncsInFlight.current += 1;
     const signal =
       syncAbort.current?.signal ??
       (syncAbort.current = new AbortController()).signal;
     return loadNow(pageNow, signal)
-      .then(({ data }) => {
+      .then(({ data, meta }) => {
         if (latest.current.load !== loadNow) return;
         if (latest.current.page !== pageNow) return;
         if (syncId <= lastAppliedSync.current) return;
         lastAppliedSync.current = syncId;
+        const next = meta.pagination ?? null;
+        const lastPage = Math.max(next?.totalPages ?? 1, 1);
+        // A live removal can empty the last page. Re-run the normal load so the
+        // hook clamps the page and clears its loading state.
+        if (pageNow > lastPage) {
+          list.setPage(lastPage);
+          return;
+        }
+        list.setPagination(next);
         list.setRows(data);
       })
-      .catch(() => undefined)
-      .finally(() => {
-        syncsInFlight.current = Math.max(0, syncsInFlight.current - 1);
-      });
+      .catch(() => undefined);
   }, [list]);
 
   const { state: liveState } = useLiveUpdates({

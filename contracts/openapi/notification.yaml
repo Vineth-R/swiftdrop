@@ -84,8 +84,9 @@ paths:
         Returns notification delivery records newest first. ADMIN is required.
         `recipient` is masked; full email addresses and phone numbers are never
         returned. `status` filters by one delivery status. Both the collection
-        path and its trailing-slash form are routed through the gateway. Every
-        response sets `Cache-Control: no-store`.
+        path and its trailing-slash form are routed through the gateway. Handled
+        responses set `Cache-Control: no-store`; the shared router's global JSON
+        404/405 responses do not.
       security:
         - AccessCookie: []
         - BearerAuth: []
@@ -143,6 +144,9 @@ components:
       type: apiKey
       in: cookie
       name: sd_access
+      description: >-
+        Configurable with COOKIE_NAME. The default and the value shown here is
+        sd_access; it must match the Identity and Parcel services.
     BearerAuth:
       type: http
       scheme: bearer

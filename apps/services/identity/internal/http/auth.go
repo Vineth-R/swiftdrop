@@ -3,6 +3,7 @@ package servicehttp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -296,7 +297,7 @@ func (h *authHandlers) fail(c *gin.Context, err error) {
 		h.logger.ErrorContext(c.Request.Context(), "auth request failed",
 			"request_id", requestid.FromGin(c),
 			"path", c.FullPath(),
-			"error", err.Error(),
+			"error", err, "error_type", fmt.Sprintf("%T", err),
 		)
 		httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 	}

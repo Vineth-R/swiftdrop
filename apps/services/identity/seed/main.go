@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password"
@@ -40,6 +41,16 @@ func run() error {
 	}
 	logLevel, err := loader.EnumFold("LOG_LEVEL", "info", "debug", "info", "warn", "warning", "error")
 	if err != nil {
+		return err
+	}
+
+	databaseURL, err := loader.Required("DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	allowRemote := strings.EqualFold(loader.String("ALLOW_REMOTE_SEED", ""), "1") ||
+		strings.EqualFold(loader.String("ALLOW_REMOTE_SEED", ""), "true")
+	if err := seed.ValidateTarget(appEnv, databaseURL, allowRemote); err != nil {
 		return err
 	}
 

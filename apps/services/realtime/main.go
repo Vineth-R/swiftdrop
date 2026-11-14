@@ -110,6 +110,11 @@ func run() error {
 		"queue", config.Queue,
 		"routing_key", config.RoutingKey,
 	)
+	logger.Info("starting assignment event consumer",
+		"exchange", config.Exchange,
+		"queue", config.AssignedQueue,
+		"routing_key", config.AssignedRoutingKey,
+	)
 
 	consumerConfig := messaging.ConsumerConfig{
 		URL:            config.RabbitMQURL,
@@ -123,19 +128,27 @@ func run() error {
 		ReconnectMin:   config.ReconnectMin,
 		ReconnectMax:   config.ReconnectMax,
 	}
+	assignedConfig := consumerConfig
+	assignedConfig.Queue = config.AssignedQueue
+	assignedConfig.RoutingKey = config.AssignedRoutingKey
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	results := make(chan error, 2)
+	results := make(chan error, 3)
 	go func() { results <- httpx.Serve(runCtx, server, 10*time.Second) }()
 	go func() { results <- messaging.Run(runCtx, consumerConfig, consumer.New(hub), logger) }()
+	go func() {
+		results <- messaging.Run(runCtx, assignedConfig, consumer.NewAssignment(hub), logger)
+	}()
 
-	// Whichever stops first takes the other down with it.
+	// Whichever stops first takes the others down with it.
 	firstErr := <-results
 	cancel()
-	if err := <-results; err != nil && firstErr == nil {
-		firstErr = err
+	for i := 0; i < 2; i++ {
+		if err := <-results; err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 	return firstErr
 }

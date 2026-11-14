@@ -11,7 +11,7 @@ MIGRATE_RUN = docker run --rm \
 	-e DATABASE_URL -e DATABASE_URL_DIRECT -e APP_ENV -e ALLOW_PRODUCTION_ROLLBACK -e MIGRATE_SERVICES \
 	$(MIGRATE_IMAGE)
 
-.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed check-routes test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview seed-merchant
+.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed seed-parcels seed-demo check-routes test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview seed-merchant
 
 help:
 	@echo "Targets:"
@@ -31,6 +31,8 @@ help:
 	@echo "  make db-verify      verify the documented database baseline (read-only)"
 	@echo "  make seed           create the five deterministic demo users"
 	@echo "  make seed-merchant  create and approve the deterministic merchant demo account"
+	@echo "  make seed-parcels   create one demo parcel per canonical status"
+	@echo "  make seed-demo      seed users, merchant, API key and parcels in Compose"
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
 	@echo "  make check-routes   verify gateway routing against the running stack"
 	@echo "  make project-name   print the resolved Compose project name"
@@ -214,7 +216,26 @@ seed-merchant:
 	fi
 	go run ./apps/services/merchant/seed
 
+seed-parcels:
+	@if [ -z "$${DATABASE_URL:-}" ]; then \
+		echo "error: DATABASE_URL is required. Export it or point it at a reachable disposable database." >&2; \
+		exit 1; \
+	fi
+	go run ./apps/services/parcel/seed
+
+seed-demo:
+	@COMPOSE="$(COMPOSE)" ./scripts/seed-demo.sh
+
 db-reset:
+	@if [ "$${CONFIRM_DB_RESET:-}" != "1" ]; then \
+		echo "error: db-reset is destructive. Re-run with CONFIRM_DB_RESET=1 after confirming the target project." >&2; \
+		echo "       Project: $$($(MAKE) -s project-name)" >&2; \
+		exit 1; \
+	fi
+	@if [ "$${APP_ENV:-development}" = "production" ]; then \
+		echo "error: refusing to reset volumes with APP_ENV=production." >&2; \
+		exit 1; \
+	fi
 	@echo "WARNING: this deletes local PostgreSQL and RabbitMQ volumes."
 	$(COMPOSE) down -v --remove-orphans
 	$(COMPOSE) up -d postgres
@@ -288,7 +309,7 @@ test-db:
 	}
 	PARCEL_TEST_DATABASE_URL="$${PARCEL_TEST_DATABASE_URL:-$${TEST_DATABASE_URL}}" \
 	TEST_DATABASE_URL="$${TEST_DATABASE_URL}" \
-	go test -race -count=1 -v -tags=integration,postgres -run '^(TestParcel|TestCourier)' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository ./apps/services/parcel/internal/http ./apps/services/parcel/internal/courier
+	go test -race -count=1 -v -tags=integration,postgres -run '^(TestParcel|TestCourier|TestRunCreatesSixStatusesAndIsIdempotent)' ./tests/integration ./tests/integration/parceltest ./apps/services/parcel/internal/repository ./apps/services/parcel/internal/http ./apps/services/parcel/internal/courier ./apps/services/parcel/internal/seed
 
 check-routes:
 	@base="$$($(COMPOSE) port nginx 80 2>/dev/null | sed 's/.*://')"; \

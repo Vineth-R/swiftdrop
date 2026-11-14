@@ -162,6 +162,12 @@ func (c *client) Deliver(update live.Update) bool {
 	return c.send(update.Message())
 }
 
+// DeliverAssignment queues an assignment notice without blocking
+// (live.Subscriber). Only dispatch clients following scope all receive these.
+func (c *client) DeliverAssignment(update live.AssignmentUpdate) bool {
+	return c.send(update.Message())
+}
+
 // Overflow closes a connection that cannot keep up (live.Subscriber). The web
 // client reconnects and fetches the current state again.
 func (c *client) Overflow() {

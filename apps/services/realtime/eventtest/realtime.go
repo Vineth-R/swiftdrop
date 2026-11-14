@@ -19,3 +19,14 @@ type Broadcaster = consumer.Broadcaster
 
 // NewConsumer returns the real realtime event consumer.
 func NewConsumer(broadcaster Broadcaster) messaging.Handler { return consumer.New(broadcaster) }
+
+// AssignmentUpdate is the public assignment projection.
+type AssignmentUpdate = live.AssignmentUpdate
+
+// AssignmentBroadcaster delivers an assignment notice.
+type AssignmentBroadcaster = consumer.AssignmentBroadcaster
+
+// NewAssignmentConsumer returns the real realtime assignment consumer.
+func NewAssignmentConsumer(broadcaster AssignmentBroadcaster) messaging.Handler {
+	return consumer.NewAssignment(broadcaster)
+}

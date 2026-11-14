@@ -240,7 +240,7 @@ func (s *Service) compensate(ctx context.Context, userID string, created bool) {
 		return
 	}
 	if err := s.identity.DeleteMerchantOwner(ctx, userID); err != nil && s.logger != nil {
-		s.logger.Error("merchant owner compensation failed", "user_id", userID, "error", err.Error())
+		s.logger.Error("merchant owner compensation failed", "user_id", userID, "error", err, "error_type", fmt.Sprintf("%T", err))
 	}
 }
 

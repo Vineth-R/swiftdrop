@@ -3713,9 +3713,35 @@ Item                               Rule
 
 
 
+Additive assignment notice. Clients subscribed with `scope: all` (DISPATCHER and
+
+ADMIN only) also receive an assignment notice when a dispatcher assigns or
+
+reassigns a parcel. It carries no courier, assigner, contact or credential data;
+
+the client refetches the authoritative REST state.
+
+   {
+
+       "type": "parcel.assigned.updated",
+
+       "data": {
+
+           "trackingNumber": "SDK7M2Q9XP4",
+
+           "updatedAt": "2026-11-02T15:41:00Z"
+
+       }
+
+   }
+
+
+
+
+
 Update messages contain only public tracking fields. No names, addresses, phone
 
-numbers or notes are sent.
+numbers, notes, courier identities or assigner identities are sent.
 
 
 <!-- PDF page 39 -->
@@ -3909,7 +3935,7 @@ These webhook business retries are separate from shared RabbitMQ consumer retrie
 | `realtime.queue` | `parcel.assigned.v1`, `parcel.status_changed.v1` | Realtime Service |
 | `merchant.sync.queue` | `parcel.status_changed.v1` | Merchant Integration |
 
-Queue names are deployment details. The implemented durable queues are `notification.requested.v1` (legacy), `notification.parcel.created.v1`, `notification.parcel.status_changed.v1`, `webhook.parcel.status_changed.v1`, `realtime.parcel.status_changed.v1` and `merchant.sync.queue`; do not treat the target names in this table as evidence that they are running. The merchant service declares and consumes `merchant.sync.queue`; the event-flow integration test exercises the consumer against PostgreSQL and RabbitMQ. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
+Queue names are deployment details. The implemented durable queues are `notification.requested.v1` (legacy), `notification.parcel.created.v1`, `notification.parcel.status_changed.v1`, `webhook.parcel.status_changed.v1`, `realtime.parcel.status_changed.v1`, `realtime.parcel.assigned.v1` and `merchant.sync.queue`; do not treat the target names in this table as evidence that they are running. The merchant service declares and consumes `merchant.sync.queue`; the event-flow integration test exercises the consumer against PostgreSQL and RabbitMQ. Do not rename or redeclare an existing durable queue with different arguments. A migration must introduce new queues or an explicit compatibility plan.
 
 Failure topology is derived by the shared consumer: retry exchange `<exchange>.retry`, retry queue `<queue>.retry.v2`, dead-letter exchange `<exchange>.dlx`, and dead-letter queue `<queue>.dlq`. A retry is dead-lettered to its owning queue through the default exchange, so it cannot reach another worker bound to the same event. The legacy name `swiftdrop.dlx` is not the implemented exchange. Messages are persistent, and consumers deduplicate by `event_id`.
 

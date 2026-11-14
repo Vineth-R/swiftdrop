@@ -174,6 +174,38 @@ describe('messages', () => {
     assert.equal(env.updates.length, 2);
   });
 
+  it('refetches on an assignment notice for scope all', () => {
+    const env = setup({ scope: 'all' });
+    confirm(env);
+    assert.equal(env.syncs, 1);
+    env.sockets[0].receive({
+      type: 'parcel.assigned.updated',
+      data: { trackingNumber: TRACKING, updatedAt: '2026-11-02T15:40:00Z' },
+    });
+    assert.equal(env.syncs, 2);
+    assert.deepEqual(env.updates, []);
+  });
+
+  it('ignores an assignment notice on a per-parcel subscription', () => {
+    const env = setup();
+    confirm(env);
+    env.sockets[0].receive({
+      type: 'parcel.assigned.updated',
+      data: { trackingNumber: TRACKING, updatedAt: '2026-11-02T15:40:00Z' },
+    });
+    assert.equal(env.syncs, 1);
+  });
+
+  it('ignores a malformed assignment notice', () => {
+    const env = setup({ scope: 'all' });
+    confirm(env);
+    env.sockets[0].receive({
+      type: 'parcel.assigned.updated',
+      data: { trackingNumber: TRACKING },
+    });
+    assert.equal(env.syncs, 1);
+  });
+
   it('ignores messages that are not valid', () => {
     const env = setup();
     env.sockets[0].open();

@@ -129,6 +129,18 @@ function toUpdate(value: unknown): StatusUpdate | null {
   };
 }
 
+/** An assignment notice carries only the tracking number and event time. */
+type AssignmentNotice = { trackingNumber: string; updatedAt: string };
+
+function toAssignment(value: unknown): AssignmentNotice | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { trackingNumber, updatedAt } = value as Record<string, unknown>;
+  if (typeof trackingNumber !== 'string' || typeof updatedAt !== 'string') {
+    return null;
+  }
+  return { trackingNumber, updatedAt };
+}
+
 /** A real WebSocket has the same shape, apart from its event types. */
 function defaultCreateSocket(url: string): SocketLike {
   return new WebSocket(url) as unknown as SocketLike;
@@ -165,11 +177,15 @@ export function createLiveConnection(options: LiveOptions): {
     onState(next);
   }
 
-  function matches(update: StatusUpdate): boolean {
+  function matchesTracking(trackingNumber: string): boolean {
     return (
       'scope' in subscription ||
-      update.trackingNumber === subscription.trackingNumber
+      trackingNumber === subscription.trackingNumber
     );
+  }
+
+  function matches(update: StatusUpdate): boolean {
+    return matchesTracking(update.trackingNumber);
   }
 
   function clearReconnect() {
@@ -273,6 +289,13 @@ export function createLiveConnection(options: LiveOptions): {
     if (message.type === 'parcel.status.updated') {
       const update = toUpdate(message.data);
       if (update && matches(update)) onUpdate(update);
+      return;
+    }
+    if (message.type === 'parcel.assigned.updated') {
+      // Dispatch notices carry no assignment data on purpose. Only a scope:all
+      // subscription may receive one; refetch the authoritative REST state.
+      if (!('scope' in subscription)) return;
+      if (toAssignment(message.data)) safeSync();
       return;
     }
     if (message.type === 'error' && message.code === 'FORBIDDEN')

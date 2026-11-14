@@ -756,10 +756,10 @@ func TestMigrationVersionFiles(t *testing.T) {
 
 	// Each service has its own migration version table, so versions are unique
 	// per service directory rather than across the whole repository.
-	if len(services["parcel"]) != 6 {
-		t.Errorf("parcel migration version count = %d; want 6", len(services["parcel"]))
+	if len(services["parcel"]) != 7 {
+		t.Errorf("parcel migration version count = %d; want 7", len(services["parcel"]))
 	}
-	for _, version := range []string{"000001", "000002", "000003", "000004", "000005", "000006"} {
+	for _, version := range []string{"000001", "000002", "000003", "000004", "000005", "000006", "000007"} {
 		if services["parcel"][version] == nil {
 			t.Errorf("parcel migration %s is missing", version)
 		}
@@ -809,13 +809,26 @@ func TestMigrationVersionFiles(t *testing.T) {
 		t.Error("000005_outbox_event_types must not add a duplicate pending-relay index")
 	}
 
+	outboxClaim, err := os.ReadFile(repositoryPath("migrations/parcel/000007_outbox_claim.up.sql"))
+	if err != nil {
+		t.Fatalf("read outbox claim migration: %v", err)
+	}
+	if strings.Contains(string(outboxClaim), "CREATE TABLE") {
+		t.Error("000007_outbox_claim must not create tables")
+	}
+	for _, column := range []string{"claim_token UUID", "claimed_at TIMESTAMPTZ"} {
+		if !strings.Contains(string(outboxClaim), column) {
+			t.Errorf("000007_outbox_claim does not add %s", column)
+		}
+	}
+
 	var versions []string
 	for version := range services["parcel"] {
 		versions = append(versions, version)
 	}
 	sort.Strings(versions)
-	if strings.Join(versions, ",") != "000001,000002,000003,000004,000005,000006" {
-		t.Errorf("parcel versions = %v; want [000001 000002 000003 000004 000005 000006]", versions)
+	if strings.Join(versions, ",") != "000001,000002,000003,000004,000005,000006,000007" {
+		t.Errorf("parcel versions = %v; want [000001 000002 000003 000004 000005 000006 000007]", versions)
 	}
 }
 

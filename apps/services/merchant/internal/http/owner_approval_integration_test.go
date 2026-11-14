@@ -51,7 +51,7 @@ func TestInternalApprovalCarriesTheDecisionReason(t *testing.T) {
 		merchantID, owner = userID(t), userID(t)
 		if err := repo.CreateMerchant(ctx, repository.CreateMerchantParams{
 			ID: merchantID, OwnerUserID: owner, BusinessName: "Approval Test " + merchantID[:8],
-			BusinessRegNo: "APPROVAL-" + merchantID[:8], ContactEmail: "approval@example.test",
+			BusinessRegNo: "APPROVAL1-" + merchantID[:7], ContactEmail: "approval@example.test",
 			ContactPhone: "+94771234567", PickupAddress: "12 Galle Road", PickupZoneID: userID(t),
 		}); err != nil {
 			t.Fatal(err)

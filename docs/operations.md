@@ -180,3 +180,136 @@ docker compose exec identity wget -qO- http://127.0.0.1:8081/ready
 RabbitMQ failures are visible in structured logs and through the management UI,
 not through most `/ready` endpoints. Treat a green `/ready` as "the service can
 serve database-backed requests", not "every dependency is healthy".
+
+## Logs
+
+```sh
+make logs                                  # every service, follow, last 100 lines
+docker compose logs -f --tail=200 parcel   # one service
+docker compose logs --since=15m notification-worker
+```
+
+Services log structured `slog` output. Request logs include method, path, status,
+latency and request ID; they never include query strings, bodies, tokens or
+passwords. Panic logs include a redacted panic value and type. If a log line
+contains `[REDACTED]`, that is expected for sensitive attributes.
+
+## Health and readiness
+
+```sh
+docker compose ps
+docker compose exec identity wget -qO- http://127.0.0.1:8081/ready
+docker compose exec parcel   wget -qO- http://127.0.0.1:8082/ready
+docker compose exec web      wget -qO- http://127.0.0.1:3000/
+curl -s http://localhost:8080/healthz
+```
+
+`/ready` returns `200 {"status":"ready","checks":{"database":"ok"}}` when the
+database ping succeeds and `503` with `"database":"down"` when it does not.
+`webhook-worker` has process health only; it exposes no HTTP endpoint.
+
+## RabbitMQ queues and dead letters
+
+Management UI: <http://localhost:15672/> (default `swiftdrop` / `swiftdrop` in
+the Compose template).
+
+```sh
+docker compose exec rabbitmq rabbitmqctl list_queues name messages consumers
+docker compose exec rabbitmq rabbitmqctl list_bindings
+```
+
+Expected durable queues:
+
+- `notification.requested.v1`
+- `notification.parcel.created.v1`
+- `notification.parcel.status_changed.v1`
+- `webhook.parcel.status_changed.v1`
+- `realtime.parcel.status_changed.v1`
+- `merchant.sync.queue`
+
+Retry and dead-letter resources are derived from each queue:
+`<exchange>.retry`, `<queue>.retry.v2`, `<exchange>.dlx`, `<queue>.dlq`. Inspect
+a dead-letter queue in the UI before discarding messages. A message in a DLQ is
+a failed event, not a transient broker problem; fix the cause and republish or
+discard deliberately.
+
+## Notification troubleshooting
+
+1. Check `docker compose logs notification-worker`.
+2. Confirm `notification.parcel.created.v1` and
+   `notification.parcel.status_changed.v1` have consumers.
+3. Confirm the customer or approved merchant contact resolves through the
+   internal APIs.
+4. Check Mailpit at <http://localhost:8025/> for the email.
+5. Inspect `/api/v1/admin/notification-logs` as ADMIN, or the
+   `/admin/notification-logs` screen.
+
+Expected outcomes: a `SENT` log with a masked recipient on success; `PENDING`
+during a retryable SMTP failure; `FAILED` for an invalid message. A permanent
+failure (unapproved merchant, unknown contact, SMS) dead-letters without an
+email. `processed_events` prevents a successful event from being sent twice.
+
+## Webhook troubleshooting
+
+1. `docker compose logs webhook-worker`.
+2. Inspect `merchant.webhook_delivery_attempts` through the merchant delivery
+   log (`GET /api/v1/merchants/me/webhook/deliveries`) or the merchant webhook
+   screen.
+3. Confirm the URL is HTTPS, public and not a loopback/private address.
+4. Confirm `WEBHOOK_SECRET_KEY` is valid; the worker reads the decrypted secret
+   through the Merchant internal API.
+5. Check the six attempts (1m, 5m, 30m, 2h, 6h). Attempt 6 failure is dead
+   lettered.
+
+The worker suppresses an event that already has a successful attempt. This is
+durable, but it cannot close the window where the receiver accepted the request
+and the worker crashed before recording it. Receivers must deduplicate on
+`eventId`; delivery is at-least-once, not exactly-once.
+
+## Database troubleshooting
+
+```sh
+docker compose exec postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+make migrate-status
+make db-verify
+docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\dn'
+```
+
+Common causes:
+
+- `dirty` migration state: investigate the failed statement, then use an
+  approved `migrate force` operation. Never delete a version row by guesswork.
+- `no applied migrations or unreadable version`: apply migrations.
+- `database: down` on `/ready`: the pool cannot reach PostgreSQL; check the
+  container, credentials and network.
+- `too many connections`: lower per-service pool sizes or raise PostgreSQL
+  limits; see the `DB_*` pool variables.
+
+## Configuration problems
+
+- `APP_ENV is required`: set `APP_ENV=development`, `staging` or `production`.
+- `JWT_ACCESS_SECRET is required`: set at least 32 random bytes outside
+  development.
+- `INTERNAL_TOKEN` shorter than 32 bytes outside development: use a strong
+  random token; internal routes otherwise stay fail-closed.
+- Webhook routes answer `503`: set `JWT_ACCESS_SECRET` and a valid
+  `WEBHOOK_SECRET_KEY` (64 hex characters).
+- AI returns `503 AI_UNAVAILABLE`: set a valid `GEMINI_API_KEY` or use
+  `AI_PROVIDER=mock` for a local stack.
+- Compose cannot resolve an upstream: restart Nginx after service recreated;
+  Compose depends on health with `restart: true`, but a manual partial start may
+  need `docker compose restart nginx`.
+
+## Backup and recovery
+
+```sh
+make db-backup
+BACKUP_SOURCE=url DATABASE_URL='postgres://...' make db-backup-remote
+APP_ENV=development DATABASE_URL_DIRECT='postgres://...' \
+  make db-restore BACKUP=/path/to/swiftdrop-<timestamp>.dump
+```
+
+Backups are written outside the repository, verified with `pg_restore --list`,
+and accompanied by a SHA-256 checksum. A restore overwrites the target; confirm
+the host and project first with `make project-name`. After a restore, run
+`make migrate-status`. Proof objects are backed up separately from PostgreSQL.
