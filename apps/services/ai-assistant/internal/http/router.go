@@ -69,6 +69,10 @@ func New(logger *slog.Logger, options Options) (*gin.Engine, error) {
 		httpx.JSON(c, http.StatusOK, gin.H{"status": "ok"})
 	})
 	router.GET("/ready", func(c *gin.Context) {
+		if status != "ok" {
+			httpx.JSON(c, http.StatusServiceUnavailable, gin.H{"status": "unavailable", "checks": gin.H{"provider": status}})
+			return
+		}
 		httpx.JSON(c, http.StatusOK, gin.H{"status": "ready", "checks": gin.H{"provider": status}})
 	})
 

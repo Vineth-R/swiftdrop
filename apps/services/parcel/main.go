@@ -24,6 +24,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/objectstore"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
@@ -88,6 +89,7 @@ func run() error {
 
 	var database *postgres.Pool
 	var pinger postgres.Pinger
+	var relayHealth *messaging.Health
 	databaseConfig, configErr := postgres.LoadConfigFromURL(config.DatabaseURL)
 	if configErr != nil {
 		return fmt.Errorf("configure database: %w", configErr)
@@ -191,6 +193,7 @@ func run() error {
 			logger,
 			relayOptions,
 		)
+		relayHealth = relay.Health()
 		relayWG.Add(1)
 		go func() {
 			defer relayWG.Done()
@@ -217,8 +220,12 @@ func run() error {
 	}
 
 	router.GET("/metrics", metrics.Handler(metricRegistry))
+	readiness := []httpx.ReadinessDependency{httpx.DatabaseDependency(pinger, postgres.DefaultReadyTimeout)}
+	if relayHealth != nil {
+		readiness = append(readiness, httpx.BooleanDependency("outbox_relay", relayHealth.Ready))
+	}
 	router.GET("/health", postgres.HealthHandler())
-	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))
+	router.GET("/ready", httpx.ReadinessHandler(readiness...))
 
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
@@ -240,6 +247,20 @@ type observedPublisher struct {
 	next      outbox.Publisher
 	published *metrics.CounterSeries
 	failed    *metrics.CounterSeries
+}
+
+func (p observedPublisher) Ensure(ctx context.Context) error {
+	if ensurer, ok := p.next.(interface{ Ensure(context.Context) error }); ok {
+		return ensurer.Ensure(ctx)
+	}
+	return nil
+}
+
+func (p observedPublisher) Healthy() bool {
+	if health, ok := p.next.(interface{ Healthy() bool }); ok {
+		return health.Healthy()
+	}
+	return true
 }
 
 func (p observedPublisher) Publish(ctx context.Context, exchange, routingKey string, body []byte) error {

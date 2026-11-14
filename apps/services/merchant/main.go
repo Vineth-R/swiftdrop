@@ -114,6 +114,14 @@ func run() error {
 		}
 		orderService = orders.New(merchantRepo, parcelClient, zoneNameLookup{client: pricingClient})
 	}
+	runSync := config.SyncEnabled() && merchantRepo != nil
+	var syncHealth *messaging.Health
+	readiness := []httpx.ReadinessDependency{httpx.DatabaseDependency(pinger, postgres.DefaultReadyTimeout)}
+	if runSync {
+		syncHealth = messaging.NewHealth()
+		readiness = append(readiness, httpx.BooleanDependency("consumer.merchant_sync", syncHealth.Ready))
+	}
+
 	router := servicehttp.New(logger)
 	registry := metrics.NewRegistry()
 	router.GET("/metrics", metrics.Handler(registry))
@@ -137,7 +145,7 @@ func run() error {
 	}
 
 	router.GET("/health", postgres.HealthHandler())
-	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))
+	router.GET("/ready", httpx.ReadinessHandler(readiness...))
 
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
@@ -150,7 +158,6 @@ func run() error {
 	})
 
 	logger.Info("starting http service", "listen_addr", config.Addr(), "environment", config.AppEnv)
-	runSync := config.SyncEnabled() && merchantRepo != nil
 	switch {
 	case !config.SyncEnabled():
 		logger.Warn("RABBITMQ_URL is not set; merchant order status synchronization is disabled")
@@ -177,6 +184,7 @@ func run() error {
 		RetryDelay:     config.RabbitMQRetryDelay,
 		ReconnectMin:   config.RabbitMQReconnectMin,
 		ReconnectMax:   config.RabbitMQReconnectMax,
+		Health:         syncHealth,
 	}
 	handler := merchantsync.New(merchantRepo, logger)
 
