@@ -3,6 +3,9 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -426,5 +429,243 @@ func TestRepositoryListAdminParcels(t *testing.T) {
 	}
 	if page.TotalItems != 1 {
 		t.Errorf("expected 1 item, got %d", page.TotalItems)
+	}
+}
+
+func TestRepositoryAssignCourierClosedStatuses(t *testing.T) {
+	ctx := context.Background()
+	parcelID := "3f1c7a52-0000-4000-8000-000000000001"
+	courierID := "3f1c7a52-0000-4000-8000-000000000002"
+
+	for _, closedStatus := range []string{"DELIVERED", "FAILED"} {
+		t.Run(closedStatus, func(t *testing.T) {
+			var execCount int
+			db := &mockDB{
+				beginFn: func(ctx context.Context) (pgx.Tx, error) {
+					return &fakeTx{
+						queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
+							return &fakeRow{
+								scanFn: func(dest ...any) error {
+									*dest[0].(*string) = "SDK12345678"
+									*dest[1].(*string) = closedStatus
+									return nil
+								},
+							}
+						},
+						execFn: func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+							execCount++
+							return pgconn.CommandTag{}, nil
+						},
+					}, nil
+				},
+			}
+
+			repo := NewRepository(db)
+			_, err := repo.AssignCourier(ctx, AssignInput{
+				ParcelID:    parcelID,
+				CourierID:   courierID,
+				ActorUserID: "3f1c7a52-0000-4000-8000-000000000003",
+				Reason:      "test assignment on closed parcel",
+			})
+
+			if !errors.Is(err, ErrParcelClosed) {
+				t.Fatalf("status %s: expected ErrParcelClosed, got: %v", closedStatus, err)
+			}
+			if execCount != 0 {
+				t.Errorf("expected 0 write executions on closed parcel, got %d", execCount)
+			}
+		})
+	}
+}
+
+func TestConcurrentAssignCourierSingleActive(t *testing.T) {
+	ctx := context.Background()
+	parcelID := "3f1c7a52-0000-4000-8000-000000000001"
+
+	type assignmentRecord struct {
+		id                string
+		parcelID          string
+		courierID         string
+		previousCourierID *string
+		isCurrent         bool
+		unassignedAt      *time.Time
+	}
+
+	type simulatedDBState struct {
+		mu               sync.Mutex
+		currentCourierID *string
+		status           string
+		assignments      []assignmentRecord
+		outboxEvents     []string
+	}
+
+	state := &simulatedDBState{
+		status: "CREATED",
+	}
+
+	concurrentWorkers := 20
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	safeDB := &mockDB{
+		beginFn: func(ctx context.Context) (pgx.Tx, error) {
+			state.mu.Lock()
+			txCommitted := false
+
+			queryStep := 0
+			var activeAssignmentID string
+			var activeCourierID *string
+
+			tx := &fakeTx{
+				queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
+					queryStep++
+					if queryStep == 1 {
+						return &fakeRow{
+							scanFn: func(dest ...any) error {
+								*dest[0].(*string) = "SDK12345678"
+								*dest[1].(*string) = state.status
+								return nil
+							},
+						}
+					}
+					if queryStep == 2 {
+						activeAssignmentID = ""
+						activeCourierID = nil
+						for i := range state.assignments {
+							if state.assignments[i].parcelID == parcelID && state.assignments[i].isCurrent {
+								activeAssignmentID = state.assignments[i].id
+								cID := state.assignments[i].courierID
+								activeCourierID = &cID
+								break
+							}
+						}
+						return &fakeRow{
+							scanFn: func(dest ...any) error {
+								if activeAssignmentID == "" {
+									return pgx.ErrNoRows
+								}
+								*dest[0].(*string) = activeAssignmentID
+								*dest[1].(**string) = activeCourierID
+								return nil
+							},
+						}
+					}
+					if queryStep == 3 {
+						newCourierID := args[1].(string)
+						var prevCID *string
+						if args[2] != nil {
+							prevCID = args[2].(*string)
+						}
+						newID := fmt.Sprintf("assign-%d", len(state.assignments)+1)
+						state.assignments = append(state.assignments, assignmentRecord{
+							id:                newID,
+							parcelID:          parcelID,
+							courierID:         newCourierID,
+							previousCourierID: prevCID,
+							isCurrent:         true,
+						})
+						return &fakeRow{
+							scanFn: func(dest ...any) error {
+								*dest[0].(*time.Time) = time.Now().UTC()
+								return nil
+							},
+						}
+					}
+					return &fakeRow{}
+				},
+				execFn: func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+					if strings.Contains(sql, "parcel.parcel_assignments") && activeAssignmentID != "" {
+						for i := range state.assignments {
+							if state.assignments[i].id == activeAssignmentID {
+								state.assignments[i].isCurrent = false
+								now := time.Now().UTC()
+								state.assignments[i].unassignedAt = &now
+							}
+						}
+					}
+					if strings.Contains(sql, "UPDATE parcel.parcels") {
+						courierID := args[1].(string)
+						state.currentCourierID = &courierID
+					}
+					if strings.Contains(sql, "INSERT INTO parcel.outbox_events") {
+						state.outboxEvents = append(state.outboxEvents, "parcel.assigned")
+					}
+					return pgconn.CommandTag{}, nil
+				},
+				commitFn: func(ctx context.Context) error {
+					txCommitted = true
+					state.mu.Unlock()
+					return nil
+				},
+				rollbackFn: func(ctx context.Context) error {
+					if !txCommitted {
+						state.mu.Unlock()
+					}
+					return nil
+				},
+			}
+			return tx, nil
+		},
+	}
+
+	repo := NewRepository(safeDB)
+
+	for i := 0; i < concurrentWorkers; i++ {
+		wg.Add(1)
+		courierUUID := fmt.Sprintf("3f1c7a52-0000-4000-8000-%012d", i+1)
+		go func(cid string) {
+			defer wg.Done()
+			<-start
+
+			res, err := repo.AssignCourier(ctx, AssignInput{
+				ParcelID:    parcelID,
+				CourierID:   cid,
+				ActorUserID: "3f1c7a52-0000-4000-8000-000000000099",
+				Reason:      "concurrent reassignment test",
+			})
+			if err != nil {
+				t.Errorf("AssignCourier worker %s failed: %v", cid, err)
+			}
+			if res.ParcelID != parcelID {
+				t.Errorf("worker %s returned unexpected ParcelID %s", cid, res.ParcelID)
+			}
+		}(courierUUID)
+	}
+
+	close(start)
+	wg.Wait()
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	var currentCount int
+	var currentAssignment *assignmentRecord
+	for i := range state.assignments {
+		if state.assignments[i].isCurrent {
+			currentCount++
+			currentAssignment = &state.assignments[i]
+		}
+	}
+
+	if currentCount != 1 {
+		t.Fatalf("expected exactly 1 current assignment, found %d", currentCount)
+	}
+	if currentAssignment.unassignedAt != nil {
+		t.Fatalf("active assignment must have unassigned_at == nil, got %v", currentAssignment.unassignedAt)
+	}
+	for i := range state.assignments {
+		if !state.assignments[i].isCurrent && state.assignments[i].unassignedAt == nil {
+			t.Errorf("closed assignment %s must have non-nil unassigned_at", state.assignments[i].id)
+		}
+	}
+	if state.currentCourierID == nil || *state.currentCourierID != currentAssignment.courierID {
+		t.Fatalf("parcels.current_courier_id (%v) does not match active assignment courier (%s)",
+			state.currentCourierID, currentAssignment.courierID)
+	}
+	if len(state.outboxEvents) != concurrentWorkers {
+		t.Fatalf("expected %d outbox events, found %d", concurrentWorkers, len(state.outboxEvents))
+	}
+	if len(state.assignments) != concurrentWorkers {
+		t.Fatalf("expected %d total assignment history rows, found %d", concurrentWorkers, len(state.assignments))
 	}
 }

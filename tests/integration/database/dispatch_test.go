@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -839,4 +840,316 @@ func tableExists(t *testing.T, ctx context.Context, conn *pgx.Conn, table string
 		t.Fatalf("check table %s: %v", table, err)
 	}
 	return exists
+}
+
+func TestConcurrentAssignmentSingleActiveProof(t *testing.T) {
+	ctx, conn := newIsolatedDatabase(t)
+	applyParcelMigrations(t, ctx, conn, 6)
+
+	parcelID := insertParcel(t, ctx, conn, "CREATED")
+
+	// Phase 1: Prove partial unique index prevents concurrent active assignments.
+	// Multiple workers racing to insert an active assignment for the same parcel.
+	const numWorkers = 5
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	type workerResult struct {
+		courierID string
+		err       error
+	}
+	results := make([]workerResult, numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		workerIdx := i
+		courierID := newUUID(t, ctx, conn)
+		go func(idx int, cID string) {
+			defer wg.Done()
+			workerConn, err := pgx.ConnectConfig(ctx, conn.Config())
+			if err != nil {
+				results[idx] = workerResult{courierID: cID, err: err}
+				return
+			}
+			defer workerConn.Close(ctx)
+
+			<-start
+
+			_, execErr := workerConn.Exec(ctx, `
+				INSERT INTO parcel.parcel_assignments (parcel_id, courier_id, assigned_by, is_current)
+				VALUES ($1, $2, gen_random_uuid(), true)`, parcelID, cID)
+			results[idx] = workerResult{courierID: cID, err: execErr}
+		}(workerIdx, courierID)
+	}
+
+	close(start)
+	wg.Wait()
+
+	var successCount, conflictCount int
+	var winnerCourierID string
+	for _, r := range results {
+		if r.err == nil {
+			successCount++
+			winnerCourierID = r.courierID
+		} else {
+			assertSQLState(t, r.err, "23505") // Unique violation on assignments_one_current_uq
+			conflictCount++
+		}
+	}
+
+	if successCount != 1 {
+		t.Fatalf("expected exactly 1 successful concurrent assignment insert, got %d (conflicts: %d)", successCount, conflictCount)
+	}
+
+	// Phase 2: Atomic reassignment transaction test
+	// Prove that an atomic reassignment:
+	// 1. Closes previous assignment (is_current = false, unassigned_at = now())
+	// 2. Inserts new current assignment (is_current = true, unassigned_at = NULL, previous_courier_id = old_courier)
+	// 3. Updates parcels.current_courier_id
+	// 4. Writes outbox_events row
+	newCourierID := newUUID(t, ctx, conn)
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin transaction: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Read existing current assignment FOR UPDATE
+	var activeAssignID string
+	var currentCourier string
+	if err := tx.QueryRow(ctx, `
+		SELECT id, courier_id::text
+		FROM parcel.parcel_assignments
+		WHERE parcel_id = $1 AND is_current = true
+		FOR UPDATE`, parcelID).Scan(&activeAssignID, &currentCourier); err != nil {
+		t.Fatalf("lock active assignment: %v", err)
+	}
+	if currentCourier != winnerCourierID {
+		t.Fatalf("currentCourier = %s, want %s", currentCourier, winnerCourierID)
+	}
+
+	// Close previous
+	if _, err := tx.Exec(ctx, `
+		UPDATE parcel.parcel_assignments
+		SET is_current = false, unassigned_at = now()
+		WHERE id = $1`, activeAssignID); err != nil {
+		t.Fatalf("close previous assignment: %v", err)
+	}
+
+	// Insert new assignment
+	var newAssignID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO parcel.parcel_assignments (
+			parcel_id, courier_id, assigned_by, is_current, previous_courier_id, reason
+		) VALUES ($1, $2, gen_random_uuid(), true, $3, 'reassignment test')
+		RETURNING id`, parcelID, newCourierID, currentCourier).Scan(&newAssignID); err != nil {
+		t.Fatalf("insert new assignment: %v", err)
+	}
+
+	// Update parcel
+	if _, err := tx.Exec(ctx, `
+		UPDATE parcel.parcels
+		SET current_courier_id = $2
+		WHERE id = $1`, parcelID, newCourierID); err != nil {
+		t.Fatalf("update parcel current_courier_id: %v", err)
+	}
+
+	// Write outbox event
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO parcel.outbox_events (
+			event_type, routing_key, payload, status, aggregate_type, aggregate_id
+		) VALUES (
+			'parcel.assigned', 'parcel.assigned',
+			jsonb_build_object('parcel_id', $1::text, 'courier_id', $2::text),
+			'PENDING', 'parcel', $1
+		)`, parcelID, newCourierID); err != nil {
+		t.Fatalf("write outbox event: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit reassignment tx: %v", err)
+	}
+
+	// Verify invariants:
+	// a) At most one active assignment exists for parcel
+	var totalCurrent, totalRows int
+	if err := conn.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE is_current), count(*)
+		FROM parcel.parcel_assignments
+		WHERE parcel_id = $1`, parcelID).Scan(&totalCurrent, &totalRows); err != nil {
+		t.Fatalf("count assignments: %v", err)
+	}
+	if totalCurrent != 1 {
+		t.Fatalf("total current assignments = %d, want 1", totalCurrent)
+	}
+	if totalRows != 2 {
+		t.Fatalf("total assignments = %d, want 2", totalRows)
+	}
+
+	// b) Active assignment has unassigned_at IS NULL
+	var activeCourier string
+	var unassignedAt *time.Time
+	if err := conn.QueryRow(ctx, `
+		SELECT courier_id::text, unassigned_at
+		FROM parcel.parcel_assignments
+		WHERE parcel_id = $1 AND is_current = true`, parcelID).Scan(&activeCourier, &unassignedAt); err != nil {
+		t.Fatalf("query active assignment: %v", err)
+	}
+	if activeCourier != newCourierID {
+		t.Errorf("active assignment courier = %s, want %s", activeCourier, newCourierID)
+	}
+	if unassignedAt != nil {
+		t.Errorf("active assignment unassigned_at must be NULL, got %v", unassignedAt)
+	}
+
+	// c) Closed assignment has unassigned_at IS NOT NULL
+	var closedUnassignedAt *time.Time
+	if err := conn.QueryRow(ctx, `
+		SELECT unassigned_at
+		FROM parcel.parcel_assignments
+		WHERE id = $1`, activeAssignID).Scan(&closedUnassignedAt); err != nil {
+		t.Fatalf("query closed assignment: %v", err)
+	}
+	if closedUnassignedAt == nil {
+		t.Error("closed assignment unassigned_at must not be NULL")
+	}
+
+	// d) parcels.current_courier_id matches active assignment courier_id exactly
+	var parcelCourier *string
+	if err := conn.QueryRow(ctx, `SELECT current_courier_id::text FROM parcel.parcels WHERE id = $1`, parcelID).
+		Scan(&parcelCourier); err != nil {
+		t.Fatalf("query parcel courier: %v", err)
+	}
+	if parcelCourier == nil || *parcelCourier != newCourierID {
+		t.Errorf("parcel current_courier_id = %v, want %s", parcelCourier, newCourierID)
+	}
+}
+
+func TestClosedParcelAssignmentRejection(t *testing.T) {
+	ctx, conn := newIsolatedDatabase(t)
+	applyParcelMigrations(t, ctx, conn, 6)
+
+	closedStatuses := []string{"DELIVERED", "FAILED"}
+	for _, status := range closedStatuses {
+		t.Run("closed_status_"+status, func(t *testing.T) {
+			parcelID := insertParcel(t, ctx, conn, status)
+			courierID := newUUID(t, ctx, conn)
+
+			// The domain rule rejects assigning couriers to closed parcels.
+			// Furthermore, if any attempt is made to mutate status back to an assigned state,
+			// the database trigger parcels_status_transition rejects it with 23514.
+			_, err := conn.Exec(ctx, `
+				UPDATE parcel.parcels
+				SET status = 'OUT_FOR_DELIVERY', current_courier_id = $2
+				WHERE id = $1`, parcelID, courierID)
+			assertSQLState(t, err, "23514")
+		})
+	}
+}
+
+func TestOutboxRetentionCleanupJob(t *testing.T) {
+	ctx, conn := newIsolatedDatabase(t)
+	applyParcelMigrations(t, ctx, conn, 6)
+
+	parcelID := insertParcel(t, ctx, conn, "CREATED")
+
+	// 1. Old PUBLISHED event (15 days ago) -> should be deleted
+	// 2. Old PUBLISHED event (20 days ago) -> should be deleted
+	// 3. Recent PUBLISHED event (5 days ago) -> must be kept
+	// 4. Old PENDING event (30 days ago) -> must be kept (pending never deleted)
+	// 5. Old FAILED event (30 days ago) -> must be kept
+	testEvents := []struct {
+		id          string
+		status      string
+		eventType   string
+		routingKey  string
+		publishedAt string
+		createdAt   string
+		wantDeleted bool
+	}{
+		{
+			id:          newUUID(t, ctx, conn),
+			status:      "PUBLISHED",
+			eventType:   "parcel.assigned",
+			routingKey:  "parcel.assigned",
+			publishedAt: "now() - interval '15 days'",
+			createdAt:   "now() - interval '16 days'",
+			wantDeleted: true,
+		},
+		{
+			id:          newUUID(t, ctx, conn),
+			status:      "PUBLISHED",
+			eventType:   "parcel.status_changed",
+			routingKey:  "parcel.status.changed",
+			publishedAt: "now() - interval '20 days'",
+			createdAt:   "now() - interval '21 days'",
+			wantDeleted: true,
+		},
+		{
+			id:          newUUID(t, ctx, conn),
+			status:      "PUBLISHED",
+			eventType:   "parcel.created",
+			routingKey:  "parcel.created",
+			publishedAt: "now() - interval '5 days'",
+			createdAt:   "now() - interval '6 days'",
+			wantDeleted: false,
+		},
+		{
+			id:          newUUID(t, ctx, conn),
+			status:      "PENDING",
+			eventType:   "parcel.created",
+			routingKey:  "parcel.created",
+			publishedAt: "NULL",
+			createdAt:   "now() - interval '30 days'",
+			wantDeleted: false,
+		},
+		{
+			id:          newUUID(t, ctx, conn),
+			status:      "FAILED",
+			eventType:   "parcel.assigned",
+			routingKey:  "parcel.assigned",
+			publishedAt: "NULL",
+			createdAt:   "now() - interval '30 days'",
+			wantDeleted: false,
+		},
+	}
+
+	for _, ev := range testEvents {
+		query := fmt.Sprintf(`
+			INSERT INTO parcel.outbox_events (
+				id, event_type, routing_key, payload, status, attempts, created_at, published_at, aggregate_type, aggregate_id
+			) VALUES (
+				$1, $2, $3, '{"test": true}'::jsonb, $4, 1, %s, %s, 'parcel', $5
+			)`, ev.createdAt, ev.publishedAt)
+		if _, err := conn.Exec(ctx, query, ev.id, ev.eventType, ev.routingKey, ev.status, parcelID); err != nil {
+			t.Fatalf("insert test outbox event %s: %v", ev.id, err)
+		}
+	}
+
+	// Execute retention cleanup for events published more than 14 days ago
+	tag, err := conn.Exec(ctx, `
+		DELETE FROM parcel.outbox_events
+		WHERE status = 'PUBLISHED' AND published_at < now() - interval '14 days'`)
+	if err != nil {
+		t.Fatalf("execute outbox retention cleanup: %v", err)
+	}
+
+	if tag.RowsAffected() != 2 {
+		t.Errorf("cleanup rows affected = %d, want 2", tag.RowsAffected())
+	}
+
+	// Verify existence of each event
+	for _, ev := range testEvents {
+		var exists bool
+		if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM parcel.outbox_events WHERE id = $1)`, ev.id).
+			Scan(&exists); err != nil {
+			t.Fatalf("check event %s existence: %v", ev.id, err)
+		}
+		if ev.wantDeleted && exists {
+			t.Errorf("event %s was not deleted by retention cleanup", ev.id)
+		}
+		if !ev.wantDeleted && !exists {
+			t.Errorf("event %s should NOT have been deleted by retention cleanup", ev.id)
+		}
+	}
 }

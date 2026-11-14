@@ -338,3 +338,292 @@ func TestRelayMaxAttemptsTransitionsToFailed(t *testing.T) {
 		t.Fatalf("expected lastError = permanent failure, got %v", store.events[0].LastError)
 	}
 }
+
+func TestRelayPublisherFailureRetryAndIDPreservation(t *testing.T) {
+	origEventID := "00000000-0000-4000-8000-000000000010"
+	origPayload := `{"parcel_id":"p-123","tracking_number":"SDK99998888","courier_id":"c-456","assigned_by":"u-789"}`
+	origCreatedAt := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
+
+	store := &mockStore{
+		events: []Event{
+			{
+				ID:         origEventID,
+				EventType:  "parcel.assigned",
+				RoutingKey: "parcel.assigned",
+				Payload:    json.RawMessage(origPayload),
+				Status:     "PENDING",
+				Attempts:   0,
+				CreatedAt:  origCreatedAt,
+			},
+		},
+	}
+
+	pub := &mockPublisher{err: errors.New("amqp broker connection timeout")}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	relay := NewRelay(store, pub, logger)
+
+	// Poll 1: Broker failure
+	processed1, err := relay.PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("PollOnce() error: %v", err)
+	}
+	if processed1 != 1 {
+		t.Fatalf("expected 1 processed event in poll 1, got %d", processed1)
+	}
+
+	// Verify state after failure:
+	// - Row status must stay PENDING
+	// - published_at must be nil
+	// - attempts incremented to 1
+	// - last_error recorded with failure reason
+	if store.events[0].Status != "PENDING" {
+		t.Errorf("expected status PENDING after broker failure, got %s", store.events[0].Status)
+	}
+	if store.events[0].PublishedAt != nil {
+		t.Errorf("expected published_at == nil after failure, got %v", store.events[0].PublishedAt)
+	}
+	if store.events[0].Attempts != 1 {
+		t.Errorf("expected attempts == 1 after failure, got %d", store.events[0].Attempts)
+	}
+	if store.events[0].LastError == nil || *store.events[0].LastError != "amqp broker connection timeout" {
+		t.Errorf("expected last_error = 'amqp broker connection timeout', got %v", store.events[0].LastError)
+	}
+	if len(pub.publishes) != 0 {
+		t.Fatalf("expected 0 successful publishes on broker error, got %d", len(pub.publishes))
+	}
+
+	// Broker recovers: Clear error and reset retry timer
+	pub.err = nil
+	relay.retryAfterMu.Lock()
+	delete(relay.retryAfter, origEventID) // Simulate backoff window elapsing
+	relay.retryAfterMu.Unlock()
+
+	// Poll 2: Retry succeeds
+	processed2, err := relay.PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("PollOnce() retry error: %v", err)
+	}
+	if processed2 != 1 {
+		t.Fatalf("expected 1 processed event in poll 2, got %d", processed2)
+	}
+
+	// Verify state after successful publish:
+	// - Row marked PUBLISHED
+	// - published_at is set to non-nil timestamp
+	// - attempts incremented to 2
+	// - last_error cleared
+	if store.events[0].Status != "PUBLISHED" {
+		t.Errorf("expected status PUBLISHED after recovery, got %s", store.events[0].Status)
+	}
+	if store.events[0].PublishedAt == nil {
+		t.Fatal("expected published_at != nil after successful publish")
+	}
+	if store.events[0].Attempts != 2 {
+		t.Errorf("expected attempts == 2, got %d", store.events[0].Attempts)
+	}
+	if store.events[0].LastError != nil {
+		t.Errorf("expected last_error cleared (nil), got %v", store.events[0].LastError)
+	}
+
+	// Verify exact original event ID preservation in published envelope
+	if len(pub.publishes) != 1 {
+		t.Fatalf("expected exactly 1 published message, got %d", len(pub.publishes))
+	}
+	var publishedEnv messaging.Envelope
+	if err := json.Unmarshal(pub.publishes[0].body, &publishedEnv); err != nil {
+		t.Fatalf("unmarshal published envelope: %v", err)
+	}
+
+	if publishedEnv.ID != origEventID {
+		t.Errorf("published envelope ID = %s, want original event ID %s", publishedEnv.ID, origEventID)
+	}
+	if publishedEnv.Type != "parcel.assigned.v1" {
+		t.Errorf("published envelope Type = %s, want parcel.assigned.v1", publishedEnv.Type)
+	}
+	if !publishedEnv.OccurredAt.Equal(origCreatedAt) {
+		t.Errorf("published envelope OccurredAt = %v, want original %v", publishedEnv.OccurredAt, origCreatedAt)
+	}
+	if publishedEnv.Producer != "parcel" {
+		t.Errorf("published envelope Producer = %s, want parcel", publishedEnv.Producer)
+	}
+	if string(publishedEnv.Data) != origPayload {
+		t.Errorf("published envelope payload = %s, want %s", string(publishedEnv.Data), origPayload)
+	}
+}
+
+func TestRelayRetentionCleanupFiltering(t *testing.T) {
+	now := time.Now().UTC()
+	retention := 14 * 24 * time.Hour
+	cutoff := now.Add(-retention)
+
+	t15DaysAgo := now.Add(-15 * 24 * time.Hour)
+	t20DaysAgo := now.Add(-20 * 24 * time.Hour)
+	t5DaysAgo := now.Add(-5 * 24 * time.Hour)
+	t30DaysAgo := now.Add(-30 * 24 * time.Hour)
+
+	events := []Event{
+		{
+			ID:          "ev-old-pub-1",
+			Status:      "PUBLISHED",
+			PublishedAt: &t15DaysAgo,
+		},
+		{
+			ID:          "ev-old-pub-2",
+			Status:      "PUBLISHED",
+			PublishedAt: &t20DaysAgo,
+		},
+		{
+			ID:          "ev-recent-pub",
+			Status:      "PUBLISHED",
+			PublishedAt: &t5DaysAgo,
+		},
+		{
+			ID:        "ev-old-pending",
+			Status:    "PENDING",
+			CreatedAt: t30DaysAgo,
+		},
+		{
+			ID:        "ev-old-failed",
+			Status:    "FAILED",
+			CreatedAt: t30DaysAgo,
+		},
+	}
+
+	// Filter according to retention rule:
+	// status == 'PUBLISHED' AND published_at < cutoff
+	var deletedIDs []string
+	var retainedIDs []string
+	for _, e := range events {
+		if e.Status == "PUBLISHED" && e.PublishedAt != nil && e.PublishedAt.Before(cutoff) {
+			deletedIDs = append(deletedIDs, e.ID)
+		} else {
+			retainedIDs = append(retainedIDs, e.ID)
+		}
+	}
+
+	if len(deletedIDs) != 2 {
+		t.Fatalf("expected 2 deleted events (older than 14d and PUBLISHED), got %d: %v", len(deletedIDs), deletedIDs)
+	}
+	if deletedIDs[0] != "ev-old-pub-1" || deletedIDs[1] != "ev-old-pub-2" {
+		t.Errorf("unexpected deleted IDs: %v", deletedIDs)
+	}
+
+	// Verify all 3 non-eligible events were retained:
+	// - recent published (<14d)
+	// - pending event (even if old)
+	// - failed event
+	if len(retainedIDs) != 3 {
+		t.Fatalf("expected 3 retained events, got %d: %v", len(retainedIDs), retainedIDs)
+	}
+	for _, expectedID := range []string{"ev-recent-pub", "ev-old-pending", "ev-old-failed"} {
+		found := false
+		for _, rid := range retainedIDs {
+			if rid == expectedID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected event %s to be retained, but was not in %v", expectedID, retainedIDs)
+		}
+	}
+}
+
+func TestSQLStoreNilPool(t *testing.T) {
+	store := NewSQLStore(nil)
+	if _, err := store.ProcessPending(context.Background(), 10, func(e Event) error { return nil }); err == nil {
+		t.Error("expected error from ProcessPending with nil pool")
+	}
+	if _, err := store.CleanupPublished(context.Background(), 14*24*time.Hour); err == nil {
+		t.Error("expected error from CleanupPublished with nil pool")
+	}
+}
+
+func TestDefaultRelayOptions(t *testing.T) {
+	opts := DefaultRelayOptions()
+	if opts.PollInterval != time.Second {
+		t.Errorf("PollInterval = %v, want 1s", opts.PollInterval)
+	}
+	if opts.CleanupInterval != 24*time.Hour {
+		t.Errorf("CleanupInterval = %v, want 24h", opts.CleanupInterval)
+	}
+	if opts.RetentionPeriod != 14*24*time.Hour {
+		t.Errorf("RetentionPeriod = %v, want 14d", opts.RetentionPeriod)
+	}
+	if opts.BatchSize != 50 {
+		t.Errorf("BatchSize = %d, want 50", opts.BatchSize)
+	}
+	if opts.Exchange != "swiftdrop.events" {
+		t.Errorf("Exchange = %s, want swiftdrop.events", opts.Exchange)
+	}
+}
+
+func TestRelayNilDependencies(t *testing.T) {
+	relay := NewRelay(nil, nil, nil)
+	count, err := relay.PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0", count)
+	}
+}
+
+func TestRelayInvalidPayloads(t *testing.T) {
+	tests := []struct {
+		name    string
+		eventID string
+		payload string
+	}{
+		{
+			name:    "non-object json payload",
+			eventID: "00000000-0000-4000-8000-000000000021",
+			payload: `[1, 2, 3]`,
+		},
+		{
+			name:    "empty payload",
+			eventID: "00000000-0000-4000-8000-000000000022",
+			payload: ``,
+		},
+		{
+			name:    "empty event ID fails envelope validation",
+			eventID: "   ",
+			payload: `{"valid":"json"}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &mockStore{
+				events: []Event{
+					{
+						ID:         tc.eventID,
+						EventType:  "parcel.assigned",
+						RoutingKey: "parcel.assigned",
+						Payload:    json.RawMessage(tc.payload),
+						Status:     "PENDING",
+						Attempts:   0,
+						CreatedAt:  time.Now().UTC(),
+					},
+				},
+			}
+			pub := &mockPublisher{}
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			relay := NewRelay(store, pub, logger)
+
+			processed, err := relay.PollOnce(context.Background())
+			if err != nil {
+				t.Fatalf("PollOnce() returned error: %v", err)
+			}
+			if processed != 1 {
+				t.Errorf("processed = %d, want 1", processed)
+			}
+			if store.events[0].Status != "PENDING" {
+				t.Errorf("status = %s, want PENDING", store.events[0].Status)
+			}
+			if store.events[0].LastError == nil {
+				t.Error("expected lastError to be set on invalid payload")
+			}
+		})
+	}
+}

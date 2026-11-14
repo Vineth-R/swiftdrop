@@ -374,3 +374,163 @@ func TestDispatchValidationErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestDispatchRoleAuthorizationMatrix(t *testing.T) {
+	svc := &mockDispatchService{
+		unassignedFn: func(ctx context.Context, filter dispatch.UnassignedFilter) (dispatch.UnassignedPage, error) {
+			return dispatch.UnassignedPage{Items: []dispatch.UnassignedParcel{}, Page: 1, PageSize: 10, TotalItems: 0}, nil
+		},
+		assignFn: func(ctx context.Context, input dispatch.AssignInput) (dispatch.AssignResult, error) {
+			return dispatch.AssignResult{
+				ParcelID:       input.ParcelID,
+				TrackingNumber: "SDK12345678",
+				CourierID:      input.CourierID,
+				AssignedBy:     input.ActorUserID,
+				AssignedAt:     time.Now().UTC(),
+			}, nil
+		},
+		workloadFn: func(ctx context.Context, authHeader string, cookie *http.Cookie) ([]dispatch.CourierWorkload, error) {
+			return []dispatch.CourierWorkload{}, nil
+		},
+		adminFn: func(ctx context.Context, filter dispatch.AdminParcelFilter) (dispatch.AdminParcelPage, error) {
+			return dispatch.AdminParcelPage{Items: []dispatch.AdminParcelItem{}, Page: 1, PageSize: 20, TotalItems: 0}, nil
+		},
+	}
+	router := setupTestRouter(t, svc, testAccessSecret)
+
+	routes := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "GET /dispatch/unassigned",
+			method: http.MethodGet,
+			path:   "/dispatch/unassigned",
+		},
+		{
+			name:   "PUT /dispatch/parcels/:id/assignment",
+			method: http.MethodPut,
+			path:   "/dispatch/parcels/3f1c7a52-0000-4000-8000-000000000001/assignment",
+			body:   `{"courierId":"3f1c7a52-0000-4000-8000-000000000002"}`,
+		},
+		{
+			name:   "GET /dispatch/workload",
+			method: http.MethodGet,
+			path:   "/dispatch/workload",
+		},
+		{
+			name:   "GET /admin/parcels",
+			method: http.MethodGet,
+			path:   "/admin/parcels",
+		},
+	}
+
+	roles := []struct {
+		role       auth.Role
+		wantStatus int
+	}{
+		{role: auth.RoleCustomer, wantStatus: http.StatusForbidden},
+		{role: auth.RoleMerchant, wantStatus: http.StatusForbidden},
+		{role: auth.RoleCourier, wantStatus: http.StatusForbidden},
+		{role: auth.RoleDispatcher, wantStatus: http.StatusOK},
+		{role: auth.RoleAdmin, wantStatus: http.StatusOK},
+	}
+
+	for _, route := range routes {
+		for _, r := range roles {
+			t.Run(route.name+" with role "+string(r.role), func(t *testing.T) {
+				var body io.Reader
+				if route.body != "" {
+					body = strings.NewReader(route.body)
+				}
+				req, _ := http.NewRequest(route.method, route.path, body)
+				if route.body != "" {
+					req.Header.Set("Content-Type", "application/json")
+				}
+				req.Header.Set("Authorization", "Bearer "+testToken(t, r.role))
+
+				rec := executeRequest(router, req)
+				if rec.Code != r.wantStatus {
+					t.Fatalf("[%s][%s] status = %d, want %d; body: %s", route.method, route.path, rec.Code, r.wantStatus, rec.Body.String())
+				}
+
+				if r.wantStatus == http.StatusForbidden {
+					if !strings.Contains(rec.Body.String(), "FORBIDDEN") {
+						t.Errorf("expected FORBIDDEN error code in body: %s", rec.Body.String())
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestAssignCourierProblemDetailsBodies(t *testing.T) {
+	validParcelID := "3f1c7a52-0000-4000-8000-000000000001"
+	validCourierID := "3f1c7a52-0000-4000-8000-000000000002"
+
+	tests := []struct {
+		name       string
+		svcErr     error
+		wantStatus int
+		wantCode   string
+		wantMsg    string
+	}{
+		{
+			name:       "409 PARCEL_CLOSED",
+			svcErr:     dispatch.ErrParcelClosed,
+			wantStatus: http.StatusConflict,
+			wantCode:   "PARCEL_CLOSED",
+			wantMsg:    "closed parcels cannot be assigned or reassigned",
+		},
+		{
+			name:       "422 COURIER_NOT_ELIGIBLE",
+			svcErr:     dispatch.ErrCourierNotEligible,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "COURIER_NOT_ELIGIBLE",
+			wantMsg:    "courier is not eligible for assignment",
+		},
+		{
+			name:       "503 SERVICE_UNAVAILABLE",
+			svcErr:     dispatch.ErrServiceUnavailable,
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "SERVICE_UNAVAILABLE",
+			wantMsg:    "identity service is unavailable",
+		},
+		{
+			name:       "404 PARCEL_NOT_FOUND",
+			svcErr:     dispatch.ErrParcelNotFound,
+			wantStatus: http.StatusNotFound,
+			wantCode:   "PARCEL_NOT_FOUND",
+			wantMsg:    "parcel not found",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &mockDispatchService{
+				assignFn: func(ctx context.Context, input dispatch.AssignInput) (dispatch.AssignResult, error) {
+					return dispatch.AssignResult{}, tc.svcErr
+				},
+			}
+			router := setupTestRouter(t, svc, testAccessSecret)
+
+			req, _ := http.NewRequest(http.MethodPut, "/dispatch/parcels/"+validParcelID+"/assignment",
+				strings.NewReader(`{"courierId":"`+validCourierID+`"}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+testToken(t, auth.RoleDispatcher))
+
+			rec := executeRequest(router, req)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantCode) {
+				t.Errorf("body missing code %s: %s", tc.wantCode, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantMsg) {
+				t.Errorf("body missing message %q: %s", tc.wantMsg, rec.Body.String())
+			}
+		})
+	}
+}
