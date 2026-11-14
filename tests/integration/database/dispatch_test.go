@@ -857,7 +857,7 @@ func tableExists(t *testing.T, ctx context.Context, conn *pgx.Conn, table string
 
 func TestConcurrentAssignmentSingleActiveProof(t *testing.T) {
 	ctx, conn := newIsolatedDatabase(t)
-	applyParcelMigrations(t, ctx, conn, 6)
+	applyParcelMigrations(t, ctx, conn, len(parcelUpMigrations))
 
 	parcelID := insertParcel(t, ctx, conn, "CREATED")
 
@@ -968,14 +968,16 @@ func TestConcurrentAssignmentSingleActiveProof(t *testing.T) {
 	}
 
 	// Write outbox event
+	eventID := newUUID(t, ctx, conn)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO parcel.outbox_events (
-			event_type, routing_key, payload, status, aggregate_type, aggregate_id
+			id, event_type, routing_key, payload, status, aggregate_type, aggregate_id
 		) VALUES (
+			$1::uuid,
 			'parcel.assigned', 'parcel.assigned',
-			jsonb_build_object('parcel_id', $1::text, 'courier_id', $2::text),
-			'PENDING', 'parcel', $1
-		)`, parcelID, newCourierID); err != nil {
+			jsonb_build_object('parcel_id', $2::text, 'courier_id', $3::text),
+			'PENDING', 'parcel', $2::uuid
+		)`, eventID, parcelID, newCourierID); err != nil {
 		t.Fatalf("write outbox event: %v", err)
 	}
 
@@ -1040,7 +1042,7 @@ func TestConcurrentAssignmentSingleActiveProof(t *testing.T) {
 
 func TestClosedParcelAssignmentRejection(t *testing.T) {
 	ctx, conn := newIsolatedDatabase(t)
-	applyParcelMigrations(t, ctx, conn, 6)
+	applyParcelMigrations(t, ctx, conn, len(parcelUpMigrations))
 
 	closedStatuses := []string{"DELIVERED", "FAILED"}
 	for _, status := range closedStatuses {
@@ -1062,7 +1064,7 @@ func TestClosedParcelAssignmentRejection(t *testing.T) {
 
 func TestOutboxRetentionCleanupJob(t *testing.T) {
 	ctx, conn := newIsolatedDatabase(t)
-	applyParcelMigrations(t, ctx, conn, 6)
+	applyParcelMigrations(t, ctx, conn, len(parcelUpMigrations))
 
 	parcelID := insertParcel(t, ctx, conn, "CREATED")
 
@@ -1132,7 +1134,7 @@ func TestOutboxRetentionCleanupJob(t *testing.T) {
 			INSERT INTO parcel.outbox_events (
 				id, event_type, routing_key, payload, status, attempts, created_at, published_at, aggregate_type, aggregate_id
 			) VALUES (
-				$1, $2, $3, '{"test": true}'::jsonb, $4, 1, %s, %s, 'parcel', $5
+				$1::uuid, $2, $3, '{"test": true}'::jsonb, $4, 1, %s, %s, 'parcel', $5::uuid
 			)`, ev.createdAt, ev.publishedAt)
 		if _, err := conn.Exec(ctx, query, ev.id, ev.eventType, ev.routingKey, ev.status, parcelID); err != nil {
 			t.Fatalf("insert test outbox event %s: %v", ev.id, err)
