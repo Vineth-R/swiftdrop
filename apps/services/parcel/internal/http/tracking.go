@@ -11,6 +11,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,6 +33,7 @@ type Options struct {
 	TrustedProxies    []string
 	AccessSecret      string
 	CookieName        string
+	SessionCheck      sessioncheck.Guard
 }
 
 func registerTracking(router *gin.Engine, logger *slog.Logger, options Options) {
@@ -78,7 +80,7 @@ func registerTracking(router *gin.Engine, logger *slog.Logger, options Options) 
 			if cookie == "" {
 				cookie = "sd_access"
 			}
-			authorized.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin))
+			authorized.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin), sessioncheck.Middleware(options.SessionCheck))
 		}
 	}
 	authorized.GET("/:trackingNumber", func(c *gin.Context) {

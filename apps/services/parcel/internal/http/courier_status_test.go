@@ -79,7 +79,7 @@ func TestCourierStatusAuthorization(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &courierStatusFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store, CourierStatus: store})
 			rec := courierStatusRequest(t, router, courierParcelID, `{"status":"PICKED_UP"}`, courierTestID, tc.role, false)
 			if rec.Code != tc.want || rec.Header().Get("Cache-Control") != "no-store" {
 				t.Fatalf("response %d %s", rec.Code, rec.Body)
@@ -96,9 +96,9 @@ func TestCourierStatusAuthorization(t *testing.T) {
 		want int
 	}{
 		{name: "no JWT secret", id: courierTestID, want: 503},
-		{name: "missing database", opts: Options{AccessSecret: reportTestSecret}, id: courierTestID, want: 503},
-		{name: "read-only implementation", opts: Options{AccessSecret: reportTestSecret, Courier: &courierFixture{}}, id: courierTestID, want: 503},
-		{name: "invalid JWT subject", opts: Options{AccessSecret: reportTestSecret}, id: "not-a-uuid", want: 401},
+		{name: "missing database", opts: Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions()}, id: courierTestID, want: 503},
+		{name: "read-only implementation", opts: Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: &courierFixture{}}, id: courierTestID, want: 503},
+		{name: "invalid JWT subject", opts: Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions()}, id: "not-a-uuid", want: 401},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := courierStatusRequest(t, reportRouter(t, tc.opts), courierParcelID,
@@ -130,7 +130,7 @@ func TestCourierStatusRequestValidation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &courierStatusFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store, CourierStatus: store})
 			rec := courierStatusRequest(t, router, tc.id, tc.body, courierTestID, auth.RoleCourier, true)
 			if rec.Code != 400 || store.writeCalls != 0 || !strings.Contains(rec.Body.String(), `"code":"BAD_REQUEST"`) {
 				t.Fatalf("response %d %s; calls=%d", rec.Code, rec.Body, store.writeCalls)
@@ -143,7 +143,7 @@ func TestCourierStatusResultAndClaims(t *testing.T) {
 	for _, cookie := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cookie=%t", cookie), func(t *testing.T) {
 			store := &courierStatusFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store, CourierStatus: store})
 			rec := courierStatusRequest(t, router, courierParcelID,
 				`{"status":"DELIVERED","recipientName":"Test Recipient","note":"At door"}`, strings.ToUpper(courierTestID), auth.RoleCourier, cookie)
 			if rec.Code != 200 || store.writeCalls != 1 {
@@ -173,7 +173,7 @@ func TestCourierStatusTrailingSlash(t *testing.T) {
 	} {
 		t.Run(path, func(t *testing.T) {
 			store := &courierStatusFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store, CourierStatus: store})
 			rec := courierStatusRequestPath(t, router, path, `{"status":"PICKED_UP"}`, courierTestID, auth.RoleCourier, true)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("response %d %s", rec.Code, rec.Body)
@@ -191,7 +191,7 @@ func TestCourierStatusTrailingSlash(t *testing.T) {
 	}
 	t.Run("trailing slash still requires the courier role", func(t *testing.T) {
 		store := &courierStatusFixture{}
-		router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
+		router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store, CourierStatus: store})
 		rec := courierStatusRequestPath(t, router, "/courier/deliveries/"+courierParcelID+"/status/",
 			`{"status":"PICKED_UP"}`, courierTestID, auth.RoleCustomer, true)
 		if rec.Code != http.StatusForbidden || store.writeCalls != 0 {
@@ -218,7 +218,7 @@ func TestCourierStatusErrors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &courierStatusFixture{writeErr: fmt.Errorf("wrapped: %w", tc.err)}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CourierStatus: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store, CourierStatus: store})
 			rec := courierStatusRequest(t, router, courierParcelID, `{"status":"PICKED_UP"}`, courierTestID, auth.RoleCourier, false)
 			if rec.Code != tc.want || !strings.Contains(rec.Body.String(), `"code":"`+tc.code+`"`) {
 				t.Fatalf("response %d %s", rec.Code, rec.Body)

@@ -13,6 +13,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,7 +41,7 @@ func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) e
 		if cookie == "" {
 			cookie = "sd_access"
 		}
-		group.Use(auth.Authenticate(manager, cookie))
+		group.Use(auth.Authenticate(manager, cookie), sessioncheck.Middleware(options.SessionCheck))
 	}
 	group.POST("", auth.RequireRoles(auth.RoleCustomer), h.create)
 	group.GET("", auth.RequireRoles(auth.RoleCustomer), h.list)

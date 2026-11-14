@@ -13,12 +13,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 )
 
 func TestParcelRoutesFailClosed(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, secret := range []string{"", strings.Repeat("s", 32)} {
-		router, err := New(logger, Options{AccessSecret: secret, InternalToken: "test-internal-token"})
+		router, err := New(logger, Options{AccessSecret: secret, SessionCheck: allowSessions(), InternalToken: "test-internal-token"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,7 +65,7 @@ func TestParcelStateChangingRequestsRequireJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{AccessSecret: secret})
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{AccessSecret: secret, SessionCheck: allowSessions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestParcelRolesValidationAndUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	router, err := New(logger, Options{AccessSecret: secret})
+	router, err := New(logger, Options{AccessSecret: secret, SessionCheck: allowSessions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,5 +136,47 @@ func TestParcelRolesValidationAndUnavailable(t *testing.T) {
 		if w.Code != tc.want {
 			t.Fatalf("%s %s %s: want %d got %d %s", tc.role, tc.method, tc.path, tc.want, w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestAuthenticatedRoutesEnforceSessionRevocation(t *testing.T) {
+	secret := strings.Repeat("s", 32)
+	manager, err := auth.NewTokenManager(secret, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := manager.Issue("11111111-1111-4111-8111-111111111111", auth.RoleCustomer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want int
+		code string
+	}{
+		{"revoked", sessioncheck.ErrRevoked, 401, "SESSION_REVOKED"},
+		{"identity unavailable", sessioncheck.ErrUnavailable, 503, "SERVICE_UNAVAILABLE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+				AccessSecret: secret,
+				SessionCheck: rejectingSessions{err: test.err},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest("GET", "/parcels", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != test.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, test.want, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), test.code) {
+				t.Fatalf("body = %s, want code %s", w.Body.String(), test.code)
+			}
+		})
 	}
 }

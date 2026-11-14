@@ -118,3 +118,53 @@ func TestLoadFromWebhookAuthDefaults(t *testing.T) {
 		t.Fatalf("AccessSecret = %q, want empty", config.AccessSecret)
 	}
 }
+
+func TestLoadWebhookKeyring(t *testing.T) {
+	active := strings.Repeat("1f", 32)
+	previous := strings.Repeat("2e", 32)
+
+	id, key, keys, err := LoadWebhookKeyring(webhookLoader(map[string]string{
+		"WEBHOOK_SECRET_KEY":    active,
+		"WEBHOOK_SECRET_KEY_ID": "k2",
+		"WEBHOOK_SECRET_KEYS":   "k1=" + previous + ", k0=" + strings.Repeat("3d", 32),
+	}))
+	if err != nil {
+		t.Fatalf("LoadWebhookKeyring() error = %v", err)
+	}
+	if id != "k2" || key != active {
+		t.Fatalf("active = %q/%q", id, key)
+	}
+	if keys["k1"] != previous || len(keys) != 2 {
+		t.Fatalf("previous keys = %v", keys)
+	}
+}
+
+func TestLoadWebhookKeyringDefaultsActiveID(t *testing.T) {
+	active := strings.Repeat("1f", 32)
+	id, _, keys, err := LoadWebhookKeyring(webhookLoader(map[string]string{"WEBHOOK_SECRET_KEY": active}))
+	if err != nil {
+		t.Fatalf("LoadWebhookKeyring() error = %v", err)
+	}
+	if id != "k1" || len(keys) != 0 {
+		t.Fatalf("id = %q keys = %v", id, keys)
+	}
+}
+
+func TestLoadWebhookKeyringRejectsMalformedPreviousKeys(t *testing.T) {
+	active := strings.Repeat("1f", 32)
+	for _, value := range []string{
+		"k1",                            // no =
+		"bad id=" + active,              // invalid id
+		"k1=not-hex",                    // invalid key
+		"k1=" + strings.Repeat("0", 64), // placeholder
+		"k1=" + active,                  // repeats the active id
+	} {
+		if _, _, _, err := LoadWebhookKeyring(webhookLoader(map[string]string{
+			"WEBHOOK_SECRET_KEY":    active,
+			"WEBHOOK_SECRET_KEY_ID": "k1",
+			"WEBHOOK_SECRET_KEYS":   value,
+		})); err == nil {
+			t.Fatalf("LoadWebhookKeyring() accepted %q", value)
+		}
+	}
+}

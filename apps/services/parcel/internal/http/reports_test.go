@@ -89,7 +89,7 @@ func reportRequest(t *testing.T, router *gin.Engine, path string, options report
 func TestReportsAccessByRole(t *testing.T) {
 	router := reportRouter(t, Options{
 		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 4, Delivered: 3, Failed: 1}}},
-		AccessSecret: reportTestSecret,
+		AccessSecret: reportTestSecret, SessionCheck: allowSessions(),
 	})
 
 	cases := []struct {
@@ -122,7 +122,7 @@ func TestReportsAccessByRole(t *testing.T) {
 func TestDailyResponseShape(t *testing.T) {
 	router := reportRouter(t, Options{
 		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 4, Delivered: 3, Failed: 1}}},
-		AccessSecret: reportTestSecret,
+		AccessSecret: reportTestSecret, SessionCheck: allowSessions(),
 	})
 	recorder := reportRequest(t, router, "/reports/daily", reportAuth{role: auth.RoleAdmin})
 
@@ -149,7 +149,7 @@ func TestOutcomesResponseShape(t *testing.T) {
 			Totals: totals, SuccessRate: success, FailureRate: failure,
 			TopFailureReasons: []reports.FailureReason{{Reason: "Recipient not available", Count: 2}},
 		}},
-		AccessSecret: reportTestSecret,
+		AccessSecret: reportTestSecret, SessionCheck: allowSessions(),
 	})
 	recorder := reportRequest(t, router, "/reports/outcomes", reportAuth{role: auth.RoleAdmin})
 
@@ -162,7 +162,7 @@ func TestOutcomesResponseShape(t *testing.T) {
 }
 
 func TestReportsRejectBadRange(t *testing.T) {
-	router := reportRouter(t, Options{Reports: reportFixture{}, AccessSecret: reportTestSecret})
+	router := reportRouter(t, Options{Reports: reportFixture{}, AccessSecret: reportTestSecret, SessionCheck: allowSessions()})
 	for _, path := range []string{
 		"/reports/daily?from=2026-11-05&to=2026-11-01",
 		"/reports/daily?from=not-a-date",
@@ -179,7 +179,7 @@ func TestReportsRejectBadRange(t *testing.T) {
 }
 
 func TestReportsDatabaseUnavailable(t *testing.T) {
-	router := reportRouter(t, Options{Reports: reportFixture{err: reports.ErrUnavailable}, AccessSecret: reportTestSecret})
+	router := reportRouter(t, Options{Reports: reportFixture{err: reports.ErrUnavailable}, AccessSecret: reportTestSecret, SessionCheck: allowSessions()})
 	recorder := reportRequest(t, router, "/reports/daily", reportAuth{role: auth.RoleAdmin})
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", recorder.Code)
@@ -210,8 +210,8 @@ func reportErrorCode(t *testing.T, recorder *httptest.ResponseRecorder) string {
 func TestReportsCustomCookieName(t *testing.T) {
 	router := reportRouter(t, Options{
 		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 1}}},
-		AccessSecret: reportTestSecret,
-		CookieName:   "sd_ops",
+		AccessSecret: reportTestSecret, SessionCheck: allowSessions(),
+		CookieName: "sd_ops",
 	})
 	token := issueReportToken(t, auth.RoleDispatcher)
 
@@ -229,7 +229,7 @@ func TestReportsCustomCookieName(t *testing.T) {
 func TestReportsBearerAuthentication(t *testing.T) {
 	router := reportRouter(t, Options{
 		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 1}}},
-		AccessSecret: reportTestSecret,
+		AccessSecret: reportTestSecret, SessionCheck: allowSessions(),
 	})
 	recorder := reportRequest(t, router, "/reports/daily", reportAuth{role: auth.RoleDispatcher, bearer: true})
 	if recorder.Code != http.StatusOK {
@@ -240,7 +240,7 @@ func TestReportsBearerAuthentication(t *testing.T) {
 func TestReportsRejectsInvalidAndExpiredTokens(t *testing.T) {
 	router := reportRouter(t, Options{
 		Reports:      reportFixture{daily: []reports.DailyRow{{Date: "2026-11-01", Created: 1}}},
-		AccessSecret: reportTestSecret,
+		AccessSecret: reportTestSecret, SessionCheck: allowSessions(),
 	})
 
 	invalid := reportRequest(t, router, "/reports/daily", reportAuth{token: "not-a-token"})
@@ -280,7 +280,7 @@ func (s *recordingReportStore) Outcomes(_ context.Context, rng reports.Range) (r
 
 func TestReportsPassParsedRangeToStore(t *testing.T) {
 	store := &recordingReportStore{}
-	router := reportRouter(t, Options{Reports: store, AccessSecret: reportTestSecret})
+	router := reportRouter(t, Options{Reports: store, AccessSecret: reportTestSecret, SessionCheck: allowSessions()})
 
 	for _, path := range []string{"/reports/daily", "/reports/outcomes"} {
 		recorder := reportRequest(t, router, path+"?from=2026-11-01&to=2026-11-03", reportAuth{role: auth.RoleAdmin})

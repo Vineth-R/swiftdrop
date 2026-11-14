@@ -229,6 +229,8 @@ services:
       <<: [*app-env, *db-pool]
       PORT: '8083'
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
@@ -236,6 +238,8 @@ services:
       DB_MAX_OPEN_CONNS: ${PRICING_DB_MAX_OPEN_CONNS:-10}
     depends_on:
       postgres:
+        condition: service_healthy
+      identity:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8083/ready']
@@ -335,6 +339,10 @@ services:
       DB_MAX_OPEN_CONNS: ${REALTIME_DB_MAX_OPEN_CONNS:-4}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
+      REALTIME_SESSION_CHECK_INTERVAL: ${REALTIME_SESSION_CHECK_INTERVAL:-1m}
       REALTIME_QUEUE: ${REALTIME_QUEUE:-realtime.parcel.status_changed.v1}
       REALTIME_ROUTING_KEY: ${REALTIME_ROUTING_KEY:-parcel.status_changed.v1}
       REALTIME_ASSIGNED_QUEUE: ${REALTIME_ASSIGNED_QUEUE:-realtime.parcel.assigned.v1}
@@ -344,6 +352,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      identity:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8085/ready']
@@ -384,6 +394,8 @@ services:
       rabbitmq:
         condition: service_healthy
       merchant:
+        condition: service_healthy
+      identity:
         condition: service_healthy
     healthcheck:
       test:

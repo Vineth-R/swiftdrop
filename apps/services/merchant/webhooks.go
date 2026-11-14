@@ -23,23 +23,22 @@ import (
 // invalid WEBHOOK_SECRET_KEY, so the NewFromHex call below is a defensive
 // check rather than the primary validation.
 func registerWebhooks(router *gin.Engine, repo *merchantrepository.Repository, identityClient *identityclient.Client, config serviceconfig.Config, logger *slog.Logger) error {
-	var box *secretbox.Box
+	var ring *secretbox.Keyring
 	if config.WebhookSecretKey == "" {
 		logger.Warn("WEBHOOK_SECRET_KEY is not set; webhook settings endpoints will answer 503")
 	} else {
-		parsed, err := secretbox.NewFromHex(config.WebhookSecretKey)
+		parsed, err := secretbox.NewKeyringFromHex(config.WebhookSecretKeyID, config.WebhookSecretKey, config.WebhookSecretKeys)
 		if err != nil {
-			return fmt.Errorf("invalid WEBHOOK_SECRET_KEY: %w", err)
+			return fmt.Errorf("invalid WEBHOOK_SECRET_KEY configuration: %w", err)
 		}
-		box = parsed
+		ring = parsed
 	}
 	if config.AccessSecret == "" {
 		logger.Warn("JWT_ACCESS_SECRET is not set; webhook settings endpoints will answer 503")
 	}
 
-	return servicehttp.RegisterWebhookRoutes(router, servicehttp.WebhookConfig{
+	webhookConfig := servicehttp.WebhookConfig{
 		Repository:   repo,
-		Box:          box,
 		Sender:       webhookdelivery.NewSender(),
 		AccessSecret: config.AccessSecret,
 		CookieName:   config.CookieName,
@@ -51,5 +50,9 @@ func registerWebhooks(router *gin.Engine, repo *merchantrepository.Repository, i
 			}
 			return state.IsActive, state.SessionVersion, nil
 		},
-	})
+	}
+	if ring != nil {
+		webhookConfig.Cipher = ring
+	}
+	return servicehttp.RegisterWebhookRoutes(router, webhookConfig)
 }

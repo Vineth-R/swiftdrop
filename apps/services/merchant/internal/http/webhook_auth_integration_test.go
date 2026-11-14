@@ -34,14 +34,14 @@ func TestWebhookRoutesAuthenticationAndOwnership(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	box, err := secretbox.NewFromHex(strings.Repeat("ab", 32))
+	box, err := secretbox.NewKeyringFromHex("k1", strings.Repeat("ab", 32), nil)
 	if err != nil {
 		t.Fatalf("secretbox.NewFromHex returned error: %v", err)
 	}
 	router := httpx.NewRouter(logger)
 	if err := RegisterWebhookRoutes(router, WebhookConfig{
 		Repository:   repo,
-		Box:          box,
+		Cipher:       box,
 		Sender:       webhookdelivery.NewSender(),
 		AccessSecret: webhookAuthTestSecret,
 		CookieName:   webhookAuthTestCookie,

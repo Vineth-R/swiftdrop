@@ -37,7 +37,7 @@ func TestCourierDatabaseReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := courier.NewRepository(conn)
-	router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+	router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store})
 	otherCourier := parceltest.UUID(t)
 	ids := make([]string, 0)
 	start, end, err := courier.DayBounds("2026-11-07", time.Now())

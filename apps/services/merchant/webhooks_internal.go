@@ -23,28 +23,31 @@ import (
 // rejected a present but invalid WEBHOOK_SECRET_KEY, so the NewFromHex call is a
 // defensive check rather than the primary validation.
 func registerInternalWebhooks(router *gin.Engine, repo *merchantrepository.Repository, config serviceconfig.Config, logger *slog.Logger) error {
-	var box *secretbox.Box
+	var ring *secretbox.Keyring
 	if config.WebhookSecretKey != "" {
-		parsed, err := secretbox.NewFromHex(config.WebhookSecretKey)
+		parsed, err := secretbox.NewKeyringFromHex(config.WebhookSecretKeyID, config.WebhookSecretKey, config.WebhookSecretKeys)
 		if err != nil {
-			return fmt.Errorf("invalid WEBHOOK_SECRET_KEY: %w", err)
+			return fmt.Errorf("invalid WEBHOOK_SECRET_KEY configuration: %w", err)
 		}
-		box = parsed
+		ring = parsed
 	}
 
 	switch {
 	case config.InternalToken == "":
 		// The problem text never contains the token itself.
 		logger.Warn("internal webhook endpoints are closed", "reason", config.InternalTokenProblem)
-	case box == nil:
+	case ring == nil:
 		logger.Warn("WEBHOOK_SECRET_KEY is not set; internal webhook endpoints will answer 503")
 	}
 
-	servicehttp.RegisterInternalWebhookRoutes(router, servicehttp.InternalWebhookConfig{
+	internalConfig := servicehttp.InternalWebhookConfig{
 		Repository: repo,
-		Box:        box,
 		Token:      config.InternalToken,
 		Logger:     logger,
-	})
+	}
+	if ring != nil {
+		internalConfig.Cipher = ring
+	}
+	servicehttp.RegisterInternalWebhookRoutes(router, internalConfig)
 	return nil
 }

@@ -3,37 +3,33 @@
 //
 // It uses AES-256-GCM: every value gets a fresh random nonce, and any change
 // to the stored text or use of the wrong key is detected when decrypting.
-// Output format: "v1:" + base64url(nonce || ciphertext).
+// Box writes the legacy format "v1:" + base64url(nonce || ciphertext).
+// Keyring writes "v2:<keyId>:" + base64url(nonce || ciphertext).
 //
 // # Storage
 //
 // merchant.merchant_webhooks.signing_secret_enc is a BYTEA column. Store the
-// UTF-8 bytes of the string returned by Encrypt, []byte(stored), and convert
-// back with string(columnValue) before calling Decrypt. The "v1:" text format is
-// the canonical stored representation; no second encoding is applied.
+// UTF-8 bytes of the string returned by Encrypt or EncryptWithAAD,
+// []byte(stored), and convert back with string(columnValue) before calling
+// Decrypt or DecryptWithAAD. The text format is the canonical stored
+// representation; no second encoding is applied.
 //
 // # Key rotation
 //
-// The "v1:" prefix versions the stored format, not the key. One Box uses one
-// key, so rotating WEBHOOK_SECRET_KEY before a keyring exists would make every
-// stored value undecryptable. Key rotation is deliberately not implemented
-// yet. Before the first consumer persists values, the settings API and worker
-// must agree to: add a key identifier to the stored format (for example
-// "v2:<keyId>:..."); keep an active encryption key plus previous decryption
-// keys; encrypt with the active key; decrypt with the key named by the stored
-// value, falling back to the active key for legacy "v1:" values; and
-// re-encrypt rows with the active key during a rotation job. Until then, treat
-// WEBHOOK_SECRET_KEY as immutable once values are stored.
+// Box uses one key and writes the legacy "v1:" format. New code should use
+// Keyring, which supports a named active key and decryption-only previous
+// keys: ciphertext is "v2:<keyId>:<base64url(nonce || ciphertext)>". During a
+// rotation, keep the old key available for decryption until every stored value
+// has been re-encrypted with the active key. Legacy "v1:" values are decrypted
+// by trying each configured key.
 //
 // # Additional authenticated data
 //
-// Values are not bound to a merchant or webhook identifier. Anyone who can
-// write merchant.merchant_webhooks could copy one row's signing_secret_enc into
-// another row. The database is a trusted boundary for the current milestone and
-// no consumer exists yet, so AAD binding is deferred to the settings API
-// follow-up, where the stable identifier (the webhook UUID) and its migration
-// rules can be chosen together. When it is added, Encrypt and Decrypt must take
-// the same identifier as additional data.
+// Keyring.EncryptWithAAD and Keyring.DecryptWithAAD bind a ciphertext to a
+// caller-supplied context (for a webhook secret, "merchant.webhook:<id>").
+// Decrypting a value under a different context fails authentication, so a
+// ciphertext copied to another row does not unlock. Legacy "v1:" values carry
+// no AAD and remain readable.
 package secretbox
 
 import (

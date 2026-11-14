@@ -78,7 +78,7 @@ func TestParcelHTTPWorkflowAgainstPostgres(t *testing.T) {
 	quotes.total.Store(55000)
 	service := parcels.NewService(parcels.NewStore(database.Pool), quotes)
 	gin.SetMode(gin.TestMode)
-	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Parcels: service, AccessSecret: parcelWorkflowSecret, InternalToken: parcelWorkflowInternalToken})
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Parcels: service, AccessSecret: parcelWorkflowSecret, SessionCheck: allowSessions(), InternalToken: parcelWorkflowInternalToken})
 	if err != nil {
 		t.Fatal(err)
 	}

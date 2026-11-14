@@ -18,6 +18,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/notificationlog"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 )
 
 const notificationLogTestSecret = "unit-test-only-signing-key-over-thirty-two-bytes"
@@ -54,11 +55,11 @@ func newNotificationLogRouter(t *testing.T, store NotificationLogStore, accessSe
 	t.Helper()
 	logs := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	router, err := New(logger, Options{
-		Store:        store,
-		AccessSecret: accessSecret,
-		CookieName:   "sd_access",
-	})
+	options := Options{Store: store, AccessSecret: accessSecret, CookieName: "sd_access"}
+	if accessSecret != "" {
+		options.SessionCheck = notificationSessions()
+	}
+	router, err := New(logger, options)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
@@ -510,7 +511,35 @@ func stringPointer(value string) *string {
 }
 
 func TestNotificationLogs_routerWithoutStoreFailsClosed(t *testing.T) {
-	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{AccessSecret: notificationLogTestSecret})
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{AccessSecret: notificationLogTestSecret, SessionCheck: notificationSessions()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := notificationLogRequest(t, router, http.MethodGet, "/admin/notification-logs", notificationLogToken(t, notificationLogManager(t), auth.RoleAdmin), false, "")
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+}
+
+func TestNotificationLogsRejectRevokedSession(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Store: &fakeNotificationLogStore{}, AccessSecret: notificationLogTestSecret,
+		SessionCheck: revokeNotificationSessions{err: sessioncheck.ErrRevoked},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := notificationLogRequest(t, router, http.MethodGet, "/admin/notification-logs", notificationLogToken(t, notificationLogManager(t), auth.RoleAdmin), false, "")
+	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "SESSION_REVOKED") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body)
+	}
+}
+
+func TestNotificationLogsFailClosedWhenSessionStateUnavailable(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Store: &fakeNotificationLogStore{}, AccessSecret: notificationLogTestSecret,
+		SessionCheck: revokeNotificationSessions{err: sessioncheck.ErrUnavailable},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

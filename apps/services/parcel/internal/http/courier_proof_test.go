@@ -41,7 +41,7 @@ func stringPointer(value string) *string {
 
 func proofRouter(t *testing.T, store CourierProofStore) *gin.Engine {
 	t.Helper()
-	return reportRouter(t, Options{AccessSecret: reportTestSecret, CourierProof: store})
+	return reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), CourierProof: store})
 }
 
 func proofRequest(t *testing.T, router *gin.Engine, role auth.Role, body []byte, contentType string) *httptest.ResponseRecorder {

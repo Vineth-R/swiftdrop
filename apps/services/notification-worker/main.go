@@ -23,7 +23,9 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 )
 
 const serviceName = "notification-worker"
@@ -85,14 +87,21 @@ func run() error {
 	site := emails.Site{BaseURL: config.FrontendBaseURL, SupportEmail: config.SupportEmail}
 	handler := worker.New(logger, sender, store, identity, merchants, site)
 
+	sessionClient, err := sessioncheck.NewClient(config.IdentityBaseURL, config.InternalToken, config.IdentityTimeout)
+	if err != nil {
+		return fmt.Errorf("configure identity session checker: %w", err)
+	}
 	router, err := servicehttp.New(logger, servicehttp.Options{
 		Store:        notificationlog.NewRepository(database),
 		AccessSecret: config.AccessSecret,
 		CookieName:   config.CookieName,
+		SessionCheck: sessioncheck.New(sessionClient),
 	})
 	if err != nil {
 		return fmt.Errorf("configure notification admin router: %w", err)
 	}
+	registry := metrics.NewRegistry()
+	router.GET("/metrics", metrics.Handler(registry))
 	router.GET("/health", postgres.HealthHandler())
 	router.GET("/ready", postgres.ReadyHandler(database, postgres.DefaultReadyTimeout))
 
@@ -102,7 +111,7 @@ func run() error {
 
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
-		Handler:           router,
+		Handler:           metrics.NewHTTPHandler(registry, router),
 		Logger:            logger,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

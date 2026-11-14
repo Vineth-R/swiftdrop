@@ -16,7 +16,7 @@ import (
 func TestCourierStatusHTTPDatabase(t *testing.T) {
 	database := parceltest.New(t)
 	repository := courier.NewRepository(database.Pool)
-	router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: repository, CourierStatus: repository})
+	router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: repository, CourierStatus: repository})
 	id, other := parceltest.UUID(t), parceltest.UUID(t)
 	_, err := database.Pool.Exec(t.Context(), `INSERT INTO parcel.parcels (
 		id,tracking_number,customer_user_id,sender_name,sender_phone,pickup_address,

@@ -15,6 +15,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
@@ -70,7 +71,7 @@ func registerNotificationLogs(router *gin.Engine, logger *slog.Logger, options O
 		if err != nil {
 			return err
 		}
-		admin.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleAdmin))
+		admin.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleAdmin), sessioncheck.Middleware(options.SessionCheck))
 	}
 	for _, path := range []string{"", "/"} {
 		admin.GET(path, handler.list)

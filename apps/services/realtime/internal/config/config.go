@@ -27,6 +27,14 @@ type Config struct {
 	AccessSecret string
 	CookieName   string
 
+	// IdentityBaseURL/IdentityTimeout/InternalToken configure the internal
+	// session-state lookup that enforces revocation for authenticated sockets.
+	IdentityBaseURL      string
+	IdentityTimeout      time.Duration
+	InternalToken        string
+	InternalTokenProblem string
+	SessionCheckInterval time.Duration
+
 	// AllowedOrigins are extra browser origins (host or host:port patterns)
 	// allowed to open a WebSocket. Behind the gateway the Host header is not the
 	// public host, so list every host users open.
@@ -71,6 +79,27 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	accessSecret, err := sharedconfig.LoadAccessSecret(loader, appEnv, false)
 	if err != nil {
 		return Config{}, err
+	}
+
+	internalToken, tokenProblem := sharedconfig.LoadInternalToken(loader, appEnv)
+
+	identityBaseURL := strings.TrimRight(strings.TrimSpace(loader.String("IDENTITY_BASE_URL", "http://identity:8081")), "/")
+	if identityBaseURL == "" {
+		return Config{}, errors.New("IDENTITY_BASE_URL must not be empty")
+	}
+	identityTimeout, err := loader.Duration("IDENTITY_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if identityTimeout < time.Millisecond {
+		return Config{}, errors.New("IDENTITY_TIMEOUT must be at least 1ms")
+	}
+	sessionCheckInterval, err := loader.Duration("REALTIME_SESSION_CHECK_INTERVAL", time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	if sessionCheckInterval <= 0 {
+		return Config{}, errors.New("REALTIME_SESSION_CHECK_INTERVAL must be greater than zero")
 	}
 
 	originsDefault := ""
@@ -139,25 +168,30 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 
 	return Config{
-		Port:               port,
-		AppEnv:             appEnv,
-		LogLevel:           logLevel,
-		DatabaseURL:        loader.String("DATABASE_URL", ""),
-		AccessSecret:       accessSecret,
-		CookieName:         loader.String("COOKIE_NAME", "sd_access"),
-		AllowedOrigins:     allowedOrigins,
-		RabbitMQURL:        rabbitMQURL,
-		Exchange:           loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
-		Queue:              queue,
-		RoutingKey:         routingKey,
-		AssignedQueue:      assignedQueue,
-		AssignedRoutingKey: assignedRoutingKey,
-		Prefetch:           prefetch,
-		HandlerTimeout:     handlerTimeout,
-		MaxRetries:         maxRetries,
-		RetryDelay:         retryDelay,
-		ReconnectMin:       reconnectMin,
-		ReconnectMax:       reconnectMax,
+		Port:                 port,
+		AppEnv:               appEnv,
+		LogLevel:             logLevel,
+		DatabaseURL:          loader.String("DATABASE_URL", ""),
+		AccessSecret:         accessSecret,
+		CookieName:           loader.String("COOKIE_NAME", "sd_access"),
+		IdentityBaseURL:      identityBaseURL,
+		IdentityTimeout:      identityTimeout,
+		InternalToken:        internalToken,
+		InternalTokenProblem: tokenProblem,
+		SessionCheckInterval: sessionCheckInterval,
+		AllowedOrigins:       allowedOrigins,
+		RabbitMQURL:          rabbitMQURL,
+		Exchange:             loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
+		Queue:                queue,
+		RoutingKey:           routingKey,
+		AssignedQueue:        assignedQueue,
+		AssignedRoutingKey:   assignedRoutingKey,
+		Prefetch:             prefetch,
+		HandlerTimeout:       handlerTimeout,
+		MaxRetries:           maxRetries,
+		RetryDelay:           retryDelay,
+		ReconnectMin:         reconnectMin,
+		ReconnectMax:         reconnectMax,
 	}, nil
 }
 

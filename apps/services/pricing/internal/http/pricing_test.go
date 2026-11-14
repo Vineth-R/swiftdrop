@@ -14,6 +14,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/pricing"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -42,6 +43,17 @@ func (s fixtureStore) Mutate(context.Context, string, string, string, pricing.Mu
 func (s fixtureStore) List(context.Context, string, pricing.Filter) ([]json.RawMessage, int, error) {
 	return []json.RawMessage{}, 0, nil
 }
+
+type permissiveFetcher struct{}
+
+func (permissiveFetcher) Fetch(context.Context, string) (sessioncheck.State, error) {
+	return sessioncheck.State{Active: true, Role: auth.RoleAdmin, SessionVersion: 0}, nil
+}
+
+// allowSessions gives admin contract tests an always-current session so they
+// keep testing pricing behaviour rather than identity wiring.
+func allowSessions() *sessioncheck.Checker { return sessioncheck.New(permissiveFetcher{}) }
+
 func adminToken(t *testing.T, role auth.Role) string {
 	t.Helper()
 	manager, err := auth.NewTokenManager(testSecret, time.Minute)
@@ -155,7 +167,7 @@ func TestAdminPricingContracts(t *testing.T) {
 		{name: "negative fee", method: "POST", path: "/admin/pricing/rules", body: `{"originZoneId":"` + testOrigin + `","destinationZoneId":"` + testDestination + `","baseFee":-1}`, role: auth.RoleAdmin, status: 422},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
+			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret, SessionCheck: allowSessions()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -204,7 +216,7 @@ func TestAdminRoutesRefuseEveryNonAdminRole(t *testing.T) {
 		{"GET", "/admin/pricing/surcharges", ""},
 		{"PUT", "/admin/pricing/surcharges/SMALL", `{"surcharge":1}`},
 	}
-	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret, SessionCheck: allowSessions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +237,7 @@ func TestAdminRoutesRefuseEveryNonAdminRole(t *testing.T) {
 }
 
 func TestAdminPricingCookieAuthentication(t *testing.T) {
-	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret, SessionCheck: allowSessions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +281,7 @@ func TestAdminPricingRejectsInvalidTokens(t *testing.T) {
 		})},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret})
+			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: fixtureStore{}, AccessSecret: testSecret, SessionCheck: allowSessions()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -330,5 +342,40 @@ func TestInternalZoneProjection(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != 200 || !strings.Contains(recorder.Body.String(), `"isActive":true`) || strings.Contains(recorder.Body.String(), "districts") {
 		t.Fatal(recorder.Code, recorder.Body.String())
+	}
+}
+
+type rejectingSessions struct{ err error }
+
+func (r rejectingSessions) Check(context.Context, auth.Claims) error { return r.err }
+
+func TestAdminRoutesEnforceSessionRevocation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		want int
+		code string
+	}{
+		{"revoked", sessioncheck.ErrRevoked, 401, "SESSION_REVOKED"},
+		{"identity unavailable", sessioncheck.ErrUnavailable, 503, "SERVICE_UNAVAILABLE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+				Store: fixtureStore{}, AccessSecret: testSecret, SessionCheck: rejectingSessions{err: test.err},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/admin/zones", nil)
+			req.Header.Set("Authorization", "Bearer "+adminToken(t, auth.RoleAdmin))
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+			if recorder.Code != test.want {
+				t.Fatalf("status = %d, want %d: %s", recorder.Code, test.want, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), test.code) {
+				t.Fatalf("body = %s, want code %s", recorder.Body.String(), test.code)
+			}
+		})
 	}
 }

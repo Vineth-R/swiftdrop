@@ -321,3 +321,40 @@ func TestLoadFromAllowedOrigins(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadFromIdentitySessionSettings(t *testing.T) {
+	config, err := LoadFrom(loaderFor(valid(nil)))
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+	if config.IdentityBaseURL != "http://identity:8081" {
+		t.Fatalf("IdentityBaseURL = %q", config.IdentityBaseURL)
+	}
+	if config.IdentityTimeout != 3*time.Second {
+		t.Fatalf("IdentityTimeout = %s", config.IdentityTimeout)
+	}
+	if config.SessionCheckInterval != time.Minute {
+		t.Fatalf("SessionCheckInterval = %s", config.SessionCheckInterval)
+	}
+
+	config, err = LoadFrom(loaderFor(valid(map[string]string{
+		"IDENTITY_BASE_URL":               "http://identity.internal:8081/",
+		"IDENTITY_TIMEOUT":                "5s",
+		"REALTIME_SESSION_CHECK_INTERVAL": "30s",
+	})))
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+	if config.IdentityBaseURL != "http://identity.internal:8081" || config.IdentityTimeout != 5*time.Second {
+		t.Fatalf("identity settings = %q/%s", config.IdentityBaseURL, config.IdentityTimeout)
+	}
+	if config.SessionCheckInterval != 30*time.Second {
+		t.Fatalf("SessionCheckInterval = %s, want 30s", config.SessionCheckInterval)
+	}
+}
+
+func TestLoadFromRejectsNegativeSessionCheckInterval(t *testing.T) {
+	if _, err := LoadFrom(loaderFor(valid(map[string]string{"REALTIME_SESSION_CHECK_INTERVAL": "-1s"}))); err == nil {
+		t.Fatal("LoadFrom() accepted a negative session check interval")
+	}
+}

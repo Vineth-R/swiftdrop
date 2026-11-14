@@ -15,6 +15,10 @@ var (
 	ErrDuplicateBusiness         = errors.New("a merchant already uses this business registration number")
 	ErrInvalidRegistrationNumber = errors.New("a valid business registration number is required")
 	ErrRegistrationConflict      = errors.New("merchant registration conflicts with an existing record")
+	// ErrWebhookSecretChanged means a concurrent rotation replaced the stored
+	// ciphertext before a read-repair could update it. The caller must not retry
+	// blindly; the new value is authoritative.
+	ErrWebhookSecretChanged = errors.New("webhook secret changed concurrently")
 )
 
 // Repository owns all SQL access to the merchant schema.

@@ -85,7 +85,7 @@ func TestCourierAccess(t *testing.T) {
 		} {
 			t.Run(path+"/"+tc.name, func(t *testing.T) {
 				store := &courierFixture{}
-				router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+				router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store})
 				rec := courierRequest(t, router, path, courierTestID, tc.role, false)
 				if rec.Code != tc.want {
 					t.Fatalf("status %d: %s", rec.Code, rec.Body)
@@ -110,7 +110,7 @@ func TestCourierTrailingSlash(t *testing.T) {
 	} {
 		t.Run(path, func(t *testing.T) {
 			store := &courierFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store})
 			rec := courierRequest(t, router, path, courierTestID, auth.RoleCourier, false)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status %d: %s", rec.Code, rec.Body)
@@ -135,7 +135,7 @@ func TestCourierQueryValidation(t *testing.T) {
 	} {
 		t.Run(query, func(t *testing.T) {
 			store := &courierFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store})
 			rec := courierRequest(t, router, "/courier/deliveries?"+query, courierTestID, auth.RoleCourier, false)
 			if rec.Code != 422 || !strings.Contains(rec.Body.String(), `"code":"VALIDATION_ERROR"`) {
 				t.Fatalf("invalid query: %d %s", rec.Code, rec.Body)
@@ -146,7 +146,7 @@ func TestCourierQueryValidation(t *testing.T) {
 		})
 	}
 	store := &courierFixture{}
-	router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+	router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store})
 	rec := courierRequest(t, router, "/courier/deliveries?date=%zz", courierTestID, auth.RoleCourier, false)
 	if rec.Code != 400 || store.calls != 0 {
 		t.Fatalf("malformed query: %d %s", rec.Code, rec.Body)
@@ -157,7 +157,7 @@ func TestCourierListClaimsAndEnvelope(t *testing.T) {
 	for _, status := range []string{"", "CREATED", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "FAILED"} {
 		t.Run("status="+status, func(t *testing.T) {
 			store := &courierFixture{}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store})
 			path := "/courier/deliveries?date=2026-11-07&page=2&pageSize=5"
 			if status != "" {
 				path += "&status=" + status
@@ -187,7 +187,7 @@ func TestCourierListClaimsAndEnvelope(t *testing.T) {
 		})
 	}
 	store := &courierFixture{}
-	router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+	router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store})
 	before := time.Now()
 	rec := courierRequest(t, router, "/courier/deliveries", courierTestID, auth.RoleCourier, false)
 	startBefore, _, err := courier.DayBounds("", before)
@@ -222,7 +222,7 @@ func TestCourierDetailValidationAndErrors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &courierFixture{err: tc.err}
-			router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store})
+			router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store})
 			rec := courierRequest(t, router, "/courier/deliveries/"+tc.path, courierTestID, auth.RoleCourier, false)
 			if rec.Code != tc.want {
 				t.Fatalf("%d %s", rec.Code, rec.Body)
@@ -245,7 +245,7 @@ func TestCourierDetailValidationAndErrors(t *testing.T) {
 
 func TestCourierInvalidTokensAndCustomCookie(t *testing.T) {
 	store := &courierFixture{}
-	router := reportRouter(t, Options{AccessSecret: reportTestSecret, Courier: store, CookieName: "courier_access"})
+	router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: store, CookieName: "courier_access"})
 	manager, err := auth.NewTokenManager(reportTestSecret, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +301,7 @@ func TestCourierFailClosed(t *testing.T) {
 			if rec := courierRequest(t, router, path, courierTestID, auth.RoleCourier, false); rec.Code != 503 || store.calls != 0 {
 				t.Fatalf("missing secret: %d", rec.Code)
 			}
-			router = reportRouter(t, Options{AccessSecret: reportTestSecret})
+			router = reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions()})
 			if rec := courierRequest(t, router, path, courierTestID, auth.RoleCourier, false); rec.Code != 503 {
 				t.Fatalf("missing database: %d", rec.Code)
 			}
