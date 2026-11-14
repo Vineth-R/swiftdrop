@@ -18,6 +18,12 @@ import (
 // MaxAttempts is the maximum number of publish attempts before an event transitions to FAILED.
 const MaxAttempts = 5
 
+// claimStaleAfter is how long a claimed event may stay unprocessed before
+// another relay replica may reclaim it. It must stay comfortably above the
+// publisher's timeout (defaultPublishTimeout, 10s) so a live publisher is never
+// preempted; a longer window only delays recovery from a crashed replica.
+const claimStaleAfter = 2 * time.Minute
+
 // ErrSkip indicates an event should not be published in this batch (e.g. currently in exponential backoff).
 var ErrSkip = errors.New("outbox event skipped (in backoff)")
 
@@ -81,9 +87,40 @@ func NewSQLStore(pool *postgres.Pool) *SQLStore {
 	return &SQLStore{pool: pool}
 }
 
-// ProcessPending queries a batch of PENDING events, invokes handler for each event
-// without holding database transaction row locks during broker publish,
-// and updates the row status atomically.
+// claimedEvent is an Event plus the claim token issued by the claiming UPDATE.
+// The token scopes every later state transition to the relay that owns the row.
+type claimedEvent struct {
+	Event
+	claimToken string
+}
+
+// claimPendingSQL atomically claims a batch of PENDING events. The inner
+// SELECT uses FOR UPDATE SKIP LOCKED so concurrent relay replicas take
+// disjoint rows, and the stale cutoff lets a row whose claimant died
+// mid-publish be reclaimed after claimStaleAfter. The claim is committed by
+// this single statement, so no database row lock is held across the broker
+// publish.
+const claimPendingSQL = `
+	UPDATE parcel.outbox_events AS e
+	SET claimed_at = now(),
+	    claim_token = gen_random_uuid()
+	WHERE e.id IN (
+		SELECT id
+		FROM parcel.outbox_events
+		WHERE status = 'PENDING'
+		  AND (claimed_at IS NULL OR claimed_at < $1)
+		ORDER BY created_at ASC
+		LIMIT $2
+		FOR UPDATE SKIP LOCKED
+	)
+	RETURNING e.id, e.event_type, e.routing_key, e.payload, e.attempts,
+	          e.created_at, e.aggregate_type, e.aggregate_id, e.claim_token`
+
+// ProcessPending claims a batch of PENDING events atomically, invokes handler
+// for each claimed event without holding database row locks during the broker
+// publish, and then records the outcome scoped to the claim token. Two relay
+// replicas therefore never publish the same event: the claim UPDATE hands each
+// row to exactly one of them.
 func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(event Event) error) (int, error) {
 	if s.pool == nil {
 		return 0, errors.New("database pool is not configured")
@@ -92,71 +129,91 @@ func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(e
 		limit = 50
 	}
 
-	query := `
-		SELECT id, event_type, routing_key, payload, attempts, created_at, aggregate_type, aggregate_id
-		FROM parcel.outbox_events
-		WHERE status = 'PENDING'
-		ORDER BY created_at ASC
-		LIMIT $1`
-
-	rows, err := s.pool.Query(ctx, query, limit)
+	staleCutoff := time.Now().UTC().Add(-claimStaleAfter)
+	rows, err := s.pool.Query(ctx, claimPendingSQL, staleCutoff, limit)
 	if err != nil {
-		return 0, fmt.Errorf("fetch pending outbox events: %w", err)
+		return 0, fmt.Errorf("claim pending outbox events: %w", err)
 	}
-	defer rows.Close()
 
-	var events []Event
+	var events []claimedEvent
 	for rows.Next() {
-		var e Event
+		var c claimedEvent
 		if err := rows.Scan(
-			&e.ID,
-			&e.EventType,
-			&e.RoutingKey,
-			&e.Payload,
-			&e.Attempts,
-			&e.CreatedAt,
-			&e.AggregateType,
-			&e.AggregateID,
+			&c.ID,
+			&c.EventType,
+			&c.RoutingKey,
+			&c.Payload,
+			&c.Attempts,
+			&c.CreatedAt,
+			&c.AggregateType,
+			&c.AggregateID,
+			&c.claimToken,
 		); err != nil {
-			return 0, fmt.Errorf("scan outbox event: %w", err)
+			rows.Close()
+			return 0, fmt.Errorf("scan claimed outbox event: %w", err)
 		}
-		events = append(events, e)
+		c.Status = "PENDING"
+		events = append(events, c)
 	}
 	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("iterate outbox rows: %w", err)
+		rows.Close()
+		return 0, fmt.Errorf("iterate claimed outbox rows: %w", err)
 	}
 	rows.Close()
 
 	processed := 0
 	for _, event := range events {
 		if event.Attempts >= MaxAttempts {
-			updateSQL := `
+			const failMaxSQL = `
 				UPDATE parcel.outbox_events
-				SET status = 'FAILED'
-				WHERE id = $1 AND status = 'PENDING'`
-			if _, err := s.pool.Exec(ctx, updateSQL, event.ID); err != nil {
+				SET status = 'FAILED',
+				    claim_token = NULL,
+				    claimed_at = NULL
+				WHERE id = $1 AND claim_token = $2 AND status = 'PENDING'`
+			tag, err := s.pool.Exec(ctx, failMaxSQL, event.ID, event.claimToken)
+			if err != nil {
 				return processed, fmt.Errorf("mark max-attempts event failed: %w", err)
+			}
+			if tag.RowsAffected() == 0 {
+				// The claim was reclaimed by another relay; it owns the row now.
+				continue
 			}
 			processed++
 			continue
 		}
 
-		pubErr := handler(event)
+		pubErr := handler(event.Event)
 		if errors.Is(pubErr, ErrSkip) {
+			// Release the claim without touching attempts; the relay's own
+			// backoff map decides when this process tries again.
+			const releaseSQL = `
+				UPDATE parcel.outbox_events
+				SET claim_token = NULL,
+				    claimed_at = NULL
+				WHERE id = $1 AND claim_token = $2 AND status = 'PENDING'`
+			if _, err := s.pool.Exec(ctx, releaseSQL, event.ID, event.claimToken); err != nil {
+				return processed, fmt.Errorf("release outbox claim: %w", err)
+			}
 			continue
 		}
 
 		if pubErr == nil {
-			// Mark PUBLISHED
-			updateSQL := `
+			// Mark PUBLISHED only for the relay that still holds the claim.
+			const publishedSQL = `
 				UPDATE parcel.outbox_events
 				SET status = 'PUBLISHED',
 				    published_at = now(),
 				    attempts = attempts + 1,
-				    last_error = NULL
-				WHERE id = $1 AND status = 'PENDING'`
-			if _, err := s.pool.Exec(ctx, updateSQL, event.ID); err != nil {
+				    last_error = NULL,
+				    claim_token = NULL,
+				    claimed_at = NULL
+				WHERE id = $1 AND claim_token = $2 AND status = 'PENDING'`
+			tag, err := s.pool.Exec(ctx, publishedSQL, event.ID, event.claimToken)
+			if err != nil {
 				return processed, fmt.Errorf("mark event published: %w", err)
+			}
+			if tag.RowsAffected() == 0 {
+				continue
 			}
 		} else {
 			errMsg := pubErr.Error()
@@ -165,14 +222,20 @@ func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(e
 			if newAttempts >= MaxAttempts {
 				newStatus = "FAILED"
 			}
-			updateSQL := `
+			const failedSQL = `
 				UPDATE parcel.outbox_events
-				SET status = $2,
-				    attempts = $3,
-				    last_error = $4
-				WHERE id = $1 AND status = 'PENDING'`
-			if _, err := s.pool.Exec(ctx, updateSQL, event.ID, newStatus, newAttempts, errMsg); err != nil {
+				SET status = $3,
+				    attempts = $4,
+				    last_error = $5,
+				    claim_token = NULL,
+				    claimed_at = NULL
+				WHERE id = $1 AND claim_token = $2 AND status = 'PENDING'`
+			tag, err := s.pool.Exec(ctx, failedSQL, event.ID, event.claimToken, newStatus, newAttempts, errMsg)
+			if err != nil {
 				return processed, fmt.Errorf("record event failure: %w", err)
+			}
+			if tag.RowsAffected() == 0 {
+				continue
 			}
 		}
 		processed++
