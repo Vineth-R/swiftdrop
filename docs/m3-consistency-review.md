@@ -1,5 +1,7 @@
 # M3 consistency review: implementation against API v1.1 and Database Design v1.1
 
+> **Historical document.** Recorded during the M3 review, before the Phase 3 baseline `686a03d`. It is kept for traceability and may describe features as planned or not implemented that have since shipped. For current behaviour use `AGENTS.md`, `README.md`, `docs/architecture.md` and `docs/phase-3-testing-documentation-qa.md`.
+
 Scope: Google login, password reset, the shared mailer, the internal APIs, admin user
 management and `GET /couriers` (Team Task Sheet M3.1 to M3.4; the frontend, M3.5, is out of scope).
 Method: each endpoint was read from `docs/API_Documentation_v1.1.md` and checked against the Gin

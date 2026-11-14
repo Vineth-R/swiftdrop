@@ -1,5 +1,7 @@
 ## 6.4 OAuth 2.0 Login with Google
 
+> **Historical document.** Report source recorded before the Phase 3 baseline `686a03d`. It is kept for traceability and may describe features as planned or not implemented that have since shipped. For current behaviour use `AGENTS.md`, `README.md`, `docs/architecture.md` and `docs/phase-3-testing-documentation-qa.md`.
+
 **Actor:** any visitor with a Google account. **Service:** Identity. **API:** v1.1 sections 2.5 and 2.6.
 **Tables:** `identity.oauth_states`, `identity.users`, `identity.refresh_tokens` (Database Design v1.1 sections 3.2, 3.4 and 3.5).
 

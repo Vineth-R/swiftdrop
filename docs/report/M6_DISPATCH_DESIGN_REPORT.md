@@ -1,5 +1,7 @@
 # SwiftDrop Design Report — Member 6 (Dispatch and Parcel State Machine)
 
+> **Historical document.** Recorded during the M6 milestone, before the Phase 3 baseline `686a03d`. It is kept for traceability and may describe features as planned or not implemented that have since shipped. For current behaviour use `AGENTS.md`, `README.md`, `docs/architecture.md` and `docs/phase-3-testing-documentation-qa.md`.
+
 **Author:** Member 6 (Dispatch and Courier Management)
 
 **Specification baseline:** Design Report v1.1 and API Documentation v1.1

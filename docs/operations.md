@@ -271,16 +271,53 @@ and the worker crashed before recording it. Receivers must deduplicate on
 
 Every HTTP service exposes `GET /metrics` on its internal port (for example
 `docker compose exec parcel wget -qO- http://127.0.0.1:8082/metrics`). The
-gateway does not route `/metrics`. Realtime `/ready` requires both broker
-consumers; `/health` stays liveness. Useful checks:
+gateway does not route `/metrics`.
+
+Readiness includes required workload dependencies:
+
+- Realtime requires PostgreSQL and both consumers.
+- Notification worker requires PostgreSQL and all three consumers.
+- Merchant includes the sync consumer when enabled.
+- Parcel includes the outbox relay when publishing is configured.
+- Webhook worker exposes internal `/health` and `/ready` on `8088`.
+- AI `/ready` is `503` when its provider is disabled or unconfigured; Compose
+  uses `/health` because AI is optional.
+
+Useful checks:
 
 ```sh
 docker compose exec realtime wget -qO- http://127.0.0.1:8085/ready
+docker compose exec notification-worker wget -qO- http://127.0.0.1:8086/ready
+docker compose exec webhook-worker wget -qO- http://127.0.0.1:8088/ready
 docker compose exec parcel wget -qO- http://127.0.0.1:8082/metrics | grep swiftdrop_outbox
 ```
 
+Identity deletes expired refresh/reset/verification tokens after
+`IDENTITY_TOKEN_RETENTION` (default 30 days) at startup and every
+`IDENTITY_TOKEN_CLEANUP_INTERVAL` (default 24 hours).
+
+Notification processed events are retained for 30 days. Published outbox rows are
+retained for 14 days. Merchant order reservations and notification delivery logs
+currently have no automatic deletion; their retention policy needs owner
+approval because deleting them can weaken duplicate-order protection or delivery
+auditability.
+
 Alert thresholds and the deferred monitoring stack are listed in
 [phase-2-security-reliability.md](phase-2-security-reliability.md).
+
+## Performance checks
+
+Local k6 smoke/load scenarios live in `tests/perf`. They use the public stack and
+do not define production SLOs:
+
+```sh
+k6 run tests/perf/public.js
+k6 run tests/perf/websocket.js
+PERF_EMAIL=... PERF_PASSWORD=... k6 run tests/perf/auth.js
+```
+
+The recorded baseline is in
+[phase-3-performance-baseline.md](phase-3-performance-baseline.md).
 
 ## Database troubleshooting
 

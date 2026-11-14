@@ -1,7 +1,7 @@
 # Phase 3 Performance Baseline
 
-Date: 2026-11-14  
-Baseline commit: `686a03dc25538f6353839fbb16dd83c0c56457e5` (before Phase 3 changes; the scenarios target unchanged public endpoints)  
+Date: 2026-11-14
+Baseline commit: `686a03dc25538f6353839fbb16dd83c0c56457e5` (before Phase 3 changes; the scenarios target unchanged public endpoints)
 Tool: k6 v2.3.0 (darwin/arm64)
 
 ## Environment
