@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	hexPattern  = regexp.MustCompile(`^[0-9a-fA-F]{24,}$`)
+	uuidPattern     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	hexPattern      = regexp.MustCompile(`^[0-9a-fA-F]{24,}$`)
+	trackingPattern = regexp.MustCompile(`^SD[KN][A-Z0-9]{8}$`)
 )
 
 // NewHTTPHandler wraps next and records request count, status and duration.
@@ -58,6 +59,8 @@ func NormalizePath(path string) string {
 		switch {
 		case uuidPattern.MatchString(segment), hexPattern.MatchString(segment):
 			segments[i] = ":id"
+		case trackingPattern.MatchString(segment):
+			segments[i] = ":trackingNumber"
 		}
 	}
 	return strings.Join(segments, "/")

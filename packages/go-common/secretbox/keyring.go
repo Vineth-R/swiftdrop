@@ -34,8 +34,10 @@ type Key struct {
 //
 // Legacy "v1:" values have no key identifier; they are decrypted with each
 // configured key in turn and accepted when one authenticates. New writes never
-// use the legacy format, so a rotation only needs the old key kept in the
-// keyring until every stored row has been re-encrypted.
+// use the legacy format. Callers can read-repair a legacy value by decrypting
+// it and re-encrypting the same plaintext with EncryptWithAAD; a rotation only
+// needs the old key kept in the keyring until every stored row has been
+// re-encrypted.
 type Keyring struct {
 	activeID   string
 	active     cipher.AEAD

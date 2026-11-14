@@ -25,6 +25,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 )
 
 const serviceName = "notification-worker"
@@ -86,10 +87,15 @@ func run() error {
 	site := emails.Site{BaseURL: config.FrontendBaseURL, SupportEmail: config.SupportEmail}
 	handler := worker.New(logger, sender, store, identity, merchants, site)
 
+	sessionClient, err := sessioncheck.NewClient(config.IdentityBaseURL, config.InternalToken, config.IdentityTimeout)
+	if err != nil {
+		return fmt.Errorf("configure identity session checker: %w", err)
+	}
 	router, err := servicehttp.New(logger, servicehttp.Options{
 		Store:        notificationlog.NewRepository(database),
 		AccessSecret: config.AccessSecret,
 		CookieName:   config.CookieName,
+		SessionCheck: sessioncheck.New(sessionClient),
 	})
 	if err != nil {
 		return fmt.Errorf("configure notification admin router: %w", err)

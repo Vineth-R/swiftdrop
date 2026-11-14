@@ -207,6 +207,16 @@ func TestWebhookRepositoryAndDeliveryAttempts(t *testing.T) {
 	if err != nil || !rotated.SecretStored || string(rotated.Webhook.SigningSecretEnc) != "enc-3" {
 		t.Fatalf("SaveWebhook(rotate) = %+v, %v", rotated, err)
 	}
+	if err := repo.UpdateWebhookSecretEnc(ctx, merchantID, []byte("enc-3"), []byte("v2:k1:enc-4")); err != nil {
+		t.Fatalf("UpdateWebhookSecretEnc() = %v", err)
+	}
+	upgraded, err := repo.WebhookByMerchant(ctx, merchantID)
+	if err != nil || string(upgraded.SigningSecretEnc) != "v2:k1:enc-4" {
+		t.Fatalf("WebhookByMerchant(after upgrade) = %+v, %v", upgraded, err)
+	}
+	if err := repo.UpdateWebhookSecretEnc(ctx, orderUUID(), []byte("missing"), []byte("orphan")); !errors.Is(err, ErrWebhookSecretChanged) {
+		t.Fatalf("UpdateWebhookSecretEnc(no webhook) error = %v", err)
+	}
 
 	attemptID := orderUUID()
 	attempt := RecordAttemptParams{

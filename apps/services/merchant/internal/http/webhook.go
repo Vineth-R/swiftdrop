@@ -363,6 +363,7 @@ func (h *webhookHandler) test(c *gin.Context) {
 		h.internalError(c, "decrypt_webhook_secret", "could not read signing secret", err)
 		return
 	}
+	upgradeLegacyWebhookSecret(ctx, h.store, h.cipher, h.logger, webhook, secret)
 	eventID, err := randomUUID()
 	if err != nil {
 		h.internalError(c, "generate_event_id", "could not generate event identifier", err)
@@ -525,3 +526,35 @@ func (h *webhookHandler) internalError(c *gin.Context, operation, message string
 func webhookAAD(merchantID string) string {
 	return "merchant.webhook:" + merchantID
 }
+
+// webhookSecretUpdater is implemented by the repository when it can rewrite only
+// the stored signing-secret ciphertext.
+type webhookSecretUpdater interface {
+	UpdateWebhookSecretEnc(ctx context.Context, merchantID string, expected, encrypted []byte) error
+}
+
+// upgradeLegacyWebhookSecret transparently rewrites a legacy v1 value (which
+// has no AAD) as an AAD-bound v2 value after a successful decrypt. It is a
+// best-effort read-repair: a failure leaves the readable v1 value in place and
+// is logged without the secret or ciphertext.
+func upgradeLegacyWebhookSecret(ctx context.Context, store any, cipher secretCipher, logger *slog.Logger, webhook repository.Webhook, plaintext string) {
+	if !strings.HasPrefix(string(webhook.SigningSecretEnc), prefixV1) {
+		return
+	}
+	updater, ok := store.(webhookSecretUpdater)
+	if !ok || cipher == nil {
+		return
+	}
+	upgraded, err := cipher.EncryptWithAAD(plaintext, webhookAAD(webhook.MerchantID))
+	if err != nil {
+		if logger != nil {
+			logger.WarnContext(ctx, "could not upgrade legacy webhook secret", "merchant_id", webhook.MerchantID)
+		}
+		return
+	}
+	if err := updater.UpdateWebhookSecretEnc(ctx, webhook.MerchantID, webhook.SigningSecretEnc, []byte(upgraded)); err != nil && logger != nil && !errors.Is(err, repository.ErrWebhookSecretChanged) {
+		logger.WarnContext(ctx, "could not persist upgraded webhook secret", "merchant_id", webhook.MerchantID)
+	}
+}
+
+const prefixV1 = "v1:"

@@ -102,7 +102,7 @@ func TestCheckCachesWithinTTL(t *testing.T) {
 	}
 }
 
-func TestCheckUsesStaleCacheDuringOutageThenFailsClosed(t *testing.T) {
+func TestCheckFailsClosedWhenCachedStateExpiresAndIdentityIsDown(t *testing.T) {
 	now := time.Unix(1000, 0)
 	fetcher := &fakeFetcher{state: State{Active: true, Role: auth.RoleCustomer, SessionVersion: 1}}
 	checker := New(fetcher, WithClock(func() time.Time { return now }))
@@ -112,27 +112,25 @@ func TestCheckUsesStaleCacheDuringOutageThenFailsClosed(t *testing.T) {
 
 	fetcher.err = errors.New("identity down")
 	now = now.Add(DefaultCacheTTL + time.Second)
-	if err := checker.Check(context.Background(), claims(1)); err != nil {
-		t.Fatalf("stale cache should be used during a short outage: %v", err)
-	}
-
-	now = now.Add(DefaultStaleTTL + time.Second)
 	if err := checker.Check(context.Background(), claims(1)); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("Check() beyond stale window = %v, want ErrUnavailable", err)
+		t.Fatalf("Check() after TTL with identity down = %v, want ErrUnavailable", err)
 	}
 }
 
-func TestCheckStaleCacheStillRejectsRevokedSession(t *testing.T) {
+func TestCheckNeverUsesExpiredCacheToAuthorize(t *testing.T) {
 	now := time.Unix(1000, 0)
 	fetcher := &fakeFetcher{state: State{Active: true, Role: auth.RoleCustomer, SessionVersion: 1}}
 	checker := New(fetcher, WithClock(func() time.Time { return now }))
 	if err := checker.Check(context.Background(), claims(1)); err != nil {
 		t.Fatalf("prime cache: %v", err)
 	}
-	fetcher.err = errors.New("identity down")
+
+	// Identity now reports a newer version. An expired cache entry must cause a
+	// refresh, and the refreshed state must reject the old claims.
+	fetcher.state = State{Active: true, Role: auth.RoleCustomer, SessionVersion: 2}
 	now = now.Add(DefaultCacheTTL + time.Second)
-	if err := checker.Check(context.Background(), claims(2)); !errors.Is(err, ErrRevoked) {
-		t.Fatalf("stale cache accepted a newer session version: %v", err)
+	if err := checker.Check(context.Background(), claims(1)); !errors.Is(err, ErrRevoked) {
+		t.Fatalf("Check() after TTL = %v, want ErrRevoked", err)
 	}
 }
 

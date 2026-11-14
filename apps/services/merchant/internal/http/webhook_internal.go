@@ -163,6 +163,7 @@ func (h *internalWebhookHandler) get(c *gin.Context) {
 		h.internalError(c, "decrypt_webhook_secret", "could not read signing secret", err)
 		return
 	}
+	upgradeLegacyWebhookSecret(ctx, h.store, h.cipher, h.logger, webhook, secret)
 	types := webhook.EventTypes
 	if types == nil {
 		types = []string{}

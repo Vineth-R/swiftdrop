@@ -20,9 +20,10 @@ func NewRouter(logger *slog.Logger) *gin.Engine {
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
 	router.Use(requestid.Middleware())
-	router.Use(CrossOriginMiddleware())
 	router.Use(RequestLogger(logger))
 	router.Use(Recovery(logger))
+	// Run the cross-site guard after logging so rejected requests are visible.
+	router.Use(CrossOriginMiddleware())
 	router.NoRoute(func(c *gin.Context) {
 		Error(c, http.StatusNotFound, "NOT_FOUND", "route not found")
 	})

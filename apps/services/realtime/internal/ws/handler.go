@@ -399,11 +399,11 @@ func (c *client) watch(shutdown context.Context, expires time.Time) {
 	}
 }
 
-// watchSession revalidates an authenticated connection so a logout or
-// suspension closes an already-open socket. A transient identity failure does
-// not drop the connection; it is retried on the next tick, while new
-// connections fail closed. The access token's own expiry remains the final
-// bound.
+// watchSession revalidates an authenticated connection so a suspension, role
+// change or session-version bump closes an already-open socket. When identity
+// cannot confirm the session after the local cache expires, the connection is
+// closed rather than left authorized (fail closed). The access token's own
+// expiry remains the final bound.
 func (c *client) watchSession(shutdown context.Context, claims auth.Claims) {
 	interval := c.opts.SessionCheckInterval
 	if c.opts.SessionValidator == nil || interval <= 0 {
@@ -433,7 +433,9 @@ func (c *client) watchSession(shutdown context.Context, claims auth.Claims) {
 			c.closeWith(websocket.StatusCode(live.CloseTokenInvalid), "session revoked")
 			return
 		default:
-			c.opts.Logger.Debug("websocket session revalidation failed; keeping connection until next check", "reason", sessioncheck.Describe(err))
+			c.opts.Logger.Warn("websocket session revalidation failed; closing connection", "reason", sessioncheck.Describe(err))
+			c.closeWith(websocket.StatusTryAgainLater, "session state unavailable")
+			return
 		}
 	}
 }

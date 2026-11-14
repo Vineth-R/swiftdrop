@@ -42,6 +42,8 @@ func TestNormalizePath(t *testing.T) {
 		"/ws":                   "/ws",
 		"/merchants/me/webhook": "/merchants/me/webhook",
 		"/files/0123456789abcdef0123456789abcdef": "/files/:id",
+		"/tracking/SDK7M2Q9XP4":                   "/tracking/:trackingNumber",
+		"/parcels/tracking/SDN00000001":           "/parcels/tracking/:trackingNumber",
 	}
 	for input, want := range tests {
 		if got := NormalizePath(input); got != want {

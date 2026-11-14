@@ -463,3 +463,20 @@ func TestSilentClientIsDroppedByTheIdleTimeout(t *testing.T) {
 	}
 	t.Fatal("a silent client was not dropped by the idle timeout")
 }
+
+func TestOpenConnectionIsClosedWhenSessionCheckIsUnavailable(t *testing.T) {
+	var calls int
+	server := newTestServer(t, func(options *Options) {
+		options.SessionCheckInterval = 50 * time.Millisecond
+		options.SessionValidator = sessionValidatorFunc(func(context.Context, auth.Claims) error {
+			calls++
+			if calls == 1 {
+				return nil
+			}
+			return sessioncheck.ErrUnavailable
+		})
+	})
+	conn := server.dial(t, "?token="+server.token(t, auth.RoleCustomer), nil)
+	subscribe(t, conn, trackingNumber)
+	expectClose(t, conn, websocket.StatusTryAgainLater, 3*time.Second)
+}

@@ -312,7 +312,8 @@ Common causes:
   `WEBHOOK_SECRET_KEY` (64 hex characters).
 - Webhook decryption fails after a rotation: keep the previous key in
   `WEBHOOK_SECRET_KEYS` as `id=hex64` until every stored secret has been
-  re-saved; see [phase-2-security-reliability.md](phase-2-security-reliability.md).
+  re-saved. Legacy `v1` values upgrade automatically on the next test send or
+  worker read; see [phase-2-security-reliability.md](phase-2-security-reliability.md).
 - Authenticated parcel/pricing/realtime requests answer `503`: identity session
   state cannot be read. Check `IDENTITY_BASE_URL`, `INTERNAL_TOKEN` and the
   identity `/ready`; the check fails closed by design.

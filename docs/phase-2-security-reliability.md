@@ -29,18 +29,21 @@ and a request ID.
 
 - A successful lookup is cached for **30 seconds** (`DefaultCacheTTL`).
 - A revoked, deactivated, role-changed or stale-version session is rejected
-  with `401 SESSION_REVOKED` on parcel and pricing, and the WebSocket is closed
-  with `4401`.
+  with `401 SESSION_REVOKED` on parcel, pricing and the notification-worker
+  admin read API, and the WebSocket is closed with `4401`.
 - New WebSocket connections verify the session before accepting subscriptions.
 - Open WebSockets revalidate every `REALTIME_SESSION_CHECK_INTERVAL`
   (default `1m`, must be positive). The access token's own expiry (15m) remains
   the final bound.
 - On identity failure the checker fails closed (`503 SERVICE_UNAVAILABLE`).
-  A cached value may be reused for up to `CacheTTL + 60s` so a brief identity
-  blip does not take every authenticated route down; after that the request is
-  refused. An open WebSocket is not dropped by a transient identity failure; it
-  is rechecked on the next interval.
+  A cached value authorizes requests only while it is younger than `CacheTTL`
+  (30s); there is no stale-authorization fallback. An open WebSocket is closed
+  with `1013 Try Again Later` when identity cannot confirm the session after the
+  cache expires.
 - Merchant routes keep their existing per-request identity check.
+- The notification-worker ADMIN notification-log read API also checks the
+  token's session state; an unavailable identity service makes that endpoint
+  fail closed with `503`.
 - Logout revokes the refresh token only; an already-issued access token remains
   valid until its normal expiry (at most 15 minutes). Immediate logout across
   every service would require bumping `session_version` on logout, which also
@@ -82,9 +85,14 @@ Rotation procedure:
 3. Move the old key to `WEBHOOK_SECRET_KEYS` (`oldId=<old hex>`).
 4. Restart the merchant service. Existing `v2:<oldId>` values and legacy `v1`
    values still decrypt.
-5. Re-save/rotate each webhook secret (the settings API re-encrypts with the
-   active key).
-6. Remove the old entry only after no stored row references it.
+5. Legacy `v1` values are upgraded automatically on the next successful
+   decrypt (test send or webhook-worker delivery): the same plaintext secret is
+   re-encrypted as an AAD-bound `v2` value. The settings API also re-encrypts on
+   an explicit rotation.
+6. Remove the old entry only after no stored row references it. Until a legacy
+   row has been read or re-saved, it remains a `v1` value with no AAD; it is
+   still decryptable but does not have cross-merchant AAD binding. Treat the
+   first read after an upgrade as the migration point.
 
 Ciphertext is bound to `merchant.webhook:<merchantId>` as additional
 authenticated data, so moving a ciphertext to another merchant's row fails
@@ -165,8 +173,8 @@ does not route `/metrics`.
 | `swiftdrop_outbox_oldest_pending_seconds`        | gauge     | —                     |
 | `swiftdrop_outbox_publishes_total`               | counter   | result                |
 
-Routes are normalised (`/parcels/:id/history`) and probes are skipped, so
-cardinality stays bounded. No user ID, parcel ID, token, secret or error text is
+Routes are normalised (`/parcels/:id/history`, `/tracking/:trackingNumber`)
+and probes are skipped, so cardinality stays bounded. No user ID, parcel ID, token, secret or error text is
 used as a label. The consumer observer is currently wired into the realtime
 consumers; other workers can opt in with the same `messaging.Observer` without
 a code change.
@@ -227,7 +235,27 @@ Each replicated realtime service has its own queue and in-process hub, so a
 message reaches one replica. Multi-replica fan-out needs a shared pub/sub layer
 or a per-replica queue design and is unchanged from Phase 1.
 
-## 8. Verification
+## 8. Final-review remediation
+
+The independent review tightened several controls before merge:
+
+- Removed the stale-cache authorization fallback. A cache entry older than
+  `CacheTTL` is never used to authorize a request; if identity cannot refresh
+  it, the request fails closed with `503`.
+- An open WebSocket now closes with `1013 Try Again Later` when identity cannot
+  confirm the session after the cache expires, instead of continuing to receive
+  updates.
+- The notification-worker ADMIN notification-log read API now performs the same
+  session-version check.
+- Legacy `v1` webhook ciphertext is read-repaired into AAD-bound `v2` on the
+  next successful decrypt, using a compare-and-swap update so a concurrent
+  rotation cannot be overwritten.
+- HTTP metric route labels now normalise tracking numbers, not only UUIDs, so
+  the public tracking endpoint cannot create unbounded label cardinality.
+- The cross-site guard runs after request logging so rejected requests are
+  observable.
+
+## 9. Verification
 
 Run on the Phase 2 branch:
 
@@ -270,14 +298,23 @@ was not started; treat that as a gap.
 - Chromium loaded `/`, `/track` and `/design` through the gateway with the CSP
   active and no console errors or CSP violations, and opened a WebSocket to
   `/ws`.
-- Session revocation was exercised against Parcel with a signed token: after
-  bumping `identity.users.session_version`, the old token returned
-  `401 SESSION_REVOKED`; a token with the new version returned `200`. The
-  original version was restored afterwards.
-- The full mocked Playwright Chromium suite ran 733 tests: 724 passed and 9
-  failed. Re-running the failed tests individually showed most were
-  environment/timing flakes; `merchant-register-form.spec.ts` ("pickup zones
-  that fail to load can be retried") fails deterministically and is an existing
-  frontend test unrelated to the Phase 2 changes. The real-stack Playwright
-  specs were not run because they require seeded credentials and mutate shared
-  state; the direct API/session/WS checks above cover the changed backend paths.
+- Session revocation was exercised against Parcel and the notification-worker
+  admin read API with signed tokens: after bumping
+  `identity.users.session_version`, the old token returned `401
+SESSION_REVOKED`; a token with the new version returned `200`. The original
+  versions were restored afterwards.
+- Two legacy `v1` webhook rows were read through the Merchant internal API;
+  both were stored as `v2:` afterwards, confirming the AAD-bound read-repair.
+- A request to `/tracking/SDK7M2Q9XP4` produced the bounded metric label
+  `route="/tracking/:trackingNumber"`.
+- The full mocked Playwright Chromium suite is timing-sensitive on this host:
+  one run passed 724/733 with 9 failures, and a second run passed 727/733 with a
+  different set of 6 failures. Individually re-run cases in the untouched
+  frontend code were mixed pass/fail (three deterministic local failures:
+  `admin-merchants-actions` retry-suspension, `dashboards` customer-failed-load,
+  `dashboards` one-card-failing, plus `merchant-register-form` pickup zones).
+  There are no frontend changes in this phase and CI's Playwright job passes;
+  these are classified as pre-existing/environment-dependent frontend test
+  issues, not Phase 2 regressions. The real-stack Playwright specs were not run
+  because they require seeded credentials and mutate shared state; the direct
+  API/session/WS checks above cover the changed backend paths.

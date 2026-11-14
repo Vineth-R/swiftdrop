@@ -173,6 +173,28 @@ RETURNING `+webhookColumns, p.MerchantID, p.URL, p.EventTypes, p.IsActive))
 	return WebhookSaveResult{Webhook: saved, SecretStored: false}, nil
 }
 
+// UpdateWebhookSecretEnc replaces only the stored signing-secret ciphertext.
+// It is used for the transparent read-repair of legacy v1 values into the AAD-
+// bound v2 format. It never changes the URL, event types or active flag, and it
+// updates only when the stored ciphertext is still expected, so it cannot
+// overwrite a concurrent rotation or lose a settings update.
+func (r *Repository) UpdateWebhookSecretEnc(ctx context.Context, merchantID string, expected, encrypted []byte) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE `+webhooksTable+`
+		SET signing_secret_enc = $3, updated_at = now()
+		WHERE merchant_id = $1::uuid AND signing_secret_enc = $2`,
+		merchantID, expected, encrypted)
+	if err != nil {
+		return fmt.Errorf("update webhook secret ciphertext: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Either the row is gone or a rotation won the race. Both are
+		// authoritative; the caller must not overwrite the newer value.
+		return ErrWebhookSecretChanged
+	}
+	return nil
+}
+
 // DeliveryFilter narrows the delivery log (API 8.15).
 type DeliveryFilter struct {
 	Success        *bool  // nil means both

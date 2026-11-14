@@ -3,26 +3,25 @@
 //
 // Identity is authoritative for a user's role, active flag and session version
 // (the JWT "sv" claim). A signed access token is valid until it expires, so a
-// suspension, deactivation, logout or password change only takes effect in
-// other services when they re-check identity. This package calls the existing
-// identity internal endpoint `GET /internal/users/{userId}/session-state` and
-// caches the answer for a short, bounded time.
+// suspension, deactivation, role change or session-version bump only takes
+// effect in other services when they re-check identity. This package calls the
+// existing identity internal endpoint `GET /internal/users/{userId}/session-state`
+// and caches the answer for a short, bounded time.
 //
 // # Revocation guarantee
 //
 // A revoked session is rejected within CacheTTL of the revocation (30s by
 // default). A cache hit is never older than CacheTTL, so the worst-case delay
-// is CacheTTL plus one identity round trip. The token's own expiry (15m) is the
-// absolute fallback if identity state is missing.
+// is CacheTTL plus one identity round trip. Once the cached value expires, a
+// fresh authoritative answer is required; there is no stale-authorization
+// fallback.
 //
 // # Failure policy
 //
-// The check fails closed. When identity is unavailable and no cached value is
-// usable, the request is refused with ErrUnavailable (mapped to 503), matching
-// the merchant service's existing behaviour. A cached value may be reused for
-// up to CacheTTL+StaleTTL during an outage so a brief identity blip does not
-// take every authenticated route down; beyond that the request fails closed.
-// Connect-time WebSocket checks follow the same rule.
+// The check fails closed. When identity is unavailable and the cached value is
+// older than CacheTTL, the request is refused with ErrUnavailable (mapped to
+// 503), matching the merchant service's existing behaviour. Cached state is
+// never used to authorize a request beyond CacheTTL.
 package sessioncheck
 
 import (
@@ -50,7 +49,6 @@ var (
 
 const (
 	DefaultCacheTTL   = 30 * time.Second
-	DefaultStaleTTL   = 60 * time.Second
 	DefaultMaxEntries = 10000
 )
 
@@ -85,16 +83,6 @@ func WithCacheTTL(ttl time.Duration) Option {
 	}
 }
 
-// WithStaleTTL sets how long an expired cached value may still be used while
-// identity is unavailable. Zero disables the stale fallback.
-func WithStaleTTL(ttl time.Duration) Option {
-	return func(c *Checker) {
-		if ttl >= 0 {
-			c.stale = ttl
-		}
-	}
-}
-
 // WithMaxEntries bounds the cache. When full, the oldest entry is evicted.
 func WithMaxEntries(max int) Option {
 	return func(c *Checker) {
@@ -117,7 +105,6 @@ func WithClock(now func() time.Time) Option {
 type Checker struct {
 	fetcher Fetcher
 	ttl     time.Duration
-	stale   time.Duration
 	max     int
 	now     func() time.Time
 
@@ -142,7 +129,6 @@ func New(fetcher Fetcher, opts ...Option) *Checker {
 	checker := &Checker{
 		fetcher:  fetcher,
 		ttl:      DefaultCacheTTL,
-		stale:    DefaultStaleTTL,
 		max:      DefaultMaxEntries,
 		now:      time.Now,
 		entries:  make(map[string]entry),
@@ -172,9 +158,8 @@ func (c *Checker) Check(ctx context.Context, claims auth.Claims) error {
 
 	state, err := c.fetch(ctx, claims.UserID)
 	if err != nil {
-		if present && now.Sub(cached.at) <= c.ttl+c.stale {
-			return compare(claims, cached.state)
-		}
+		// A failed refresh is never authorization success, even when a cached
+		// value exists. The cache only authorizes requests younger than TTL.
 		return ErrUnavailable
 	}
 
@@ -228,7 +213,7 @@ func (c *Checker) store(userID string, state State, at time.Time) {
 
 func (c *Checker) evictLocked(now time.Time) {
 	for key, value := range c.entries {
-		if now.Sub(value.at) > c.ttl+c.stale {
+		if now.Sub(value.at) > c.ttl {
 			delete(c.entries, key)
 		}
 	}
