@@ -352,7 +352,7 @@ func TestPricingHTTPAdminChangesAgainstDatabase(t *testing.T) {
 	ctx, conn := newPricingTestDatabase(t)
 	origin := pricingZoneID(t, ctx, conn, "CMB")
 	destination := pricingZoneID(t, ctx, conn, "KDY")
-	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: pricing.NewRepository(conn), AccessSecret: testSecret})
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Store: pricing.NewRepository(conn), AccessSecret: testSecret, SessionCheck: allowSessions()})
 	if err != nil {
 		t.Fatalf("build pricing router: %v", err)
 	}

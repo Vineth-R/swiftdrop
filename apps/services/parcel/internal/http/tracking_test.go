@@ -167,7 +167,7 @@ func ownedTrackingRequest(t *testing.T, router http.Handler, token string) *http
 func TestOwnedTrackingEnforcesIdentityAndRoles(t *testing.T) {
 	store := &scopeTrackingFixture{}
 	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
-		Tracking: store, AccessSecret: ownedTrackingSecret,
+		Tracking: store, AccessSecret: ownedTrackingSecret, SessionCheck: allowSessions(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +222,7 @@ func TestOwnedTrackingFailsClosedWithoutSecret(t *testing.T) {
 
 func TestOwnedTrackingRateLimit(t *testing.T) {
 	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
-		Tracking: &scopeTrackingFixture{}, AccessSecret: ownedTrackingSecret,
+		Tracking: &scopeTrackingFixture{}, AccessSecret: ownedTrackingSecret, SessionCheck: allowSessions(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +241,7 @@ func TestOwnedTrackingRateLimit(t *testing.T) {
 
 func TestOwnedTrackingResponseExposesOnlyPublicFields(t *testing.T) {
 	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
-		Tracking: trackingEventFixture{}, AccessSecret: ownedTrackingSecret,
+		Tracking: trackingEventFixture{}, AccessSecret: ownedTrackingSecret, SessionCheck: allowSessions(),
 	})
 	if err != nil {
 		t.Fatal(err)

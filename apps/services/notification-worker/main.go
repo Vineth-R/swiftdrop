@@ -23,6 +23,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
@@ -93,6 +94,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure notification admin router: %w", err)
 	}
+	registry := metrics.NewRegistry()
+	router.GET("/metrics", metrics.Handler(registry))
 	router.GET("/health", postgres.HealthHandler())
 	router.GET("/ready", postgres.ReadyHandler(database, postgres.DefaultReadyTimeout))
 
@@ -102,7 +105,7 @@ func run() error {
 
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
-		Handler:           router,
+		Handler:           metrics.NewHTTPHandler(registry, router),
 		Logger:            logger,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

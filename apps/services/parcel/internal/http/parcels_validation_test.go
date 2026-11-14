@@ -32,7 +32,7 @@ func testParcelInvalidTextRequestsReturn422(t *testing.T, oversized bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{AccessSecret: secret, InternalToken: "test-internal-token"})
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{AccessSecret: secret, SessionCheck: allowSessions(), InternalToken: "test-internal-token"})
 	if err != nil {
 		t.Fatal(err)
 	}

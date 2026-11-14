@@ -19,6 +19,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/live"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 )
 
 const (
@@ -241,6 +242,57 @@ func TestTokenFromTheCookie(t *testing.T) {
 	if got := read(t, conn); got["type"] != "subscribed" {
 		t.Fatalf("message = %v, want subscribed", got)
 	}
+}
+
+type sessionValidatorFunc func(context.Context, auth.Claims) error
+
+func (f sessionValidatorFunc) Check(ctx context.Context, claims auth.Claims) error {
+	return f(ctx, claims)
+}
+
+func TestRevokedSessionIsRefusedAtConnect(t *testing.T) {
+	server := newTestServer(t, func(options *Options) {
+		options.SessionValidator = sessionValidatorFunc(func(context.Context, auth.Claims) error {
+			return sessioncheck.ErrRevoked
+		})
+	})
+	conn := server.dial(t, "?token="+server.token(t, auth.RoleDispatcher), nil)
+	expectClose(t, conn, websocket.StatusCode(live.CloseTokenInvalid), 3*time.Second)
+}
+
+func TestUnavailableSessionCheckFailsClosedAtConnect(t *testing.T) {
+	server := newTestServer(t, func(options *Options) {
+		options.SessionValidator = sessionValidatorFunc(func(context.Context, auth.Claims) error {
+			return sessioncheck.ErrUnavailable
+		})
+	})
+	conn := server.dial(t, "?token="+server.token(t, auth.RoleDispatcher), nil)
+	expectClose(t, conn, websocket.StatusTryAgainLater, 3*time.Second)
+}
+
+func TestCurrentSessionConnects(t *testing.T) {
+	server := newTestServer(t, func(options *Options) {
+		options.SessionValidator = sessionValidatorFunc(func(context.Context, auth.Claims) error { return nil })
+	})
+	conn := server.dial(t, "?token="+server.token(t, auth.RoleDispatcher), nil)
+	subscribe(t, conn, trackingNumber)
+}
+
+func TestOpenConnectionIsClosedWhenSessionIsRevoked(t *testing.T) {
+	var calls int
+	server := newTestServer(t, func(options *Options) {
+		options.SessionCheckInterval = 50 * time.Millisecond
+		options.SessionValidator = sessionValidatorFunc(func(context.Context, auth.Claims) error {
+			calls++
+			if calls == 1 {
+				return nil
+			}
+			return sessioncheck.ErrRevoked
+		})
+	})
+	conn := server.dial(t, "?token="+server.token(t, auth.RoleCustomer), nil)
+	subscribe(t, conn, trackingNumber)
+	expectClose(t, conn, websocket.StatusCode(live.CloseTokenInvalid), 3*time.Second)
 }
 
 func TestInvalidTokenIsClosedWith4401(t *testing.T) {

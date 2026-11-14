@@ -20,6 +20,7 @@ func NewRouter(logger *slog.Logger) *gin.Engine {
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
 	router.Use(requestid.Middleware())
+	router.Use(CrossOriginMiddleware())
 	router.Use(RequestLogger(logger))
 	router.Use(Recovery(logger))
 	router.NoRoute(func(c *gin.Context) {

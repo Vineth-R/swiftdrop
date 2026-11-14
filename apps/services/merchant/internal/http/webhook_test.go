@@ -105,13 +105,15 @@ func (s *fakeStore) ListDeliveryAttempts(_ context.Context, _ string, f reposito
 // fakeCipher is reversible and visibly different from the plain text.
 type fakeCipher struct{}
 
-func (fakeCipher) Encrypt(s string) (string, error) { return "v1:" + s, nil }
+func (fakeCipher) Encrypt(s string) (string, error)           { return "v1:" + s, nil }
+func (fakeCipher) EncryptWithAAD(s, _ string) (string, error) { return "v1:" + s, nil }
 func (fakeCipher) Decrypt(s string) (string, error) {
 	if !strings.HasPrefix(s, "v1:") {
 		return "", errors.New("bad data")
 	}
 	return strings.TrimPrefix(s, "v1:"), nil
 }
+func (fakeCipher) DecryptWithAAD(s, _ string) (string, error) { return fakeCipher{}.Decrypt(s) }
 
 type fakeSender struct {
 	result webhookdelivery.Result

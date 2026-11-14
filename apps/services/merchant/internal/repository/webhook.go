@@ -23,7 +23,8 @@ type Webhook struct {
 	MerchantID string
 	URL        string
 	// SigningSecretEnc holds the UTF-8 bytes of the secretbox text
-	// ("v1:..."). Convert with string(...) before calling Decrypt.
+	// ("v2:<keyId>:..." for new rows, legacy "v1:..." for old rows). Convert
+	// with string(...) before decrypting with the merchant AAD.
 	SigningSecretEnc []byte
 	EventTypes       []string
 	IsActive         bool

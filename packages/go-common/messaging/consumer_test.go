@@ -752,3 +752,139 @@ func TestDialAMQPDoesNotLeakCredentialsInParseErrors(t *testing.T) {
 		t.Fatalf("dialAMQP error leaked the password: %v", err)
 	}
 }
+
+func TestConsumerHealthTracksReadinessLifecycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	health := NewHealth()
+	if state := health.State(); state != StateConnecting {
+		t.Fatalf("initial state = %q, want %q", state, StateConnecting)
+	}
+
+	calls := 0
+	c := consumer{
+		config:  ConsumerConfig{ReconnectMin: time.Millisecond, ReconnectMax: time.Millisecond, Health: health},
+		handler: handlerFunc(func(context.Context, Message) error { return nil }),
+		logger:  testLogger(io.Discard),
+		randN:   func(int64) int64 { return 0 },
+		consume: func(_ context.Context, _ ConsumerConfig, _ Handler, _ *slog.Logger, onReady func()) error {
+			calls++
+			onReady()
+			if health.State() != StateReady {
+				t.Fatalf("state while consuming = %q, want %q", health.State(), StateReady)
+			}
+			return errors.New("connection lost")
+		},
+		wait: func(_ context.Context, _ time.Duration) error {
+			if health.State() != StateReconnecting {
+				t.Fatalf("state before wait = %q, want %q", health.State(), StateReconnecting)
+			}
+			cancel()
+			return context.Canceled
+		},
+	}
+
+	if err := c.run(ctx); err != nil {
+		t.Fatalf("run() error = %v, want nil", err)
+	}
+	if calls != 1 {
+		t.Fatalf("consume calls = %d, want 1", calls)
+	}
+	snapshot := health.Snapshot()
+	if snapshot.State != StateStopped || snapshot.Ready {
+		t.Fatalf("final state = %q ready=%v, want stopped/not ready", snapshot.State, snapshot.Ready)
+	}
+	if snapshot.ConnectedAt.IsZero() {
+		t.Fatal("ConnectedAt was not recorded after reaching ready")
+	}
+	if snapshot.LastError == "" || snapshot.LastErrorAt.IsZero() {
+		t.Fatal("last error was not recorded")
+	}
+	if snapshot.Transitions < 4 {
+		t.Fatalf("transitions = %d, want at least 4", snapshot.Transitions)
+	}
+}
+
+func TestConsumerHealthStaysNotReadyWhileDialFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	health := NewHealth()
+	c := consumer{
+		config:  ConsumerConfig{ReconnectMin: time.Millisecond, ReconnectMax: time.Millisecond, Health: health},
+		handler: handlerFunc(func(context.Context, Message) error { return nil }),
+		logger:  testLogger(io.Discard),
+		randN:   func(int64) int64 { return 0 },
+		consume: func(context.Context, ConsumerConfig, Handler, *slog.Logger, func()) error {
+			return errors.New("dial failed")
+		},
+		wait: func(context.Context, time.Duration) error {
+			if health.Ready() {
+				t.Fatal("consumer reported ready while the broker was unreachable")
+			}
+			cancel()
+			return context.Canceled
+		},
+	}
+
+	if err := c.run(ctx); err != nil {
+		t.Fatalf("run() error = %v, want nil", err)
+	}
+	if health.Ready() {
+		t.Fatal("consumer reported ready after an unreachable broker")
+	}
+	if health.Snapshot().LastError == "" {
+		t.Fatal("dial failure was not recorded")
+	}
+}
+
+func TestHealthNilIsSafeAndReady(t *testing.T) {
+	var health *Health
+	if !health.Ready() {
+		t.Fatal("nil health should report ready")
+	}
+	health.store(StateReconnecting, "x")
+	if snapshot := health.Snapshot(); snapshot.State != StateReady || !snapshot.Ready {
+		t.Fatalf("nil health snapshot = %+v", snapshot)
+	}
+}
+
+func TestProcessorObserverRecordsOutcomes(t *testing.T) {
+	var processed, failed, retried int
+	observer := &Observer{
+		Processed: func(queue string, _ time.Duration) {
+			if queue != "test.queue" {
+				t.Fatalf("processed queue = %q", queue)
+			}
+			processed++
+		},
+		Failed: func(queue string, permanent bool) {
+			if queue != "test.queue" {
+				t.Fatalf("failed queue = %q", queue)
+			}
+			if !permanent {
+				t.Fatalf("expected permanent failure")
+			}
+			failed++
+		},
+		Retried: func(queue string) { retried++ },
+	}
+
+	publisher := &recordingPublisher{}
+	success := testProcessor(handlerFunc(func(context.Context, Message) error { return nil }), publisher, 3)
+	success.queue, success.observer = "test.queue", observer
+	success.handle(context.Background(), testDelivery(&recordingAcknowledger{}, []byte(`{}`)))
+
+	permanent := testProcessor(handlerFunc(func(context.Context, Message) error { return Permanent(errors.New("bad")) }), publisher, 3)
+	permanent.queue, permanent.observer = "test.queue", observer
+	permanent.handle(context.Background(), testDelivery(&recordingAcknowledger{}, []byte(`{}`)))
+
+	retryable := testProcessor(handlerFunc(func(context.Context, Message) error { return errors.New("temporary") }), publisher, 3)
+	retryable.queue, retryable.observer = "test.queue", observer
+	retryable.handle(context.Background(), testDelivery(&recordingAcknowledger{}, []byte(`{}`)))
+
+	if processed != 1 || failed != 1 || retried != 1 {
+		t.Fatalf("processed/failed/retried = %d/%d/%d, want 1/1/1", processed, failed, retried)
+	}
+}

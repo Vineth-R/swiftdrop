@@ -40,7 +40,7 @@ func photoHTTPRequest(t *testing.T, store ProofPhotoStore, role auth.Role, targe
 	gin.SetMode(gin.TestMode)
 	secret := strings.Repeat("s", 32)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	router, err := New(logger, Options{AccessSecret: secret, CourierProofPhoto: store})
+	router, err := New(logger, Options{AccessSecret: secret, SessionCheck: allowSessions(), CourierProofPhoto: store})
 	if err != nil {
 		t.Fatal(err)
 	}
