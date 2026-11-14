@@ -15,16 +15,23 @@
 //   REAL_STACK_DISPATCHER_EMAIL / REAL_STACK_DISPATCHER_PASSWORD
 //   REAL_STACK_CUSTOMER_EMAIL   / REAL_STACK_CUSTOMER_PASSWORD
 // Optional:
-//   WS_URL        default ws://localhost:8080/ws (through the gateway)
+//   WS_URL        default ws://localhost:8080/ws (ws:// or wss://)
 //   API_URL       default http://localhost:8080 (where /api/v1/auth/login is)
 //   GOOD_ORIGIN   default http://localhost:8080 (an origin the service allows)
 //   BAD_ORIGIN    default http://evil.example
 //   SKIP_PRIVACY  set to 1 to skip the privacy check, which runs
 //                 scripts/realtime-smoke.mjs (it needs Docker Compose)
+//   COMPOSE_PROJECT_NAME
+//                 the Compose project when it is not the default. The privacy
+//                 check passes it to realtime-smoke.mjs.
 // Exit code 0 when every check passed, 1 otherwise.
+//
+// See docs/realtime-verify.md for prerequisites, the 14 checks, side effects
+// and safe cleanup.
 import { randomBytes, randomInt } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import http from 'node:http';
+import https from 'node:https';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,7 +45,22 @@ const BAD_ORIGIN = process.env.BAD_ORIGIN || 'http://evil.example';
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const STEP_MS = 8000;
 
+let socketTarget;
+try {
+  socketTarget = new URL(WS_URL);
+} catch {
+  console.error('FAIL: WS_URL is not a valid URL');
+  process.exit(1);
+}
+if (socketTarget.protocol !== 'ws:' && socketTarget.protocol !== 'wss:') {
+  console.error(
+    `FAIL: WS_URL must use ws:// or wss:// (got ${socketTarget.protocol})`,
+  );
+  process.exit(1);
+}
+
 const results = [];
+const openSockets = new Set();
 
 function randomTracking() {
   let tail = '';
@@ -49,6 +71,70 @@ function randomTracking() {
 function record(area, check, expected, actual, pass) {
   results.push({ area, check, expected, actual, pass });
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${area}: ${check} (${actual})`);
+}
+
+/** A URL safe to print: no credentials and no query string (tokens). */
+function redactUrl(value) {
+  try {
+    const parsed = new URL(value);
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    return parsed.toString();
+  } catch {
+    return '<invalid URL>';
+  }
+}
+
+/** The socket URL with an optional token, without double `?` handling. */
+function socketUrlFor(token) {
+  const url = new URL(socketTarget);
+  if (token) url.searchParams.set('token', token);
+  return url.toString();
+}
+
+/**
+ * The smoke script reads POSTGRES_USER and POSTGRES_DB from the running
+ * postgres container, so it needs no demo passwords or database secrets. Pass
+ * only what it uses to reach Docker and select the Compose project.
+ */
+function smokeEnvironment(trackingNumber) {
+  const passthrough = [
+    'PATH',
+    'PATHEXT',
+    'HOME',
+    'USERPROFILE',
+    'SystemRoot',
+    'WINDIR',
+    'ComSpec',
+    'TEMP',
+    'TMP',
+    'TMPDIR',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'DOCKER_HOST',
+    'DOCKER_CONFIG',
+    'DOCKER_CONTEXT',
+    'COMPOSE_PROJECT_NAME',
+    'COMPOSE_FILE',
+    'COMPOSE_PROFILES',
+  ];
+  const env = { WS_URL, TRACKING: trackingNumber };
+  for (const key of passthrough) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  return env;
+}
+
+function closeSockets() {
+  for (const socket of openSockets) {
+    try {
+      socket.close();
+    } catch {
+      // Already closed.
+    }
+  }
+  openSockets.clear();
 }
 
 async function login(emailVar, passwordVar) {
@@ -83,8 +169,9 @@ async function login(emailVar, passwordVar) {
  * wait(predicate) resolves when the predicate holds, or after STEP_MS.
  */
 function connect(token) {
-  const url = token ? `${WS_URL}?token=${encodeURIComponent(token)}` : WS_URL;
+  const url = socketUrlFor(token);
   const socket = new WebSocket(url);
+  openSockets.add(socket);
   const state = { messages: [], closed: null, opened: false };
   socket.addEventListener('open', () => {
     state.opened = true;
@@ -98,6 +185,7 @@ function connect(token) {
   });
   socket.addEventListener('close', (event) => {
     state.closed = { code: event.code, reason: event.reason };
+    openSockets.delete(socket);
   });
   socket.addEventListener('error', () => {
     // A refused handshake also ends in a close event; nothing else to do.
@@ -127,13 +215,21 @@ const hasType = (type) => (state) =>
   state.messages.some((message) => message.type === type);
 const wasClosed = (state) => state.closed !== null;
 
-/** A raw upgrade request, so the Origin header can be chosen. */
+/**
+ * A raw upgrade request, so the Origin header can be chosen. `ws://` uses
+ * node:http and `wss://` uses node:https with the default CA verification; a
+ * TLS error is reported verbatim so a certificate problem is not mistaken for
+ * a rejected origin.
+ */
 function upgradeStatus(origin) {
   return new Promise((resolve) => {
-    const target = new URL(WS_URL.replace(/^ws/, 'http'));
-    const request = http.request({
+    const target = new URL(socketTarget);
+    target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:';
+    const secure = target.protocol === 'https:';
+    const transport = secure ? https : http;
+    const request = transport.request({
       host: target.hostname,
-      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      port: target.port || (secure ? 443 : 80),
       path: target.pathname,
       headers: {
         Connection: 'Upgrade',
@@ -151,15 +247,20 @@ function upgradeStatus(origin) {
       socket.destroy();
       resolve(response.statusCode);
     });
-    request.on('response', (response) => done(response.statusCode));
-    request.on('error', () => done('connection error'));
+    request.on('response', (response) => {
+      response.resume();
+      done(response.statusCode);
+    });
+    request.on('error', (error) => {
+      done(error?.code ? `error ${error.code}` : 'connection error');
+    });
     request.setTimeout(STEP_MS, () => done('timeout'));
     request.end();
   });
 }
 
 async function main() {
-  console.log(`Realtime verification against ${WS_URL}\n`);
+  console.log(`Realtime verification against ${redactUrl(WS_URL)}\n`);
 
   const dispatcherToken = await login(
     'REAL_STACK_DISPATCHER_EMAIL',
@@ -408,21 +509,36 @@ async function main() {
     console.log('SKIP  Privacy: SKIP_PRIVACY=1');
   } else {
     const here = dirname(fileURLToPath(import.meta.url));
+    const privacyTracking = randomTracking();
     const smoke = spawnSync(
       process.execPath,
       [join(here, 'realtime-smoke.mjs')],
-      { env: { ...process.env, WS_URL }, encoding: 'utf8', timeout: 60_000 },
+      {
+        env: smokeEnvironment(privacyTracking),
+        encoding: 'utf8',
+        timeout: 60_000,
+        killSignal: 'SIGTERM',
+      },
     );
     const lastLine = `${smoke.stdout || ''}${smoke.stderr || ''}`
       .trim()
       .split(/\r?\n/)
       .pop();
+    const detail =
+      smoke.status === 0
+        ? 'passed'
+        : `failed: ${lastLine || smoke.signal || 'unknown'}`;
     record(
       'Privacy',
       'an update with private fields in the event carries only the four public ones',
       'realtime-smoke passes',
-      smoke.status === 0 ? 'passed' : `failed: ${lastLine}`,
+      detail,
       smoke.status === 0,
+    );
+    // Keep the synthetic identifier visible so an operator can find the one
+    // outbox row or dead-lettered notification this check may leave behind.
+    console.log(
+      `Privacy synthetic tracking number: ${privacyTracking} (see docs/realtime-verify.md)`,
     );
   }
 
@@ -449,10 +565,19 @@ async function main() {
   console.log(
     `\n${results.length - failed} of ${results.length} checks passed.`,
   );
-  process.exit(failed === 0 ? 0 : 1);
+  return failed;
 }
 
-main().catch((error) => {
-  console.error(`FAIL: ${error instanceof Error ? error.message : error}`);
-  process.exit(1);
-});
+function finish(code) {
+  closeSockets();
+  process.exitCode = code;
+  // A socket that ignores the close handshake must not hang the script.
+  setTimeout(() => process.exit(code), 2000).unref();
+}
+
+main()
+  .then((failed) => finish(failed === 0 ? 0 : 1))
+  .catch((error) => {
+    console.error(`FAIL: ${error instanceof Error ? error.message : error}`);
+    finish(1);
+  });
