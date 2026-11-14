@@ -687,8 +687,13 @@ func (f *fakeMerchantAPI) attempts() []webhookevents.Attempt {
 
 func startConsumer(t *testing.T, ctx context.Context, rabbitURL, exchange, queue string, handler messaging.Handler, logger *slog.Logger) {
 	t.Helper()
+	startConsumerWithRoutingKey(t, ctx, rabbitURL, exchange, queue, routingKey, handler, logger)
+}
+
+func startConsumerWithRoutingKey(t *testing.T, ctx context.Context, rabbitURL, exchange, queue, key string, handler messaging.Handler, logger *slog.Logger) {
+	t.Helper()
 	config := messaging.ConsumerConfig{
-		URL: rabbitURL, Exchange: exchange, Queue: queue, RoutingKey: routingKey,
+		URL: rabbitURL, Exchange: exchange, Queue: queue, RoutingKey: key,
 		Prefetch: 1, HandlerTimeout: 10 * time.Second, MaxRetries: 1, RetryDelay: time.Second,
 		ReconnectMin: 100 * time.Millisecond, ReconnectMax: time.Second,
 	}
