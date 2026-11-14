@@ -215,3 +215,51 @@ func TestOutboxRelayDoesNotStealFreshClaim(t *testing.T) {
 		t.Errorf("status = %s, want PENDING", got)
 	}
 }
+
+// TestOutboxRelayDoesNotPublishAfterLostClaim proves the per-event claim refresh
+// closes the slow-publish window: when another replica has reclaimed a row that
+// was still waiting in the batch, the original relay detects the changed token
+// and skips the publish instead of duplicating it.
+func TestOutboxRelayDoesNotPublishAfterLostClaim(t *testing.T) {
+	pool, _ := newIsolatedDatabase(t)
+
+	ids := insertPendingOutbox(t, pool, 2)
+	store := parcelevents.NewSQLStore(pool)
+
+	published := map[string]int{}
+	stolen := ""
+	handler := func(event parcelevents.Event) error {
+		published[event.ID]++
+		if stolen == "" {
+			// Simulate another replica reclaiming the other row that is still
+			// waiting its turn in this batch.
+			stolen = ids[1]
+			if event.ID == ids[1] {
+				stolen = ids[0]
+			}
+			if _, err := pool.Exec(t.Context(), `UPDATE parcel.outbox_events
+				SET claim_token = gen_random_uuid(), claimed_at = now()
+				WHERE id = $1`, stolen); err != nil {
+				return fmt.Errorf("simulate reclaim: %w", err)
+			}
+		}
+		return nil
+	}
+
+	processed, err := store.ProcessPending(t.Context(), 2, handler)
+	if err != nil {
+		t.Fatalf("ProcessPending: %v", err)
+	}
+	if processed != 1 {
+		t.Errorf("processed = %d, want 1 (the reclaimed row is not ours)", processed)
+	}
+	if stolen == "" {
+		t.Fatal("the handler did not run")
+	}
+	if published[stolen] != 0 {
+		t.Errorf("reclaimed event published %d times, want 0", published[stolen])
+	}
+	if got := scalar(t, pool, "SELECT status FROM parcel.outbox_events WHERE id='"+stolen+"'"); got != "PENDING" {
+		t.Errorf("reclaimed event status = %s, want PENDING", got)
+	}
+}

@@ -23,6 +23,9 @@ type Publisher = outbox.Publisher
 // Store is the outbox storage seam.
 type Store = outbox.Store
 
+// Event is one outbox row as the relay sees it.
+type Event = outbox.Event
+
 // RelayOptions configures the real outbox relay.
 type RelayOptions = outbox.RelayOptions
 

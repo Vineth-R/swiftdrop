@@ -182,6 +182,26 @@ func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(e
 			continue
 		}
 
+		// Refresh the claim immediately before publishing. A batch is claimed at
+		// one instant, so a slow broker could otherwise let the claim on a row
+		// that is still waiting its turn age past claimStaleAfter and be reclaimed
+		// by another replica. The refresh resets the window, and the token check
+		// means a relay that has already lost the claim skips the publish instead
+		// of producing a duplicate.
+		const refreshClaimSQL = `
+			UPDATE parcel.outbox_events
+			SET claimed_at = now()
+			WHERE id = $1 AND claim_token = $2 AND status = 'PENDING'`
+		tag, err := s.pool.Exec(ctx, refreshClaimSQL, event.ID, event.claimToken)
+		if err != nil {
+			return processed, fmt.Errorf("refresh outbox claim: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			// Another relay reclaimed this row while it waited in the batch. It
+			// owns the publish now; publishing here would duplicate the event.
+			continue
+		}
+
 		pubErr := handler(event.Event)
 		if errors.Is(pubErr, ErrSkip) {
 			// Release the claim without touching attempts; the relay's own
