@@ -619,7 +619,7 @@ jobs:
             case "$service" in
               identity) expected=6 ;;
               pricing) expected=2 ;;
-              parcel) expected=6 ;;
+              parcel) expected=7 ;;
               merchant) expected=11 ;;
               notification) expected=2 ;;
               *) echo "::error::unexpected migration service ${service}"; exit 1 ;;
