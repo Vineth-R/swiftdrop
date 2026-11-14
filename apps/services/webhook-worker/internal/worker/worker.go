@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Vineth-R/swiftdrop/packages/go-common/eventschema"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/webhookdelivery"
 )
@@ -93,6 +94,9 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 	}
 	if err := envelope.Validate(); err != nil {
 		return messaging.Permanent(fmt.Errorf("validate event envelope: %w", err))
+	}
+	if err := eventschema.Validate(message.Body); err != nil {
+		return messaging.Permanent(fmt.Errorf("validate event payload: %w", err))
 	}
 	if envelope.Type != EventType {
 		return messaging.Permanent(fmt.Errorf("unsupported event type %q", envelope.Type))

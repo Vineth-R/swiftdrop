@@ -1298,3 +1298,31 @@ components:
               message: webhook settings are not configured
             meta:
               requestId: req_01
+    BadRequest:
+      description: 'BAD_REQUEST. The request body or query parameters are malformed.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: BAD_REQUEST
+              message: request body must be valid JSON
+            meta:
+              requestId: req_01
+    RateLimited:
+      description: 'RATE_LIMITED. The caller exceeded the endpoint budget; Retry-After gives the wait.'
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: RATE_LIMITED
+              message: too many requests
+            meta:
+              requestId: req_01

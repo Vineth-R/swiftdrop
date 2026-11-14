@@ -11,7 +11,7 @@ MIGRATE_RUN = docker run --rm \
 	-e DATABASE_URL -e DATABASE_URL_DIRECT -e APP_ENV -e ALLOW_PRODUCTION_ROLLBACK -e MIGRATE_SERVICES \
 	$(MIGRATE_IMAGE)
 
-.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed seed-parcels seed-demo check-routes test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview seed-merchant
+.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed seed-parcels seed-demo check-routes check-openapi test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview seed-merchant
 
 help:
 	@echo "Targets:"
@@ -242,6 +242,9 @@ db-reset:
 	@echo "waiting for postgres to become healthy"
 	@until [ "$$(docker inspect -f '{{.State.Health.Status}}' "$$($(COMPOSE) ps -q postgres)")" = "healthy" ]; do sleep 1; done
 	$(MAKE) migrate
+
+check-openapi:
+	node --test "tests/contracts/openapi.test.mjs"
 
 test:
 	go test -race -count=1 ./...

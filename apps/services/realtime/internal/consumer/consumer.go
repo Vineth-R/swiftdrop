@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/live"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/eventschema"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
 
@@ -123,6 +124,9 @@ func (h *Handler) Handle(_ context.Context, message messaging.Message) error {
 	if err := envelope.Validate(); err != nil {
 		return messaging.Permanent(fmt.Errorf("invalid envelope: %w", err))
 	}
+	if err := eventschema.Validate(message.Body); err != nil {
+		return messaging.Permanent(fmt.Errorf("invalid event payload: %w", err))
+	}
 	if envelope.Type != EventType {
 		return messaging.Permanent(fmt.Errorf("unexpected event type %q", envelope.Type))
 	}
@@ -189,6 +193,9 @@ func (h *AssignmentHandler) Handle(_ context.Context, message messaging.Message)
 	}
 	if err := envelope.Validate(); err != nil {
 		return messaging.Permanent(fmt.Errorf("invalid envelope: %w", err))
+	}
+	if err := eventschema.Validate(message.Body); err != nil {
+		return messaging.Permanent(fmt.Errorf("invalid event payload: %w", err))
 	}
 	if envelope.Type != AssignmentEventType {
 		return messaging.Permanent(fmt.Errorf("unexpected event type %q", envelope.Type))

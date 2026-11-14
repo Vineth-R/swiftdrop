@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/eventschema"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
@@ -57,6 +58,9 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 	}
 	if err := envelope.Validate(); err != nil {
 		return messaging.Permanent(fmt.Errorf("validate merchant sync envelope: %w", err))
+	}
+	if err := eventschema.Validate(message.Body); err != nil {
+		return messaging.Permanent(fmt.Errorf("validate merchant sync payload: %w", err))
 	}
 	if envelope.Type != eventType {
 		return messaging.Permanent(fmt.Errorf("unsupported event type %q", envelope.Type))

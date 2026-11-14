@@ -10,8 +10,8 @@ info:
     probes. Creation atomically stores parcel, initial history and PENDING outbox data;
     courier status updates lock the parcel, verify the current assignment and commit the
     parcel, history and PENDING outbox row in one transaction. The M6 relay publishes
-    versioned domain events after commit. Proof uploads and the remaining courier
-    lifecycle writes remain planned. Public tracking exposes only status, cities and
+    versioned domain events after commit. Private proof uploads and short-lived or
+    authorized photo reads are implemented. Public tracking exposes only status, cities and
     timeline timestamps; authenticated tracking is ownership-scoped and returns the same
     allowlist, with DISPATCHER/ADMIN operational access.
 servers:

@@ -483,6 +483,9 @@ jobs:
       - name: Validate event contracts
         run: node --test "tests/contracts/*.test.mjs"
 
+      - name: Validate OpenAPI contracts
+        run: node --test "tests/contracts/openapi.test.mjs"
+
       - name: Test web unit suite
         run: pnpm exec nx test @org/web --skip-nx-cache
 
@@ -805,11 +808,15 @@ jobs:
               - 'apps/web/**'
               - 'apps/web-e2e/**'
               - 'apps/services/identity/**'
-              - 'apps/services/merchant/**'
+              - 'apps/services/parcel/**'
               - 'apps/services/pricing/**'
+              - 'apps/services/merchant/**'
+              - 'apps/services/realtime/**'
+              - 'apps/services/notification-worker/**'
+              - 'apps/services/webhook-worker/**'
+              - 'apps/services/ai-assistant/**'
               - 'packages/**'
-              - 'migrations/identity/**'
-              - 'migrations/merchant/**'
+              - 'migrations/**'
               - 'contracts/**'
               - 'docker-compose.yml'
               - 'infra/docker/**'

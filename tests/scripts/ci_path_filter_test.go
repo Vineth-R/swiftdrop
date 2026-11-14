@@ -267,7 +267,14 @@ func TestCIPathFiltersRouteRealStackChanges(t *testing.T) {
 		{"compose", []string{"docker-compose.yml"}, true},
 		{"shared package", []string{"packages/go-common/auth/token.go"}, true},
 		{"readme only", []string{"README.md"}, false},
-		{"parcel source", []string{"apps/services/parcel/internal/http/parcels.go"}, false},
+		{"parcel source", []string{"apps/services/parcel/internal/http/parcels.go"}, true},
+		{"realtime source", []string{"apps/services/realtime/internal/ws/handler.go"}, true},
+		{"notification worker source", []string{"apps/services/notification-worker/internal/worker/worker.go"}, true},
+		{"webhook worker source", []string{"apps/services/webhook-worker/internal/worker/worker.go"}, true},
+		{"ai assistant source", []string{"apps/services/ai-assistant/internal/http/router.go"}, true},
+		{"parcel migration", []string{"migrations/parcel/000007_outbox_claim.up.sql"}, true},
+		{"pricing migration", []string{"migrations/pricing/000002_tables.up.sql"}, true},
+		{"notification migration", []string{"migrations/notification/000002_tables.up.sql"}, true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
