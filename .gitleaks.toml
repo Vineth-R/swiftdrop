@@ -129,3 +129,19 @@ paths = [
 regexes = [
   '''routingKey == "parcel\.''',
 ]
+
+# The realtime assignment consumer names the parcel.assigned.v1 routing key in
+# its configuration and the local environment template. It is a versioned event
+# name, not a credential, and the same string already exists in the approved
+# event contract.
+[[rules.allowlists]]
+description = "Realtime assignment routing key is an event name"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^apps/services/realtime/internal/config/config\.go$''',
+  '''^\.env\.example$''',
+]
+regexes = [
+  '''REALTIME_ASSIGNED_ROUTING_KEY''',
+]
