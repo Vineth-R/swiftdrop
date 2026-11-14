@@ -690,6 +690,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 - [`migrations/README.md`](migrations/README.md): migration conventions and commands.
 - [`docs/neon-production.md`](docs/neon-production.md): Neon PostgreSQL, data migration, cutover, and GitHub environment setup.
 - [`docs/delivery-proof-storage.md`](docs/delivery-proof-storage.md): private proof storage, presigned downloads, local S3-compatible storage, and reconciliation.
+- [`docs/realtime-verify.md`](docs/realtime-verify.md): operator-run WebSocket verification for API v1.1 section 9, including its synthetic-event side effects and cleanup.
 - [`infra/nginx/README.md`](infra/nginx/README.md): local edge routing.
 - [`tests/integration/README.md`](tests/integration/README.md): RabbitMQ and PostgreSQL integration test setup.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): development and review workflow.

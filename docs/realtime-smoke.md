@@ -4,6 +4,11 @@ Follows one synthetic outbox row through the realtime path on a real stack:
 
 `parcel.outbox_events` → parcel relay → RabbitMQ → realtime consumer → WebSocket.
 
+For the full API v1.1 section 9 surface (authorization, subscription and
+message limits, message validation, the browser origin check and the
+public-field projection), use [`realtime-verify.md`](realtime-verify.md). That
+script runs this smoke check as its privacy step.
+
 It verifies:
 
 - synthetic outbox insertion;
