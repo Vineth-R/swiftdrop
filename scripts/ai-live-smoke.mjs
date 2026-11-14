@@ -8,7 +8,10 @@ if (process.env.AI_LIVE_SMOKE !== '1') {
   console.error('set AI_LIVE_SMOKE=1 to run the live provider smoke test');
   process.exit(2);
 }
-const base = (process.env.BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+const base = (process.env.BASE_URL || 'http://localhost:8080').replace(
+  /\/$/,
+  '',
+);
 const response = await fetch(`${base}/api/v1/ai/chat`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -16,7 +19,9 @@ const response = await fetch(`${base}/api/v1/ai/chat`, {
 });
 const text = await response.text();
 if (!response.ok) {
-  console.error(`AI live smoke failed: HTTP ${response.status}: ${text.slice(0, 300)}`);
+  console.error(
+    `AI live smoke failed: HTTP ${response.status}: ${text.slice(0, 300)}`,
+  );
   process.exit(1);
 }
 console.log(`AI live smoke passed: HTTP ${response.status}`);

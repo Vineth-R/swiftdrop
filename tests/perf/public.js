@@ -3,8 +3,10 @@ import { check, sleep } from 'k6';
 
 const base = __ENV.BASE_URL || 'http://localhost:8080';
 const tracking = __ENV.TRACKING_NUMBER || 'SDKUWNZTH2U';
-const originZone = __ENV.ORIGIN_ZONE_ID || 'd273dcb3-8456-4574-a84a-ea568d5691f7';
-const destinationZone = __ENV.DESTINATION_ZONE_ID || 'd0789d9e-c5a9-4477-8621-4b7cc9b39ef9';
+const originZone =
+  __ENV.ORIGIN_ZONE_ID || 'd273dcb3-8456-4574-a84a-ea568d5691f7';
+const destinationZone =
+  __ENV.DESTINATION_ZONE_ID || 'd0789d9e-c5a9-4477-8621-4b7cc9b39ef9';
 
 export const options = {
   vus: Number(__ENV.VUS || 5),
@@ -21,7 +23,12 @@ export default function () {
 
   const estimate = http.post(
     `${base}/api/v1/pricing/estimate`,
-    JSON.stringify({ originZoneId: originZone, destinationZoneId: destinationZone, weightKg: 2, sizeCategory: 'SMALL' }),
+    JSON.stringify({
+      originZoneId: originZone,
+      destinationZoneId: destinationZone,
+      weightKg: 2,
+      sizeCategory: 'SMALL',
+    }),
     { headers: { 'Content-Type': 'application/json' } },
   );
   check(estimate, { 'pricing estimate 200': (r) => r.status === 200 });

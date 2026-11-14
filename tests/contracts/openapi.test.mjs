@@ -12,9 +12,19 @@ const specs = readdirSync(contractDir)
 const criticalPaths = {
   'identity.yaml': ['/auth/login', '/users/me', '/admin/users'],
   'identity-internal.yaml': ['/internal/users/{userId}/session-state'],
-  'parcel.yaml': ['/parcels', '/tracking/{trackingNumber}', '/dispatch/unassigned', '/courier/deliveries', '/reports/daily'],
+  'parcel.yaml': [
+    '/parcels',
+    '/tracking/{trackingNumber}',
+    '/dispatch/unassigned',
+    '/courier/deliveries',
+    '/reports/daily',
+  ],
   'pricing.yaml': ['/pricing/estimate', '/zones', '/admin/pricing/rules'],
-  'merchant.yaml': ['/merchant/orders', '/merchants/me/webhook', '/admin/merchants'],
+  'merchant.yaml': [
+    '/merchant/orders',
+    '/merchants/me/webhook',
+    '/admin/merchants',
+  ],
   'merchant-internal.yaml': ['/internal/merchants/{merchantId}/webhook'],
   'notification.yaml': ['/admin/notification-logs'],
   'ai-assistant.yaml': ['/ai/chat'],
@@ -43,7 +53,8 @@ function resolvePointer(spec, ref) {
   let current = spec;
   for (const part of ref.slice(2).split('/')) {
     const decoded = part.replaceAll('~1', '/').replaceAll('~0', '~');
-    if (!current || typeof current !== 'object' || !(decoded in current)) return false;
+    if (!current || typeof current !== 'object' || !(decoded in current))
+      return false;
     current = current[decoded];
   }
   return true;
@@ -54,12 +65,22 @@ test('every OpenAPI specification parses and has the required top-level shape', 
   for (const name of specs) {
     const spec = loadSpec(name);
     assert.ok(spec, `${name} did not parse`);
-    assert.match(String(spec.openapi), /^3\.0\./, `${name} must use OpenAPI 3.0.x`);
+    assert.match(
+      String(spec.openapi),
+      /^3\.0\./,
+      `${name} must use OpenAPI 3.0.x`,
+    );
     assert.ok(spec.info?.title, `${name} is missing info.title`);
     assert.ok(spec.info?.version, `${name} is missing info.version`);
-    assert.ok(spec.paths && typeof spec.paths === 'object', `${name} is missing paths`);
+    assert.ok(
+      spec.paths && typeof spec.paths === 'object',
+      `${name} is missing paths`,
+    );
     assert.ok(Object.keys(spec.paths).length > 0, `${name} has no paths`);
-    assert.ok(Array.isArray(spec.servers) && spec.servers.length > 0, `${name} is missing servers`);
+    assert.ok(
+      Array.isArray(spec.servers) && spec.servers.length > 0,
+      `${name} is missing servers`,
+    );
   }
 });
 
@@ -68,15 +89,44 @@ test('every path and operation has a usable operation id and responses', () => {
     const spec = loadSpec(name);
     const seen = new Set();
     for (const [path, item] of Object.entries(spec.paths)) {
-      assert.ok(path.startsWith('/'), `${name}: path ${path} must start with /`);
-      assert.ok(item && typeof item === 'object', `${name}: ${path} is not an object`);
+      assert.ok(
+        path.startsWith('/'),
+        `${name}: path ${path} must start with /`,
+      );
+      assert.ok(
+        item && typeof item === 'object',
+        `${name}: ${path} is not an object`,
+      );
       for (const [method, operation] of Object.entries(item)) {
-        if (!['get', 'post', 'put', 'patch', 'delete', 'head', 'options'].includes(method)) continue;
-        assert.ok(operation && typeof operation === 'object', `${name}: ${method} ${path} is invalid`);
-        assert.ok(operation.operationId, `${name}: ${method} ${path} has no operationId`);
-        assert.ok(!seen.has(operation.operationId), `${name}: duplicate operationId ${operation.operationId}`);
+        if (
+          ![
+            'get',
+            'post',
+            'put',
+            'patch',
+            'delete',
+            'head',
+            'options',
+          ].includes(method)
+        )
+          continue;
+        assert.ok(
+          operation && typeof operation === 'object',
+          `${name}: ${method} ${path} is invalid`,
+        );
+        assert.ok(
+          operation.operationId,
+          `${name}: ${method} ${path} has no operationId`,
+        );
+        assert.ok(
+          !seen.has(operation.operationId),
+          `${name}: duplicate operationId ${operation.operationId}`,
+        );
         seen.add(operation.operationId);
-        assert.ok(operation.responses && Object.keys(operation.responses).length > 0, `${name}: ${method} ${path} has no responses`);
+        assert.ok(
+          operation.responses && Object.keys(operation.responses).length > 0,
+          `${name}: ${method} ${path} has no responses`,
+        );
       }
     }
   }
@@ -105,10 +155,24 @@ test('realtime documents the implemented WebSocket, not a future placeholder', (
   const spec = loadSpec('realtime.yaml');
   assert.ok(spec.paths['/ws']?.get, 'realtime /ws GET is missing');
   const text = JSON.stringify(spec);
-  for (const message of ['subscribe', 'unsubscribe', 'ping', 'subscribed', 'parcel.status.updated', 'parcel.assigned.updated', 'error']) {
-    assert.ok(text.includes(message), `realtime contract does not mention ${message}`);
+  for (const message of [
+    'subscribe',
+    'unsubscribe',
+    'ping',
+    'subscribed',
+    'parcel.status.updated',
+    'parcel.assigned.updated',
+    'error',
+  ]) {
+    assert.ok(
+      text.includes(message),
+      `realtime contract does not mention ${message}`,
+    );
   }
   for (const check of ['consumer.status_changed', 'consumer.assigned']) {
-    assert.ok(text.includes(check), `realtime readiness contract does not mention ${check}`);
+    assert.ok(
+      text.includes(check),
+      `realtime readiness contract does not mention ${check}`,
+    );
   }
 });

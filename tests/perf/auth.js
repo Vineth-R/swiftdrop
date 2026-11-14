@@ -13,7 +13,9 @@ export const options = {
 
 export function setup() {
   if (!email || !password) {
-    fail('PERF_EMAIL and PERF_PASSWORD are required for the authentication scenario');
+    fail(
+      'PERF_EMAIL and PERF_PASSWORD are required for the authentication scenario',
+    );
   }
 }
 
@@ -25,7 +27,8 @@ export default function () {
   );
   check(response, {
     'login 200': (r) => r.status === 200,
-    'session cookies set': (r) => String(r.headers['Set-Cookie'] || '').includes('sd_access='),
+    'session cookies set': (r) =>
+      String(r.headers['Set-Cookie'] || '').includes('sd_access='),
   });
   sleep(6);
 }

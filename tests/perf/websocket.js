@@ -13,12 +13,16 @@ export const options = {
 export default function () {
   const response = ws.connect(`${wsBase}/ws`, {}, (socket) => {
     socket.on('open', () => {
-      socket.send(JSON.stringify({ type: 'subscribe', trackingNumber: tracking }));
+      socket.send(
+        JSON.stringify({ type: 'subscribe', trackingNumber: tracking }),
+      );
       socket.setTimeout(() => socket.close(), 5000);
     });
     socket.on('message', (data) => {
       const message = JSON.parse(data);
-      check(message, { 'subscription confirmed': (m) => m.type === 'subscribed' });
+      check(message, {
+        'subscription confirmed': (m) => m.type === 'subscribed',
+      });
     });
     socket.on('error', (error) => {
       check(error, { 'websocket error': () => false });
