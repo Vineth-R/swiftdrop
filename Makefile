@@ -107,8 +107,12 @@ build: preflight
 	done
 
 up: preflight require-images
-	$(COMPOSE) up -d --no-build --wait --wait-timeout 300
+	# Start only the dependencies first: readiness now requires the outbox relay
+	# and worker consumers, which need the migrated schemas before they can
+	# become healthy.
+	$(COMPOSE) up -d --no-build --wait --wait-timeout 300 postgres rabbitmq mailpit
 	$(MAKE) migrate
+	$(COMPOSE) up -d --no-build --wait --wait-timeout 300
 	$(MAKE) check-routes
 
 up-build: preflight build

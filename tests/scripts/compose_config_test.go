@@ -36,3 +36,25 @@ func TestComposeMerchantReceivesWebhookKeyringSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestComposeWorkerHealthchecksUseProcessAndReadinessChecks(t *testing.T) {
+	compose, err := os.ReadFile("../../docker-compose.yml")
+	if err != nil {
+		t.Fatalf("read docker-compose.yml: %v", err)
+	}
+	text := string(compose)
+	if strings.Contains(text, "pgrep -f /usr/local/bin/service") {
+		t.Fatal("worker healthcheck matches the healthcheck shell command line")
+	}
+	if !strings.Contains(text, "pgrep -x /usr/local/bin/service") {
+		t.Fatal("notification worker healthcheck does not identify the service process")
+	}
+	for _, want := range []string{
+		"http://127.0.0.1:8086/ready",
+		"http://127.0.0.1:8088/ready",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("worker readiness healthcheck is missing %s", want)
+		}
+	}
+}

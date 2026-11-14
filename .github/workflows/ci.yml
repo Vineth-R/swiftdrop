@@ -86,7 +86,8 @@ jobs:
             echo "::error::Worker healthchecks must match the service process, not the healthcheck shell command line."
             exit 1
           fi
-          test "$(grep -c 'pgrep -x /usr/local/bin/service' docker-compose.yml)" -ge 2
+          grep -q 'wget -qO- http://127.0.0.1:8088/ready' docker-compose.yml
+          test "$(grep -c 'pgrep -x /usr/local/bin/service' docker-compose.yml)" -ge 1
 
   go-security:
     name: Go vulnerability scan
@@ -992,11 +993,14 @@ jobs:
       - name: Build all images
         run: make build
 
-      - name: Start the stack
-        run: docker compose up -d --no-build --wait --wait-timeout 600
+      - name: Start migration dependencies
+        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit
 
       - name: Apply database migrations
         run: make migrate
+
+      - name: Start the stack
+        run: docker compose up -d --no-build --wait --wait-timeout 600
 
       - name: Verify database baseline
         run: make db-verify
@@ -1060,11 +1064,14 @@ jobs:
       - name: Build all images
         run: make build
 
-      - name: Start the stack
-        run: docker compose up -d --no-build --wait --wait-timeout 600
+      - name: Start migration dependencies
+        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit
 
       - name: Apply database migrations
         run: make migrate
+
+      - name: Start the stack
+        run: docker compose up -d --no-build --wait --wait-timeout 600
 
       - name: Seed the real-stack demo accounts
         run: |
@@ -1365,11 +1372,14 @@ jobs:
       - name: Build all images
         run: make build
 
-      - name: Start the stack
-        run: docker compose up -d --no-build --wait --wait-timeout 600
+      - name: Start migration dependencies
+        run: docker compose up -d --wait --wait-timeout 300 postgres rabbitmq mailpit
 
       - name: Apply database migrations
         run: make migrate
+
+      - name: Start the stack
+        run: docker compose up -d --no-build --wait --wait-timeout 600
 
       - name: Verify database baseline
         run: make db-verify

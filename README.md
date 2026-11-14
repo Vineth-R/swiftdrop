@@ -127,9 +127,10 @@ make up-build
 `make up-build` builds all images and then runs the full startup workflow. `make up`:
 
 1. validates configuration (`preflight`);
-2. starts the existing images and waits for health checks;
+2. starts PostgreSQL, RabbitMQ and Mailpit and waits for their health checks;
 3. applies all five service migrations;
-4. runs `scripts/check-routes.sh` against the actual published Nginx port.
+4. starts the existing application images and waits for readiness;
+5. runs `scripts/check-routes.sh` against the actual published Nginx port.
 
 Open <http://localhost:8080/>. Mailpit is at <http://localhost:8025/> and RabbitMQ management at <http://localhost:15672/>. The first build can take several minutes.
 
@@ -146,7 +147,7 @@ If `.env` is missing and required variables are not exported, or `JWT_ACCESS_SEC
 | Command                        | What it does                                                                  |
 | ------------------------------ | ----------------------------------------------------------------------------- |
 | `make build`                   | Build all application images; does not start containers                       |
-| `make up`                      | Start existing images, wait for health, migrate, verify routes                |
+| `make up`                      | Start dependencies, migrate, start services, verify routes                    |
 | `make up-build`                | Build images, then run the full `make up` workflow                            |
 | `docker compose up --build -d` | Start only; **builds but does not migrate**                                   |
 | `make migrate`                 | Apply all service migrations (uses `DATABASE_URL_DIRECT` when set)            |
@@ -496,7 +497,7 @@ make up-build    # first run or after changing source code
 make up          # subsequent runs, reusing built images
 ```
 
-`make up-build` builds the images and then runs the full startup workflow. `make up` starts the existing images, waits for health checks, applies migrations, and verifies gateway routes without rebuilding. Plain `docker compose up --build -d` starts the same stack but does **not** migrate; run `make migrate` afterwards. Nginx waits for its web and HTTP service dependencies to become healthy before starting. Endpoints:
+`make up-build` builds the images and then runs the full startup workflow. `make up` starts the migration dependencies, applies migrations, starts the existing images and waits for readiness, then verifies gateway routes without rebuilding. Plain `docker compose up --build -d` starts the same stack but does **not** migrate; run `make migrate` afterwards. Nginx waits for its web and HTTP service dependencies to become healthy before starting. Endpoints:
 
 - Gateway (only public application port): <http://localhost:8080/>
 - Frontend through the gateway: <http://localhost:8080/>

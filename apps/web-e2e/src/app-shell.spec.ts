@@ -191,8 +191,12 @@ test.describe('the drawer under 768px', () => {
 
   test('closes itself when a link is chosen', async ({ page }) => {
     await signInAs(page, 'DISPATCHER');
+    const dashboardLoaded = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/') && response.status() < 400,
+    );
     await page.goto('/dashboard');
-    await page.waitForLoadState('networkidle');
+    await dashboardLoaded;
 
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await page

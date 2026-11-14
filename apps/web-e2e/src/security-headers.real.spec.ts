@@ -20,7 +20,7 @@ test.describe('gateway security regression', () => {
     });
     page.on('pageerror', (error) => violations.push(error.message));
 
-    const response = await page.goto('/', { waitUntil: 'networkidle' });
+    const response = await page.goto('/');
     expect(response?.ok()).toBeTruthy();
     const headers = response?.headers() ?? {};
     expect(headers['content-security-policy']).toContain("default-src 'self'");
@@ -66,7 +66,7 @@ test.describe('gateway security regression', () => {
   test('the anonymous realtime WebSocket opens from the page origin', async ({
     page,
   }) => {
-    await page.goto('/track', { waitUntil: 'networkidle' });
+    await page.goto('/track');
     const result = await page.evaluate(
       () =>
         new Promise<string>((resolve) => {
