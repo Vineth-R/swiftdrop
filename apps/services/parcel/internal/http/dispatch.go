@@ -16,6 +16,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
@@ -68,8 +69,8 @@ func registerDispatch(router *gin.Engine, logger *slog.Logger, options Options) 
 		authMiddleware := auth.Authenticate(manager, cookie)
 		roleMiddleware := auth.RequireRoles(auth.RoleDispatcher)
 
-		dispatchGroup.Use(authMiddleware, roleMiddleware)
-		adminParcelsGroup.Use(authMiddleware, roleMiddleware)
+		dispatchGroup.Use(authMiddleware, roleMiddleware, sessioncheck.Middleware(options.SessionCheck))
+		adminParcelsGroup.Use(authMiddleware, roleMiddleware, sessioncheck.Middleware(options.SessionCheck))
 	}
 
 	// 5.1 GET /dispatch/unassigned

@@ -14,7 +14,6 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
-	"github.com/Vineth-R/swiftdrop/packages/go-common/secretbox"
 )
 
 // This file implements the two internal endpoints the webhook worker calls on
@@ -51,10 +50,10 @@ type internalWebhookStore interface {
 }
 
 // InternalWebhookConfig wires the internal webhook routes. An empty Token
-// refuses every call; a nil Box or Repository answers 503.
+// refuses every call; a nil Cipher or Repository answers 503.
 type InternalWebhookConfig struct {
 	Repository *repository.Repository
-	Box        *secretbox.Box
+	Cipher     secretCipher
 	Token      string
 	Logger     *slog.Logger
 }
@@ -69,8 +68,8 @@ func RegisterInternalWebhookRoutes(router *gin.Engine, config InternalWebhookCon
 		store = config.Repository
 	}
 	var cipher secretCipher
-	if config.Box != nil {
-		cipher = config.Box
+	if config.Cipher != nil {
+		cipher = config.Cipher
 	}
 	registerInternalWebhookRoutes(router, store, cipher, config.Token, config.Logger)
 }
@@ -159,11 +158,12 @@ func (h *internalWebhookHandler) get(c *gin.Context) {
 		h.fail(c, "get_merchant_status", err)
 		return
 	}
-	secret, err := h.cipher.Decrypt(string(webhook.SigningSecretEnc))
+	secret, err := h.cipher.DecryptWithAAD(string(webhook.SigningSecretEnc), webhookAAD(merchantID))
 	if err != nil {
 		h.internalError(c, "decrypt_webhook_secret", "could not read signing secret", err)
 		return
 	}
+	upgradeLegacyWebhookSecret(ctx, h.store, h.cipher, h.logger, webhook, secret)
 	types := webhook.EventTypes
 	if types == nil {
 		types = []string{}

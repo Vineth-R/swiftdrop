@@ -17,6 +17,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
@@ -51,7 +52,7 @@ func registerCourier(router *gin.Engine, logger *slog.Logger, options Options) e
 		if cookie == "" {
 			cookie = "sd_access"
 		}
-		group.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleCourier))
+		group.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleCourier), sessioncheck.Middleware(options.SessionCheck))
 	}
 	// Register both forms so a trailing slash never falls back to Gin's redirect,
 	// whose Location would omit the gateway's external /api/v1 prefix.

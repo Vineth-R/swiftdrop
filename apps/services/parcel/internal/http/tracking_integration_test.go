@@ -27,7 +27,7 @@ func TestOwnedTrackingAuthorizationAgainstPostgres(t *testing.T) {
 	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
 		Parcels:      service,
 		Tracking:     tracking.NewRepository(database.Pool),
-		AccessSecret: parcelWorkflowSecret,
+		AccessSecret: parcelWorkflowSecret, SessionCheck: allowSessions(),
 	})
 	if err != nil {
 		t.Fatal(err)

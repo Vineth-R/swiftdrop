@@ -72,7 +72,7 @@ func setupTestRouter(t *testing.T, svc DispatchService, accessSecret string) *gi
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router, err := New(logger, Options{
 		Dispatch:     svc,
-		AccessSecret: accessSecret,
+		AccessSecret: accessSecret, SessionCheck: allowSessions(),
 	})
 	if err != nil {
 		t.Fatalf("New() router error: %v", err)

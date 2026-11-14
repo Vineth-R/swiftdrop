@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 )
 
 // Options configures the notification-worker HTTP surface.
@@ -13,6 +14,9 @@ type Options struct {
 	Store        NotificationLogStore
 	AccessSecret string
 	CookieName   string
+	// SessionCheck re-checks the ADMIN session against identity. A nil value
+	// fails closed when authentication is configured.
+	SessionCheck sessioncheck.Guard
 }
 
 // New returns the notification-worker HTTP router. The operator endpoints are

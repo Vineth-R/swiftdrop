@@ -19,6 +19,10 @@ type Config struct {
 	AccessSecret     string
 	CookieName       string
 	WebhookSecretKey string
+	// WebhookSecretKeyID names the active key; WebhookSecretKeys holds
+	// additional decryption-only keys (id -> hex) during a rotation.
+	WebhookSecretKeyID string
+	WebhookSecretKeys  map[string]string
 
 	// InternalToken guards the /internal endpoints. Empty keeps them closed:
 	// every call is refused. InternalTokenProblem says why it is empty.
@@ -87,7 +91,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
-	webhookSecretKey, err := LoadWebhookSecretKey(loader)
+	webhookSecretKeyID, webhookSecretKey, webhookSecretKeys, err := LoadWebhookKeyring(loader)
 	if err != nil {
 		return Config{}, err
 	}
@@ -198,13 +202,15 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 
 	return Config{
-		Port:             port,
-		AppEnv:           appEnv,
-		LogLevel:         logLevel,
-		DatabaseURL:      loader.String("DATABASE_URL", ""),
-		AccessSecret:     accessSecret,
-		CookieName:       loader.String("COOKIE_NAME", "sd_access"),
-		WebhookSecretKey: webhookSecretKey,
+		Port:               port,
+		AppEnv:             appEnv,
+		LogLevel:           logLevel,
+		DatabaseURL:        loader.String("DATABASE_URL", ""),
+		AccessSecret:       accessSecret,
+		CookieName:         loader.String("COOKIE_NAME", "sd_access"),
+		WebhookSecretKey:   webhookSecretKey,
+		WebhookSecretKeyID: webhookSecretKeyID,
+		WebhookSecretKeys:  webhookSecretKeys,
 
 		InternalToken:        internalToken,
 		InternalTokenProblem: internalProblem,

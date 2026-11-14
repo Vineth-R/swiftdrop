@@ -17,6 +17,7 @@ import (
 
 	"github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/live"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 )
 
 const (
@@ -32,6 +33,18 @@ type Verifier interface {
 	Verify(token string) (auth.Claims, error)
 }
 
+// SessionValidator confirms that verified claims still match identity. It is
+// optional: without one, the connection is only checked when it opens.
+type SessionValidator interface {
+	Check(ctx context.Context, claims auth.Claims) error
+}
+
+var (
+	errTokenInvalid       = errors.New("invalid or expired token")
+	errSessionRevoked     = errors.New("session revoked")
+	errSessionUnavailable = errors.New("session state unavailable")
+)
+
 // Options configures the handler.
 type Options struct {
 	Hub *live.Hub
@@ -41,6 +54,12 @@ type Options struct {
 	Verifier Verifier
 	// CookieName is the access-token cookie, read when there is no ?token=.
 	CookieName string
+	// SessionValidator re-checks a verified session at connect time and
+	// periodically. Nil keeps the token-expiry-only behaviour.
+	SessionValidator SessionValidator
+	// SessionCheckInterval is how often an open authenticated connection is
+	// revalidated. Defaults to one minute; non-positive disables revalidation.
+	SessionCheckInterval time.Duration
 	// OriginPatterns are extra browser origins (host or host:port) allowed to
 	// connect. Behind the gateway the Host header is not the public host, so list
 	// every host users open.
@@ -71,6 +90,9 @@ func NewHandler(ctx context.Context, opts Options) *Handler {
 	if opts.WriteTimeout <= 0 {
 		opts.WriteTimeout = defaultWriteTimeout
 	}
+	if opts.SessionCheckInterval <= 0 {
+		opts.SessionCheckInterval = time.Minute
+	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
@@ -99,11 +121,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	c.touch()
 
-	principal, expires, ok := h.authenticate(r)
-	if !ok {
+	principal, expires, claims, authErr := h.authenticate(r)
+	if authErr != nil {
 		// A browser cannot read the HTTP status of a failed upgrade, so the
 		// answer is a close code that tells the web client to renew its session.
-		c.closeWith(websocket.StatusCode(live.CloseTokenInvalid), "invalid or expired token")
+		code := websocket.StatusCode(live.CloseTokenInvalid)
+		if errors.Is(authErr, errSessionUnavailable) {
+			code = websocket.StatusTryAgainLater
+		}
+		c.closeWith(code, authErr.Error())
 		return
 	}
 
@@ -116,6 +142,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	go c.writeLoop()
 	go c.pingLoop()
 	go c.watch(h.ctx, expires)
+	if principal.Authenticated {
+		go c.watchSession(h.ctx, claims)
+	}
 	c.readLoop(principal)
 	h.opts.Logger.Debug("websocket closed")
 }
@@ -124,7 +153,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // no verifier configured, means an anonymous caller. A token that is present
 // but invalid or expired returns ok = false. expires is when the token ends,
 // or the zero time for an anonymous caller.
-func (h *Handler) authenticate(r *http.Request) (principal live.Principal, expires time.Time, ok bool) {
+func (h *Handler) authenticate(r *http.Request) (live.Principal, time.Time, auth.Claims, error) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
 		if cookie, err := r.Cookie(h.opts.CookieName); err == nil {
@@ -132,17 +161,25 @@ func (h *Handler) authenticate(r *http.Request) (principal live.Principal, expir
 		}
 	}
 	if token == "" || h.opts.Verifier == nil {
-		return live.Principal{}, time.Time{}, true
+		return live.Principal{}, time.Time{}, auth.Claims{}, nil
 	}
 
 	claims, err := h.opts.Verifier.Verify(token)
 	if err != nil {
-		return live.Principal{}, time.Time{}, false
+		return live.Principal{}, time.Time{}, auth.Claims{}, errTokenInvalid
+	}
+	if h.opts.SessionValidator != nil {
+		if err := h.opts.SessionValidator.Check(r.Context(), claims); err != nil {
+			if errors.Is(err, sessioncheck.ErrRevoked) {
+				return live.Principal{}, time.Time{}, auth.Claims{}, errSessionRevoked
+			}
+			return live.Principal{}, time.Time{}, auth.Claims{}, errSessionUnavailable
+		}
 	}
 	return live.Principal{
 		Authenticated: true,
 		CanFollowAll:  claims.Role.Satisfies(auth.RoleDispatcher),
-	}, claims.ExpiresAt, true
+	}, claims.ExpiresAt, claims, nil
 }
 
 // client is one open connection. It is the hub's Subscriber.
@@ -359,5 +396,46 @@ func (c *client) watch(shutdown context.Context, expires time.Time) {
 		c.closeWith(websocket.StatusGoingAway, "server shutting down")
 	case <-expired:
 		c.closeWith(websocket.StatusCode(live.CloseTokenInvalid), "token expired")
+	}
+}
+
+// watchSession revalidates an authenticated connection so a suspension, role
+// change or session-version bump closes an already-open socket. When identity
+// cannot confirm the session after the local cache expires, the connection is
+// closed rather than left authorized (fail closed). The access token's own
+// expiry remains the final bound.
+func (c *client) watchSession(shutdown context.Context, claims auth.Claims) {
+	interval := c.opts.SessionCheckInterval
+	if c.opts.SessionValidator == nil || interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-shutdown.Done():
+			return
+		case <-ticker.C:
+		}
+
+		timeout := interval
+		if timeout > 5*time.Second {
+			timeout = 5 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		err := c.opts.SessionValidator.Check(ctx, claims)
+		cancel()
+		switch {
+		case err == nil:
+		case errors.Is(err, sessioncheck.ErrRevoked):
+			c.closeWith(websocket.StatusCode(live.CloseTokenInvalid), "session revoked")
+			return
+		default:
+			c.opts.Logger.Warn("websocket session revalidation failed; closing connection", "reason", sessioncheck.Describe(err))
+			c.closeWith(websocket.StatusTryAgainLater, "session state unavailable")
+			return
+		}
 	}
 }

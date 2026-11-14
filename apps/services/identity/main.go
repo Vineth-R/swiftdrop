@@ -14,6 +14,7 @@ import (
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/identity/internal/http"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
@@ -71,13 +72,15 @@ func run() error {
 	}
 
 	router := servicehttp.New(logger, routerOptions...)
+	registry := metrics.NewRegistry()
+	router.GET("/metrics", metrics.Handler(registry))
 
 	router.GET("/health", postgres.HealthHandler())
 	router.GET("/ready", postgres.ReadyHandler(pinger, postgres.DefaultReadyTimeout))
 
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
-		Handler:           router,
+		Handler:           metrics.NewHTTPHandler(registry, router),
 		Logger:            logger,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

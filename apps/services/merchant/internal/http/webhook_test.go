@@ -32,18 +32,21 @@ const (
 // fakeStore keeps one webhook in memory and mimics the repository's atomic
 // save result: a secret is reported as stored only on insert or rotation.
 type fakeStore struct {
-	status       repository.MerchantStatus
-	merchantOK   bool
-	webhook      *repository.Webhook
-	saved        []repository.SaveWebhookParams
-	filter       repository.DeliveryFilter
-	attempts     []repository.DeliveryAttempt
-	total        int
-	recorded     []repository.RecordAttemptParams
-	merchantErr  error
-	saveErr      error
-	recordErr    error
-	lookupCalled bool
+	status        repository.MerchantStatus
+	merchantOK    bool
+	webhook       *repository.Webhook
+	saved         []repository.SaveWebhookParams
+	filter        repository.DeliveryFilter
+	attempts      []repository.DeliveryAttempt
+	total         int
+	recorded      []repository.RecordAttemptParams
+	updatedSecret []byte
+	updateCalls   int
+	updateErr     error
+	merchantErr   error
+	saveErr       error
+	recordErr     error
+	lookupCalled  bool
 }
 
 func (s *fakeStore) MerchantByOwnerUserID(_ context.Context, ownerUserID string) (repository.Merchant, error) {
@@ -89,6 +92,21 @@ func (s *fakeStore) SaveWebhook(_ context.Context, p repository.SaveWebhookParam
 	return repository.WebhookSaveResult{Webhook: *s.webhook, SecretStored: false}, nil
 }
 
+func (s *fakeStore) UpdateWebhookSecretEnc(_ context.Context, _ string, expected, encrypted []byte) error {
+	s.updateCalls++
+	if s.updateErr != nil {
+		return s.updateErr
+	}
+	if s.webhook != nil && string(s.webhook.SigningSecretEnc) != string(expected) {
+		return repository.ErrWebhookSecretChanged
+	}
+	s.updatedSecret = append([]byte(nil), encrypted...)
+	if s.webhook != nil {
+		s.webhook.SigningSecretEnc = append([]byte(nil), encrypted...)
+	}
+	return nil
+}
+
 func (s *fakeStore) RecordDeliveryAttempt(_ context.Context, p repository.RecordAttemptParams) (bool, error) {
 	if s.recordErr != nil {
 		return false, s.recordErr
@@ -105,13 +123,15 @@ func (s *fakeStore) ListDeliveryAttempts(_ context.Context, _ string, f reposito
 // fakeCipher is reversible and visibly different from the plain text.
 type fakeCipher struct{}
 
-func (fakeCipher) Encrypt(s string) (string, error) { return "v1:" + s, nil }
+func (fakeCipher) Encrypt(s string) (string, error)           { return "v1:" + s, nil }
+func (fakeCipher) EncryptWithAAD(s, _ string) (string, error) { return "v1:" + s, nil }
 func (fakeCipher) Decrypt(s string) (string, error) {
 	if !strings.HasPrefix(s, "v1:") {
 		return "", errors.New("bad data")
 	}
 	return strings.TrimPrefix(s, "v1:"), nil
 }
+func (fakeCipher) DecryptWithAAD(s, _ string) (string, error) { return fakeCipher{}.Decrypt(s) }
 
 type fakeSender struct {
 	result webhookdelivery.Result
@@ -580,5 +600,70 @@ func TestDeliveriesRejectsBadQuery(t *testing.T) {
 		if recorder.Code != http.StatusUnprocessableEntity || webhookErrorCode(body) != "VALIDATION_ERROR" {
 			t.Errorf("%s: got %d %v", query, recorder.Code, body)
 		}
+	}
+}
+
+type upgradingCipher struct{}
+
+func (upgradingCipher) Encrypt(s string) (string, error) { return "v1:" + s, nil }
+func (upgradingCipher) EncryptWithAAD(s, aad string) (string, error) {
+	return "v2:k1:" + s + "|" + aad, nil
+}
+func (upgradingCipher) Decrypt(s string) (string, error) { return fakeCipher{}.Decrypt(s) }
+func (upgradingCipher) DecryptWithAAD(s, aad string) (string, error) {
+	if strings.HasPrefix(s, "v2:k1:") {
+		parts := strings.Split(strings.TrimPrefix(s, "v2:k1:"), "|")
+		if len(parts) != 2 || parts[1] != aad {
+			return "", errors.New("bad aad")
+		}
+		return parts[0], nil
+	}
+	return fakeCipher{}.Decrypt(s)
+}
+
+func TestLegacyWebhookSecretIsUpgradedOnceOnRead(t *testing.T) {
+	webhook := repository.Webhook{
+		ID: "11111111-1111-4111-8111-111111111111", MerchantID: webhookMerchantID,
+		URL: "https://shop.test/hook", SigningSecretEnc: []byte("v1:whsec_legacy"),
+		EventTypes: []string{"parcel.status_changed"}, IsActive: true,
+	}
+	store := &fakeStore{webhook: &webhook}
+	plain, err := upgradingCipher{}.DecryptWithAAD(string(webhook.SigningSecretEnc), webhookAAD(webhook.MerchantID))
+	if err != nil {
+		t.Fatalf("initial legacy decrypt: %v", err)
+	}
+
+	upgradeLegacyWebhookSecret(context.Background(), store, upgradingCipher{}, slog.New(slog.NewTextHandler(io.Discard, nil)), webhook, plain)
+	if store.updateCalls != 1 {
+		t.Fatalf("upgrade calls = %d, want 1", store.updateCalls)
+	}
+	if !strings.HasPrefix(string(store.updatedSecret), "v2:k1:") {
+		t.Fatalf("upgraded ciphertext = %q, want v2 prefix", store.updatedSecret)
+	}
+	if !strings.Contains(string(store.updatedSecret), "|"+webhookAAD(webhook.MerchantID)) {
+		t.Fatalf("upgraded ciphertext lost the merchant AAD")
+	}
+
+	// The stored value is now v2, so a second read must not rewrite it.
+	upgradeLegacyWebhookSecret(context.Background(), store, upgradingCipher{}, slog.New(slog.NewTextHandler(io.Discard, nil)), *store.webhook, plain)
+	if store.updateCalls != 1 {
+		t.Fatalf("upgrade calls after v2 = %d, want 1", store.updateCalls)
+	}
+}
+
+func TestLegacyUpgradeDoesNotOverwriteAConcurrentRotation(t *testing.T) {
+	stale := repository.Webhook{
+		ID: "11111111-1111-4111-8111-111111111111", MerchantID: webhookMerchantID,
+		URL: "https://shop.test/hook", SigningSecretEnc: []byte("v1:whsec_old"),
+		EventTypes: []string{"parcel.status_changed"}, IsActive: true,
+	}
+	rotated := stale
+	rotated.SigningSecretEnc = []byte("v2:k1:whsec_new|" + webhookAAD(webhookMerchantID))
+	store := &fakeStore{webhook: &rotated}
+
+	upgradeLegacyWebhookSecret(context.Background(), store, upgradingCipher{}, slog.New(slog.NewTextHandler(io.Discard, nil)), stale, "whsec_old")
+
+	if string(store.webhook.SigningSecretEnc) != string(rotated.SigningSecretEnc) {
+		t.Fatalf("read-repair overwrote a concurrent rotation: %q", store.webhook.SigningSecretEnc)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
 )
 
@@ -114,6 +115,8 @@ func run() error {
 		orderService = orders.New(merchantRepo, parcelClient, zoneNameLookup{client: pricingClient})
 	}
 	router := servicehttp.New(logger)
+	registry := metrics.NewRegistry()
+	router.GET("/metrics", metrics.Handler(registry))
 	servicehttp.Mount(router, servicehttp.Options{
 		Repository: merchantRepo, Onboarding: onboardingService, Identity: identityClient,
 		Orders:       orderService,
@@ -138,7 +141,7 @@ func run() error {
 
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
-		Handler:           router,
+		Handler:           metrics.NewHTTPHandler(registry, router),
 		Logger:            logger,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

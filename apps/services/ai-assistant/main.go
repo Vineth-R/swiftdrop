@@ -25,6 +25,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
 )
 
 const serviceName = "ai-assistant"
@@ -123,9 +124,12 @@ func run() error {
 		return fmt.Errorf("configure ai-assistant router: %w", err)
 	}
 
+	metricRegistry := metrics.NewRegistry()
+	router.GET("/metrics", metrics.Handler(metricRegistry))
+
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              cfg.Addr(),
-		Handler:           router,
+		Handler:           metrics.NewHTTPHandler(metricRegistry, router),
 		Logger:            logger,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

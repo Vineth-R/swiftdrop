@@ -63,6 +63,8 @@ type webhookStore interface {
 type secretCipher interface {
 	Encrypt(plaintext string) (string, error)
 	Decrypt(stored string) (string, error)
+	EncryptWithAAD(plaintext, aad string) (string, error)
+	DecryptWithAAD(stored, aad string) (string, error)
 }
 
 type webhookSender interface {
@@ -73,7 +75,7 @@ type webhookSender interface {
 // AccessSecret keeps the routes fail closed with 503.
 type WebhookConfig struct {
 	Repository   *repository.Repository
-	Box          *secretbox.Box
+	Cipher       secretCipher
 	Sender       *webhookdelivery.Sender
 	AccessSecret string
 	CookieName   string
@@ -94,8 +96,8 @@ func RegisterWebhookRoutes(router *gin.Engine, config WebhookConfig) error {
 		store = config.Repository
 	}
 	var cipher secretCipher
-	if config.Box != nil {
-		cipher = config.Box
+	if config.Cipher != nil {
+		cipher = config.Cipher
 	}
 	var sender webhookSender
 	if config.Sender != nil {
@@ -312,7 +314,7 @@ func (h *webhookHandler) put(c *gin.Context) {
 		h.internalError(c, "generate_webhook_secret", "could not generate signing secret", err)
 		return
 	}
-	encrypted, err := h.cipher.Encrypt(secret)
+	encrypted, err := h.cipher.EncryptWithAAD(secret, webhookAAD(merchant.ID))
 	if err != nil {
 		h.internalError(c, "encrypt_webhook_secret", "could not protect signing secret", err)
 		return
@@ -356,11 +358,12 @@ func (h *webhookHandler) test(c *gin.Context) {
 		h.webhookError(c, "get_webhook", err)
 		return
 	}
-	secret, err := h.cipher.Decrypt(string(webhook.SigningSecretEnc))
+	secret, err := h.cipher.DecryptWithAAD(string(webhook.SigningSecretEnc), webhookAAD(merchant.ID))
 	if err != nil {
 		h.internalError(c, "decrypt_webhook_secret", "could not read signing secret", err)
 		return
 	}
+	upgradeLegacyWebhookSecret(ctx, h.store, h.cipher, h.logger, webhook, secret)
 	eventID, err := randomUUID()
 	if err != nil {
 		h.internalError(c, "generate_event_id", "could not generate event identifier", err)
@@ -516,3 +519,42 @@ func (h *webhookHandler) internalError(c *gin.Context, operation, message string
 	}
 	httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)
 }
+
+// webhookAAD binds a stored signing secret to the merchant that owns it, so a
+// ciphertext copied into another merchant's row does not authenticate. The
+// prefix keeps the context unambiguous if the keyring is reused elsewhere.
+func webhookAAD(merchantID string) string {
+	return "merchant.webhook:" + merchantID
+}
+
+// webhookSecretUpdater is implemented by the repository when it can rewrite only
+// the stored signing-secret ciphertext.
+type webhookSecretUpdater interface {
+	UpdateWebhookSecretEnc(ctx context.Context, merchantID string, expected, encrypted []byte) error
+}
+
+// upgradeLegacyWebhookSecret transparently rewrites a legacy v1 value (which
+// has no AAD) as an AAD-bound v2 value after a successful decrypt. It is a
+// best-effort read-repair: a failure leaves the readable v1 value in place and
+// is logged without the secret or ciphertext.
+func upgradeLegacyWebhookSecret(ctx context.Context, store any, cipher secretCipher, logger *slog.Logger, webhook repository.Webhook, plaintext string) {
+	if !strings.HasPrefix(string(webhook.SigningSecretEnc), prefixV1) {
+		return
+	}
+	updater, ok := store.(webhookSecretUpdater)
+	if !ok || cipher == nil {
+		return
+	}
+	upgraded, err := cipher.EncryptWithAAD(plaintext, webhookAAD(webhook.MerchantID))
+	if err != nil {
+		if logger != nil {
+			logger.WarnContext(ctx, "could not upgrade legacy webhook secret", "merchant_id", webhook.MerchantID)
+		}
+		return
+	}
+	if err := updater.UpdateWebhookSecretEnc(ctx, webhook.MerchantID, webhook.SigningSecretEnc, []byte(upgraded)); err != nil && logger != nil && !errors.Is(err, repository.ErrWebhookSecretChanged) {
+		logger.WarnContext(ctx, "could not persist upgraded webhook secret", "merchant_id", webhook.MerchantID)
+	}
+}
+
+const prefixV1 = "v1:"

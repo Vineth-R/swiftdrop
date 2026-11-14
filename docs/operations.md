@@ -256,8 +256,9 @@ email. `processed_events` prevents a successful event from being sent twice.
    log (`GET /api/v1/merchants/me/webhook/deliveries`) or the merchant webhook
    screen.
 3. Confirm the URL is HTTPS, public and not a loopback/private address.
-4. Confirm `WEBHOOK_SECRET_KEY` is valid; the worker reads the decrypted secret
-   through the Merchant internal API.
+4. Confirm `WEBHOOK_SECRET_KEY` is valid, and that the key named by a stored
+   `v2:<keyId>:...` value is present in `WEBHOOK_SECRET_KEYS`; the worker reads
+   the decrypted secret through the Merchant internal API.
 5. Check the six attempts (1m, 5m, 30m, 2h, 6h). Attempt 6 failure is dead
    lettered.
 
@@ -265,6 +266,21 @@ The worker suppresses an event that already has a successful attempt. This is
 durable, but it cannot close the window where the receiver accepted the request
 and the worker crashed before recording it. Receivers must deduplicate on
 `eventId`; delivery is at-least-once, not exactly-once.
+
+## Metrics and readiness
+
+Every HTTP service exposes `GET /metrics` on its internal port (for example
+`docker compose exec parcel wget -qO- http://127.0.0.1:8082/metrics`). The
+gateway does not route `/metrics`. Realtime `/ready` requires both broker
+consumers; `/health` stays liveness. Useful checks:
+
+```sh
+docker compose exec realtime wget -qO- http://127.0.0.1:8085/ready
+docker compose exec parcel wget -qO- http://127.0.0.1:8082/metrics | grep swiftdrop_outbox
+```
+
+Alert thresholds and the deferred monitoring stack are listed in
+[phase-2-security-reliability.md](phase-2-security-reliability.md).
 
 ## Database troubleshooting
 
@@ -294,6 +310,13 @@ Common causes:
   random token; internal routes otherwise stay fail-closed.
 - Webhook routes answer `503`: set `JWT_ACCESS_SECRET` and a valid
   `WEBHOOK_SECRET_KEY` (64 hex characters).
+- Webhook decryption fails after a rotation: keep the previous key in
+  `WEBHOOK_SECRET_KEYS` as `id=hex64` until every stored secret has been
+  re-saved. Legacy `v1` values upgrade automatically on the next test send or
+  worker read; see [phase-2-security-reliability.md](phase-2-security-reliability.md).
+- Authenticated parcel/pricing/realtime requests answer `503`: identity session
+  state cannot be read. Check `IDENTITY_BASE_URL`, `INTERNAL_TOKEN` and the
+  identity `/ready`; the check fails closed by design.
 - AI returns `503 AI_UNAVAILABLE`: set a valid `GEMINI_API_KEY` or use
   `AI_PROVIDER=mock` for a local stack.
 - Compose cannot resolve an upstream: restart Nginx after service recreated;

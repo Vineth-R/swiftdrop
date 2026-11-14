@@ -13,6 +13,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/requestid"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
@@ -55,7 +56,7 @@ func registerReports(router *gin.Engine, logger *slog.Logger, options Options) e
 		if err != nil {
 			return err
 		}
-		group.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleDispatcher))
+		group.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleDispatcher), sessioncheck.Middleware(options.SessionCheck))
 	}
 	group.GET("/daily", handler.daily)
 	group.GET("/outcomes", handler.outcomes)
