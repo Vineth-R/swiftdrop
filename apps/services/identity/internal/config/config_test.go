@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
 )
@@ -185,5 +186,32 @@ func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 	}
 	if config.DatabaseURL != "postgres://example" {
 		t.Fatalf("DatabaseURL = %q", config.DatabaseURL)
+	}
+}
+
+func TestLoadFromTokenCleanupSettings(t *testing.T) {
+	base := func(values map[string]string) sharedconfig.Loader {
+		values["APP_ENV"] = "development"
+		return sharedconfig.NewLoader(func(key string) (string, bool) {
+			value, ok := values[key]
+			return value, ok
+		})
+	}
+	config, err := LoadFrom(base(map[string]string{}))
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if config.TokenRetention.Hours() != 720 || config.TokenCleanupInterval.Hours() != 24 {
+		t.Fatalf("cleanup defaults = %s/%s", config.TokenRetention, config.TokenCleanupInterval)
+	}
+	config, err = LoadFrom(base(map[string]string{
+		"IDENTITY_TOKEN_RETENTION":        "48h",
+		"IDENTITY_TOKEN_CLEANUP_INTERVAL": "1h",
+	}))
+	if err != nil || config.TokenRetention != 48*time.Hour || config.TokenCleanupInterval != time.Hour {
+		t.Fatalf("cleanup settings = %s/%s, %v", config.TokenRetention, config.TokenCleanupInterval, err)
+	}
+	if _, err := LoadFrom(base(map[string]string{"IDENTITY_TOKEN_RETENTION": "0s"})); err == nil {
+		t.Fatal("zero token retention was accepted")
 	}
 }

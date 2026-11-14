@@ -21,6 +21,10 @@ type Config struct {
 	MerchantBaseURL    string
 	MerchantTimeout    time.Duration
 	InternalToken      string
+	// TokenRetention and TokenCleanupInterval control the bounded deletion of
+	// expired refresh, password-reset and email-verification tokens.
+	TokenRetention       time.Duration
+	TokenCleanupInterval time.Duration
 }
 
 func Load() (Config, error) {
@@ -56,18 +60,34 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	if merchantTimeout < time.Millisecond {
 		return Config{}, errors.New("MERCHANT_TIMEOUT must be at least 1ms")
 	}
+	tokenRetention, err := loader.Duration("IDENTITY_TOKEN_RETENTION", 720*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	if tokenRetention <= 0 {
+		return Config{}, errors.New("IDENTITY_TOKEN_RETENTION must be greater than zero")
+	}
+	tokenCleanupInterval, err := loader.Duration("IDENTITY_TOKEN_CLEANUP_INTERVAL", 24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	if tokenCleanupInterval <= 0 {
+		return Config{}, errors.New("IDENTITY_TOKEN_CLEANUP_INTERVAL must be greater than zero")
+	}
 
 	return Config{
-		Port:               port,
-		AppEnv:             appEnv,
-		LogLevel:           logLevel,
-		DatabaseURL:        loader.String("DATABASE_URL", ""),
-		GoogleClientID:     loader.String("GOOGLE_CLIENT_ID", ""),
-		GoogleClientSecret: loader.String("GOOGLE_CLIENT_SECRET", ""),
-		GoogleRedirectURI:  loader.String("GOOGLE_REDIRECT_URI", ""),
-		MerchantBaseURL:    merchantURL,
-		MerchantTimeout:    merchantTimeout,
-		InternalToken:      internalToken,
+		Port:                 port,
+		AppEnv:               appEnv,
+		LogLevel:             logLevel,
+		DatabaseURL:          loader.String("DATABASE_URL", ""),
+		GoogleClientID:       loader.String("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:   loader.String("GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURI:    loader.String("GOOGLE_REDIRECT_URI", ""),
+		MerchantBaseURL:      merchantURL,
+		MerchantTimeout:      merchantTimeout,
+		InternalToken:        internalToken,
+		TokenRetention:       tokenRetention,
+		TokenCleanupInterval: tokenCleanupInterval,
 	}, nil
 }
 

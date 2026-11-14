@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/identity/internal/config"
 	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/identity/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
@@ -48,6 +50,7 @@ func run() error {
 	var routerOptions []servicehttp.Option
 	var database *postgres.Pool
 	var pinger postgres.Pinger
+	var cleanupDone chan struct{}
 	databaseConfig, configErr := postgres.LoadConfigFromURL(config.DatabaseURL)
 	if configErr != nil {
 		return fmt.Errorf("configure database: %w", configErr)
@@ -67,6 +70,16 @@ func run() error {
 		}
 		defer drainEmail()
 		routerOptions = append(routerOptions, authOptions...)
+
+		identityRepo, err := repository.New(database)
+		if err != nil {
+			return fmt.Errorf("create identity repository for token cleanup: %w", err)
+		}
+		cleanupDone = make(chan struct{})
+		go func() {
+			defer close(cleanupDone)
+			runTokenCleanup(ctx, identityRepo, logger, config.TokenRetention, config.TokenCleanupInterval)
+		}()
 	} else {
 		logger.Warn("DATABASE_URL is not set; readiness will report database down and authentication is disabled")
 	}
@@ -89,5 +102,38 @@ func run() error {
 	})
 
 	logger.Info("starting http service", "listen_addr", config.Addr(), "environment", config.AppEnv)
-	return httpx.Serve(ctx, server, 10*time.Second)
+	serveErr := httpx.Serve(ctx, server, 10*time.Second)
+	if cleanupDone != nil {
+		<-cleanupDone
+	}
+	return serveErr
+}
+
+// runTokenCleanup deletes expired identity tokens at startup and then on the
+// configured interval. The cutoff keeps expired rows for TokenRetention before
+// deleting them, which preserves a short audit window without unbounded growth.
+func runTokenCleanup(ctx context.Context, repo *repository.Repository, logger *slog.Logger, retention, interval time.Duration) {
+	cleanup := func() {
+		cutoff := time.Now().UTC().Add(-retention)
+		deleted, err := repo.CleanupExpiredTokens(ctx, cutoff, repository.TokenCleanupBatch)
+		if err != nil {
+			logger.Warn("identity token cleanup failed", "error", err)
+			return
+		}
+		if deleted > 0 {
+			logger.Info("identity token cleanup completed", "deleted", deleted)
+		}
+	}
+
+	cleanup()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cleanup()
+		}
+	}
 }
