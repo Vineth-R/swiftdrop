@@ -117,13 +117,13 @@ async function assignParcel(
 async function markPage(page: Page): Promise<string> {
   const mark = randomUUID();
   await page.evaluate((value) => {
-    (window as unknown as { __mark: string }).__mark = value;
+    (globalThis as unknown as { __mark: string }).__mark = value;
   }, mark);
   return mark;
 }
 
 async function pageMark(page: Page): Promise<string | undefined> {
   return page.evaluate(
-    () => (window as unknown as { __mark?: string }).__mark,
+    () => (globalThis as unknown as { __mark?: string }).__mark,
   );
 }
