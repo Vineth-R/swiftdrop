@@ -49,6 +49,9 @@ type Deps struct {
 	Parcels   ParcelAPI
 	Sender    Sender
 	Scheduler Scheduler
+	// RetryDelays is an optional development/test schedule. Empty uses the
+	// API v1.1 production schedule.
+	RetryDelays []time.Duration
 	// Now is optional and defaults to time.Now; tests set it.
 	Now func() time.Time
 }
@@ -208,7 +211,13 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 		if report.ErrorMessage == "" {
 			report.ErrorMessage = "unexpected response status"
 		}
-		retryDelay, retry = webhookdelivery.DelayAfterFailure(attempt)
+		if len(h.deps.RetryDelays) > 0 {
+			if attempt >= 1 && attempt <= len(h.deps.RetryDelays) {
+				retryDelay, retry = h.deps.RetryDelays[attempt-1], true
+			}
+		} else {
+			retryDelay, retry = webhookdelivery.DelayAfterFailure(attempt)
+		}
 		if retry {
 			next := h.deps.Now().UTC().Add(retryDelay)
 			report.NextRetryAt = &next
