@@ -277,3 +277,43 @@ func TestLoadFromReadinessPort(t *testing.T) {
 		t.Fatalf("custom port = %d, %v", config.Port, err)
 	}
 }
+
+func TestLoadFromParsesDevelopmentWebhookTestSettings(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_ENV":              "development",
+			"RABBITMQ_URL":         "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+			"WEBHOOK_RETRY_DELAYS": "2s,2s,2s,2s,2s",
+			"WEBHOOK_TEST_ORIGIN":  "http://webhook-sink:8099",
+		}
+		value, ok := values[key]
+		return value, ok
+	})
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+	if len(config.RetryDelays) != 5 || config.RetryDelays[0] != 2*time.Second {
+		t.Fatalf("RetryDelays = %v", config.RetryDelays)
+	}
+	if config.TestWebhookOrigin != "http://webhook-sink:8099" {
+		t.Fatalf("TestWebhookOrigin = %q", config.TestWebhookOrigin)
+	}
+}
+
+func TestLoadFromRejectsWebhookTestSettingsOutsideDevelopment(t *testing.T) {
+	for _, values := range []map[string]string{
+		{"WEBHOOK_RETRY_DELAYS": "2s,2s,2s,2s,2s"},
+		{"WEBHOOK_TEST_ORIGIN": "http://webhook-sink:8099"},
+	} {
+		values["APP_ENV"] = "production"
+		values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
+		loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+			value, ok := values[key]
+			return value, ok
+		})
+		if _, err := LoadFrom(loader); err == nil {
+			t.Fatalf("LoadFrom() accepted development-only settings: %v", values)
+		}
+	}
+}

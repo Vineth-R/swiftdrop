@@ -69,3 +69,24 @@ ID are unchanged, so the merchant sees the same `eventId` on every attempt.
 Outside development a missing, placeholder or short `INTERNAL_TOKEN` stops the
 service. In development it only logs a warning and deliveries fail until the
 token is set. The signing secret is never logged.
+
+## Development-only retry testing
+
+The real-stack retry test uses an accelerated schedule and a receiver on the
+Compose network. Both settings are rejected outside `APP_ENV=development`:
+
+```sh
+docker compose --profile webhook-test up -d webhook-sink
+docker compose --profile webhook-test up -d --wait webhook-sink
+WEBHOOK_RETRY_DELAYS=2s,2s,2s,2s,2s \
+WEBHOOK_TEST_ORIGIN=https://webhook-sink:8098 \
+WEBHOOK_TEST_CA_FILE=/test-certs/cert.pem \
+docker compose up -d --no-build webhook-worker merchant
+```
+
+`WEBHOOK_RETRY_DELAYS` must contain the five waits after attempts 1–5; empty
+keeps the production 1m/5m/30m/2h/6h schedule. `WEBHOOK_TEST_ORIGIN` allows only
+that test origin through the save-time and dial-time SSRF checks; every other
+URL still requires public HTTPS and is resolved/checked normally. The receiver
+is defined in `tests/webhook-sink` and exposes control endpoints for status
+sequences and recorded signatures. It is never started by the default stack.

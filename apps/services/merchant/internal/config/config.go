@@ -9,6 +9,7 @@ import (
 	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
+	"github.com/Vineth-R/swiftdrop/packages/webhookdelivery"
 )
 
 type Config struct {
@@ -23,6 +24,11 @@ type Config struct {
 	// additional decryption-only keys (id -> hex) during a rotation.
 	WebhookSecretKeyID string
 	WebhookSecretKeys  map[string]string
+	// WebhookTestOrigin is an explicitly development-only HTTP receiver origin
+	// used by the real-stack webhook retry tests. Empty in normal operation.
+	WebhookTestOrigin string
+	// WebhookTestCAFile trusts the test receiver's ephemeral certificate.
+	WebhookTestCAFile string
 
 	// InternalToken guards the /internal endpoints. Empty keeps them closed:
 	// every call is refused. InternalTokenProblem says why it is empty.
@@ -94,6 +100,17 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	webhookSecretKeyID, webhookSecretKey, webhookSecretKeys, err := LoadWebhookKeyring(loader)
 	if err != nil {
 		return Config{}, err
+	}
+	webhookTestOrigin := strings.TrimSpace(loader.String("WEBHOOK_TEST_ORIGIN", ""))
+	if webhookTestOrigin != "" {
+		if appEnv != "development" {
+			return Config{}, errors.New("WEBHOOK_TEST_ORIGIN is only allowed in development")
+		}
+		normalized, err := webhookdelivery.NormalizeTestOrigin(webhookTestOrigin)
+		if err != nil {
+			return Config{}, fmt.Errorf("WEBHOOK_TEST_ORIGIN: %w", err)
+		}
+		webhookTestOrigin = normalized
 	}
 
 	// Same rule as the other services: in development a missing or short token
@@ -211,6 +228,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		WebhookSecretKey:   webhookSecretKey,
 		WebhookSecretKeyID: webhookSecretKeyID,
 		WebhookSecretKeys:  webhookSecretKeys,
+		WebhookTestOrigin:  webhookTestOrigin,
+		WebhookTestCAFile:  strings.TrimSpace(loader.String("WEBHOOK_TEST_CA_FILE", "")),
 
 		InternalToken:        internalToken,
 		InternalTokenProblem: internalProblem,

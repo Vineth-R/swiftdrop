@@ -25,3 +25,21 @@ local stack. Do not point these scripts at shared or production systems.
 ## Recorded baseline
 
 The Phase 3 baseline is recorded in `docs/phase-3-performance-baseline.md`.
+
+## Authenticated delivery flow
+
+`delivery-flow.js` measures the customer create → dispatcher assign → courier
+status path and the time until public tracking reflects the status. It creates
+real test parcels and leaves them in the local stack.
+
+```sh
+BASE_URL=http://localhost:8080 \
+PERF_CUSTOMER_EMAIL=... PERF_CUSTOMER_PASSWORD=... \
+PERF_DISPATCHER_EMAIL=... PERF_DISPATCHER_PASSWORD=... \
+PERF_COURIER_EMAIL=... PERF_COURIER_PASSWORD=... \
+PERF_VUS=1 PERF_DURATION=30s \
+k6 run tests/perf/delivery-flow.js
+```
+
+This is a local baseline, not a production SLO. Keep VUs low and use a
+disposable stack.
