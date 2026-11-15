@@ -19,10 +19,16 @@ All specifications use OpenAPI 3.0.3 and are maintained by hand. When an endpoin
 Validate every specification with:
 
 ```sh
-pnpm exec node --test "tests/contracts/openapi.test.mjs"
+pnpm exec node --test "tests/contracts/*.test.mjs"
 ```
 
-The validator checks YAML parsing, required OpenAPI fields, unique operation IDs, local `$ref` resolution and a small set of critical route expectations. It does not prove full route-to-handler parity; keep the route and specification review manual until a generated route inventory is added.
+`openapi.test.mjs` checks YAML parsing, required OpenAPI fields, unique
+operation IDs, local `$ref` resolution and a small set of critical route
+expectations. `route-coverage.test.mjs` checks that every public operation is
+either explicitly public or present in the access matrix, that every access
+matrix route is documented, and that every public path has an Nginx location.
+It does not prove Gin-to-specification parity; adding a route still requires the
+Gin registration, OpenAPI entry and gateway mapping to change together.
 
 The specifications describe the operational health and readiness endpoints. The identity specification also describes register, login, refresh and logout (API v1.1 sections 2.1 to 2.4), Google sign-in (2.5, 2.6), the admin user endpoints and the courier list (2.10 to 2.15) and forgot and reset password (2.16, 2.17). Pricing describes estimates, zones, internal quotes and ADMIN configuration; parcel describes public tracking and the DISPATCHER/ADMIN daily and outcome reports. The notification specification describes the ADMIN-only delivery-log read endpoint served by the notification worker on its internal HTTP port. The service-to-service `/internal` endpoints are in the separate `identity-internal.yaml` and `merchant-internal.yaml` because the gateway never routes them (API v1.1 section 13); the merchant file covers the webhook worker's read of the webhook secret and its delivery-attempt report. `parcel.yaml` also contains the `/internal/parcels` operations (merchant parcel creation and the summary read used by notifications and the webhook worker). The implemented business endpoints are listed in the per-service specifications. New routes must be added by their owning service together with the Gin route, Nginx mapping and a contract test; this repository does not invent unimplemented endpoints.
 
