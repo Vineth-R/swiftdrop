@@ -101,13 +101,12 @@ func NewTestOnlySender(rawOrigin string) (*Sender, error) {
 			if err != nil {
 				return nil, err
 			}
-			// codeql[go/disabled-certificate-check] This is the explicit
-			// development-only test origin with a self-signed receiver
+			// The development-only test origin uses a self-signed receiver
 			// certificate. Production NewSender never reaches this branch.
 			tlsConn := tls.Client(conn, &tls.Config{
 				MinVersion:         tls.VersionTLS12,
 				ServerName:         host,
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: true, // codeql[go/disabled-certificate-check]
 			})
 			if err := tlsConn.HandshakeContext(ctx); err != nil {
 				_ = conn.Close()
