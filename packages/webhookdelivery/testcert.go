@@ -1,0 +1,69 @@
+package webhookdelivery
+
+import (
+	"crypto/tls"
+	"crypto/x509"
+)
+
+// The test receiver's certificate is intentionally a fixed test-only identity.
+// It is not a production credential and is never trusted by NewSender.
+const testCertificatePEM = `-----BEGIN CERTIFICATE-----
+MIIDCTCCAfGgAwIBAgIQEwCNlKkNR4vQA9TUnQsULjANBgkqhkiG9w0BAQsFADAX
+MRUwEwYDVQQDEwx3ZWJob29rLXNpbmswHhcNMjYxMTE1MTAzNzA3WhcNMzYxMTEy
+MTEzNzA3WjAXMRUwEwYDVQQDEwx3ZWJob29rLXNpbmswggEiMA0GCSqGSIb3DQEB
+AQUAA4IBDwAwggEKAoIBAQDAnx/zTsvmsHmNB2S5mB/GmJ4NJJnnliXW8J2j3qXi
+qJ0MgZxzZZj48VnofZegQaegTnaiwcT198li6zwzNOyewHRHh1KVuZy+3hC9sO8O
+5GydZkSi4eOCC0K8rBAV2Rr9GK+RF98Dj6KpwD7zhrNXp09A2eUTk5XQcAvlirwp
+kZ5KoL8425Z8zBYXbZlE/9CZ/LWnR9I822tE59fRkjqRL9KAZgScETsi7eZ+QI2M
+I7OF0JVhvmD4Aq264iolRqPlGC/j9LfL+Awfwq645ymvjA91/d9KKm/CmGEPCfqU
+m9BVFLxgm76A9EViJIeFjbZKX6CrrcAdRug0T8JYtxcJAgMBAAGjUTBPMA4GA1Ud
+DwEB/wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAoBgNVHREEITAfggx3ZWJo
+b29rLXNpbmuCCWxvY2FsaG9zdIcEfwAAATANBgkqhkiG9w0BAQsFAAOCAQEAHIHx
+bBa6RuVmaDPyuo2PsQC1Kj3gdg1PceLTFtldc/9q9GOuk209GyWM+y/yubL8euCv
+SsxV5bE5PvJjk4DD1WvMxtAh9i5O4z+wcPHtLUbrsY2qS+s30u7zqn6yWJzTr1Yi
+TOKGojhBQTUwPIQt3njSOjZRkTed7tEHDi5c0x3tr8GdJAqwknVW98bJ7W+tHSJO
+dXMm7+cm5wcT3YX5aVHaaF6w7WINEMEuSS1XHRgejHPvg8vEYzlid4qNwxDgXdGu
+4/Sjnit4HZQETW2x7LTZ8ZjggbSOBVFMOV0FXL3Vl1zDDnqfiWWOG9WHaZgXLiLj
+wOt4u3oVVKCmFVBP4Q==
+-----END CERTIFICATE-----`
+
+const testPrivateKeyPEM = `-----BEGIN RSA PRIVATE KEY-----
+MIIEpQIBAAKCAQEAwJ8f807L5rB5jQdkuZgfxpieDSSZ55Yl1vCdo96l4qidDIGc
+c2WY+PFZ6H2XoEGnoE52osHE9ffJYus8MzTsnsB0R4dSlbmcvt4QvbDvDuRsnWZE
+ouHjggtCvKwQFdka/RivkRffA4+iqcA+84azV6dPQNnlE5OV0HAL5Yq8KZGeSqC/
+ONuWfMwWF22ZRP/Qmfy1p0fSPNtrROfX0ZI6kS/SgGYEnBE7Iu3mfkCNjCOzhdCV
+Yb5g+AKtuuIqJUaj5Rgv4/S3y/gMH8KuuOcpr4wPdf3fSipvwphhDwn6lJvQVRS8
+YJu+gPRFYiSHhY22Sl+gq63AHUboNE/CWLcXCQIDAQABAoIBABK0ALqzxnmuXgcT
+FjUtL7ytWf9ls+n4OtFdiLj+J/ZTr/gkZ6gOz+UwLi40b7IYXenjZIKWNQU7G5tW
+wwAn3efmQQQnAB5YqP8hedepY/T6ug8ofHaiX2BjroW6YU91xriXmoiInFdwrXc1
+GwezZxuWO8xMvAEEHhJgps8Rgwa4GRYuvcNEAsOl6Af1FMSg/7jlbTKNcBOxEliP
+5eG+lg2TCo+Er+qtap2iDwM4Nqg9imRB+Qtuqcf/4grMN3zO3ivrcchUbEHrWWn2
+BKgGTNrZOp3lzId/LtmcQwP6JOkUHQHRRqod5QthtnhuPcXu4SnKsnDd8vpB8Qt0
+RxLqSicCgYEA+CfJQvoaHHR2fqu5nPZ4FMUISHIBTCULgpZ3TKMcUDzkisCxqD5a
+9o8SEYq7ocm7NJ6ox99IM5A8mNhioSWNwyXZuCOT9o2q3XRWOsBxjeWaPjhl6z4y
+b90q4umP9bCc29mL5qu9hHalHmAOvKK2qRVPB7Aztx1LRbXJCTQ8Vf8CgYEAxrXt
+bsSbszZZlky99BJGoNy7swbyIynjqPkD4uA8WuzM0Ej/ZC0Pqn8xoqc8MOpojP3K
+PK/+NGDtmvZSJRaO5joPT40eDQq+QPtNSmRGqmgArvrqqv+RzYmKB81JjBKZy25j
+YcUEjxL9B6nkyO2OF3V6T6lfcyMQ9twL9kNr4vcCgYEAjbDJ7gA34H9vGSycMs9Y
+CSPnctYFf6C3Tbz0KUII7JeYNtGHnvTbo2RVgMaiE+LHjWf6HwWSiD6XGv6Sckir
+BP4brlRCK8kAAqpmge1X6RlsVJKHPyaoTc8OqbmKhVJufeldRDxTXcsQxKM8RuDx
+QuHz2gP1w1xqmkcNnr/Ao6kCgYEAqE+60CMaWt8DXQqdrtm4F1NAbXDJsj0uB5b8
+0rPqi32eMiJSqLB+X4UjLsmGc0xpyFrDbUoJAKbFO4e+pomH+rxc8Z3vQU7DPdle
+a0+qh3ZWdeA02yhkgHsqfldFH681s5lJ9qthpCqKRm6CSirlOzuXoVgucCDYorBa
+NXqALJsCgYEAsM2Fim++qHPH5P7DF/LOA5VH22OKCY5xstZ/sSbqE2k3wtghe30e
+PEoaZMVlkdDg2ne+WqpZo9fCdxx8TlJrbCHeo4TDdhHvwNGNbIyve1Y9E3+moF18
+RYahk4sRMJOlK6oCGBRigI57FW4FptskQD72jazgi87c0niYexg7XLQ=
+-----END RSA PRIVATE KEY-----`
+
+// TestCertificate returns the fixed certificate used by the development-only
+// webhook receiver. No production sender uses it.
+func TestCertificate() (tls.Certificate, error) {
+	return tls.X509KeyPair([]byte(testCertificatePEM), []byte(testPrivateKeyPEM))
+}
+
+// TestRootCAs returns the pool that trusts the fixed test certificate.
+func TestRootCAs() *x509.CertPool {
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM([]byte(testCertificatePEM))
+	return pool
+}

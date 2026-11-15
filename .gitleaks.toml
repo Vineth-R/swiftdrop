@@ -145,3 +145,17 @@ paths = [
 regexes = [
   '''REALTIME_ASSIGNED_ROUTING_KEY''',
 ]
+
+# The development-only webhook test receiver ships a fixed self-signed test
+# certificate and key so the sender can verify TLS without disabling certificate
+# validation. It is not a production credential and is never trusted by NewSender.
+[[rules.allowlists]]
+description = "Fixed test-only webhook receiver certificate"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^packages/webhookdelivery/testcert\.go$''',
+]
+regexes = [
+  '''BEGIN RSA PRIVATE KEY''',
+]

@@ -83,7 +83,11 @@ func NewTestOnlySender(rawOrigin string) (*Sender, error) {
 		}
 	}
 	clone := transport.Clone()
-	clone.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	clone.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    TestRootCAs(),
+		ServerName: testOrigin.Hostname(),
+	}
 	clone.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, splitErr := net.SplitHostPort(address)
 		if splitErr == nil && strings.EqualFold(host, testOrigin.Hostname()) && port == originPort {
@@ -101,13 +105,11 @@ func NewTestOnlySender(rawOrigin string) (*Sender, error) {
 			if err != nil {
 				return nil, err
 			}
-			// The development-only test origin uses a self-signed receiver
+			// The development-only test origin trusts only the fixed test
 			// certificate. Production NewSender never reaches this branch.
-			tlsConn := tls.Client(conn, &tls.Config{
-				MinVersion:         tls.VersionTLS12,
-				ServerName:         host,
-				InsecureSkipVerify: true, // codeql[go/disabled-certificate-check]
-			})
+			config := clone.TLSClientConfig.Clone()
+			config.ServerName = host
+			tlsConn := tls.Client(conn, config)
 			if err := tlsConn.HandshakeContext(ctx); err != nil {
 				_ = conn.Close()
 				return nil, err
