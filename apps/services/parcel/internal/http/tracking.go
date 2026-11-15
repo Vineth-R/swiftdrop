@@ -23,6 +23,7 @@ type Options struct {
 	Courier           CourierStore
 	CourierStatus     CourierStatusStore
 	CourierProof      CourierProofStore
+	CourierWorkflow   CourierWorkflowStore
 	CourierProofPhoto ProofPhotoStore
 	ProofMaxSizeBytes int
 	Parcels           *parcels.Service

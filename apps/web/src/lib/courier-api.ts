@@ -32,7 +32,11 @@ export type CourierHistoryEntry = {
   changedAt: string;
 };
 
+export type CourierProofKind = 'PICKUP' | 'DELIVERY';
+
 export type CourierProof = {
+  id: string;
+  kind: CourierProofKind;
   recipientName: string | null;
   note: string | null;
   hasPhoto: boolean;
@@ -45,7 +49,10 @@ export type CourierDeliveryDetail = CourierDelivery & {
   senderName: string;
   senderPhone: string;
   history: CourierHistoryEntry[];
+  /** The latest proof, kept for clients that only need one photo. */
   proof: CourierProof | null;
+  /** Every proof, oldest first. */
+  proofs: CourierProof[];
 };
 
 /** A status a courier may submit. CREATED is not a valid target. */
@@ -74,8 +81,31 @@ export type CourierProofUpload = {
 };
 
 export type CourierProofResult = CourierProof & {
-  id: string;
   parcelId: string;
+};
+
+export type CourierWorkflowResult = {
+  parcelId: string;
+  trackingNumber: string;
+  previousStatus: ParcelStatus;
+  status: ParcelStatus;
+  updatedAt: string;
+  alreadyApplied: boolean;
+  history: CourierHistoryEntry[];
+  proof: CourierProof | null;
+};
+
+export type CourierPickupConfirmation = {
+  /** A mandatory JPEG or PNG proof photo. */
+  photo: File;
+  note?: string;
+};
+
+export type CourierDeliveryConfirmation = {
+  recipientName: string;
+  /** A mandatory JPEG or PNG proof photo. */
+  photo: File;
+  note?: string;
 };
 
 export async function listCourierDeliveries({
@@ -134,12 +164,19 @@ export function getCourierDelivery(parcelId: string, signal?: AbortSignal) {
   );
 }
 
-/** Returns a short-lived proof photo target for an assigned delivery. */
-export function getCourierProofPhoto(parcelId: string, signal?: AbortSignal) {
-  return api<ProofPhotoTarget>(
-    `/parcels/${encodeURIComponent(parcelId)}/proof/photo`,
-    { signal },
-  );
+/**
+ * Returns a short-lived proof photo target for an assigned delivery. Pass a
+ * proof ID to open a specific pickup or delivery photo.
+ */
+export function getCourierProofPhoto(
+  parcelId: string,
+  signal?: AbortSignal,
+  proofId?: string,
+) {
+  const path = proofId
+    ? `/parcels/${encodeURIComponent(parcelId)}/proofs/${encodeURIComponent(proofId)}/photo`
+    : `/parcels/${encodeURIComponent(parcelId)}/proof/photo`;
+  return api<ProofPhotoTarget>(path, { signal });
 }
 
 /** Saves one documented transition for the authenticated courier. */
@@ -170,6 +207,37 @@ export function uploadCourierDeliveryProof(
   if (proof.note) form.append('note', proof.note);
   return api<CourierProofResult>(
     `/courier/deliveries/${encodeURIComponent(parcelId)}/proof`,
+    { method: 'POST', body: form, signal },
+  );
+}
+
+/** Confirms pickup with a mandatory photo and advances to IN_TRANSIT. */
+export function confirmCourierPickup(
+  parcelId: string,
+  confirmation: CourierPickupConfirmation,
+  signal?: AbortSignal,
+) {
+  const form = new FormData();
+  form.append('photo', confirmation.photo);
+  if (confirmation.note) form.append('note', confirmation.note);
+  return api<CourierWorkflowResult>(
+    `/courier/deliveries/${encodeURIComponent(parcelId)}/pickup`,
+    { method: 'POST', body: form, signal },
+  );
+}
+
+/** Confirms delivery with a mandatory recipient name and photo. */
+export function confirmCourierDelivery(
+  parcelId: string,
+  confirmation: CourierDeliveryConfirmation,
+  signal?: AbortSignal,
+) {
+  const form = new FormData();
+  form.append('photo', confirmation.photo);
+  form.append('recipientName', confirmation.recipientName);
+  if (confirmation.note) form.append('note', confirmation.note);
+  return api<CourierWorkflowResult>(
+    `/courier/deliveries/${encodeURIComponent(parcelId)}/delivery`,
     { method: 'POST', body: form, signal },
   );
 }

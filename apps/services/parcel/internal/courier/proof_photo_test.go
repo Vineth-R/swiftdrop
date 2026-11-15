@@ -16,6 +16,7 @@ import (
 const photoParcelID = "00000000-0000-4000-8000-000000000081"
 const photoCustomerID = "00000000-0000-4000-8000-000000000082"
 const photoCourierID = "00000000-0000-4000-8000-000000000083"
+const photoProofID = "00000000-0000-4000-8000-000000000084"
 const photoKey = photoParcelID + "/00000000-0000-4000-8000-000000000084.jpg"
 
 type photoTestDB struct {
@@ -56,8 +57,9 @@ func (r photoTestRow) Scan(dest ...any) error {
 		*dest[2].(*bool) = r.assignment
 		return nil
 	}
-	*dest[0].(*string) = *r.key
-	*dest[1].(**string) = r.mime
+	*dest[0].(*string) = photoProofID
+	*dest[1].(*string) = *r.key
+	*dest[2].(**string) = r.mime
 	return nil
 }
 

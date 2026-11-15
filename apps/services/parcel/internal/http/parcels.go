@@ -52,6 +52,10 @@ func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) e
 	proofRoles := auth.RequireRoles(auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin)
 	group.GET("/:parcelId/proof/photo", proofRoles, h.proofPhoto)
 	group.GET("/:parcelId/proof/photo/content", proofRoles, h.proofPhotoContent)
+	// Additive per-proof routes let the courier activity view open the pickup
+	// photo and the delivery photo independently. Authorization is identical.
+	group.GET("/:parcelId/proofs/:proofId/photo", proofRoles, h.proofPhotoByID)
+	group.GET("/:parcelId/proofs/:proofId/photo/content", proofRoles, h.proofPhotoByIDContent)
 	internal := router.Group("/internal/parcels", noStore(), httpx.InternalToken(options.InternalToken))
 	internal.POST("", h.merchant)
 	internal.GET("/:parcelId/summary", h.summary)

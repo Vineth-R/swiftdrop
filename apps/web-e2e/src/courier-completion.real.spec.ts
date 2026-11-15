@@ -67,64 +67,61 @@ test.describe('real-stack courier completion', () => {
     await signIn(page, courier);
 
     await openDelivery(page, delivered.trackingNumber);
-    await moveToStatus(page, 'PICKED_UP', 'PICKED UP');
-    await moveToStatus(page, 'IN_TRANSIT', 'IN TRANSIT');
-    await moveToStatus(page, 'OUT_FOR_DELIVERY', 'OUT FOR DELIVERY');
+    await confirmPickup(page);
+    await markOutForDelivery(page);
 
-    await page.locator('#courier-proof-photo').setInputFiles({
+    await page.getByLabel('Recipient name').fill('Amali Fernando');
+    await page.getByLabel('Delivery proof photo').setInputFiles({
       name: 'proof.png',
       mimeType: 'image/png',
       buffer: PNG,
     });
-    await page.getByLabel('Proof received by').fill('Amali Fernando');
     await page.getByLabel('Delivery note').fill('Handed to recipient');
-    await page.getByRole('button', { name: 'Upload proof' }).click();
+    await page.getByRole('button', { name: 'Confirm delivery' }).click();
+    await page
+      .getByRole('dialog', { name: 'Confirm delivery?' })
+      .getByRole('button', { name: 'Confirm delivery' })
+      .click();
     await expect(
-      page.getByText('Delivery proof uploaded', { exact: true }),
+      page.getByText('Delivery confirmed. The parcel is now delivered.'),
     ).toBeVisible({ timeout: REAL_TIMEOUT });
-    const proof = page.getByText('Handed to recipient');
-    await expect(proof).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Delivered', exact: true }),
+    ).toBeVisible({ timeout: REAL_TIMEOUT });
+    await expect(page.getByText('Handed to recipient').first()).toBeVisible();
 
+    // Activity lists pickup first and delivery second; open the delivery photo.
     const popupPromise = page.waitForEvent('popup');
-    await page.getByRole('button', { name: 'View proof photo' }).click();
+    await page.getByRole('button', { name: 'View proof photo' }).last().click();
     const popup = await popupPromise;
-    await popup.waitForURL(/proof\/photo(?:\/content)?/, {
+    await popup.waitForURL(/proofs\/[^/]+\/photo(?:\/content)?/, {
       timeout: REAL_TIMEOUT,
     });
     await popup.close();
 
-    await page.getByLabel('Next status').selectOption('DELIVERED');
-    await page.getByLabel('Recipient name').fill('Amali Fernando');
-    await page.getByRole('button', { name: 'Save status' }).click();
-    await expect(
-      page.getByText('Delivery status saved', { exact: true }),
-    ).toBeVisible({ timeout: REAL_TIMEOUT });
-    const statusRegion = page.getByRole('region', { name: 'Delivery status' });
-    await expect(
-      statusRegion.getByText('DELIVERED', { exact: true }),
-    ).toBeVisible({ timeout: REAL_TIMEOUT });
-
     await openDelivery(page, failed.trackingNumber);
-    await moveToStatus(page, 'PICKED_UP', 'PICKED UP');
-    await moveToStatus(page, 'IN_TRANSIT', 'IN TRANSIT');
-    await moveToStatus(page, 'OUT_FOR_DELIVERY', 'OUT FOR DELIVERY');
-    await page.getByLabel('Next status').selectOption('FAILED');
+    await confirmPickup(page);
+    await markOutForDelivery(page);
+    await page.getByRole('button', { name: 'Report delivery failure' }).click();
     await page
       .getByLabel('Failure reason')
       .fill('Recipient was unavailable at the address');
-    await page.getByRole('button', { name: 'Save status' }).click();
+    await page
+      .getByRole('dialog', { name: 'Report a failed delivery' })
+      .getByRole('button', { name: 'Report failure' })
+      .click();
+    await expect(page.getByText('Delivery failure recorded.')).toBeVisible({
+      timeout: REAL_TIMEOUT,
+    });
     await expect(
-      page.getByText('Delivery status saved', { exact: true }),
+      page.getByRole('heading', {
+        level: 2,
+        name: 'Delivery failed',
+        exact: true,
+      }),
     ).toBeVisible({ timeout: REAL_TIMEOUT });
     await expect(
-      page
-        .getByRole('region', { name: 'Delivery status' })
-        .getByText('FAILED', {
-          exact: true,
-        }),
-    ).toBeVisible({ timeout: REAL_TIMEOUT });
-    await expect(
-      page.getByText('Recipient was unavailable at the address'),
+      page.getByText('Recipient was unavailable at the address').first(),
     ).toBeVisible();
   });
 });
@@ -142,16 +139,22 @@ async function openDelivery(page: Page, trackingNumber: string) {
   await expect(page).toHaveURL(/\/deliveries\/[0-9a-f-]+$/);
 }
 
-async function moveToStatus(page: Page, value: string, label: string) {
-  await page.getByLabel('Next status').selectOption(value);
-  await page.getByRole('button', { name: 'Save status' }).click();
+async function confirmPickup(page: Page) {
+  await page.getByLabel('Pickup proof photo').setInputFiles({
+    name: 'pickup.png',
+    mimeType: 'image/png',
+    buffer: PNG,
+  });
+  await page.getByRole('button', { name: 'Confirm pickup' }).click();
   await expect(
-    page.getByText('Delivery status saved', { exact: true }),
+    page.getByText('Pickup confirmed. The parcel is now in transit.'),
   ).toBeVisible({ timeout: REAL_TIMEOUT });
+}
+
+async function markOutForDelivery(page: Page) {
+  await page.getByRole('button', { name: 'Mark out for delivery' }).click();
   await expect(
-    page.getByRole('region', { name: 'Delivery status' }).getByText(label, {
-      exact: true,
-    }),
+    page.getByText('The parcel is now out for delivery.'),
   ).toBeVisible({ timeout: REAL_TIMEOUT });
 }
 

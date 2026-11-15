@@ -43,13 +43,96 @@ const detail = {
       changedAt: '2026-11-05T10:00:00Z',
     },
   ],
-  proof: {
-    recipientName: 'Nimali Perera',
-    note: 'Left with recipient',
-    hasPhoto: false,
-    createdAt: '2026-11-05T10:30:00Z',
-  },
+  proof: null,
+  proofs: [],
 };
+
+const pickupProof = {
+  id: '00000000-0000-4000-8000-000000000301',
+  kind: 'PICKUP',
+  recipientName: null,
+  note: 'Collected from sender',
+  hasPhoto: true,
+  createdAt: '2026-11-05T09:30:00Z',
+};
+
+const deliveryProof = {
+  id: '00000000-0000-4000-8000-000000000302',
+  kind: 'DELIVERY',
+  recipientName: 'Nimali Perera',
+  note: 'Handed over',
+  hasPhoto: true,
+  createdAt: '2026-11-05T11:00:00Z',
+};
+
+function historyFor(status: string) {
+  const created = {
+    previousStatus: null,
+    status: 'CREATED',
+    note: null,
+    failureReason: null,
+    actorRole: 'CUSTOMER',
+    changedAt: '2026-11-05T08:00:00Z',
+  };
+  const picked = {
+    previousStatus: 'CREATED',
+    status: 'PICKED_UP',
+    note: 'Collected',
+    failureReason: null,
+    actorRole: 'COURIER',
+    changedAt: '2026-11-05T09:30:00Z',
+  };
+  const transit = {
+    previousStatus: 'PICKED_UP',
+    status: 'IN_TRANSIT',
+    note: null,
+    failureReason: null,
+    actorRole: 'COURIER',
+    changedAt: '2026-11-05T09:30:01Z',
+  };
+  const out = detail.history[0];
+  const delivered = {
+    previousStatus: 'OUT_FOR_DELIVERY',
+    status: 'DELIVERED',
+    note: 'Handed over',
+    failureReason: null,
+    actorRole: 'COURIER',
+    changedAt: '2026-11-05T11:00:00Z',
+  };
+  const failed = {
+    previousStatus: 'OUT_FOR_DELIVERY',
+    status: 'FAILED',
+    note: null,
+    failureReason: 'Recipient was unavailable',
+    actorRole: 'COURIER',
+    changedAt: '2026-11-05T11:00:00Z',
+  };
+  switch (status) {
+    case 'CREATED':
+      return [created];
+    case 'PICKED_UP':
+      return [created, picked];
+    case 'IN_TRANSIT':
+      return [created, picked, transit];
+    case 'OUT_FOR_DELIVERY':
+      return [created, picked, transit, out];
+    case 'DELIVERED':
+      return [created, picked, transit, out, delivered];
+    case 'FAILED':
+      return [created, picked, transit, out, failed];
+    default:
+      return [out];
+  }
+}
+
+function detailWith(status: string, extra: Record<string, unknown> = {}) {
+  return {
+    ...detail,
+    status,
+    history: historyFor(status),
+    ...extra,
+  };
+}
 
 function pageOf(items: unknown[], page = 1, totalItems = items.length) {
   return {
@@ -159,8 +242,8 @@ test('shows assigned deliveries and opens their authorized detail', async ({
   await expect(page.getByText('Small', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('list', { name: 'Status history' }),
-  ).toContainText('OUT FOR DELIVERY');
-  await expect(page.getByText('Left with recipient')).toBeVisible();
+  ).toContainText('Out for delivery');
+  await expect(page.getByText('At the destination')).toBeVisible();
 });
 
 test('shows empty, loading and safe error states for Today', async ({
@@ -247,407 +330,135 @@ test('an assigned courier cannot view another courier’s delivery', async ({
   await expect(page.getByText('Kamal Silva')).toHaveCount(0);
 });
 
-test('saves a valid status and refreshes the detail timeline', async ({
-  page,
-}) => {
-  let saved = false;
-  const api = await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: () => {
-      return ok(
-        !saved
-          ? detail
-          : {
-              ...detail,
-              status: 'DELIVERED',
-              history: [
-                ...detail.history,
-                {
-                  previousStatus: 'OUT_FOR_DELIVERY',
-                  status: 'DELIVERED',
-                  note: 'Handed over',
-                  failureReason: null,
-                  actorRole: 'COURIER',
-                  changedAt: '2026-11-05T11:00:00Z',
-                },
-              ],
-            },
-      );
-    },
-    [`POST /courier/deliveries/${parcelId}/status`]: () => {
-      saved = true;
-      return ok({
-        parcelId,
-        trackingNumber: delivery.trackingNumber,
-        previousStatus: 'OUT_FOR_DELIVERY',
-        status: 'DELIVERED',
-        updatedAt: '2026-11-05T11:00:00Z',
-      });
-    },
-  });
-  await page.goto(`/deliveries/${parcelId}`);
-  await page.getByLabel('Next status').selectOption('DELIVERED');
-  await page.getByLabel('Recipient name').fill('Nimali Perera');
-  await page.getByLabel('Note', { exact: true }).fill('Handed over');
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(page.getByText('Handed over')).toBeVisible();
-  await expect(
-    page.getByText('Delivery status saved', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'Next status' })).toHaveCount(
-    0,
-  );
-  expect(
-    api.calls
-      .filter(
-        (call) => call.key === `POST /courier/deliveries/${parcelId}/status`,
-      )
-      .map((call) => call.body),
-  ).toEqual([
-    {
-      status: 'DELIVERED',
-      recipientName: 'Nimali Perera',
-      note: 'Handed over',
-    },
-  ]);
-});
-
-test('records a failed delivery with a reason and refreshes the history', async ({
-  page,
-}) => {
-  let saved = false;
-  const api = await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: () =>
-      ok(
-        !saved
-          ? detail
-          : {
-              ...detail,
-              status: 'FAILED',
-              history: [
-                ...detail.history,
-                {
-                  previousStatus: 'OUT_FOR_DELIVERY',
-                  status: 'FAILED',
-                  note: null,
-                  failureReason: 'Recipient was unavailable',
-                  actorRole: 'COURIER',
-                  changedAt: '2026-11-05T11:00:00Z',
-                },
-              ],
-            },
-      ),
-    [`POST /courier/deliveries/${parcelId}/status`]: () => {
-      saved = true;
-      return ok({
-        parcelId,
-        trackingNumber: delivery.trackingNumber,
-        previousStatus: 'OUT_FOR_DELIVERY',
-        status: 'FAILED',
-        updatedAt: '2026-11-05T11:00:00Z',
-      });
-    },
-  });
-  await page.goto(`/deliveries/${parcelId}`);
-  await page.getByLabel('Next status').selectOption('FAILED');
-  await page.getByLabel('Failure reason').fill('Recipient was unavailable');
-  await page.getByRole('button', { name: 'Save status' }).click();
-
-  await expect(
-    page.getByText('Delivery status saved', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText('FAILED', { exact: true }).first()).toBeVisible();
-  const history = page.getByRole('list', { name: 'Status history' });
-  await expect(history).toContainText('FAILED');
-  await expect(history).toContainText('Recipient was unavailable');
-  await expect(page.getByRole('combobox', { name: 'Next status' })).toHaveCount(
-    0,
-  );
-  expect(
-    api.calls
-      .filter(
-        (call) => call.key === `POST /courier/deliveries/${parcelId}/status`,
-      )
-      .map((call) => call.body),
-  ).toEqual([{ status: 'FAILED', failureReason: 'Recipient was unavailable' }]);
-});
-
-test('validates recipient and failure fields before posting', async ({
-  page,
-}) => {
-  const api = await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
-    [`POST /courier/deliveries/${parcelId}/status`]: ok({
-      parcelId,
-      trackingNumber: delivery.trackingNumber,
-      previousStatus: 'OUT_FOR_DELIVERY',
-      status: 'DELIVERED',
-      updatedAt: '2026-11-05T11:00:00Z',
-    }),
-  });
-  await page.goto(`/deliveries/${parcelId}`);
-  await page.getByLabel('Next status').selectOption('DELIVERED');
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(
-    page.getByText('Enter the recipient name for a delivered parcel.'),
-  ).toBeVisible();
-
-  await page.getByLabel('Next status').selectOption('FAILED');
-  await page.getByLabel('Failure reason').fill('bad');
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(
-    page.getByText('Failure reason must be between 5 and 255 characters.'),
-  ).toBeVisible();
-  await page.getByLabel('Failure reason').fill('😀'.repeat(3));
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(page.getByLabel('Failure reason')).toHaveAttribute(
-    'aria-invalid',
-    'true',
-  );
-  await page.getByLabel('Failure reason').fill('😀'.repeat(5));
-  await page.getByLabel('Note', { exact: true }).fill('😀'.repeat(501));
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(
-    page.getByText('Note must be 500 characters or fewer.'),
-  ).toBeVisible();
-  expect(
-    api.calls.filter((call) =>
-      call.key.startsWith('POST /courier/deliveries/'),
-    ),
-  ).toHaveLength(0);
-  await page.getByLabel('Next status').selectOption('DELIVERED');
-  const recipientName = '\u{1F600}'.repeat(150);
-  const note = '\u{1F600}'.repeat(500);
-  await page.getByLabel('Recipient name').fill(recipientName);
-  await page.getByLabel('Note', { exact: true }).fill(note);
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(
-    page.getByText('Delivery status saved', { exact: true }),
-  ).toBeVisible();
-  expect(
-    api.calls
-      .filter((call) => call.key.startsWith('POST /courier/deliveries/'))
-      .map((call) => call.body),
-  ).toEqual([{ status: 'DELIVERED', recipientName, note }]);
-});
-
-test('handles 403, 409 and 422 update errors without exposing server text', async ({
-  page,
-}) => {
-  let reply = fail(409, 'INVALID_TRANSITION');
-  let refreshReply = ok(detail);
+test('shows the redesigned delivery sections in order', async ({ page }) => {
   await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: () => refreshReply,
-    [`POST /courier/deliveries/${parcelId}/status`]: () => reply,
+    [`GET /courier/deliveries/${parcelId}`]: ok(detailWith('OUT_FOR_DELIVERY')),
   });
   await page.goto(`/deliveries/${parcelId}`);
-  await page.getByLabel('Next status').selectOption('FAILED');
-  await page.getByLabel('Failure reason').fill('Recipient was unavailable');
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(page.getByRole('status')).toContainText(
-    'This delivery changed before you saved it',
-  );
-  await expect(page.getByLabel('Failure reason')).toHaveValue(
-    'Recipient was unavailable',
-  );
-  refreshReply = fail(503, 'SERVICE_UNAVAILABLE');
-  await page.getByRole('button', { name: 'Refresh delivery' }).click();
-  await expect(
-    page.getByRole('region', { name: 'Delivery refresh failed' }),
-  ).toContainText('Something broke on our side');
-  await expect(page.getByLabel('Failure reason')).toHaveValue(
-    'Recipient was unavailable',
-  );
-  await expect(
-    page.getByRole('button', { name: 'Save status' }),
-  ).toBeDisabled();
-  refreshReply = ok(detail);
-  await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.getByRole('button', { name: 'Save status' })).toBeEnabled();
-  await expect(page.getByLabel('Failure reason')).toHaveValue(
-    'Recipient was unavailable',
-  );
-  reply = fail(422, 'FAILURE_REASON_REQUIRED');
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(page.getByText('Status update needs review')).toBeVisible();
-  reply = fail(403, 'FORBIDDEN');
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(page.getByRole('main').getByRole('alert')).toContainText(
-    'You no longer have access to this delivery',
-  );
-  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
-});
-
-test('prevents duplicate submissions and works at phone and desktop widths', async ({
-  page,
-}) => {
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const api = await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok({
-      ...detail,
-      history: [{ ...detail.history[0], note: 'Unbroken'.repeat(70) }],
-    }),
-  });
-  const bodies: unknown[] = [];
-  await page.route(
-    `**/api/v1/courier/deliveries/${parcelId}/status`,
-    async (route) => {
-      bodies.push(route.request().postDataJSON());
-      await gate;
-      await route.fulfill({
-        status: 200,
-        json: {
-          data: {
-            parcelId,
-            trackingNumber: delivery.trackingNumber,
-            previousStatus: 'OUT_FOR_DELIVERY',
-            status: 'FAILED',
-            updatedAt: '2026-11-05T11:00:00Z',
-          },
-        },
-      });
-    },
-  );
-  await page.setViewportSize({ width: 360, height: 900 });
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.goto(`/deliveries/${parcelId}`);
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.getByLabel('Next status').selectOption('FAILED');
-  await page.getByLabel('Failure reason').fill('Recipient was unavailable');
-  try {
-    await page.getByRole('button', { name: 'Save status' }).click();
-    const save = page.getByRole('button', { name: 'Saving status' });
-    await expect(save).toHaveAttribute('aria-disabled', 'true');
-    // Exercise both programmatic click and form submission while the request is held.
-    await save.evaluate((button) => {
-      button.click();
-      button.closest('form')?.requestSubmit();
-    });
-    expect(bodies).toHaveLength(1);
-    const box = await save.boundingBox();
-    expect(box?.height).toBeGreaterThanOrEqual(48);
-    expect(
-      await page.evaluate(
-        'document.documentElement.scrollWidth <= window.innerWidth',
-      ),
-    ).toBe(true);
-    expect(
-      api.calls.filter((call) =>
-        call.key.startsWith('POST /courier/deliveries/'),
-      ),
-    ).toHaveLength(0);
-  } finally {
-    release();
-  }
-  await expect(
-    page.getByText('Delivery status saved', { exact: true }),
-  ).toBeVisible();
-  expect(bodies).toEqual([
-    { status: 'FAILED', failureReason: 'Recipient was unavailable' },
-  ]);
-  await page.screenshot({
-    path: test.info().outputPath('courier-360-dark.png'),
-    fullPage: true,
-  });
-});
-
-test('keeps the courier detail usable at desktop width', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.emulateMedia({ colorScheme: 'light' });
-  let currentDetail = detail;
-  let response: Reply | null = null;
-  await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: () =>
-      response ?? ok(currentDetail),
-  });
-  await page.goto(`/deliveries/${parcelId}`);
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.getByLabel('Next status')).toBeVisible();
-  await page.getByLabel('Next status').focus();
-  await expect(page.getByLabel('Next status')).toBeFocused();
-  const box = await page.getByLabel('Next status').boundingBox();
-  expect(box?.height).toBeGreaterThanOrEqual(48);
-  await expect(page.getByLabel('Next status')).toHaveCSS(
-    'outline-style',
-    /solid|auto/,
-  );
-  await page.keyboard.press('Tab');
-  await expect(page.getByLabel('Note', { exact: true })).toBeFocused();
-  await page.keyboard.press('Tab');
-  await expect(page.getByRole('button', { name: 'Save status' })).toBeFocused();
-  expect(
-    await page.evaluate(
-      'document.documentElement.scrollWidth <= window.innerWidth',
-    ),
-  ).toBe(true);
-  await page.screenshot({
-    path: test.info().outputPath('courier-1280-light.png'),
-    fullPage: true,
-  });
-  for (const [status, next] of [
-    ['CREATED', ['PICKED_UP', 'FAILED']],
-    ['PICKED_UP', ['IN_TRANSIT', 'FAILED']],
-    ['IN_TRANSIT', ['OUT_FOR_DELIVERY', 'FAILED']],
-    ['OUT_FOR_DELIVERY', ['DELIVERED', 'FAILED']],
-    ['DELIVERED', []],
-    ['FAILED', []],
-  ] as const) {
-    currentDetail = { ...detail, status };
-    await page.reload();
-    await expect(
-      page.getByRole('heading', { level: 1, name: delivery.trackingNumber }),
-    ).toBeVisible();
-    if (next.length) {
-      await expect(page.getByLabel('Next status')).toBeVisible();
-      expect(
-        await page
-          .getByLabel('Next status')
-          .locator('option')
-          .evaluateAll((options) =>
-            options.map((option) => option.getAttribute('value')),
-          ),
-      ).toEqual(['', ...next]);
-    } else {
-      await expect(page.getByLabel('Next status')).toHaveCount(0);
-      await expect(
-        page.getByText('This delivery has reached a final status'),
-      ).toBeVisible();
-    }
-  }
-  response = fail(404, 'PARCEL_NOT_FOUND');
-  await page.reload();
-  await expect(
-    page.getByRole('heading', { name: 'Delivery not found', exact: true }),
-  ).toBeVisible();
-  response = fail(503, 'SERVICE_UNAVAILABLE');
-  await page.reload();
-  await expect(page.getByRole('main').getByRole('alert')).toContainText(
-    'Something broke on our side',
-  );
-  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
-  response = null;
-  await page.getByRole('button', { name: 'Try again' }).click();
   await expect(
     page.getByRole('heading', { level: 1, name: delivery.trackingNumber }),
   ).toBeVisible();
+  await expect(page.getByText(/^Assigned \d/)).toBeVisible();
+
+  const names = [
+    'Delivery progress',
+    'Sender and recipient',
+    'Parcel details',
+    'Confirm delivery',
+    'Activity',
+  ];
+  const positions: number[] = [];
+  for (const name of names) {
+    const heading = page.getByRole('heading', { level: 2, name, exact: true });
+    await expect(heading).toBeVisible();
+    positions.push((await heading.boundingBox())?.y ?? 0);
+  }
+  expect(positions).toEqual([...positions].sort((left, right) => left - right));
+
+  const progress = page.getByRole('list', { name: 'Delivery progress' });
+  await expect(progress.locator('[aria-current="step"]')).toContainText(
+    'Out for delivery',
+  );
+  await expect(progress).toContainText('Created');
+  await expect(progress).toContainText('Picked up');
+  await expect(progress).toContainText('Delivered');
 });
 
-test('validates proof fields and previews a supported image', async ({
+for (const scenario of [
+  { status: 'CREATED', action: 'Confirm pickup' },
+  { status: 'PICKED_UP', action: 'Continue to in transit' },
+  { status: 'IN_TRANSIT', action: 'Mark out for delivery' },
+  { status: 'OUT_FOR_DELIVERY', action: 'Confirm delivery' },
+] as const) {
+  test(`offers only the ${scenario.action} action for ${scenario.status}`, async ({
+    page,
+  }) => {
+    await signInAs(page, 'COURIER', {
+      [`GET /courier/deliveries/${parcelId}`]: ok(detailWith(scenario.status)),
+    });
+    await page.goto(`/deliveries/${parcelId}`);
+    await expect(page.getByLabel('Next status')).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: scenario.action }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Report delivery failure' }),
+    ).toBeVisible();
+    if (scenario.status === 'CREATED') {
+      await expect(page.getByLabel('Pickup proof photo')).toBeVisible();
+    }
+    if (scenario.status === 'PICKED_UP') {
+      await expect(page.getByLabel('Pickup proof photo')).toHaveCount(0);
+      await expect(page.getByLabel('Delivery proof photo')).toHaveCount(0);
+    }
+    if (scenario.status === 'OUT_FOR_DELIVERY') {
+      await expect(page.getByLabel('Recipient name')).toBeVisible();
+      await expect(page.getByLabel('Delivery proof photo')).toBeVisible();
+      await expect(page.getByLabel('Delivery note')).toBeVisible();
+    }
+  });
+}
+
+test('shows a delivered parcel without further actions', async ({ page }) => {
+  const delivered = detailWith('DELIVERED', {
+    proof: deliveryProof,
+    proofs: [pickupProof, deliveryProof],
+  });
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(delivered),
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Delivered', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('No further status action is available.'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Report delivery failure' }),
+  ).toHaveCount(0);
+  await expect(page.getByLabel('Next status')).toHaveCount(0);
+  await expect(page.getByText('Nimali Perera').first()).toBeVisible();
+});
+
+test('shows a failed parcel with its reason and no further actions', async ({
+  page,
+}) => {
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(detailWith('FAILED')),
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  await expect(
+    page.getByRole('heading', {
+      level: 2,
+      name: 'Delivery failed',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Recipient was unavailable').first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Report delivery failure' }),
+  ).toHaveCount(0);
+  await expect(page.getByLabel('Next status')).toHaveCount(0);
+});
+
+test('pickup rejects a missing, invalid or oversized photo before posting', async ({
   page,
 }) => {
   const api = await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+    [`GET /courier/deliveries/${parcelId}`]: ok(detailWith('CREATED')),
   });
   await page.goto(`/deliveries/${parcelId}`);
-  await page.getByRole('button', { name: 'Upload proof' }).click();
+  const photo = page.getByLabel('Pickup proof photo');
+  await expect(photo).toHaveAttribute('capture', 'environment');
+
+  await page.getByRole('button', { name: 'Confirm pickup' }).click();
   await expect(
-    page.getByText('Add a photo, recipient name or delivery note.'),
+    page.getByText('Add a JPEG or PNG photo of the parcel at pickup.'),
   ).toBeVisible();
 
-  const photo = page.getByLabel('Proof photo');
-  await expect(photo).toHaveAttribute('capture', 'environment');
   await photo.setInputFiles({
     name: 'renamed.jpg',
     mimeType: 'text/plain',
@@ -665,331 +476,582 @@ test('validates proof fields and previews a supported image', async ({
   await expect(photo).toHaveValue('');
 
   await photo.setInputFiles({
-    name: 'doorstep.png',
+    name: 'pickup.png',
     mimeType: 'image/png',
     buffer: Buffer.from('png preview'),
   });
-  await expect(page.getByText('Selected: doorstep.png')).toBeVisible();
-  await expect(page.getByAltText('Selected proof preview')).toBeVisible();
-  expect(api.calls.filter((call) => call.key.endsWith('/proof'))).toHaveLength(
-    0,
-  );
+  await expect(page.getByAltText('Pickup proof photo preview')).toBeVisible();
+  expect(
+    api.calls.filter((call) =>
+      call.key.startsWith('POST /courier/deliveries/'),
+    ),
+  ).toHaveLength(0);
 });
 
-test('uploads authenticated multipart proof and refreshes its metadata', async ({
+test('confirms pickup with a photo and records both transitions', async ({
   page,
 }) => {
-  let uploaded = false;
-  const uploadRequest: { contentType: string | undefined; body: string } = {
-    contentType: undefined,
-    body: '',
-  };
+  let pickedUp = false;
+  const captured = { contentType: '', body: '' };
   await signInAs(page, 'COURIER', {
     [`GET /courier/deliveries/${parcelId}`]: () =>
       ok(
-        uploaded
-          ? {
-              ...detail,
-              proof: {
-                recipientName: 'Nimali Perera',
-                note: 'Handed over safely',
-                hasPhoto: true,
-                createdAt: '2026-11-10T09:00:00Z',
-              },
-            }
-          : { ...detail, proof: null },
+        pickedUp
+          ? detailWith('IN_TRANSIT', {
+              proof: pickupProof,
+              proofs: [pickupProof],
+            })
+          : detailWith('CREATED'),
       ),
   });
   await page.route(
-    `**/api/v1/courier/deliveries/${parcelId}/proof`,
+    `**/api/v1/courier/deliveries/${parcelId}/pickup`,
     async (route) => {
-      const request = route.request();
-      uploadRequest.contentType = request.headers()['content-type'];
-      uploadRequest.body = request.postDataBuffer()?.toString('utf8') ?? '';
-      uploaded = true;
+      if (route.request().method() !== 'POST') return route.fallback();
+      captured.contentType = route.request().headers()['content-type'] ?? '';
+      captured.body = route.request().postDataBuffer()?.toString('utf8') ?? '';
+      pickedUp = true;
       await route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({
+        status: 200,
+        json: {
           data: {
-            id: '00000000-0000-4000-8000-000000000201',
             parcelId,
-            recipientName: 'Nimali Perera',
-            note: 'Handed over safely',
-            hasPhoto: true,
-            createdAt: '2026-11-10T09:00:00Z',
+            trackingNumber: delivery.trackingNumber,
+            previousStatus: 'CREATED',
+            status: 'IN_TRANSIT',
+            updatedAt: '2026-11-05T09:31:00Z',
+            alreadyApplied: false,
+            history: [],
+            proof: pickupProof,
           },
           meta: { requestId: REQUEST_ID },
-        }),
+        },
       });
     },
   );
   await page.goto(`/deliveries/${parcelId}`);
-  await page.getByLabel('Proof photo').setInputFiles({
-    name: 'handover.jpg',
-    mimeType: 'image/jpeg',
-    buffer: Buffer.from('jpeg content'),
+  await page.getByLabel('Pickup proof photo').setInputFiles({
+    name: 'pickup.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('png content'),
   });
-  await page.getByLabel('Proof received by').fill('Nimali Perera');
-  await page.getByLabel('Delivery note').fill('Handed over safely');
-  await page.getByRole('button', { name: 'Upload proof' }).click();
+  await page.getByRole('button', { name: 'Confirm pickup' }).click();
 
   await expect(
-    page.getByText('Delivery proof uploaded', { exact: true }),
+    page.getByText('Pickup confirmed. The parcel is now in transit.'),
   ).toBeVisible();
-  await expect(page.getByText('Handed over safely')).toBeVisible();
-  const contentType = uploadRequest.contentType ?? '';
-  const body = uploadRequest.body;
-  expect(contentType).toMatch(/^multipart\/form-data; boundary=/);
-  expect(contentType).not.toContain('application/json');
-  expect(body).toContain('name="photo"; filename="handover.jpg"');
-  expect(body).toContain('name="recipientName"');
-  expect(body).toContain('Nimali Perera');
-  expect(body).toContain('name="note"');
-  expect(body).toContain('Handed over safely');
+  await expect(
+    page
+      .getByRole('list', { name: 'Delivery progress' })
+      .locator('[aria-current="step"]'),
+  ).toContainText('In transit');
+  const history = page.getByRole('list', { name: 'Status history' });
+  await expect(history).toContainText('Picked up');
+  await expect(history).toContainText('In transit');
+  await expect(page.getByLabel('Next status')).toHaveCount(0);
+  expect(captured.contentType).toMatch(/^multipart\/form-data; boundary=/);
+  expect(captured.body).toContain('name="photo"; filename="pickup.png"');
 });
 
-test('retains proof input after failure, prevents duplicates and retries', async ({
+test('prevents duplicate pickup submissions at phone width', async ({
   page,
 }) => {
+  let pickedUp = false;
   let attempts = 0;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
   await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
+    [`GET /courier/deliveries/${parcelId}`]: () =>
+      ok(
+        pickedUp
+          ? detailWith('IN_TRANSIT', {
+              proof: pickupProof,
+              proofs: [pickupProof],
+            })
+          : detailWith('CREATED'),
+      ),
   });
   await page.route(
-    `**/api/v1/courier/deliveries/${parcelId}/proof`,
+    `**/api/v1/courier/deliveries/${parcelId}/pickup`,
     async (route) => {
       attempts += 1;
-      if (attempts === 1) {
-        await route.fulfill({
-          status: 503,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            error: { code: 'SERVICE_UNAVAILABLE', message: SERVER_WORDS },
-            meta: { requestId: REQUEST_ID },
-          }),
-        });
-        return;
-      }
+      pickedUp = true;
       await gate;
       await route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({
+        status: 200,
+        json: {
           data: {
-            id: '00000000-0000-4000-8000-000000000202',
             parcelId,
-            recipientName: null,
-            note: 'Retry this proof',
-            hasPhoto: false,
-            createdAt: '2026-11-10T09:05:00Z',
+            trackingNumber: delivery.trackingNumber,
+            previousStatus: 'CREATED',
+            status: 'IN_TRANSIT',
+            updatedAt: '2026-11-05T09:31:00Z',
+            alreadyApplied: false,
+            history: [],
+            proof: pickupProof,
           },
           meta: { requestId: REQUEST_ID },
-        }),
+        },
       });
     },
   );
+  await page.setViewportSize({ width: 360, height: 900 });
+  await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto(`/deliveries/${parcelId}`);
-  await page.getByLabel('Delivery note').fill('Retry this proof');
-  await page.getByRole('button', { name: 'Upload proof' }).click();
-  await expect(
-    page.getByText('Proof uploads are temporarily unavailable'),
-  ).toBeVisible();
-  await expect(page.getByLabel('Delivery note')).toHaveValue(
-    'Retry this proof',
-  );
-
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.getByLabel('Pickup proof photo').setInputFiles({
+    name: 'pickup.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('png content'),
+  });
   try {
-    await page.getByRole('button', { name: 'Upload proof' }).click();
-    const uploading = page.getByRole('button', { name: 'Uploading proof' });
-    await expect(uploading).toHaveAttribute('aria-disabled', 'true');
-    await uploading.evaluate((button) => {
+    await page.getByRole('button', { name: 'Confirm pickup' }).click();
+    const saving = page.getByRole('button', { name: 'Confirming pickup' });
+    await expect(saving).toHaveAttribute('aria-disabled', 'true');
+    await saving.evaluate((button) => {
       button.click();
       button.closest('form')?.requestSubmit();
     });
-    expect(attempts).toBe(2);
+    expect(attempts).toBe(1);
+    const box = await saving.boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(48);
+    expect(
+      await page.evaluate(
+        'document.documentElement.scrollWidth <= window.innerWidth',
+      ),
+    ).toBe(true);
   } finally {
     release();
   }
   await expect(
-    page.getByText('Delivery proof uploaded', { exact: true }),
+    page.getByText('Pickup confirmed. The parcel is now in transit.'),
+  ).toBeVisible();
+  expect(attempts).toBe(1);
+  await page.screenshot({
+    path: test.info().outputPath('courier-360-dark.png'),
+    fullPage: true,
+  });
+});
+
+test('delivery needs a recipient and photo, then a confirmation step', async ({
+  page,
+}) => {
+  let delivered = false;
+  const captured = { contentType: '', body: '' };
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: () =>
+      ok(
+        delivered
+          ? detailWith('DELIVERED', {
+              proof: deliveryProof,
+              proofs: [pickupProof, deliveryProof],
+            })
+          : detailWith('OUT_FOR_DELIVERY'),
+      ),
+  });
+  await page.route(
+    `**/api/v1/courier/deliveries/${parcelId}/delivery`,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      captured.contentType = route.request().headers()['content-type'] ?? '';
+      captured.body = route.request().postDataBuffer()?.toString('utf8') ?? '';
+      delivered = true;
+      await route.fulfill({
+        status: 200,
+        json: {
+          data: {
+            parcelId,
+            trackingNumber: delivery.trackingNumber,
+            previousStatus: 'OUT_FOR_DELIVERY',
+            status: 'DELIVERED',
+            updatedAt: '2026-11-05T11:00:00Z',
+            alreadyApplied: false,
+            history: [],
+            proof: deliveryProof,
+          },
+          meta: { requestId: REQUEST_ID },
+        },
+      });
+    },
+  );
+  await page.goto(`/deliveries/${parcelId}`);
+  await page.getByRole('button', { name: 'Confirm delivery' }).click();
+  await expect(
+    page.getByText('Enter the name of the person who received the parcel.'),
+  ).toBeVisible();
+
+  await page.getByLabel('Recipient name').fill('Nimali Perera');
+  await page.getByRole('button', { name: 'Confirm delivery' }).click();
+  await expect(
+    page.getByText('Add a JPEG or PNG photo of the handover.'),
+  ).toBeVisible();
+
+  await page.getByLabel('Delivery proof photo').setInputFiles({
+    name: 'handover.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('png content'),
+  });
+  await page.getByLabel('Delivery note').fill('Handed over');
+  await page.getByRole('button', { name: 'Confirm delivery' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Confirm delivery?' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(captured.body).toBe('');
+
+  await page.getByRole('button', { name: 'Confirm delivery' }).click();
+  await dialog.getByRole('button', { name: 'Confirm delivery' }).click();
+  await expect(
+    page.getByText('Delivery confirmed. The parcel is now delivered.'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Delivered', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('No further status action is available.'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Status history' }),
+  ).toContainText('Delivered');
+  await expect(
+    page.getByRole('heading', { level: 3, name: 'Delivery proof' }),
+  ).toBeVisible();
+  expect(captured.contentType).toMatch(/^multipart\/form-data; boundary=/);
+  expect(captured.body).toContain('name="recipientName"');
+  expect(captured.body).toContain('Nimali Perera');
+  expect(captured.body).toContain('name="photo"; filename="handover.png"');
+  expect(captured.body).toContain('name="note"');
+  expect(captured.body).toContain('Handed over');
+});
+
+test('records a failed delivery with a reason', async ({ page }) => {
+  let failed = false;
+  const api = await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: () =>
+      ok(failed ? detailWith('FAILED') : detailWith('OUT_FOR_DELIVERY')),
+    [`POST /courier/deliveries/${parcelId}/status`]: () => {
+      failed = true;
+      return ok({
+        parcelId,
+        trackingNumber: delivery.trackingNumber,
+        previousStatus: 'OUT_FOR_DELIVERY',
+        status: 'FAILED',
+        updatedAt: '2026-11-05T11:00:00Z',
+      });
+    },
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  await page.getByRole('button', { name: 'Report delivery failure' }).click();
+  const dialog = page.getByRole('dialog', {
+    name: 'Report a failed delivery',
+  });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Report failure' }).click();
+  await expect(
+    page.getByText('Failure reason must be between 5 and 255 characters.'),
+  ).toBeVisible();
+
+  await page
+    .getByLabel('Failure reason')
+    .fill('Recipient was unavailable at the address');
+  await dialog.getByRole('button', { name: 'Report failure' }).click();
+
+  await expect(page.getByText('Delivery failure recorded.')).toBeVisible();
+  await expect(
+    page.getByRole('heading', {
+      level: 2,
+      name: 'Delivery failed',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Recipient was unavailable').first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Report delivery failure' }),
+  ).toHaveCount(0);
+  expect(
+    api.calls
+      .filter(
+        (call) => call.key === `POST /courier/deliveries/${parcelId}/status`,
+      )
+      .map((call) => call.body),
+  ).toEqual([
+    {
+      status: 'FAILED',
+      failureReason: 'Recipient was unavailable at the address',
+    },
+  ]);
+});
+
+test('handles 403, 409 and 422 errors without exposing server text', async ({
+  page,
+}) => {
+  let detailReply: Reply = ok(detailWith('OUT_FOR_DELIVERY'));
+  let updateReply: Reply = fail(409, 'INVALID_TRANSITION');
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: () => detailReply,
+    [`POST /courier/deliveries/${parcelId}/delivery`]: () => updateReply,
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  await page.getByLabel('Recipient name').fill('Nimali Perera');
+  await page.getByLabel('Delivery proof photo').setInputFiles({
+    name: 'handover.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('png content'),
+  });
+  await page.getByRole('button', { name: 'Confirm delivery' }).click();
+  await page
+    .getByRole('dialog', { name: 'Confirm delivery?' })
+    .getByRole('button', { name: 'Confirm delivery' })
+    .click();
+  await expect(
+    page.getByText('This delivery changed before you saved it'),
+  ).toBeVisible();
+  await expect(page.getByLabel('Recipient name')).toHaveValue('Nimali Perera');
+
+  detailReply = fail(503, 'SERVICE_UNAVAILABLE');
+  await page.getByRole('button', { name: 'Refresh delivery' }).click();
+  await expect(
+    page.getByRole('region', { name: 'Delivery refresh failed' }),
+  ).toContainText('Something broke on our side');
+  await expect(page.getByText(`Reference ${REQUEST_ID}`)).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Confirm delivery' }),
+  ).toBeDisabled();
+
+  detailReply = ok(detailWith('OUT_FOR_DELIVERY'));
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Confirm delivery' }),
+  ).toBeEnabled();
+
+  updateReply = fail(422, 'VALIDATION_ERROR');
+  await page.getByRole('button', { name: 'Confirm delivery' }).click();
+  await page
+    .getByRole('dialog', { name: 'Confirm delivery?' })
+    .getByRole('button', { name: 'Confirm delivery' })
+    .click();
+  await expect(page.getByText('Check the delivery details')).toBeVisible();
+
+  updateReply = fail(403, 'FORBIDDEN');
+  await page.getByRole('button', { name: 'Confirm delivery' }).click();
+  await page
+    .getByRole('dialog', { name: 'Confirm delivery?' })
+    .getByRole('button', { name: 'Confirm delivery' })
+    .click();
+  await expect(
+    page.getByText('You no longer have access to this delivery'),
+  ).toBeVisible();
+  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
+});
+
+test('handles a pickup rate limit and re-enables the action', async ({
+  page,
+}) => {
+  let attempts = 0;
+  let pickedUp = false;
+  await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: () =>
+      ok(
+        pickedUp
+          ? detailWith('IN_TRANSIT', {
+              proof: pickupProof,
+              proofs: [pickupProof],
+            })
+          : detailWith('CREATED'),
+      ),
+    [`POST /courier/deliveries/${parcelId}/pickup`]: () => {
+      attempts += 1;
+      if (attempts === 1)
+        return fail(429, 'RATE_LIMITED', {
+          headers: { 'Retry-After': '1' },
+        });
+      pickedUp = true;
+      return ok({
+        parcelId,
+        trackingNumber: delivery.trackingNumber,
+        previousStatus: 'CREATED',
+        status: 'IN_TRANSIT',
+        updatedAt: '2026-11-05T09:31:00Z',
+        alreadyApplied: false,
+        history: [],
+        proof: pickupProof,
+      });
+    },
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  const confirm = page.getByRole('button', { name: 'Confirm pickup' });
+  await page.getByLabel('Pickup proof photo').setInputFiles({
+    name: 'pickup.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('png content'),
+  });
+  await confirm.click();
+  await expect(
+    page.getByText('Too many attempts from this device'),
+  ).toBeVisible();
+  await expect(page.getByText(/\d+ seconds/)).toBeVisible();
+  await expect(confirm).toBeDisabled();
+  await expect(page.getByText('You can try again now.')).toBeVisible({
+    timeout: 5000,
+  });
+  await expect(confirm).toBeEnabled();
+
+  await confirm.click();
+  await expect(
+    page.getByText('Pickup confirmed. The parcel is now in transit.'),
   ).toBeVisible();
   expect(attempts).toBe(2);
 });
 
-test('opens a short-lived proof photo when the delivery has one', async ({
+test('opens the pickup and delivery proof photos from Activity', async ({
   page,
   context,
 }) => {
-  const withPhoto = {
-    ...detail,
-    status: 'DELIVERED',
-    proof: { ...detail.proof, hasPhoto: true },
-  };
+  const delivered = detailWith('DELIVERED', {
+    proof: deliveryProof,
+    proofs: [pickupProof, deliveryProof],
+  });
   await context.route('https://storage.example/**', (route) =>
     route.fulfill({ status: 200, contentType: 'image/jpeg', body: 'photo' }),
   );
-  await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(withPhoto),
-    [`GET /parcels/${parcelId}/proof/photo`]: ok({
-      url: 'https://storage.example/proof.jpg',
+  const api = await signInAs(page, 'COURIER', {
+    [`GET /courier/deliveries/${parcelId}`]: ok(delivered),
+    [`GET /parcels/${parcelId}/proofs/${pickupProof.id}/photo`]: ok({
+      url: 'https://storage.example/pickup.jpg',
+      expiresAt: '2026-11-05T11:00:00Z',
+      mimeType: 'image/jpeg',
+      stream: false,
+    }),
+    [`GET /parcels/${parcelId}/proofs/${deliveryProof.id}/photo`]: ok({
+      url: 'https://storage.example/delivery.jpg',
       expiresAt: '2026-11-05T11:00:00Z',
       mimeType: 'image/jpeg',
       stream: false,
     }),
   });
   await page.goto(`/deliveries/${parcelId}`);
-  const popupPromise = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'View proof photo' }).click();
-  const popup = await popupPromise;
-  await popup.waitForURL('https://storage.example/proof.jpg');
+  await expect(
+    page.getByRole('heading', { level: 3, name: 'Pickup proof' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 3, name: 'Delivery proof' }),
+  ).toBeVisible();
+  await expect(page.getByText('Collected from sender').first()).toBeVisible();
+
+  const buttons = page.getByRole('button', { name: 'View proof photo' });
+  await expect(buttons).toHaveCount(2);
+  const pickupPopup = page.waitForEvent('popup');
+  await buttons.nth(0).click();
+  await (await pickupPopup).waitForURL('https://storage.example/pickup.jpg');
+  await (await pickupPopup).close();
+  const deliveryPopup = page.waitForEvent('popup');
+  await buttons.nth(1).click();
+  await (
+    await deliveryPopup
+  ).waitForURL('https://storage.example/delivery.jpg');
+  await (await deliveryPopup).close();
+
+  expect(
+    api.calls
+      .filter((call) => call.key.includes('/proofs/'))
+      .map((call) => call.key)
+      .sort(),
+  ).toEqual(
+    [
+      `GET /parcels/${parcelId}/proofs/${pickupProof.id}/photo`,
+      `GET /parcels/${parcelId}/proofs/${deliveryProof.id}/photo`,
+    ].sort(),
+  );
 });
 
-test('handles a proof rate limit with a countdown and re-enables upload', async ({
-  page,
-}) => {
-  let attempts = 0;
+test('shows loading, not-found and server-fault states', async ({ page }) => {
+  let response: Reply = {
+    ...ok(detailWith('OUT_FOR_DELIVERY')),
+    delayMs: 3000,
+  };
   await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
-    [`POST /courier/deliveries/${parcelId}/proof`]: () => {
-      attempts += 1;
-      return attempts === 1
-        ? fail(429, 'RATE_LIMITED', { headers: { 'Retry-After': '1' } })
-        : ok(
-            {
-              id: '00000000-0000-4000-8000-000000000203',
-              parcelId,
-              recipientName: null,
-              note: 'Rate limited proof',
-              hasPhoto: false,
-              createdAt: '2026-11-10T09:10:00Z',
-            },
-            201,
-          );
-    },
+    [`GET /courier/deliveries/${parcelId}`]: () => response,
   });
   await page.goto(`/deliveries/${parcelId}`);
-  const note = page.getByLabel('Delivery note');
-  const upload = page.getByRole('button', { name: 'Upload proof' });
-  await note.fill('Rate limited proof');
-  await upload.click();
-
   await expect(
-    page.getByText('Too many attempts from this device'),
-  ).toBeVisible();
-  await expect(page.getByText(/\d+ seconds/)).toBeVisible();
-  await expect(upload).toBeDisabled();
-  await expect(note).toHaveValue('Rate limited proof');
-  await expect(page.getByText('You can try again now.')).toBeVisible({
-    timeout: 5000,
-  });
-  await expect(upload).toBeEnabled();
-
-  await upload.click();
-  await expect(
-    page.getByText('Delivery proof uploaded', { exact: true }),
-  ).toBeVisible();
-  expect(attempts).toBe(2);
-});
-
-test('a reached proof quota stops further uploads', async ({ page }) => {
-  let attempts = 0;
-  await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
-    [`POST /courier/deliveries/${parcelId}/proof`]: () => {
-      attempts += 1;
-      return fail(409, 'PROOF_LIMIT_REACHED');
-    },
-  });
-  await page.goto(`/deliveries/${parcelId}`);
-  const note = page.getByLabel('Delivery note');
-  const upload = page.getByRole('button', { name: 'Upload proof' });
-  await note.fill('Quota proof');
-  await upload.click();
-
-  await expect(
-    page.getByText('This parcel has reached its proof limit'),
+    page.getByRole('status').filter({ hasText: 'Loading delivery details' }),
   ).toBeVisible();
   await expect(
-    page.getByText(/Another proof cannot be uploaded/),
+    page.getByRole('heading', { level: 1, name: delivery.trackingNumber }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  response = fail(404, 'PARCEL_NOT_FOUND');
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Delivery not found', exact: true }),
   ).toBeVisible();
-  await expect(page.getByText('Proof could not be uploaded')).toHaveCount(0);
-  await expect(upload).toBeDisabled();
-  await expect(note).toBeDisabled();
-  await expect(note).toHaveValue('Quota proof');
+
+  response = fail(503, 'SERVICE_UNAVAILABLE');
+  await page.reload();
+  await expect(page.getByRole('main').getByRole('alert')).toContainText(
+    'Something broke on our side',
+  );
+  await expect(page.getByText(`Reference ${REQUEST_ID}`)).toBeVisible();
   await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
 
-  await upload.evaluate((button) => button.closest('form')?.requestSubmit());
-  expect(attempts).toBe(1);
-});
-
-test('offers only the next allowed delivery status', async ({ page }) => {
-  await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
-  });
-  await page.goto(`/deliveries/${parcelId}`);
-
-  await expect(page.getByLabel('Next status').locator('option')).toHaveText([
-    'Choose a status',
-    'DELIVERED',
-    'FAILED',
-  ]);
-});
-
-test('surfaces documented proof upload failures and keeps the draft', async ({
-  page,
-}) => {
-  let reply = fail(413, 'PAYLOAD_TOO_LARGE');
-  await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
-    [`POST /courier/deliveries/${parcelId}/proof`]: () => reply,
-  });
-  await page.goto(`/deliveries/${parcelId}`);
-  const note = page.getByLabel('Delivery note');
-  const upload = page.getByRole('button', { name: 'Upload proof' });
-  await note.fill('Keep this draft');
-  await upload.click();
-  await expect(page.getByText('Photo is too large')).toBeVisible();
-  await expect(note).toHaveValue('Keep this draft');
-
-  reply = fail(415, 'UNSUPPORTED_MEDIA_TYPE');
-  await upload.click();
-  await expect(page.getByText('Photo format is not supported')).toBeVisible();
-
-  reply = fail(422, 'PROOF_DETAILS_INVALID');
-  await upload.click();
-  await expect(page.getByText('Proof details need review')).toBeVisible();
-
-  reply = fail(403, 'FORBIDDEN');
-  await upload.click();
+  response = ok(detailWith('OUT_FOR_DELIVERY'));
+  await page.getByRole('button', { name: 'Try again' }).click();
   await expect(
-    page.getByText('You no longer have access to this delivery'),
+    page.getByRole('heading', { level: 1, name: delivery.trackingNumber }),
   ).toBeVisible();
-  await expect(upload).toBeDisabled();
-  await expect(note).toHaveValue('Keep this draft');
-  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
 });
 
-test('an expired session during proof upload shows the session-ended dialog', async ({
+test('keeps the redesigned detail usable at phone and desktop widths', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.emulateMedia({ colorScheme: 'light' });
   await signInAs(page, 'COURIER', {
-    [`GET /courier/deliveries/${parcelId}`]: ok(detail),
-    [`POST /courier/deliveries/${parcelId}/proof`]: fail(
-      401,
-      'UNAUTHENTICATED',
+    [`GET /courier/deliveries/${parcelId}`]: ok(detailWith('OUT_FOR_DELIVERY')),
+  });
+  await page.goto(`/deliveries/${parcelId}`);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const confirm = page.getByRole('button', { name: 'Confirm delivery' });
+  await expect(confirm).toBeVisible();
+  await confirm.focus();
+  await expect(confirm).toBeFocused();
+  await expect(confirm).toHaveCSS('outline-style', /solid|auto/);
+  expect(
+    await page.evaluate(
+      'document.documentElement.scrollWidth <= window.innerWidth',
     ),
+  ).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('courier-1280-light.png'),
+    fullPage: true,
   });
-  await page.goto(`/deliveries/${parcelId}`);
-  await page.getByLabel('Delivery note').fill('Session proof');
-  await page.getByRole('button', { name: 'Upload proof' }).click();
 
-  await expect(
-    page.getByRole('dialog', { name: 'Your session ended' }),
-  ).toBeVisible();
-  await expect(page.getByText(SERVER_WORDS)).toHaveCount(0);
+  await page.setViewportSize({ width: 360, height: 900 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  const box = await page
+    .getByRole('button', { name: 'Confirm delivery' })
+    .boundingBox();
+  expect(box?.height).toBeGreaterThanOrEqual(48);
+  expect(
+    await page.evaluate(
+      'document.documentElement.scrollWidth <= window.innerWidth',
+    ),
+  ).toBe(true);
+  for (const heading of [
+    'Delivery progress',
+    'Sender and recipient',
+    'Parcel details',
+    'Confirm delivery',
+    'Activity',
+  ]) {
+    await expect(
+      page.getByRole('heading', { level: 2, name: heading, exact: true }),
+    ).toBeVisible();
+  }
 });

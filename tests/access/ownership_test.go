@@ -95,8 +95,10 @@ func TestCourierParcelOwnership(t *testing.T) {
 
 	// Courier A uses the trailing-slash route through the gateway so the
 	// gateway rewrite and the second registration are both exercised end to end.
+	// FAILED is the only non-proof transition from CREATED; pickup now requires
+	// the proof-backed endpoint (tested by the courier workflow integration).
 	updated := s.mustDo(t, http.MethodPost, "/api/v1/courier/deliveries/"+parcelID+"/status/",
-		`{"status":"PICKED_UP","note":"courier A owns this parcel"}`, bearer(courierAToken))
+		`{"status":"FAILED","failureReason":"courier A owns this parcel"}`, bearer(courierAToken))
 	if updated.status != http.StatusOK {
 		t.Fatalf("courier A update: HTTP %d %s", updated.status, updated.body)
 	}
@@ -126,7 +128,7 @@ func TestCourierParcelOwnership(t *testing.T) {
 	if err := detail.data(&parcel); err != nil || detail.status != http.StatusOK {
 		t.Fatalf("courier A detail: HTTP %d; decode %v", detail.status, err)
 	}
-	if parcel.Status != "PICKED_UP" || len(parcel.History) != 2 {
+	if parcel.Status != "FAILED" || len(parcel.History) != 2 {
 		t.Fatalf("rejected update changed parcel: status=%q history=%d", parcel.Status, len(parcel.History))
 	}
 	historyCount := s.sqlQuery(t, fmt.Sprintf(
@@ -134,7 +136,7 @@ func TestCourierParcelOwnership(t *testing.T) {
 	eventCount := s.sqlQuery(t, fmt.Sprintf(
 		`SELECT count(*) FROM parcel.outbox_events WHERE aggregate_id = '%s' AND event_type = 'parcel.status_changed';`, parcelID))
 	if historyCount != "2" {
-		t.Fatalf("status history rows = %s, want 2 (CREATED and PICKED_UP only)", historyCount)
+		t.Fatalf("status history rows = %s, want 2 (CREATED and FAILED only)", historyCount)
 	}
 	if eventCount != "1" {
 		t.Fatalf("status_changed outbox rows = %s, want 1 (courier A only)", eventCount)

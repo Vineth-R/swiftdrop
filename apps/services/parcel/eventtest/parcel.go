@@ -41,6 +41,9 @@ type StatusInput = courier.StatusInput
 // StatusPickedUp is the CREATED -> PICKED_UP transition used by the test.
 const StatusPickedUp = statemachine.StatusPickedUp
 
+// StatusOutForDelivery is the IN_TRANSIT -> OUT_FOR_DELIVERY transition used by the test.
+const StatusOutForDelivery = statemachine.StatusOutForDelivery
+
 // NewSQLStore returns the real outbox store over the isolated database.
 func NewSQLStore(pool *postgres.Pool) *outbox.SQLStore { return outbox.NewSQLStore(pool) }
 

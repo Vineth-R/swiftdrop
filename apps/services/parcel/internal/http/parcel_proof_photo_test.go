@@ -21,11 +21,21 @@ type photoHTTPStore struct {
 	body     string
 	err      error
 	viewer   courier.PhotoViewer
+	proofID  string
 }
 
 func (s *photoHTTPStore) Photo(_ context.Context, _ string, viewer courier.PhotoViewer) (courier.ProofPhotoDownload, error) {
 	s.viewer = viewer
 	return s.download, s.err
+}
+
+func (s *photoHTTPStore) PhotoByProof(_ context.Context, _ string, proofID string, viewer courier.PhotoViewer) (courier.ProofPhotoDownload, error) {
+	s.viewer, s.proofID = viewer, proofID
+	return s.download, s.err
+}
+
+func (s *photoHTTPStore) OpenByProof(ctx context.Context, parcelID, _ string, viewer courier.PhotoViewer) (io.ReadCloser, string, int64, error) {
+	return s.Open(ctx, parcelID, viewer)
 }
 
 func (s *photoHTTPStore) Open(context.Context, string, courier.PhotoViewer) (io.ReadCloser, string, int64, error) {
@@ -105,5 +115,37 @@ func TestProofPhotoContentStreams(t *testing.T) {
 	}
 	if recorder.Header().Get("Content-Type") != "image/jpeg" || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("headers = %v", recorder.Header())
+	}
+}
+
+func TestProofPhotoByIDRoutePassesProofID(t *testing.T) {
+	const proofID = "22222222-2222-4222-8222-222222222222"
+	store := &photoHTTPStore{download: courier.ProofPhotoDownload{
+		URL: "https://storage.example/proof?signature=short", ExpiresAt: time.Now().Add(time.Minute),
+		MIMEType: "image/png", Stream: true,
+	}}
+	recorder := photoHTTPRequest(t, store, auth.RoleCourier,
+		"/parcels/11111111-1111-4111-8111-111111111111/proofs/"+proofID+"/photo")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	if store.proofID != proofID {
+		t.Fatalf("proofID = %q", store.proofID)
+	}
+}
+
+func TestProofPhotoByIDRejectsInvalidProofUUID(t *testing.T) {
+	recorder := photoHTTPRequest(t, &photoHTTPStore{}, auth.RoleCourier,
+		"/parcels/11111111-1111-4111-8111-111111111111/proofs/not-a-uuid/photo")
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestProofPhotoByIDMapsMissingProof(t *testing.T) {
+	recorder := photoHTTPRequest(t, &photoHTTPStore{err: courier.ErrProofNotFound}, auth.RoleCourier,
+		"/parcels/11111111-1111-4111-8111-111111111111/proofs/22222222-2222-4222-8222-222222222222/photo")
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), "PROOF_NOT_FOUND") {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
 	}
 }

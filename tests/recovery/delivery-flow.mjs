@@ -1,5 +1,11 @@
-// Verifies that a real status event still flows through the relay and tracking
+// Verifies that a real pickup event still flows through the relay and tracking
 // projection after RabbitMQ has been restarted. Run after outage-recovery.sh.
+import { Buffer } from 'node:buffer';
+
+const PROOF_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAH0lEQVR4nAASAO3/Av8AAP8AAAAAAAAAAAAAAAAAAwAfFwIBJnyuSgAAAABJRU5ErkJggg==',
+  'base64',
+);
 const base = process.env.REAL_STACK_BASE_URL || 'http://localhost:8080';
 const customer = {
   email: process.env.REAL_STACK_CUSTOMER_EMAIL,
@@ -81,22 +87,39 @@ await request(`/api/v1/dispatch/parcels/${parcel.id}/assignment`, {
   token: dispatcherToken,
   body: { courierId: me.data.id, reason: 'Outage recovery test' },
 });
-await request(`/api/v1/courier/deliveries/${parcel.id}/status`, {
-  method: 'POST',
-  token: courierToken,
-  body: { status: 'PICKED_UP' },
-});
+// One pickup action records PICKED_UP and IN_TRANSIT; tracking settles on
+// IN_TRANSIT after the relay publishes both events.
+const photo = new FormData();
+photo.append(
+  'photo',
+  new Blob([PROOF_PNG], { type: 'image/png' }),
+  'pickup.png',
+);
+const pickupResponse = await fetch(
+  `${base}/api/v1/courier/deliveries/${parcel.id}/pickup`,
+  {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${courierToken}` },
+    body: photo,
+  },
+);
+const pickupText = await pickupResponse.text();
+if (!pickupResponse.ok) {
+  throw new Error(
+    `POST /api/v1/courier/deliveries/${parcel.id}/pickup returned ${pickupResponse.status}: ${pickupText}`,
+  );
+}
 
 const deadline = Date.now() + 20_000;
 let tracking;
 while (Date.now() < deadline) {
   tracking = (await request(`/api/v1/tracking/${parcel.trackingNumber}`)).data;
-  if (tracking.status === 'PICKED_UP') break;
+  if (tracking.status === 'IN_TRANSIT') break;
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
-if (tracking?.status !== 'PICKED_UP') {
+if (tracking?.status !== 'IN_TRANSIT') {
   throw new Error(
-    `tracking did not reach PICKED_UP: ${JSON.stringify(tracking)}`,
+    `tracking did not reach IN_TRANSIT: ${JSON.stringify(tracking)}`,
   );
 }
 console.log(

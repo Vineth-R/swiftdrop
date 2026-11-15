@@ -83,6 +83,8 @@ var matrix = []accesskit.Case{
 	{Name: "GET /parcels/{id}/receipt", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/receipt", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/proof/photo", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/proof/photo", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/proof/photo/content", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/proof/photo/content", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin}},
+	{Name: "GET /parcels/{id}/proofs/{proofId}/photo", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/proofs/" + anyID + "/photo", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin}},
+	{Name: "GET /parcels/{id}/proofs/{proofId}/photo/content", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/proofs/" + anyID + "/photo/content", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "POST /courier/deliveries/{id}/proof", Method: http.MethodPost, Path: "/api/v1/courier/deliveries/" + anyID + "/proof", Body: `{}`, Allowed: []auth.Role{auth.RoleCourier}},
 	{Name: "GET /parcels/tracking/{trackingNumber}", Method: http.MethodGet, Path: "/api/v1/parcels/tracking/SDK7M2Q9XP4", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /dispatch/unassigned", Method: http.MethodGet, Path: "/api/v1/dispatch/unassigned", Allowed: []auth.Role{auth.RoleDispatcher}},
@@ -92,6 +94,8 @@ var matrix = []accesskit.Case{
 	{Name: "GET /courier/deliveries", Method: http.MethodGet, Path: "/api/v1/courier/deliveries", Allowed: []auth.Role{auth.RoleCourier}},
 	{Name: "GET /courier/deliveries/{id}", Method: http.MethodGet, Path: "/api/v1/courier/deliveries/" + anyID, Allowed: []auth.Role{auth.RoleCourier}},
 	{Name: "POST /courier/deliveries/{id}/status", Method: http.MethodPost, Path: "/api/v1/courier/deliveries/" + anyID + "/status", Body: `{}`, Allowed: []auth.Role{auth.RoleCourier}},
+	{Name: "POST /courier/deliveries/{id}/pickup", Method: http.MethodPost, Path: "/api/v1/courier/deliveries/" + anyID + "/pickup", Body: `{}`, Allowed: []auth.Role{auth.RoleCourier}},
+	{Name: "POST /courier/deliveries/{id}/delivery", Method: http.MethodPost, Path: "/api/v1/courier/deliveries/" + anyID + "/delivery", Body: `{}`, Allowed: []auth.Role{auth.RoleCourier}},
 	{Name: "GET /reports/daily", Method: http.MethodGet, Path: "/api/v1/reports/daily", Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "GET /reports/outcomes", Method: http.MethodGet, Path: "/api/v1/reports/outcomes", Allowed: []auth.Role{auth.RoleDispatcher}},
 }

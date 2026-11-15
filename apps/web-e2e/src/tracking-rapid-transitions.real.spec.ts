@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -10,6 +11,10 @@ import {
 } from './support/real-stack';
 
 const REAL_TIMEOUT = 20_000;
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAH0lEQVR4nAASAO3/Av8AAP8AAAAAAAAAAAAAAAAAAwAfFwIBJnyuSgAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 /**
  * A tracking page is open before one parcel moves through four rapid status
@@ -56,14 +61,10 @@ test('rapid courier transitions leave tracking on the final status', async ({
     }),
   ).toBeVisible({ timeout: REAL_TIMEOUT });
 
-  for (const [status, extra] of [
-    ['PICKED_UP', {}],
-    ['IN_TRANSIT', {}],
-    ['OUT_FOR_DELIVERY', {}],
-    ['DELIVERED', { recipientName: 'Rapid Recipient' }],
-  ] as const) {
-    await updateStatus(request, courierToken, parcel.id, status, extra);
-  }
+  // One pickup action records PICKED_UP and IN_TRANSIT in one transaction.
+  await confirmPickup(request, courierToken, parcel.id);
+  await updateStatus(request, courierToken, parcel.id, 'OUT_FOR_DELIVERY');
+  await confirmDelivery(request, courierToken, parcel.id, 'Rapid Recipient');
 
   await expect(page.getByText('DELIVERED', { exact: true })).toBeVisible({
     timeout: REAL_TIMEOUT,
@@ -96,13 +97,48 @@ async function updateStatus(
   token: string,
   parcelID: string,
   status: string,
-  extra: Record<string, string>,
 ) {
   const response = await request.post(
     `/api/v1/courier/deliveries/${parcelID}/status`,
     {
       headers: { Authorization: `Bearer ${token}` },
-      data: { status, ...extra },
+      data: { status },
+    },
+  );
+  expect(response.status(), await response.text()).toBe(200);
+}
+
+async function confirmPickup(
+  request: APIRequestContext,
+  token: string,
+  parcelID: string,
+) {
+  const response = await request.post(
+    `/api/v1/courier/deliveries/${parcelID}/pickup`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        photo: { name: 'pickup.png', mimeType: 'image/png', buffer: PNG },
+      },
+    },
+  );
+  expect(response.status(), await response.text()).toBe(200);
+}
+
+async function confirmDelivery(
+  request: APIRequestContext,
+  token: string,
+  parcelID: string,
+  recipientName: string,
+) {
+  const response = await request.post(
+    `/api/v1/courier/deliveries/${parcelID}/delivery`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        recipientName,
+        photo: { name: 'delivery.png', mimeType: 'image/png', buffer: PNG },
+      },
     },
   );
   expect(response.status(), await response.text()).toBe(200);

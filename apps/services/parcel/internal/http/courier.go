@@ -62,6 +62,7 @@ func registerCourier(router *gin.Engine, logger *slog.Logger, options Options) e
 	group.GET("/:parcelId/", h.detail)
 	registerCourierStatus(group, options.CourierStatus, logger)
 	registerCourierProof(group, options.CourierProof, logger, options.ProofMaxSizeBytes)
+	registerCourierWorkflow(group, options.CourierWorkflow, logger, options.ProofMaxSizeBytes)
 	return nil
 }
 

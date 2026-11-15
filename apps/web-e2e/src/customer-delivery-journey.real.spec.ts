@@ -229,32 +229,38 @@ async function completeThroughCourierUI(
   await expect(card).toBeVisible({ timeout: REAL_TIMEOUT });
   await card.getByRole('link', { name: 'View delivery' }).click();
   await expect(
-    page.getByRole('region', { name: 'Delivery status' }),
+    page.getByRole('heading', { level: 1, name: parcel.trackingNumber }),
   ).toBeVisible({ timeout: REAL_TIMEOUT });
 
-  await moveToStatus(page, 'PICKED_UP', 'PICKED UP');
-  await moveToStatus(page, 'IN_TRANSIT', 'IN TRANSIT');
-  await moveToStatus(page, 'OUT_FOR_DELIVERY', 'OUT FOR DELIVERY');
+  await page.getByLabel('Pickup proof photo').setInputFiles({
+    name: 'pickup.png',
+    mimeType: 'image/png',
+    buffer: PNG,
+  });
+  await page.getByRole('button', { name: 'Confirm pickup' }).click();
+  await expect(
+    page.getByText('Pickup confirmed. The parcel is now in transit.'),
+  ).toBeVisible({ timeout: REAL_TIMEOUT });
 
-  await page.locator('#courier-proof-photo').setInputFiles({
+  await page.getByRole('button', { name: 'Mark out for delivery' }).click();
+  await expect(
+    page.getByText('The parcel is now out for delivery.'),
+  ).toBeVisible({ timeout: REAL_TIMEOUT });
+
+  await page.getByLabel('Recipient name').fill('Amali Fernando');
+  await page.getByLabel('Delivery proof photo').setInputFiles({
     name: 'proof.png',
     mimeType: 'image/png',
     buffer: PNG,
   });
-  await page.getByLabel('Proof received by').fill('Amali Fernando');
   await page.getByLabel('Delivery note').fill('Handed to recipient');
-  await page.getByRole('button', { name: 'Upload proof' }).click();
+  await page.getByRole('button', { name: 'Confirm delivery' }).click();
+  await page
+    .getByRole('dialog', { name: 'Confirm delivery?' })
+    .getByRole('button', { name: 'Confirm delivery' })
+    .click();
   await expect(
-    page.getByText('Delivery proof uploaded', { exact: true }),
-  ).toBeVisible({ timeout: REAL_TIMEOUT });
-
-  await page.getByLabel('Next status').selectOption('DELIVERED');
-  await page.getByLabel('Recipient name').fill('Amali Fernando');
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(
-    page
-      .getByRole('region', { name: 'Delivery status' })
-      .getByText('DELIVERED', { exact: true }),
+    page.getByRole('heading', { level: 2, name: 'Delivered', exact: true }),
   ).toBeVisible({ timeout: REAL_TIMEOUT });
 }
 
@@ -270,15 +276,5 @@ async function search(page: Page, trackingNumber: string) {
       .getByRole('table', { name: 'All parcels' })
       .getByRole('row')
       .filter({ hasText: trackingNumber }),
-  ).toBeVisible({ timeout: REAL_TIMEOUT });
-}
-
-async function moveToStatus(page: Page, value: string, label: string) {
-  await page.getByLabel('Next status').selectOption(value);
-  await page.getByRole('button', { name: 'Save status' }).click();
-  await expect(
-    page
-      .getByRole('region', { name: 'Delivery status' })
-      .getByText(label, { exact: true }),
   ).toBeVisible({ timeout: REAL_TIMEOUT });
 }

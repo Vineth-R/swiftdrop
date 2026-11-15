@@ -706,6 +706,85 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/proofs/{proofId}/photo':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+      - in: path
+        name: proofId
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getParcelProofPhotoByProofURL
+      summary: Get a short-lived URL for one specific delivery proof photo
+      tags: [Customer parcels, Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: |
+        Same authorization as the latest-photo route. CUSTOMER owner, currently
+        assigned COURIER, DISPATCHER or ADMIN. The proof must belong to the
+        parcel and have a photo. S3-compatible providers return a short-lived
+        presigned URL; local development returns `stream: true` and a relative
+        content URL. Cache-Control no-store.
+      responses:
+        '200':
+          description: Short-lived proof photo target.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/ProofPhotoURL' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400': { $ref: '#/components/responses/ParcelValidation' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404':
+          description: NOT_FOUND (parcel or authorization) or PROOF_NOT_FOUND.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/proofs/{proofId}/photo/content':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+      - in: path
+        name: proofId
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: streamParcelProofPhotoByProof
+      summary: Stream one specific delivery proof photo for local storage
+      tags: [Customer parcels, Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: |
+        Same authorization and local-stream behavior as the latest-photo content
+        route, for one specific proof. Cache-Control no-store.
+      responses:
+        '200':
+          description: Proof photo bytes.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              example: no-store
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404':
+          description: NOT_FOUND or PROOF_NOT_FOUND.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
   /internal/parcels:
     servers: [{ url: 'http://parcel:8082' }]
     post:
@@ -1252,15 +1331,17 @@ paths:
         COURIER only. Locks the parcel, verifies the current courier and current
         assignment, then validates the transition and required fields using the
         shared parcel state machine.
-        CREATED -> PICKED_UP or FAILED; PICKED_UP -> IN_TRANSIT or FAILED;
-        IN_TRANSIT -> OUT_FOR_DELIVERY or FAILED; OUT_FOR_DELIVERY -> DELIVERED
-        or FAILED. DELIVERED and FAILED are terminal. Identical updates return 409.
-        Status, delivery fields, history and outbox data commit in one transaction.
-        M6's existing relay publishes parcel.status_changed.v1 (version 1) after
-        commit; notification or webhook delivery never gates this response.
-        Limits count Unicode characters. Recipient and failure reason are trimmed.
-        Irrelevant recipientName/failureReason values are not persisted.
-        Cache-Control no-store. The gateway already forwards this courier path.
+        This generic route now serves FAILED from CREATED, PICKED_UP, IN_TRANSIT
+        or OUT_FOR_DELIVERY, the legacy PICKED_UP -> IN_TRANSIT recovery step,
+        and IN_TRANSIT -> OUT_FOR_DELIVERY. Proof-backed pickup
+        (CREATED -> PICKED_UP) and delivery (OUT_FOR_DELIVERY -> DELIVERED) are
+        rejected with 422 PROOF_REQUIRED and must use the pickup and delivery
+        endpoints so the proof row, history and outbox commit together.
+        DELIVERED and FAILED are terminal. Identical updates return 409.
+        Status, history and outbox data commit in one transaction. The relay
+        publishes parcel.status_changed.v1 (version 1) after commit; notification
+        or webhook delivery never gates this response. Limits count Unicode
+        characters. Failure reason and note are trimmed. Cache-Control no-store.
       tags: [Courier]
       security:
         - AccessCookie: []
@@ -1305,7 +1386,178 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '422':
-          description: RECIPIENT_REQUIRED for a missing or blank DELIVERED recipient; FAILURE_REASON_REQUIRED for a FAILED reason outside 5–255 trimmed characters; VALIDATION_ERROR for an unknown/missing status, recipient over 150 trimmed characters or note over 500 characters. Ownership is checked before these rules.
+          description: >-
+            PROOF_REQUIRED when status is PICKED_UP from CREATED or DELIVERED
+            (use the pickup or delivery endpoint); FAILURE_REASON_REQUIRED for a
+            FAILED reason outside 5–255 trimmed characters; VALIDATION_ERROR for
+            an unknown/missing status or note over 500 characters. Ownership is
+            checked before these rules.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/CourierUnavailable' }
+  '/courier/deliveries/{parcelId}/pickup':
+    post:
+      operationId: confirmCourierPickup
+      summary: Confirm pickup with proof and advance to IN_TRANSIT (API v1.1 section 6.5)
+      description: |
+        COURIER only. The parcel must be assigned to the caller and CREATED.
+        Requires a valid decoded JPEG or PNG photo of at most 5 MiB. One database
+        transaction stores the PICKUP proof, the PICKED_UP and IN_TRANSIT history
+        rows, both PENDING parcel.status_changed outbox events and the final
+        IN_TRANSIT status. The courier performs one action and must not submit a
+        second IN_TRANSIT update. A retried request that finds the parcel already
+        IN_TRANSIT returns 200 with alreadyApplied=true and creates no duplicate
+        proof, history or event rows; the retry's unused upload is deleted.
+        A historical PICKED_UP parcel is continued with the generic status route
+        and does not repeat the pickup proof. Requests are limited to 30 per
+        minute per verified courier and this route extends its body read deadline
+        to 60 seconds. Cache-Control no-store.
+      tags: [Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: parcelId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/CourierPickupUpload' }
+      responses:
+        '200':
+          description: Pickup proof, both history rows and both pending events committed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/CourierWorkflowResult' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400':
+          description: BAD_REQUEST. Invalid parcel UUID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401': { $ref: '#/components/responses/CourierUnauthenticated' }
+        '403': { $ref: '#/components/responses/CourierForbidden' }
+        '404':
+          description: PARCEL_NOT_FOUND.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: INVALID_TRANSITION (not CREATED; PICKED_UP history uses the in-transit action) or PROOF_LIMIT_REACHED.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '413':
+          description: PAYLOAD_TOO_LARGE. Photo exceeds 5 MiB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '415':
+          description: UNSUPPORTED_MEDIA_TYPE. Request is not multipart/form-data or the photo is not a valid JPEG/PNG.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: PROOF_REQUIRED (no photo) or VALIDATION_ERROR (malformed form, note over 500 characters).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429':
+          description: RATE_LIMITED. More than 30 pickup requests in a minute for the verified courier.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/CourierUnavailable' }
+  '/courier/deliveries/{parcelId}/delivery':
+    post:
+      operationId: confirmCourierDelivery
+      summary: Confirm delivery with recipient and proof (API v1.1 section 6.6)
+      description: |
+        COURIER only. The parcel must be assigned to the caller and
+        OUT_FOR_DELIVERY. Requires a non-blank recipient name (max 150), a valid
+        decoded JPEG or PNG photo of at most 5 MiB, and an optional note (max
+        500). One database transaction stores the DELIVERY proof, the recipient,
+        the delivered timestamp, the DELIVERED history row and the PENDING outbox
+        event. A retried request for an already DELIVERED parcel returns 200 with
+        alreadyApplied=true and creates no duplicate rows. The generic status
+        route rejects DELIVERED with 422 PROOF_REQUIRED. Requests are limited to
+        30 per minute per verified courier and this route extends its body read
+        deadline to 60 seconds. Cache-Control no-store.
+      tags: [Courier]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: parcelId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/CourierDeliveryConfirmation' }
+      responses:
+        '200':
+          description: Delivery proof, recipient and pending event committed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: '#/components/schemas/CourierWorkflowResult' }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '400':
+          description: BAD_REQUEST. Invalid parcel UUID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401': { $ref: '#/components/responses/CourierUnauthenticated' }
+        '403': { $ref: '#/components/responses/CourierForbidden' }
+        '404':
+          description: PARCEL_NOT_FOUND.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: INVALID_TRANSITION (not OUT_FOR_DELIVERY) or PROOF_LIMIT_REACHED.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '413':
+          description: PAYLOAD_TOO_LARGE. Photo exceeds 5 MiB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '415':
+          description: UNSUPPORTED_MEDIA_TYPE. Request is not multipart/form-data or the photo is not a valid JPEG/PNG.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: RECIPIENT_REQUIRED, PROOF_REQUIRED, or VALIDATION_ERROR (malformed form, note over 500 characters).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429':
+          description: RATE_LIMITED. More than 30 delivery requests in a minute for the verified courier.
+          headers:
+            Retry-After:
+              schema: { type: integer }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1910,12 +2162,17 @@ components:
       properties:
         status:
           type: string
-          description: Target status. CREATED is not a valid target.
-          enum: [PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
+          description: >-
+            Target status for the generic route. PICKED_UP is no longer a
+            target (use the pickup endpoint) and DELIVERED is no longer a target
+            (use the delivery endpoint). Both are rejected with PROOF_REQUIRED.
+          enum: [IN_TRANSIT, OUT_FOR_DELIVERY, FAILED]
         recipientName:
           type: string
           maxLength: 150
-          description: Required and non-blank for DELIVERED; maximum 150 characters after trimming.
+          description: >-
+            Accepted for backward compatibility but ignored. Delivery uses the
+            delivery endpoint, which requires the recipient name and a photo.
         failureReason:
           type: string
           minLength: 5
@@ -1945,6 +2202,101 @@ components:
           type: string
           enum: [PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
         updatedAt: { type: string, format: date-time }
+    CourierPickupUpload:
+      type: object
+      additionalProperties: false
+      required: [photo]
+      properties:
+        photo:
+          type: string
+          format: binary
+          description: Required valid JPEG or PNG content, maximum exactly 5 MiB.
+        note:
+          type: string
+          maxLength: 500
+          description: Optional note stored on the PICKED_UP history row.
+    CourierDeliveryConfirmation:
+      type: object
+      additionalProperties: false
+      required: [photo, recipientName]
+      properties:
+        photo:
+          type: string
+          format: binary
+          description: Required valid JPEG or PNG content, maximum exactly 5 MiB.
+        recipientName:
+          type: string
+          minLength: 1
+          maxLength: 150
+          description: Required and non-blank after trimming.
+        note:
+          type: string
+          maxLength: 500
+          description: Optional delivery note.
+    CourierWorkflowResult:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          parcelId,
+          trackingNumber,
+          previousStatus,
+          status,
+          updatedAt,
+          alreadyApplied,
+          history,
+          proof,
+        ]
+      properties:
+        parcelId: { type: string, format: uuid }
+        trackingNumber: { type: string }
+        previousStatus:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        updatedAt: { type: string, format: date-time }
+        alreadyApplied:
+          type: boolean
+          description: True when a retry found the transition already committed; nothing was written.
+        history:
+          type: array
+          description: The history rows created by this operation, oldest first.
+          items: { $ref: '#/components/schemas/CourierHistory' }
+        proof:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CourierProof'
+    CourierProof:
+      type: object
+      additionalProperties: false
+      required: [id, kind, recipientName, note, hasPhoto, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [PICKUP, DELIVERY]
+        recipientName: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+        hasPhoto: { type: boolean }
+        createdAt: { type: string, format: date-time }
     ProofPhotoURL:
       type: object
       additionalProperties: false
@@ -2027,7 +2379,15 @@ components:
         - $ref: '#/components/schemas/CourierDelivery'
         - type: object
           required:
-            [description, sizeCategory, senderName, senderPhone, history, proof]
+            [
+              description,
+              sizeCategory,
+              senderName,
+              senderPhone,
+              history,
+              proof,
+              proofs,
+            ]
           properties:
             description: { type: string, nullable: true }
             sizeCategory:
@@ -2038,15 +2398,14 @@ components:
               type: array
               items: { $ref: '#/components/schemas/CourierHistory' }
             proof:
-              type: object
               nullable: true
-              additionalProperties: false
-              required: [recipientName, note, hasPhoto, createdAt]
-              properties:
-                recipientName: { type: string, nullable: true }
-                note: { type: string, nullable: true }
-                hasPhoto: { type: boolean }
-                createdAt: { type: string, format: date-time }
+              description: The latest proof, kept for clients that need one photo.
+              allOf:
+                - $ref: '#/components/schemas/CourierProof'
+            proofs:
+              type: array
+              description: Every proof for the parcel, oldest first.
+              items: { $ref: '#/components/schemas/CourierProof' }
     CourierHistory:
       type: object
       additionalProperties: false

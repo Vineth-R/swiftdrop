@@ -3,7 +3,6 @@ package courier
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -105,6 +104,15 @@ func updateStatusInTx(ctx context.Context, tx pgx.Tx, input StatusInput) (Status
 	if !assignmentCurrent {
 		return StatusResult{}, fmt.Errorf("verify courier assignment: %w", ErrInconsistentAssignment)
 	}
+	// Pickup and delivery are proof-backed workflows. They keep their own
+	// endpoints so the proof row, both history rows and the outbox events can
+	// commit together. This generic endpoint must not bypass those checks.
+	if input.Status == statemachine.StatusDelivered {
+		return StatusResult{}, ErrDeliveryProofRequired
+	}
+	if result.PreviousStatus == statemachine.StatusCreated && input.Status == statemachine.StatusPickedUp {
+		return StatusResult{}, ErrPickupProofRequired
+	}
 
 	var recipient, reason, note *string
 	if input.Status == statemachine.StatusDelivered {
@@ -158,33 +166,13 @@ func updateStatusInTx(ctx context.Context, tx pgx.Tx, input StatusInput) (Status
 	// created_at reuses the parcel update's clock value so serialized transitions
 	// on one parcel cannot publish out of order when transaction start times
 	// differ from the row-lock acquisition order.
-	payload := map[string]any{
-		"parcel_id": input.ParcelID, "tracking_number": result.TrackingNumber,
-		"previous_status": result.PreviousStatus, "status": input.Status,
-		"actor_user_id": input.CourierID,
-	}
-	if customerID != nil {
-		payload["customer_user_id"] = *customerID
-	}
-	if merchantID != nil {
-		payload["merchant_id"] = *merchantID
-	}
-	if note != nil {
-		payload["note"] = *note
-	}
-	if reason != nil {
-		payload["failure_reason"] = *reason
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return StatusResult{}, fmt.Errorf("encode courier status event: %w", err)
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO parcel.outbox_events
-		(id, event_type, routing_key, payload, status, attempts, aggregate_type, aggregate_id, created_at)
-		VALUES (gen_random_uuid(), 'parcel.status_changed', 'parcel.status.changed',
-		$1, 'PENDING', 0, 'parcel', $2, $3)`, data, input.ParcelID, result.UpdatedAt)
-	if err != nil {
-		return StatusResult{}, fmt.Errorf("insert courier status event: %w", err)
+	if err := writeStatusEvent(ctx, tx, statusEvent{
+		ParcelID: input.ParcelID, TrackingNumber: result.TrackingNumber,
+		PreviousStatus: result.PreviousStatus, Status: input.Status,
+		ActorUserID: input.CourierID, CustomerID: customerID, MerchantID: merchantID,
+		Note: note, FailureReason: reason, OccurredAt: result.UpdatedAt,
+	}); err != nil {
+		return StatusResult{}, err
 	}
 	result.UpdatedAt = result.UpdatedAt.UTC()
 	return result, nil

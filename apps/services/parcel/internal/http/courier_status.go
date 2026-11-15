@@ -66,6 +66,10 @@ func registerCourierStatus(group *gin.RouterGroup, store CourierStatusStore, log
 			httpx.Success(c, http.StatusOK, result)
 		case errors.Is(err, courier.ErrNotFound):
 			httpx.Error(c, http.StatusNotFound, "PARCEL_NOT_FOUND", "parcel not found")
+		case errors.Is(err, courier.ErrDeliveryProofRequired):
+			httpx.Error(c, http.StatusUnprocessableEntity, "PROOF_REQUIRED", "delivery confirmation requires a recipient name and a proof photo through the delivery endpoint")
+		case errors.Is(err, courier.ErrPickupProofRequired):
+			httpx.Error(c, http.StatusUnprocessableEntity, "PROOF_REQUIRED", "pickup confirmation requires a proof photo through the pickup endpoint")
 		case errors.As(err, &domain):
 			httpx.Error(c, domain.HTTPStatus, domain.Code, domain.Message)
 		case errors.Is(err, courier.ErrUnavailable):
