@@ -120,21 +120,30 @@ function withUpdate(tracking: Tracking, update: StatusUpdate): Tracking {
   const isRepeat = tracking.timeline.some(
     (event) => event.status === update.status && event.at === update.updatedAt,
   );
+  if (isRepeat) return tracking;
+
   const isOlder =
     new Date(update.updatedAt).getTime() <
     new Date(tracking.lastUpdatedAt).getTime();
-  if (isRepeat || isOlder) return tracking;
-  if (update.status === tracking.status) {
-    return { ...tracking, lastUpdatedAt: update.updatedAt };
-  }
+  const hasStatus = tracking.timeline.some(
+    (event) => event.status === update.status,
+  );
+  // A stale copy of a step already shown changes nothing. An older event for a
+  // step that is missing is still a real part of the history: rapid consumers
+  // can deliver OUT_FOR_DELIVERY before IN_TRANSIT. Add it, sort by time, and
+  // derive the headline from the newest event rather than arrival order.
+  if (isOlder && hasStatus) return tracking;
+
+  const timeline = [
+    ...tracking.timeline,
+    { status: update.status, at: update.updatedAt },
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  const latest = timeline[timeline.length - 1];
   return {
     ...tracking,
-    status: update.status,
-    lastUpdatedAt: update.updatedAt,
-    timeline: [
-      ...tracking.timeline,
-      { status: update.status, at: update.updatedAt },
-    ],
+    status: latest.status,
+    lastUpdatedAt: latest.at,
+    timeline,
   };
 }
 

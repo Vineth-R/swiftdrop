@@ -33,7 +33,7 @@ func (u Update) Message() []byte {
 			TrackingNumber: u.TrackingNumber,
 			PreviousStatus: u.PreviousStatus,
 			Status:         u.Status,
-			UpdatedAt:      u.UpdatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt:      u.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		},
 	})
 }
@@ -62,7 +62,7 @@ func (u AssignmentUpdate) Message() []byte {
 		Type: "parcel.assigned.updated",
 		Data: assignmentData{
 			TrackingNumber: u.TrackingNumber,
-			UpdatedAt:      u.UpdatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt:      u.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		},
 	})
 }
