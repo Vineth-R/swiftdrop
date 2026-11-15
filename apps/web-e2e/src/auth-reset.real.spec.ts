@@ -101,8 +101,10 @@ test.describe('real-stack password recovery', () => {
     );
 
     await page.goto(`/reset-password?token=${resetToken}`);
-    await page.getByLabel('New password').fill(newPassword);
-    await page.getByLabel('Confirm new password').fill(newPassword);
+    await page.getByLabel('New password', { exact: true }).fill(newPassword);
+    await page
+      .getByLabel('Confirm new password', { exact: true })
+      .fill(newPassword);
     await page.getByRole('button', { name: 'Save new password' }).click();
     await expect(page.getByText('Password updated')).toBeVisible({
       timeout: 20_000,
