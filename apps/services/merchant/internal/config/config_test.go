@@ -224,3 +224,35 @@ func TestValidateRuntimeRequiresRabbitMQOutsideDevelopment(t *testing.T) {
 		t.Fatalf("ValidateRuntime(production with broker) error = %v", err)
 	}
 }
+
+func TestLoadFromAllowsWebhookTestOriginOnlyInDevelopment(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		switch key {
+		case "APP_ENV":
+			return "development", true
+		case "WEBHOOK_TEST_ORIGIN":
+			return "http://webhook-sink:8099", true
+		}
+		return "", false
+	})
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("development LoadFrom() error: %v", err)
+	}
+	if config.WebhookTestOrigin != "http://webhook-sink:8099" {
+		t.Fatalf("WebhookTestOrigin = %q", config.WebhookTestOrigin)
+	}
+
+	loader = sharedconfig.NewLoader(func(key string) (string, bool) {
+		switch key {
+		case "APP_ENV":
+			return "production", true
+		case "WEBHOOK_TEST_ORIGIN":
+			return "http://webhook-sink:8099", true
+		}
+		return "", false
+	})
+	if _, err := LoadFrom(loader); err == nil {
+		t.Fatal("production accepted WEBHOOK_TEST_ORIGIN")
+	}
+}

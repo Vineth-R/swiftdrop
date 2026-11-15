@@ -492,3 +492,20 @@ func TestHandleSkipsAlreadyDeliveredEvent(t *testing.T) {
 		t.Fatalf("recorded %d attempts for an already-delivered event", len(rig.merchants.attempts))
 	}
 }
+
+func TestHandleUsesConfiguredTestRetryDelays(t *testing.T) {
+	r := newRig()
+	r.sender.result = webhookdelivery.Result{StatusCode: 500, ErrorMessage: "server error", Duration: time.Second}
+	handler := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Deps{
+		Merchants: r.merchants, Parcels: r.parcels, Sender: r.sender, Scheduler: r.scheduler,
+		RetryDelays: []time.Duration{2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second, 6 * time.Second},
+		Now:         func() time.Time { return testNow },
+	})
+	if err := handler.Handle(context.Background(), message(t, fullData, nil)); err != nil {
+		t.Fatalf("Handle() error: %v", err)
+	}
+	if r.scheduler.delay != 2*time.Second || r.merchants.attempts[0].NextRetryAt == nil ||
+		!r.merchants.attempts[0].NextRetryAt.Equal(testNow.Add(2*time.Second)) {
+		t.Fatalf("custom retry = scheduler %v, attempt %+v", r.scheduler.delay, r.merchants.attempts[0])
+	}
+}

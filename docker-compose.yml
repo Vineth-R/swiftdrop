@@ -313,6 +313,8 @@ services:
       WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:-}
       WEBHOOK_SECRET_KEY_ID: ${WEBHOOK_SECRET_KEY_ID:-k1}
       WEBHOOK_SECRET_KEYS: ${WEBHOOK_SECRET_KEYS:-}
+      WEBHOOK_TEST_ORIGIN: ${WEBHOOK_TEST_ORIGIN:-}
+      WEBHOOK_TEST_CA_FILE: ${WEBHOOK_TEST_CA_FILE:-}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
@@ -320,6 +322,8 @@ services:
       MERCHANT_SYNC_ROUTING_KEY: ${MERCHANT_SYNC_ROUTING_KEY:-parcel.status_changed.v1}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
       DB_MAX_OPEN_CONNS: ${MERCHANT_DB_MAX_OPEN_CONNS:-8}
+    volumes:
+      - webhook-test-certs:/test-certs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -421,9 +425,14 @@ services:
       PORT: '8088'
       WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.parcel.status_changed.v1}
       WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-parcel.status_changed.v1}
+      WEBHOOK_RETRY_DELAYS: ${WEBHOOK_RETRY_DELAYS:-}
+      WEBHOOK_TEST_ORIGIN: ${WEBHOOK_TEST_ORIGIN:-}
+      WEBHOOK_TEST_CA_FILE: ${WEBHOOK_TEST_CA_FILE:-}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
       MERCHANT_BASE_URL: http://merchant:8084
       PARCEL_BASE_URL: http://parcel:8082
+    volumes:
+      - webhook-test-certs:/test-certs:ro
     stop_grace_period: 35s
     depends_on:
       rabbitmq:
@@ -437,6 +446,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  webhook-sink:
+    profiles: ['webhook-test']
+    image: golang:1.27-alpine
+    working_dir: /src/tests/webhook-sink
+    volumes:
+      - .:/src:ro
+      - webhook-test-certs:/certs
+    environment:
+      WEBHOOK_SINK_CERT_FILE: /certs/cert.pem
+    command: ['go', 'run', '.']
+    ports:
+      - '127.0.0.1:${WEBHOOK_SINK_PORT:-8099}:8099'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8099/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   web:
     build:
@@ -496,5 +524,6 @@ volumes:
   postgres-data:
   rabbitmq-data:
   parcel-proofs:
+  webhook-test-certs:
   s3-data:
   s3-meta:

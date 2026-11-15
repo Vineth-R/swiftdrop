@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -96,6 +97,16 @@ func run() error {
 		)
 	}
 
+	sender := webhookdelivery.NewSender()
+	if config.TestWebhookOrigin != "" {
+		testSender, err := webhookdelivery.NewTestOnlySender(config.TestWebhookOrigin, config.TestWebhookCAFile)
+		if err != nil {
+			return fmt.Errorf("configure test webhook sender: %w", err)
+		}
+		sender = testSender
+		logger.Warn("test webhook origin is enabled", "origin", config.TestWebhookOrigin)
+	}
+
 	consumerHealth := messaging.NewHealth()
 	router := httpx.NewRouter(logger)
 	router.GET("/health", func(c *gin.Context) {
@@ -130,10 +141,11 @@ func run() error {
 			ReconnectMax:   config.ReconnectMax,
 			Health:         consumerHealth,
 		}, worker.New(logger, worker.Deps{
-			Merchants: worker.NewMerchantClient(clients.MerchantBaseURL, clients.InternalToken, clients.ClientTimeout),
-			Parcels:   worker.NewParcelClient(clients.ParcelBaseURL, clients.InternalToken, clients.ClientTimeout),
-			Sender:    webhookdelivery.NewSender(),
-			Scheduler: worker.NewAMQPScheduler(config.RabbitMQURL, config.Queue),
+			Merchants:   worker.NewMerchantClient(clients.MerchantBaseURL, clients.InternalToken, clients.ClientTimeout),
+			Parcels:     worker.NewParcelClient(clients.ParcelBaseURL, clients.InternalToken, clients.ClientTimeout),
+			Sender:      sender,
+			Scheduler:   worker.NewAMQPScheduler(config.RabbitMQURL, config.Queue),
+			RetryDelays: config.RetryDelays,
 		}), logger)
 	}()
 

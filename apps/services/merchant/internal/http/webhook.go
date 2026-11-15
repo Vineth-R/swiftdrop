@@ -79,7 +79,9 @@ type WebhookConfig struct {
 	Sender       *webhookdelivery.Sender
 	AccessSecret string
 	CookieName   string
-	Logger       *slog.Logger
+	// TestOrigin is an explicitly development-only HTTP receiver origin.
+	TestOrigin string
+	Logger     *slog.Logger
 	// SessionCheck returns the current Identity active flag and session
 	// version. It is optional so existing tests can exercise the webhook
 	// handlers directly.
@@ -104,7 +106,7 @@ func RegisterWebhookRoutes(router *gin.Engine, config WebhookConfig) error {
 		sender = config.Sender
 	}
 	_, err := registerWebhookRoutes(router, store, cipher, sender,
-		config.AccessSecret, config.CookieName, config.SessionCheck, config.Logger)
+		config.AccessSecret, config.CookieName, config.SessionCheck, config.TestOrigin, config.Logger)
 	return err
 }
 
@@ -133,9 +135,18 @@ type webhookHandler struct {
 }
 
 func registerWebhookRoutes(router *gin.Engine, store webhookStore, cipher secretCipher, sender webhookSender,
-	accessSecret, cookieName string, sessionCheck func(context.Context, string) (bool, int, error), logger *slog.Logger,
+	accessSecret, cookieName string, sessionCheck func(context.Context, string) (bool, int, error), testOrigin string, logger *slog.Logger,
 ) (*webhookHandler, error) {
-	h := &webhookHandler{store: store, cipher: cipher, sender: sender, checkURL: checkWebhookURL, logger: logger, now: time.Now}
+	checkURL := checkWebhookURL
+	if testOrigin != "" {
+		checkURL = func(ctx context.Context, raw string) error {
+			if webhookdelivery.MatchesTestOrigin(raw, testOrigin) {
+				return nil
+			}
+			return checkWebhookURL(ctx, raw)
+		}
+	}
+	h := &webhookHandler{store: store, cipher: cipher, sender: sender, checkURL: checkURL, logger: logger, now: time.Now}
 	group := router.Group("/merchants/me/webhook", noStore())
 
 	switch {

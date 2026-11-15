@@ -823,6 +823,7 @@ jobs:
               - 'infra/docker/**'
               - 'infra/nginx/**'
               - 'scripts/migrate.sh'
+              - 'tests/webhook-sink/**'
               - 'Makefile'
               - '.env.example'
               - 'go.mod'
@@ -1067,6 +1068,11 @@ jobs:
           webhook_key="$(openssl rand -hex 32)"
           echo "::add-mask::${webhook_key}"
           echo "WEBHOOK_SECRET_KEY=${webhook_key}" >> .env
+          # Development-only webhook retry test settings. The sink runs under
+          # the webhook-test Compose profile and is never part of the normal stack.
+          echo "WEBHOOK_RETRY_DELAYS=2s,2s,2s,2s,2s" >> .env
+          echo "WEBHOOK_TEST_ORIGIN=https://webhook-sink:8098" >> .env
+          echo "WEBHOOK_TEST_CA_FILE=/test-certs/cert.pem" >> .env
 
       - name: Build all images
         run: make build
@@ -1076,6 +1082,9 @@ jobs:
 
       - name: Apply database migrations
         run: make migrate
+
+      - name: Start webhook test receiver
+        run: docker compose --profile webhook-test up -d --wait webhook-sink
 
       - name: Start the stack
         run: docker compose up -d --no-build --wait --wait-timeout 600
