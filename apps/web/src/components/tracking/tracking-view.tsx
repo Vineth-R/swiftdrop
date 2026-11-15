@@ -133,6 +133,11 @@ function withUpdate(tracking: Tracking, update: StatusUpdate): Tracking {
   // can deliver OUT_FOR_DELIVERY before IN_TRANSIT. Add it, sort by time, and
   // derive the headline from the newest event rather than arrival order.
   if (isOlder && hasStatus) return tracking;
+  if (update.status === tracking.status) {
+    return isOlder
+      ? tracking
+      : { ...tracking, lastUpdatedAt: update.updatedAt };
+  }
 
   const timeline = [
     ...tracking.timeline,
