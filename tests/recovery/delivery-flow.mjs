@@ -17,12 +17,13 @@ if (!customer.email || !dispatcher.email || !courier.email) {
   throw new Error('real-stack seeded account environment is required');
 }
 
-async function request(path, { method = 'GET', token, body } = {}) {
+async function request(path, { method = 'GET', token, body, headers = {} } = {}) {
   const response = await fetch(`${base}${path}`, {
     method,
     headers: {
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -36,6 +37,7 @@ async function request(path, { method = 'GET', token, body } = {}) {
 async function login(account) {
   const response = await request('/api/v1/auth/login', {
     method: 'POST',
+    headers: { 'X-Token-Mode': 'body' },
     body: { email: account.email, password: account.password },
   });
   const token = response?.data?.accessToken;
