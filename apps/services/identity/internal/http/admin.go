@@ -30,6 +30,7 @@ type AdminService interface {
 	CreateStaffUser(ctx context.Context, actorID string, input service.CreateStaffInput) (service.AdminUser, error)
 	UpdateUser(ctx context.Context, actorID, userID string, input service.UpdateUserInput) (service.AdminUser, error)
 	SetUserActive(ctx context.Context, actorID, userID string, active bool) error
+	InitiatePasswordReset(ctx context.Context, actorID, userID string) error
 	CurrentAccess(ctx context.Context, userID string) (service.CurrentAccess, error)
 	ListCouriers(ctx context.Context, input service.ListCouriersInput) (service.CourierPage, error)
 }
@@ -103,6 +104,7 @@ type adminUserItem struct {
 type adminUserDetail struct {
 	adminUserItem
 	CourierProfile *courierProfileBody `json:"courierProfile,omitempty"`
+	AuthProvider   string              `json:"authProvider"`
 	LastLoginAt    *string             `json:"lastLoginAt"`
 	UpdatedAt      string              `json:"updatedAt"`
 }
@@ -149,6 +151,7 @@ func registerAdminRoutes(router *gin.Engine, routes AdminRoutes, logger *slog.Lo
 	admin.GET("/:userId", handlers.getUser)
 	admin.PATCH("/:userId", handlers.updateUser)
 	admin.PATCH("/:userId/status", handlers.setStatus)
+	admin.POST("/:userId/password-reset", handlers.passwordReset)
 
 	// ADMIN also satisfies DISPATCHER (API v1.1 section 1.3).
 	couriers := router.Group("/couriers", noStore(), authenticate, auth.RequireRoles(auth.RoleDispatcher),
@@ -325,6 +328,23 @@ func (h *adminHandlers) setStatus(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, statusResponse{ID: userID, IsActive: *request.IsActive})
 }
 
+// passwordReset handles POST /admin/users/{userId}/password-reset. It starts
+// the existing forgot-password flow for the selected account; the link is sent
+// only to the account's registered email and no token is returned.
+func (h *adminHandlers) passwordReset(c *gin.Context) {
+	actor, ok := actorID(c)
+	if !ok {
+		return
+	}
+	if err := h.service.InitiatePasswordReset(c.Request.Context(), actor, c.Param("userId")); err != nil {
+		h.fail(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusAccepted, messageResponse{
+		Message: "Password reset requested. The account will receive a reset link at its registered email address if it is eligible.",
+	})
+}
+
 // listCouriers handles GET /couriers (API v1.1 section 2.15).
 func (h *adminHandlers) listCouriers(c *gin.Context) {
 	query := queryReader{c: c, issues: validation.New()}
@@ -361,6 +381,12 @@ func (h *adminHandlers) fail(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusConflict, "CANNOT_DEACTIVATE_SELF", "you cannot deactivate your own account")
 	case errors.Is(err, service.ErrCannotChangeOwnRole):
 		httpx.Error(c, http.StatusConflict, "CONFLICT", "you cannot change your own role")
+	case errors.Is(err, service.ErrUserInactive):
+		httpx.Error(c, http.StatusConflict, "ACCOUNT_DEACTIVATED", "activate the account before sending a password reset")
+	case errors.Is(err, service.ErrPasswordResetNotSupported):
+		httpx.Error(c, http.StatusConflict, "PASSWORD_RESET_NOT_SUPPORTED", "this account does not use a password")
+	case errors.Is(err, service.ErrPasswordResetUnavailable):
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "password reset is not configured")
 	default:
 		// Validation errors, duplicate emails and unexpected failures share the
 		// mapping used by the auth endpoints.
@@ -435,6 +461,7 @@ func userItem(user service.AdminUser) adminUserItem {
 func userDetail(user service.AdminUser) adminUserDetail {
 	detail := adminUserDetail{
 		adminUserItem: userItem(user),
+		AuthProvider:  user.AuthProvider,
 		UpdatedAt:     user.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	if user.LastLoginAt != nil {

@@ -24,6 +24,7 @@ import {
 import { EmptyState } from '../ui/empty-state';
 import { TextField } from '../ui/field';
 import { Select } from '../ui/select';
+import { ParcelDetailsModal } from '../parcels/parcel-details-modal';
 import { AssignCourierModal } from './assign-courier-modal';
 import { DispatchAlert } from './dispatch-alerts';
 import { usePagedList } from './use-paged-list';
@@ -54,8 +55,12 @@ function UnassignedContent() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const [assigningParcel, setAssigningParcel] =
-    useState<UnassignedParcel | null>(null);
+  const [assigningParcel, setAssigningParcel] = useState<{
+    id: string;
+    trackingNumber: string;
+    currentCourierId?: string | null;
+  } | null>(null);
+  const [selectedParcelId, setSelectedParcelId] = useState<string | null>(null);
 
   // Load zones for the filter dropdown
   useEffect(() => {
@@ -210,14 +215,16 @@ function UnassignedContent() {
       header: 'Actions',
       isHeaderHidden: true,
       cell: (parcel) => (
-        <Button
-          variant="secondary"
-          size="md"
-          onClick={() => setAssigningParcel(parcel)}
-          aria-label={`Assign courier to parcel ${parcel.trackingNumber}`}
-        >
-          Assign courier
-        </Button>
+        <div data-row-action onClick={(event) => event.stopPropagation()}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setAssigningParcel(parcel)}
+            aria-label={`Assign courier to parcel ${parcel.trackingNumber}`}
+          >
+            Assign courier
+          </Button>
+        </div>
       ),
     },
   ];
@@ -306,6 +313,8 @@ function UnassignedContent() {
               rows={list.rows ?? []}
               getRowId={(parcel) => parcel.id}
               isLoading={list.isLoading}
+              onRowClick={(parcel) => setSelectedParcelId(parcel.id)}
+              rowLabel={(parcel) => parcel.trackingNumber}
               empty={
                 <EmptyState
                   icon={Package}
@@ -341,6 +350,15 @@ function UnassignedContent() {
           </>
         )}
       </Section>
+
+      <ParcelDetailsModal
+        parcelId={selectedParcelId}
+        onClose={() => setSelectedParcelId(null)}
+        onAssign={(parcel) => {
+          setSelectedParcelId(null);
+          setAssigningParcel(parcel);
+        }}
+      />
 
       <AssignCourierModal
         isOpen={Boolean(assigningParcel)}

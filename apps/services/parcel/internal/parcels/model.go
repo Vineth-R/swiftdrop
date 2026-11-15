@@ -141,6 +141,19 @@ type HistoryItem struct {
 	ActorRole      *string   `json:"actorRole"`
 	ChangedAt      time.Time `json:"changedAt"`
 }
+
+// AssignmentItem is one courier assignment in a parcel's history.
+type AssignmentItem struct {
+	ID                string     `json:"id"`
+	CourierID         string     `json:"courierId"`
+	PreviousCourierID *string    `json:"previousCourierId"`
+	AssignedBy        string     `json:"assignedBy"`
+	AssignedAt        time.Time  `json:"assignedAt"`
+	UnassignedAt      *time.Time `json:"unassignedAt"`
+	IsCurrent         bool       `json:"isCurrent"`
+	Reason            *string    `json:"reason"`
+}
+
 type Summary struct {
 	ParcelID        string  `json:"parcelId"`
 	TrackingNumber  string  `json:"trackingNumber"`

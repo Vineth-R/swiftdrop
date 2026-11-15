@@ -45,8 +45,9 @@ func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) e
 	}
 	group.POST("", auth.RequireRoles(auth.RoleCustomer), h.create)
 	group.GET("", auth.RequireRoles(auth.RoleCustomer), h.list)
-	group.GET("/:parcelId", auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher), h.detail)
-	group.GET("/:parcelId/history", auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher), h.history)
+	group.GET("/:parcelId", auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin), h.detail)
+	group.GET("/:parcelId/history", auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin), h.history)
+	group.GET("/:parcelId/assignments", auth.RequireRoles(auth.RoleDispatcher, auth.RoleAdmin), h.assignments)
 	group.GET("/:parcelId/receipt", auth.RequireRoles(auth.RoleCustomer, auth.RoleAdmin), h.receipt)
 	proofRoles := auth.RequireRoles(auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin)
 	group.GET("/:parcelId/proof/photo", proofRoles, h.proofPhoto)
@@ -156,6 +157,14 @@ func (h *parcelHandlers) history(c *gin.Context) {
 		httpx.Success(c, 200, result)
 	}
 }
+func (h *parcelHandlers) assignments(c *gin.Context) {
+	user, staff := parcelViewer(c)
+	result, err := h.service.Assignments(c.Request.Context(), c.Param("parcelId"), user, staff)
+	if !h.failure(c, err) {
+		httpx.Success(c, 200, result)
+	}
+}
+
 func (h *parcelHandlers) receipt(c *gin.Context) {
 	user, staff := parcelViewer(c)
 	result, err := h.service.ReceiptData(c.Request.Context(), c.Param("parcelId"), user, staff)

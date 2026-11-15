@@ -49,6 +49,7 @@ type AdminUser struct {
 	FullName       string
 	Phone          *string
 	Role           auth.Role
+	AuthProvider   string
 	IsActive       bool
 	SessionVersion int
 	CreatedAt      time.Time
@@ -129,8 +130,8 @@ var sortColumns = map[string]string{
 }
 
 const adminUserSelect = `
-	SELECT u.id, u.email, u.full_name, u.phone, r.name, u.is_active, u.session_version,
-	       u.created_at, u.updated_at, u.last_login_at,
+	SELECT u.id, u.email, u.full_name, u.phone, r.name, u.auth_provider,
+	       u.is_active, u.session_version, u.created_at, u.updated_at, u.last_login_at,
 	       cp.user_id::text, cp.vehicle_type, cp.vehicle_number, cp.home_zone_id::text, cp.is_available
 	FROM identity.users u
 	JOIN identity.roles r ON r.id = u.role_id
@@ -150,7 +151,8 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 		available *bool
 	)
 	if err := row.Scan(
-		&user.ID, &user.Email, &user.FullName, &user.Phone, &role, &user.IsActive, &user.SessionVersion,
+		&user.ID, &user.Email, &user.FullName, &user.Phone, &role, &user.AuthProvider,
+		&user.IsActive, &user.SessionVersion,
 		&user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt,
 		&profileID, &profile.VehicleType, &profile.VehicleNumber, &profile.HomeZoneID, &available,
 	); err != nil {
@@ -505,6 +507,19 @@ func (r *Repository) SetUserActive(ctx context.Context, userID string, active bo
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("setting user status: %w", err)
+	}
+	return nil
+}
+
+// AuditPasswordResetRequested records that an administrator asked Identity to
+// send a password reset link. It stores no token, link or password.
+func (r *Repository) AuditPasswordResetRequested(ctx context.Context, actorID, userID string) error {
+	if _, err := r.db.Exec(ctx, `
+		INSERT INTO identity.audit_logs (actor_user_id, action, entity_type, entity_id, details)
+		VALUES ($1, 'PASSWORD_RESET_REQUESTED', $2, $3, '{}'::jsonb)`,
+		actorID, auditEntityUser, userID,
+	); err != nil {
+		return fmt.Errorf("writing audit log: %w", err)
 	}
 	return nil
 }

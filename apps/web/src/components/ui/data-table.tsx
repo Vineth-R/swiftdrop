@@ -40,6 +40,10 @@ type DataTableProps<Row> = {
   sort?: DataTableSort;
   /** Called with the next sort when a sortable header is pressed. */
   onSortChange?: (sort: DataTableSort) => void;
+  /** Opens a row's details. Clicks on buttons and links inside the row are ignored. */
+  onRowClick?: (row: Row) => void;
+  /** A short accessible name for a clickable row, such as a tracking number. */
+  rowLabel?: (row: Row) => string;
   className?: string;
 };
 
@@ -79,6 +83,8 @@ export function DataTable<Row>({
   empty,
   sort,
   onSortChange,
+  onRowClick,
+  rowLabel,
   className,
 }: DataTableProps<Row>) {
   if (isLoading) {
@@ -177,7 +183,42 @@ export function DataTable<Row>({
           </thead>
           <tbody className="divide-y divide-line">
             {rows.map((row) => (
-              <tr key={getRowId(row)} className="hover:bg-surface-2">
+              <tr
+                key={getRowId(row)}
+                className={cn(
+                  'hover:bg-surface-2',
+                  onRowClick && 'cursor-pointer',
+                )}
+                tabIndex={onRowClick ? 0 : undefined}
+                aria-label={
+                  onRowClick && rowLabel ? `Open ${rowLabel(row)}` : undefined
+                }
+                onClick={
+                  onRowClick
+                    ? (event) => {
+                        const target = event.target as HTMLElement;
+                        if (
+                          target.closest(
+                            'a,button,input,select,textarea,[data-row-action]',
+                          )
+                        ) {
+                          return;
+                        }
+                        onRowClick(row);
+                      }
+                    : undefined
+                }
+                onKeyDown={
+                  onRowClick
+                    ? (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+              >
                 {columns.map((column) => (
                   <td
                     key={column.key}
@@ -196,6 +237,8 @@ export function DataTable<Row>({
         columns={columns}
         rows={rows}
         getRowId={getRowId}
+        onRowClick={onRowClick}
+        rowLabel={rowLabel}
       />
     </div>
   );
@@ -203,7 +246,7 @@ export function DataTable<Row>({
 
 type DataTableCardListProps<Row> = Pick<
   DataTableProps<Row>,
-  'columns' | 'rows' | 'getRowId' | 'className'
+  'columns' | 'rows' | 'getRowId' | 'className' | 'onRowClick' | 'rowLabel'
 >;
 
 /**
@@ -217,6 +260,8 @@ export function DataTableCardList<Row>({
   rows,
   getRowId,
   className,
+  onRowClick,
+  rowLabel,
 }: DataTableCardListProps<Row>) {
   const [title, ...rest] = columns;
   const details = rest.filter((column) => !column.isHeaderHidden);
@@ -227,7 +272,39 @@ export function DataTableCardList<Row>({
       {rows.map((row) => (
         <li
           key={getRowId(row)}
-          className="flex flex-col gap-3 rounded-card border border-line bg-surface p-4"
+          className={cn(
+            'flex flex-col gap-3 rounded-card border border-line bg-surface p-4',
+            onRowClick && 'cursor-pointer hover:bg-surface-2',
+          )}
+          tabIndex={onRowClick ? 0 : undefined}
+          aria-label={
+            onRowClick && rowLabel ? `Open ${rowLabel(row)}` : undefined
+          }
+          onClick={
+            onRowClick
+              ? (event) => {
+                  const target = event.target as HTMLElement;
+                  if (
+                    target.closest(
+                      'a,button,input,select,textarea,[data-row-action]',
+                    )
+                  ) {
+                    return;
+                  }
+                  onRowClick(row);
+                }
+              : undefined
+          }
+          onKeyDown={
+            onRowClick
+              ? (event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onRowClick(row);
+                  }
+                }
+              : undefined
+          }
         >
           <div className={cn('text-body font-semibold', cellLook(title))}>
             {title.cell(row)}

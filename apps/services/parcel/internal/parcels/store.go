@@ -142,6 +142,16 @@ func (s *PostgresStore) History(ctx context.Context, id string) ([]repository.St
 	}
 	return r.StatusHistoryByParcel(ctx, id)
 }
+func (s *PostgresStore) ParcelAssignments(ctx context.Context, id string) ([]repository.ParcelAssignment, error) {
+	if s.db == nil {
+		return nil, ErrUnavailable
+	}
+	r, err := repository.New(s.db)
+	if err != nil {
+		return nil, err
+	}
+	return r.ParcelAssignments(ctx, id)
+}
 func (s *PostgresStore) List(ctx context.Context, user string, f Filter) ([]repository.Parcel, int, error) {
 	if s.db == nil {
 		return nil, 0, ErrUnavailable

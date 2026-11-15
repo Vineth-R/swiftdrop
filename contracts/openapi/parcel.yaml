@@ -566,6 +566,53 @@ paths:
         '422': { $ref: '#/components/responses/ParcelValidation' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ParcelUnavailable' }
+  '/parcels/{parcelId}/assignments':
+    parameters:
+      - $ref: '#/components/parameters/ParcelID'
+    get:
+      operationId: getParcelAssignments
+      summary: Read courier assignment history
+      tags: [Customer parcels]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      description: >-
+        DISPATCHER or ADMIN. Returns the parcel's courier assignments oldest
+        first. A reassignment closes the previous row and inserts a new current
+        row, so the list is an append-only history. IDs are Identity user IDs.
+      responses:
+        '200':
+          description: Assignment history, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        [id, courierId, assignedBy, assignedAt, isCurrent]
+                      properties:
+                        id: { type: string, format: uuid }
+                        courierId: { type: string, format: uuid }
+                        previousCourierId:
+                          { type: string, format: uuid, nullable: true }
+                        assignedBy: { type: string, format: uuid }
+                        assignedAt: { type: string, format: date-time }
+                        unassignedAt:
+                          { type: string, format: date-time, nullable: true }
+                        isCurrent: { type: boolean }
+                        reason: { type: string, nullable: true }
+                  meta: { $ref: '#/components/schemas/SuccessMeta' }
+        '401': { $ref: '#/components/responses/ParcelUnauthenticated' }
+        '403': { $ref: '#/components/responses/ParcelForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ParcelValidation' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ParcelUnavailable' }
   '/parcels/{parcelId}/receipt':
     parameters:
       - $ref: '#/components/parameters/ParcelID'

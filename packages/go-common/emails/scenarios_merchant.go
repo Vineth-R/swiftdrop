@@ -76,6 +76,31 @@ func MerchantApproved(d MerchantApprovedData) Email {
 	}
 }
 
+// MerchantAdminMessageData fills MerchantAdminMessage.
+type MerchantAdminMessageData struct {
+	BusinessName string
+	Subject      string
+	Message      string
+}
+
+// MerchantAdminMessage is an administrative email composed by an
+// administrator. The administrator supplies the subject and the message; the
+// layout supplies the SwiftDrop header and footer.
+func MerchantAdminMessage(d MerchantAdminMessageData) Email {
+	return Email{
+		Subject:   d.Subject,
+		Preheader: "A message from the SwiftDrop team about your merchant account.",
+		Eyebrow:   "Message from SwiftDrop",
+		Heading:   "A message about your merchant account",
+		Blocks: []Block{
+			Paragraph("Hello " + d.BusinessName + ","),
+			Paragraph(d.Message),
+			Paragraph("If you have questions, reply to this email or contact SwiftDrop support."),
+		},
+		Reason: "You are receiving this because SwiftDrop administers the merchant account for " + d.BusinessName + ".",
+	}
+}
+
 // MerchantDecisionData fills MerchantRejected and MerchantSuspended.
 type MerchantDecisionData struct {
 	OwnerName    string

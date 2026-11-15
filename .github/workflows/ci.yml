@@ -824,6 +824,7 @@ jobs:
               - 'infra/nginx/**'
               - 'scripts/migrate.sh'
               - 'tests/webhook-sink/**'
+              - 'tests/recovery/**'
               - 'Makefile'
               - '.env.example'
               - 'go.mod'
@@ -1167,6 +1168,9 @@ jobs:
 
       - name: Run real-stack Playwright
         run: pnpm exec nx run @org/web-e2e:e2e --args="--project=real-stack"
+
+      - name: Verify broker outage and recovery
+        run: bash tests/recovery/outage-recovery.sh
 
       - name: Show service logs after a failure
         if: failure()

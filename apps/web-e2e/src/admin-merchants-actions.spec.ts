@@ -62,19 +62,24 @@ test.describe('admin merchants: suspension reason', () => {
   test('a suspension needs a reason, and it is asked for before anything is sent', async ({
     page,
   }) => {
+    let current: Record<string, unknown> = approved;
     const { calls } = await signInAs(page, 'ADMIN', {
       'GET /admin/merchants': list([approved]),
-      [`POST /admin/merchants/${approved.id}/suspend`]: ok({
-        id: approved.id,
-        status: 'SUSPENDED',
-        identitySync: 'APPLIED',
-        alreadyDone: false,
-      }),
+      [`GET /admin/merchants/${approved.id}`]: () => ok(current),
+      [`POST /admin/merchants/${approved.id}/suspend`]: () => {
+        current = { ...approved, status: 'SUSPENDED' as const };
+        return ok({
+          id: approved.id,
+          status: 'SUSPENDED',
+          identitySync: 'APPLIED',
+          alreadyDone: false,
+        });
+      },
     });
     await page.goto('/admin/merchants');
-    await row(page, 'ShopZone Lanka')
-      .getByRole('button', { name: 'Suspend' })
-      .click();
+    await page.getByRole('button', { name: 'Review ShopZone Lanka' }).click();
+    const dialog = page.getByRole('dialog', { name: 'ShopZone Lanka' });
+    await dialog.getByRole('button', { name: 'Suspend' }).click();
 
     // Required, not "optional".
     const reason = page.getByLabel('Reason', { exact: false });
@@ -98,28 +103,39 @@ test.describe('admin merchants: suspension reason', () => {
     ).toHaveCount(0);
     await page.getByRole('button', { name: 'Suspend' }).last().click();
 
-    await expect(
-      page.getByText('Merchant suspended and sessions invalidated.'),
-    ).toBeVisible();
+    await expect(page.getByText('ShopZone Lanka is suspended.')).toBeVisible();
     const sent = calls.find((call) => call.key.endsWith('/suspend'));
     expect(sent?.body).toEqual({ reason: 'Repeated delivery complaints.' });
   });
 
-  test('a rejection keeps its reason optional, and cancelling forgets what was typed', async ({
+  test('a rejection requires a reason, and cancelling forgets what was typed', async ({
     page,
   }) => {
     const pending = { ...approved, status: 'PENDING' as const };
-    await signInAs(page, 'ADMIN', { 'GET /admin/merchants': list([pending]) });
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/merchants': list([pending]),
+      [`GET /admin/merchants/${pending.id}`]: ok(pending),
+    });
     await page.goto('/admin/merchants');
-    await page.getByRole('button', { name: 'Reject' }).click();
+    await page.getByRole('button', { name: 'Review ShopZone Lanka' }).click();
+    const dialog = page.getByRole('dialog', { name: 'ShopZone Lanka' });
+    await dialog.getByRole('button', { name: 'Reject' }).click();
 
     await page
-      .getByLabel('Reason (optional)')
-      .fill('Not a registered company.');
+      .getByRole('button', { name: 'Reject', exact: true })
+      .last()
+      .click();
+    await expect(
+      page.getByText('Enter a reason. The merchant sees it in the email.', {
+        exact: true,
+      }),
+    ).toBeVisible();
+
+    await page.getByLabel('Reason').fill('Not a registered company.');
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: 'Reject' }).click();
 
-    await expect(page.getByLabel('Reason (optional)')).toHaveValue('');
+    await expect(page.getByLabel('Reason')).toHaveValue('');
   });
 });
 
@@ -249,23 +265,141 @@ test.describe('admin merchants: retrying a sync that did not reach Identity', ()
   test('the decision that leaves a sync pending tells the administrator what to do', async ({
     page,
   }) => {
+    let current: Record<string, unknown> = approved;
     await signInAs(page, 'ADMIN', {
       'GET /admin/merchants': list([approved]),
-      [`POST /admin/merchants/${approved.id}/suspend`]: ok({
-        id: approved.id,
-        status: 'SUSPENDED',
-        identitySync: 'PENDING',
-        alreadyDone: false,
-      }),
+      [`GET /admin/merchants/${approved.id}`]: () => ok(current),
+      [`POST /admin/merchants/${approved.id}/suspend`]: () => {
+        current = {
+          ...approved,
+          status: 'SUSPENDED' as const,
+          identitySync: 'PENDING' as const,
+        };
+        return ok({
+          id: approved.id,
+          status: 'SUSPENDED',
+          identitySync: 'PENDING',
+          alreadyDone: false,
+        });
+      },
     });
     await page.goto('/admin/merchants');
-    await row(page, 'ShopZone Lanka')
-      .getByRole('button', { name: 'Suspend' })
-      .click();
+    await page.getByRole('button', { name: 'Review ShopZone Lanka' }).click();
+    const dialog = page.getByRole('dialog', { name: 'ShopZone Lanka' });
+    await dialog.getByRole('button', { name: 'Suspend' }).click();
     await page.getByLabel('Reason').fill('Repeated delivery complaints.');
     await page.getByRole('button', { name: 'Suspend' }).last().click();
 
-    await expect(page.getByText('Use Retry sync on that row.')).toBeVisible();
+    await expect(
+      page
+        .getByRole('dialog', { name: 'ShopZone Lanka' })
+        .getByText('Sign-out pending at Identity'),
+    ).toBeVisible();
+  });
+});
+
+test.describe('admin merchants: details, email and re-approval', () => {
+  test('clicking a row opens the full merchant details', async ({ page }) => {
+    const pending = { ...approved, status: 'PENDING' as const };
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/merchants': list([pending]),
+      [`GET /admin/merchants/${pending.id}`]: ok(pending),
+    });
+    await page.goto('/admin/merchants');
+
+    await row(page, 'ShopZone Lanka').click();
+
+    const dialog = page.getByRole('dialog', { name: 'ShopZone Lanka' });
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByRole('heading', { name: 'Business information' }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole('heading', { name: 'Account information' }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole('heading', { name: 'Operational information' }),
+    ).toBeVisible();
+    await expect(dialog.getByText(pending.ownerUserId)).toBeVisible();
+    await expect(dialog.getByText(pending.registrationNumber)).toBeVisible();
+    await expect(dialog.getByText('PENDING')).toBeVisible();
+  });
+
+  test('an administrator can compose and send an email from the details modal', async ({
+    page,
+  }) => {
+    const { calls } = await signInAs(page, 'ADMIN', {
+      'GET /admin/merchants': list([approved]),
+      [`GET /admin/merchants/${approved.id}`]: ok(approved),
+      [`POST /admin/merchants/${approved.id}/email`]: ok({
+        message: 'Email sent.',
+      }),
+    });
+    await page.goto('/admin/merchants');
+    await row(page, 'ShopZone Lanka').click();
+    await page
+      .getByRole('dialog', { name: 'ShopZone Lanka' })
+      .getByRole('button', { name: 'Compose email' })
+      .click();
+
+    const email = page.getByRole('dialog', { name: 'Compose email' });
+    await expect(email.getByLabel('To')).toHaveValue(base.contactEmail);
+    await email.getByLabel('Subject').fill('Missing registration details');
+    await email
+      .getByLabel('Message')
+      .fill('Please send the missing business registration document.');
+    await email.getByRole('button', { name: 'Send email' }).click();
+
+    await expect(email.getByText('Email sent')).toBeVisible();
+    const sent = calls.find((call) => call.key.endsWith('/email'));
+    expect(sent?.body).toEqual({
+      subject: 'Missing registration details',
+      message: 'Please send the missing business registration document.',
+    });
+  });
+
+  test('a rejected merchant shows its reason and can be approved again', async ({
+    page,
+  }) => {
+    const rejected = {
+      ...approved,
+      status: 'REJECTED' as const,
+      rejectionReason: 'Business registration could not be verified.',
+    };
+    let current: Record<string, unknown> = rejected;
+    const { calls } = await signInAs(page, 'ADMIN', {
+      'GET /admin/merchants': list([rejected]),
+      [`GET /admin/merchants/${rejected.id}`]: () => ok(current),
+      [`POST /admin/merchants/${rejected.id}/approve`]: () => {
+        current = {
+          ...approved,
+          status: 'APPROVED' as const,
+          rejectionReason: undefined,
+        };
+        return ok({
+          id: rejected.id,
+          status: 'APPROVED',
+          identitySync: 'APPLIED',
+          alreadyDone: false,
+        });
+      },
+    });
+    await page.goto('/admin/merchants');
+    await row(page, 'ShopZone Lanka').click();
+
+    const dialog = page.getByRole('dialog', { name: 'ShopZone Lanka' });
+    await expect(dialog.getByText(rejected.rejectionReason)).toBeVisible();
+    await dialog.getByRole('button', { name: 'Reactivate' }).click();
+
+    const confirm = page.getByRole('dialog', {
+      name: 'Approve ShopZone Lanka?',
+    });
+    await confirm.getByRole('button', { name: 'Approve' }).click();
+
+    await expect(page.getByText('ShopZone Lanka is approved.')).toBeVisible();
+    expect(calls.filter((call) => call.key.endsWith('/approve'))).toHaveLength(
+      1,
+    );
   });
 });
 

@@ -715,6 +715,51 @@ paths:
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /admin/users/{userId}/password-reset:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: identityAdminInitiatePasswordReset
+      summary: Initiate password recovery for a user (ADMIN)
+      description: >-
+        Starts the existing forgot-password flow for the selected account. The
+        reset link is sent only to the account's registered email address. No
+        token, link, password or hash is returned. The account must be active
+        and use LOCAL password authentication. The action is audited as
+        `PASSWORD_RESET_REQUESTED`.
+      responses:
+        '202':
+          description: Password reset request accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [message]
+                    properties:
+                      message: { type: string }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            The account is deactivated (`ACCOUNT_DEACTIVATED`) or has no password
+            (`PASSWORD_RESET_NOT_SUPPORTED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503':
+          description: Password reset email is not configured (`SERVICE_UNAVAILABLE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /couriers:
     get:
       operationId: identityListCouriers
@@ -1049,10 +1094,14 @@ components:
       allOf:
         - $ref: '#/components/schemas/AdminUserItem'
         - type: object
-          required: [lastLoginAt, updatedAt]
+          required: [lastLoginAt, updatedAt, authProvider]
           properties:
             courierProfile:
               $ref: '#/components/schemas/CourierProfile'
+            authProvider:
+              type: string
+              enum: [LOCAL, GOOGLE]
+              description: LOCAL accounts use a password; GOOGLE accounts do not.
             lastLoginAt: { type: string, format: date-time, nullable: true }
             updatedAt: { type: string, format: date-time }
     Profile:

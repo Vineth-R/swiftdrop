@@ -24,6 +24,7 @@ import { EmptyState } from '../ui/empty-state';
 import { TextField } from '../ui/field';
 import { Select } from '../ui/select';
 import { StatusChip } from '../ui/status-chip';
+import { ParcelDetailsModal } from '../parcels/parcel-details-modal';
 import { AssignCourierModal } from './assign-courier-modal';
 import { DispatchAlert } from './dispatch-alerts';
 import {
@@ -83,6 +84,7 @@ function DispatcherParcelsContent() {
   const [reassignTarget, setReassignTarget] = useState<ReassignTarget | null>(
     null,
   );
+  const [selectedParcelId, setSelectedParcelId] = useState<string | null>(null);
 
   const load = useCallback(
     (page: number, signal: AbortSignal) =>
@@ -273,24 +275,26 @@ function DispatcherParcelsContent() {
           return <span className="text-caption text-text-muted">Closed</span>;
         }
         return (
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={() =>
-              setReassignTarget({
-                id: parcel.id,
-                trackingNumber: parcel.trackingNumber,
-                currentCourierId: parcel.courierId,
-              })
-            }
-            aria-label={
-              parcel.courierId
-                ? `Reassign parcel ${parcel.trackingNumber}`
-                : `Assign courier to parcel ${parcel.trackingNumber}`
-            }
-          >
-            {parcel.courierId ? 'Reassign' : 'Assign'}
-          </Button>
+          <div data-row-action onClick={(event) => event.stopPropagation()}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                setReassignTarget({
+                  id: parcel.id,
+                  trackingNumber: parcel.trackingNumber,
+                  currentCourierId: parcel.courierId,
+                })
+              }
+              aria-label={
+                parcel.courierId
+                  ? `Reassign parcel ${parcel.trackingNumber}`
+                  : `Assign courier to parcel ${parcel.trackingNumber}`
+              }
+            >
+              {parcel.courierId ? 'Reassign' : 'Assign'}
+            </Button>
+          </div>
         );
       },
     },
@@ -419,6 +423,8 @@ function DispatcherParcelsContent() {
               rows={list.rows ?? []}
               getRowId={(parcel) => parcel.id}
               isLoading={list.isLoading}
+              onRowClick={(parcel) => setSelectedParcelId(parcel.id)}
+              rowLabel={(parcel) => parcel.trackingNumber}
               empty={
                 <EmptyState
                   icon={List}
@@ -454,6 +460,15 @@ function DispatcherParcelsContent() {
           </>
         )}
       </Section>
+
+      <ParcelDetailsModal
+        parcelId={selectedParcelId}
+        onClose={() => setSelectedParcelId(null)}
+        onAssign={(parcel) => {
+          setSelectedParcelId(null);
+          setReassignTarget(parcel);
+        }}
+      />
 
       <AssignCourierModal
         isOpen={Boolean(reassignTarget)}

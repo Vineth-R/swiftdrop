@@ -125,9 +125,15 @@ test.describe('real-stack admin mutations', () => {
     let row = page.getByRole('row').filter({ hasText: approvedBusiness });
     await expect(row).toBeVisible({ timeout: REAL_TIMEOUT });
 
-    await row.getByRole('button', { name: 'Approve', exact: true }).click();
+    await row
+      .getByRole('button', { name: `Review ${approvedBusiness}` })
+      .click();
+    let details = page.getByRole('dialog', { name: approvedBusiness });
+    await expect(details).toBeVisible({ timeout: REAL_TIMEOUT });
+
+    await details.getByRole('button', { name: 'Approve' }).click();
     await page
-      .getByRole('dialog', { name: 'Approve application?' })
+      .getByRole('dialog', { name: `Approve ${approvedBusiness}?` })
       .getByRole('button', { name: 'Approve' })
       .click();
     await expect(
@@ -139,14 +145,12 @@ test.describe('real-stack admin mutations', () => {
       timeout: REAL_TIMEOUT,
     });
 
-    await row.getByRole('button', { name: 'Suspend', exact: true }).click();
-    const suspendDialog = page.getByRole('dialog', {
-      name: 'Suspend merchant?',
-    });
-    await suspendDialog
-      .getByLabel('Reason')
-      .fill('Phase 4 suspension evidence.');
-    await suspendDialog.getByRole('button', { name: 'Suspend' }).click();
+    await details.getByRole('button', { name: 'Suspend' }).click();
+    await page.getByLabel('Reason').fill('Phase 4 suspension evidence.');
+    await page
+      .getByRole('dialog', { name: 'Suspend merchant' })
+      .getByRole('button', { name: 'Suspend' })
+      .click();
     await expect(
       page.getByText('Merchant suspended and sessions invalidated.'),
     ).toBeVisible({ timeout: REAL_TIMEOUT });
@@ -159,16 +163,22 @@ test.describe('real-stack admin mutations', () => {
     });
     expect(suspendedLogin.ok()).toBeFalsy();
 
+    await details
+      .getByRole('button', { name: 'Close', exact: true })
+      .last()
+      .click();
     await searchMerchants(page, rejectedBusiness);
     row = page.getByRole('row').filter({ hasText: rejectedBusiness });
-    await row.getByRole('button', { name: 'Reject', exact: true }).click();
-    const rejectDialog = page.getByRole('dialog', {
-      name: 'Reject application?',
-    });
-    await rejectDialog
-      .getByLabel('Reason (optional)')
-      .fill('Phase 4 rejection evidence.');
-    await rejectDialog.getByRole('button', { name: 'Reject' }).click();
+    await row
+      .getByRole('button', { name: `Review ${rejectedBusiness}` })
+      .click();
+    details = page.getByRole('dialog', { name: rejectedBusiness });
+    await details.getByRole('button', { name: 'Reject' }).click();
+    await page.getByLabel('Reason').fill('Phase 4 rejection evidence.');
+    await page
+      .getByRole('dialog', { name: 'Reject application' })
+      .getByRole('button', { name: 'Reject' })
+      .click();
     await expect(page.getByText('Merchant rejected.')).toBeVisible({
       timeout: REAL_TIMEOUT,
     });

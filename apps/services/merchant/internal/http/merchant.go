@@ -103,6 +103,8 @@ func registerMerchantRoutes(router *gin.Engine, options Options) {
 	admin.POST("/:merchantId/approve", h.approve)
 	admin.POST("/:merchantId/reject", h.reject)
 	admin.POST("/:merchantId/suspend", h.suspend)
+	adminEmailLimiter := httpx.NewRateLimiter(30, time.Minute)
+	admin.POST("/:merchantId/email", adminEmailLimiter.Middleware(), h.adminEmail)
 
 	registerMerchantOrderRoutes(router, h, manager)
 }
@@ -481,6 +483,90 @@ func (h *merchantHandler) decide(c *gin.Context, action string) {
 		"alreadyDone": result.AlreadyDone, "approvedAt": result.Merchant.ApprovedAt,
 		"rejectionReason": result.Merchant.RejectionReason, "suspensionReason": result.Merchant.SuspensionReason,
 	})
+}
+
+type adminEmailRequest struct {
+	Subject string `json:"subject"`
+	Message string `json:"message"`
+}
+
+const (
+	adminEmailSubjectMax = 150
+	adminEmailMessageMax = 5000
+)
+
+// adminEmail sends an administrator-composed message to the merchant's
+// registered business email. Delivery is synchronous so a failure is reported
+// instead of being shown as success.
+func (h *merchantHandler) adminEmail(c *gin.Context) {
+	claims, ok := auth.ClaimsFrom(c)
+	if !ok {
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
+		return
+	}
+	if h.notifier == nil {
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "merchant email is not configured")
+		return
+	}
+	merchantID := strings.ToLower(strings.TrimSpace(c.Param("merchantId")))
+	if !validation.UUID(merchantID) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+		return
+	}
+	if c.ContentType() != "application/json" {
+		httpx.Error(c, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "content type must be application/json")
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+	var request adminEmailRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "request body must be valid JSON")
+		return
+	}
+	subject := strings.TrimSpace(request.Subject)
+	message := strings.TrimSpace(request.Message)
+	var issues []httpx.ErrorItem
+	switch {
+	case subject == "":
+		issues = append(issues, httpx.ErrorItem{Field: "subject", Issue: "is required"})
+	case strings.ContainsRune(subject, '\x00') || strings.ContainsAny(subject, "\r\n"):
+		issues = append(issues, httpx.ErrorItem{Field: "subject", Issue: "must be one line"})
+	case len([]rune(subject)) > adminEmailSubjectMax:
+		issues = append(issues, httpx.ErrorItem{Field: "subject", Issue: "must be at most 150 characters"})
+	}
+	switch {
+	case message == "":
+		issues = append(issues, httpx.ErrorItem{Field: "message", Issue: "is required"})
+	case strings.ContainsRune(message, '\x00'):
+		issues = append(issues, httpx.ErrorItem{Field: "message", Issue: "must not contain NUL characters"})
+	case len([]rune(message)) > adminEmailMessageMax:
+		issues = append(issues, httpx.ErrorItem{Field: "message", Issue: "must be at most 5000 characters"})
+	}
+	if len(issues) > 0 {
+		httpx.ErrorWithDetails(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "One or more fields are invalid.", issues)
+		return
+	}
+
+	merchant, err := h.repository.MerchantByID(c.Request.Context(), merchantID)
+	if errors.Is(err, repository.ErrNotFound) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+		return
+	}
+	if err != nil {
+		h.handleRepositoryError(c, err)
+		return
+	}
+	if err := h.notifier.SendAdminMessage(c.Request.Context(), merchant.ContactEmail, merchant.BusinessName, subject, message); err != nil {
+		h.internalError(c, "merchant_admin_email", "the email could not be sent", err)
+		return
+	}
+	if err := h.repository.RecordAdminEmailAudit(c.Request.Context(), merchant.ID, claims.UserID, subject); err != nil {
+		if h.logger != nil {
+			h.logger.ErrorContext(c.Request.Context(), "merchant admin email audit failed",
+				"request_id", requestid.FromGin(c), "merchant_id", merchant.ID, "error_class", errorClass(err))
+		}
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"message": "Email sent."})
 }
 
 func (h *merchantHandler) internalApproval(c *gin.Context) {

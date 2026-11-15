@@ -22,6 +22,7 @@ import { TextField } from '../ui/field';
 import { Modal } from '../ui/modal';
 import { Select } from '../ui/select';
 import { useToast } from '../ui/toast';
+import { UserDetailsModal } from './user-details-modal';
 import { UserList } from './user-list';
 
 type Pagination = NonNullable<ApiMeta['pagination']>;
@@ -162,6 +163,7 @@ export function UsersView() {
   const [lastPagination, setLastPagination] = useState<Pagination | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<AdminUser | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
 
   const key = `${query}|${role}|${status}|${page}|${reload}`;
@@ -377,6 +379,7 @@ export function UsersView() {
               }
               onActivate={(user) => changeActive(user, true)}
               onDeactivate={setConfirming}
+              onOpen={(user) => setSelectedUserId(user.id)}
             />
             {lastPagination && (
               <TablePagination
@@ -416,6 +419,32 @@ export function UsersView() {
             </Button>
           </>
         }
+      />
+
+      <UserDetailsModal
+        userId={selectedUserId}
+        currentUserId={currentUserId}
+        onClose={() => setSelectedUserId(null)}
+        onUserChanged={(updated) => {
+          setLoaded((previous) =>
+            previous && previous.kind === 'ok'
+              ? {
+                  ...previous,
+                  users: previous.users.map((row) =>
+                    row.id === updated.id
+                      ? {
+                          ...row,
+                          fullName: updated.fullName,
+                          phone: updated.phone,
+                          role: updated.role,
+                          isActive: updated.isActive,
+                        }
+                      : row,
+                  ),
+                }
+              : previous,
+          );
+        }}
       />
     </>
   );
