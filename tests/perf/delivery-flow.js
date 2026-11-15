@@ -1,4 +1,5 @@
 import crypto from 'k6/crypto';
+import encoding from 'k6/encoding';
 import http from 'k6/http';
 import { check, fail, sleep } from 'k6';
 
@@ -9,6 +10,11 @@ const DISPATCHER_EMAIL = __ENV.PERF_DISPATCHER_EMAIL;
 const DISPATCHER_PASSWORD = __ENV.PERF_DISPATCHER_PASSWORD;
 const COURIER_EMAIL = __ENV.PERF_COURIER_EMAIL;
 const COURIER_PASSWORD = __ENV.PERF_COURIER_PASSWORD;
+const PROOF_PNG = encoding.b64decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAH0lEQVR4nAASAO3/Av8AAP8AAAAAAAAAAAAAAAAAAwAfFwIBJnyuSgAAAABJRU5ErkJggg==',
+  'std',
+  's',
+);
 
 export const options = {
   scenarios: {
@@ -54,9 +60,9 @@ export default function (data) {
   const parcel = createParcel(data);
   const assigned = assignCourier(data, parcel.id);
   check(assigned, { 'assignment 200': (r) => r.status === 200 });
-  const status = setStatus(data, parcel.id, 'PICKED_UP');
-  check(status, { 'status 200': (r) => r.status === 200 });
-  const propagated = waitForTracking(parcel.trackingNumber, 'PICKED_UP');
+  const status = confirmPickup(data, parcel.id);
+  check(status, { 'pickup 200': (r) => r.status === 200 });
+  const propagated = waitForTracking(parcel.trackingNumber, 'IN_TRANSIT');
   check(propagated, { 'tracking propagated': (v) => v === true });
   sleep(1);
 }
@@ -97,11 +103,11 @@ function assignCourier(data, parcelID) {
   );
 }
 
-function setStatus(data, parcelID, status) {
+function confirmPickup(data, parcelID) {
   return http.post(
-    `${BASE_URL}/api/v1/courier/deliveries/${parcelID}/status`,
-    JSON.stringify({ status }),
-    jsonHeaders(authHeader(data.courier)),
+    `${BASE_URL}/api/v1/courier/deliveries/${parcelID}/pickup`,
+    { photo: http.file(PROOF_PNG, 'pickup.png', 'image/png') },
+    { headers: authHeader(data.courier) },
   );
 }
 
