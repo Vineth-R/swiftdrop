@@ -605,3 +605,136 @@ test.describe('M6 Dispatcher screens', () => {
     });
   });
 });
+
+test.describe('parcel details modal', () => {
+  const detail = {
+    ...sampleParcel,
+    sender: {
+      name: 'Nimal Perera',
+      phone: '+94771234567',
+      address: '12 Temple Road',
+      city: 'Colombo',
+      zoneId: sampleParcel.pickupZoneId,
+    },
+    recipient: {
+      name: 'Amali Fernando',
+      phone: '+94712345678',
+      address: '45 Lake Drive',
+      city: 'Kandy',
+      zoneId: sampleParcel.dropoffZoneId,
+    },
+    description: 'Books',
+    fee: {
+      currency: 'LKR',
+      baseFee: 450,
+      weightCharge: 100,
+      sizeSurcharge: 0,
+      total: 550,
+    },
+    courier: null,
+    failureReason: null,
+    updatedAt: '2026-11-02T11:00:00Z',
+    deliveredAt: null,
+  };
+  const history = [
+    {
+      previousStatus: null,
+      status: 'CREATED',
+      note: 'Parcel created',
+      failureReason: null,
+      actorRole: 'CUSTOMER',
+      changedAt: '2026-11-02T10:00:00Z',
+    },
+  ];
+  const assignments = [
+    {
+      id: 'a1b2c3d4-0000-4000-8000-000000000001',
+      courierId: sampleCourier.id,
+      previousCourierId: null,
+      assignedBy: '3f1c7a52-0000-4000-8000-0000000000c3',
+      assignedAt: '2026-11-02T10:30:00Z',
+      unassignedAt: null,
+      isCurrent: true,
+      reason: null,
+    },
+  ];
+
+  test('clicking an unassigned parcel opens its full details', async ({
+    page,
+  }) => {
+    await signInAs(page, 'DISPATCHER', {
+      'GET /dispatch/unassigned': pageOf([sampleParcel]),
+      'GET /zones': ok([]),
+      [`GET /parcels/${sampleParcel.id}`]: ok(detail),
+      [`GET /parcels/${sampleParcel.id}/history`]: ok(history),
+      [`GET /parcels/${sampleParcel.id}/assignments`]: ok([]),
+    });
+    await page.goto('/unassigned');
+
+    await unassignedTable(page)
+      .getByRole('row')
+      .filter({ hasText: 'SDK7M2Q9XP4' })
+      .click();
+
+    const dialog = page.getByRole('dialog', { name: 'SDK7M2Q9XP4' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('12 Temple Road')).toBeVisible();
+    await expect(dialog.getByText('45 Lake Drive')).toBeVisible();
+    await expect(dialog.getByText('Nimal Perera')).toBeVisible();
+    await expect(dialog.getByText('Amali Fernando')).toBeVisible();
+    await expect(dialog.getByText('LKR 550.00')).toBeVisible();
+    await expect(dialog.getByText('No courier assignment yet')).toBeVisible();
+    await expect(dialog.getByText('Parcel created')).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: 'Assign courier' }),
+    ).toBeVisible();
+  });
+
+  test('the row Assign courier button opens assignment, not the details modal', async ({
+    page,
+  }) => {
+    await signInAs(page, 'DISPATCHER', {
+      'GET /dispatch/unassigned': pageOf([sampleParcel]),
+      'GET /zones': ok([]),
+      'GET /couriers/': ok([sampleCourier]),
+    });
+    await page.goto('/unassigned');
+
+    await unassignedTable(page)
+      .getByRole('row')
+      .filter({ hasText: 'SDK7M2Q9XP4' })
+      .getByRole('button', { name: /assign/i })
+      .click();
+
+    await expect(
+      page.getByRole('dialog', { name: 'Assign courier' }),
+    ).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'SDK7M2Q9XP4' })).toHaveCount(
+      0,
+    );
+  });
+
+  test('all parcels uses the same details modal with assignment history', async ({
+    page,
+  }) => {
+    await signInAs(page, 'DISPATCHER', {
+      'GET /admin/parcels': pageOf([sampleAdminParcel]),
+      'GET /zones': ok([]),
+      [`GET /parcels/${sampleParcel.id}`]: ok(detail),
+      [`GET /parcels/${sampleParcel.id}/history`]: ok(history),
+      [`GET /parcels/${sampleParcel.id}/assignments`]: ok(assignments),
+    });
+    await page.goto('/parcels');
+
+    await parcelsTable(page)
+      .getByRole('row')
+      .filter({ hasText: 'SDK7M2Q9XP4' })
+      .click();
+
+    const dialog = page.getByRole('dialog', { name: 'SDK7M2Q9XP4' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('Current assignment')).toBeVisible();
+    await expect(dialog.getByText(sampleCourier.id)).toBeVisible();
+    await expect(dialog.getByText('Parcel created')).toBeVisible();
+  });
+});

@@ -24,12 +24,13 @@ type testQuoter struct {
 func (q *testQuoter) Quote(context.Context, CreateInput) (Fee, error) { q.calls++; return q.fee, q.err }
 
 type memoryStore struct {
-	p         repository.Parcel
-	exists    bool
-	createErr error
-	replayErr error
-	calls     int
-	history   []repository.StatusHistory
+	p           repository.Parcel
+	exists      bool
+	createErr   error
+	replayErr   error
+	calls       int
+	history     []repository.StatusHistory
+	assignments []repository.ParcelAssignment
 }
 
 func (m *memoryStore) ReplayCustomer(context.Context, string, string) (repository.Parcel, error) {
@@ -67,6 +68,9 @@ func (m *memoryStore) List(_ context.Context, user string, f Filter) ([]reposito
 }
 func (m *memoryStore) History(context.Context, string) ([]repository.StatusHistory, error) {
 	return m.history, nil
+}
+func (m *memoryStore) ParcelAssignments(context.Context, string) ([]repository.ParcelAssignment, error) {
+	return m.assignments, nil
 }
 func validInput() CreateInput {
 	expected := Decimal(55000)
@@ -288,5 +292,27 @@ func TestMerchantAndFailures(t *testing.T) {
 	}
 	if _, err := s.Summary(ctx, testUser); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
+	}
+}
+
+func TestAssignmentsReturnsHistoryForStaffOnly(t *testing.T) {
+	ctx := context.Background()
+	customer := testUser
+	store := &memoryStore{p: repository.Parcel{ID: testUser, CustomerUserID: &customer}, exists: true}
+	store.assignments = []repository.ParcelAssignment{{
+		ID: "assignment-1", ParcelID: testUser, CourierID: testOther,
+		AssignedBy: testUser, IsCurrent: true,
+	}}
+	service := NewService(store, quote550())
+
+	if _, err := service.Assignments(ctx, testUser, testOther, false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("other owner read: %v", err)
+	}
+	items, err := service.Assignments(ctx, testUser, testOther, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].CourierID != testOther || !items[0].IsCurrent {
+		t.Fatalf("assignments = %+v", items)
 	}
 }

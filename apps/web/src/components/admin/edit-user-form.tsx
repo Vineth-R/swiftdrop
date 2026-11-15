@@ -189,7 +189,17 @@ type Banner = ApiProblem | { kind: 'forbidden' } | { kind: 'not-found' };
  * name, phone, role and, for a courier, vehicle details and availability.
  * The email and password are not editable through the API.
  */
-export function EditUserForm({ user }: { user: AdminUserDetail }): ReactNode {
+export function EditUserForm({
+  user,
+  onSaved,
+  onCancel,
+}: {
+  user: AdminUserDetail;
+  /** When set, the form stays where it is instead of navigating to the list. */
+  onSaved?: (user: AdminUserDetail) => void;
+  /** When set, Cancel closes the form instead of linking back to the list. */
+  onCancel?: () => void;
+}): ReactNode {
   const router = useRouter();
   const { session, recheck } = useSession();
   const { show } = useToast();
@@ -307,6 +317,10 @@ export function EditUserForm({ user }: { user: AdminUserDetail }): ReactNode {
       const updated = await updateAdminUser(user.id, change);
       if (isSelf) recheck();
       show({ title: `${updated.fullName} was updated.` });
+      if (onSaved) {
+        onSaved(updated);
+        return;
+      }
       router.push('/admin/users');
     } catch (error) {
       setIsLoading(false);
@@ -561,9 +575,19 @@ export function EditUserForm({ user }: { user: AdminUserDetail }): ReactNode {
           >
             {isLoading ? 'Saving' : 'Save changes'}
           </Button>
-          <ButtonLink href="/admin/users" variant="secondary">
-            Cancel
-          </ButtonLink>
+          {onCancel ? (
+            <Button
+              variant="secondary"
+              onClick={onCancel}
+              isDisabled={isLoading}
+            >
+              Cancel
+            </Button>
+          ) : (
+            <ButtonLink href="/admin/users" variant="secondary">
+              Cancel
+            </ButtonLink>
+          )}
           {!isDirty && (
             <span className="text-caption text-text-faint">
               Change a field to save.

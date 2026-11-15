@@ -71,6 +71,12 @@ func (f *fakeAdminService) SetUserActive(_ context.Context, actor, id string, ac
 	return f.err
 }
 
+func (f *fakeAdminService) InitiatePasswordReset(_ context.Context, actor, id string) error {
+	f.calls++
+	f.actor, f.gotUserID = actor, id
+	return f.err
+}
+
 func (f *fakeAdminService) CurrentAccess(_ context.Context, userID string) (service.CurrentAccess, error) {
 	f.accessCalled = userID
 	if f.accessErr != nil {
@@ -681,5 +687,42 @@ func TestAdminEndpoints_unauthenticatedCallersDoNotTriggerAnAccountLookup(t *tes
 
 	if h.service.accessCalled != "" {
 		t.Fatal("the database was consulted for a caller the token check already refused")
+	}
+}
+
+func TestAdminPasswordReset(t *testing.T) {
+	h := newAdminHarness(t)
+
+	response := h.do(t, auth.RoleAdmin, http.MethodPost, "/admin/users/"+targetUserID+"/password-reset", "")
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d (%s)", response.Code, response.Body)
+	}
+	if h.service.actor != adminUserID || h.service.gotUserID != targetUserID {
+		t.Fatalf("service got actor %q user %q", h.service.actor, h.service.gotUserID)
+	}
+	if strings.Contains(response.Body.String(), "token") {
+		t.Fatalf("response exposed a token: %s", response.Body)
+	}
+}
+
+func TestAdminPasswordReset_mapsUnavailableStates(t *testing.T) {
+	for _, test := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{service.ErrUserInactive, http.StatusConflict, "ACCOUNT_DEACTIVATED"},
+		{service.ErrPasswordResetNotSupported, http.StatusConflict, "PASSWORD_RESET_NOT_SUPPORTED"},
+		{service.ErrPasswordResetUnavailable, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE"},
+	} {
+		h := newAdminHarness(t)
+		h.service.err = test.err
+
+		response := h.do(t, auth.RoleAdmin, http.MethodPost, "/admin/users/"+targetUserID+"/password-reset", "")
+
+		if response.Code != test.status || errorCode(t, response) != test.code {
+			t.Fatalf("%v: status = %d body = %s, want %d %s", test.err, response.Code, response.Body, test.status, test.code)
+		}
 	}
 }

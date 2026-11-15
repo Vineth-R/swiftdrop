@@ -74,6 +74,31 @@ func (n *Notifier) Suspended(ctx context.Context, to, ownerName, businessName st
 	}))
 }
 
+// SendAdminMessage sends an administrator-composed message to a merchant. It
+// is synchronous so the HTTP handler can tell the administrator whether the
+// SMTP server accepted the message instead of claiming success.
+func (n *Notifier) SendAdminMessage(ctx context.Context, to, businessName, subject, message string) error {
+	if n == nil || n.mailer == nil {
+		return errors.New("merchant email is not configured")
+	}
+	email := emails.MerchantAdminMessage(emails.MerchantAdminMessageData{
+		BusinessName: businessName,
+		Subject:      subject,
+		Message:      message,
+	})
+	rendered, err := email.Message(to, n.site)
+	if err != nil {
+		return err
+	}
+	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+	if err := n.mailer.Send(sendCtx, rendered); err != nil {
+		n.logger.ErrorContext(sendCtx, "merchant admin email was not sent", "reason", emailSendFailureReason(err))
+		return err
+	}
+	return nil
+}
+
 // APIKeyCreated sends a security notice for a newly created key. Only the
 // display prefix is passed; the secret and its hash never enter an email.
 func (n *Notifier) APIKeyCreated(ctx context.Context, to, ownerName, keyName, keyPrefix string, createdAt time.Time) {

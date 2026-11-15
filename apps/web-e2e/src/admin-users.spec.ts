@@ -636,3 +636,140 @@ test.describe('admin users list', () => {
     expect(calls.some((c) => c.key === 'GET /admin/users/')).toBe(false);
   });
 });
+
+test.describe('admin user details modal', () => {
+  const detail = (id: string, changes: Record<string, unknown> = {}) => ({
+    ...row(id, changes),
+    authProvider: 'LOCAL',
+    lastLoginAt: '2026-11-03T08:00:00Z',
+    updatedAt: '2026-11-04T09:00:00Z',
+    ...changes,
+  });
+
+  test('clicking a row opens the account and courier details', async ({
+    page,
+  }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': list([self, kasun]),
+      'GET /admin/users/kasun': ok(
+        detail('kasun', {
+          fullName: 'Kasun Silva',
+          role: 'COURIER',
+          phone: '+94771234567',
+          courierProfile: {
+            vehicleType: 'Motorbike',
+            vehicleNumber: 'BAB-1234',
+            homeZoneId: '7a1e0000-0000-4000-8000-000000000001',
+            isAvailable: true,
+          },
+        }),
+      ),
+      'GET /zones': ok([
+        {
+          id: '7a1e0000-0000-4000-8000-000000000001',
+          code: 'CMB',
+          name: 'Colombo',
+          districts: [],
+        },
+      ]),
+    });
+    await page.goto('/admin/users');
+
+    await person(page, 'Kasun Silva').click();
+
+    const dialog = page.getByRole('dialog', { name: 'Kasun Silva' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('kasun@example.com')).toBeVisible();
+    await expect(dialog.getByText('+94771234567')).toBeVisible();
+    await expect(dialog.getByText('kasun', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Email and password')).toBeVisible();
+    await expect(dialog.getByText('Motorbike')).toBeVisible();
+    await expect(dialog.getByText('BAB-1234')).toBeVisible();
+    await expect(dialog.getByText('Colombo')).toBeVisible();
+    await expect(dialog.getByText('Available for assignments')).toBeVisible();
+  });
+
+  test('an administrator can initiate a password reset without seeing a token', async ({
+    page,
+  }) => {
+    const { calls } = await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': list([self, kasun]),
+      'GET /admin/users/kasun': ok(
+        detail('kasun', { fullName: 'Kasun Silva' }),
+      ),
+      'POST /admin/users/kasun/password-reset': ok({
+        message: 'Password reset requested.',
+      }),
+    });
+    await page.goto('/admin/users');
+    await person(page, 'Kasun Silva').click();
+
+    await page
+      .getByRole('dialog', { name: 'Kasun Silva' })
+      .getByRole('button', { name: 'Reset password' })
+      .click();
+
+    await expect(
+      page.getByText(
+        'Password reset requested. The account will receive a link',
+      ),
+    ).toBeVisible();
+    expect(
+      calls.filter((call) => call.key.endsWith('/password-reset')),
+    ).toHaveLength(1);
+  });
+
+  test('deactivating from the modal asks first and updates the list', async ({
+    page,
+  }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': list([self, kasun]),
+      'GET /admin/users/kasun': ok(
+        detail('kasun', { fullName: 'Kasun Silva' }),
+      ),
+      'PATCH /admin/users/kasun/status': ok({ id: 'kasun', isActive: false }),
+    });
+    await page.goto('/admin/users');
+    await person(page, 'Kasun Silva').click();
+
+    await page
+      .getByRole('dialog', { name: 'Kasun Silva' })
+      .getByRole('button', { name: 'Deactivate' })
+      .click();
+    const confirm = page.getByRole('dialog', {
+      name: 'Deactivate Kasun Silva?',
+    });
+    await confirm.getByRole('button', { name: 'Deactivate' }).click();
+
+    await expect(
+      page
+        .getByRole('dialog', { name: 'Kasun Silva' })
+        .getByText(
+          'Kasun Silva is deactivated and signed out of every device.',
+        ),
+    ).toBeVisible();
+    await expect(person(page, 'Kasun Silva')).toContainText('DEACTIVATED');
+  });
+
+  test('the modal offers the edit form in place', async ({ page }) => {
+    await signInAs(page, 'ADMIN', {
+      'GET /admin/users/': list([self, kasun]),
+      'GET /admin/users/kasun': ok(
+        detail('kasun', { fullName: 'Kasun Silva' }),
+      ),
+    });
+    await page.goto('/admin/users');
+    await person(page, 'Kasun Silva').click();
+
+    await page
+      .getByRole('dialog', { name: 'Kasun Silva' })
+      .getByRole('button', { name: 'Edit user' })
+      .click();
+
+    await expect(
+      page.getByRole('dialog', { name: 'Edit Kasun Silva' }),
+    ).toBeVisible();
+    await expect(page.getByLabel('Full name')).toHaveValue('Kasun Silva');
+    await expect(page.getByLabel('Email')).toHaveValue('kasun@example.com');
+  });
+});

@@ -33,7 +33,7 @@ func TestValidTransition(t *testing.T) {
 		{name: "pending rejected", from: MerchantStatusPending, to: MerchantStatusRejected, want: true},
 		{name: "approved suspended", from: MerchantStatusApproved, to: MerchantStatusSuspended, want: true},
 		{name: "approved rejected", from: MerchantStatusApproved, to: MerchantStatusRejected},
-		{name: "rejected approved", from: MerchantStatusRejected, to: MerchantStatusApproved},
+		{name: "rejected approved", from: MerchantStatusRejected, to: MerchantStatusApproved, want: true},
 		{name: "pending suspended", from: MerchantStatusPending, to: MerchantStatusSuspended},
 	}
 	for _, test := range tests {

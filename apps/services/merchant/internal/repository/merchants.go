@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -134,6 +135,24 @@ func (r *Repository) MerchantByContactEmail(ctx context.Context, contactEmail st
 	return scanMerchant(r.db.QueryRow(ctx, `SELECT `+merchantColumns+` FROM merchant.merchants WHERE lower(contact_email) = lower($1) ORDER BY created_at, id LIMIT 1`, strings.TrimSpace(contactEmail)))
 }
 
+// RecordAdminEmailAudit records that an administrator sent an email to the
+// merchant. It stores the subject only: never the body, recipient address or
+// any credential.
+func (r *Repository) RecordAdminEmailAudit(ctx context.Context, merchantID, actorID, subject string) error {
+	payload, err := json.Marshal(map[string]string{"subject": subject})
+	if err != nil {
+		return fmt.Errorf("recording merchant email audit: %w", err)
+	}
+	if _, err := r.db.Exec(ctx, `
+		INSERT INTO merchant.audit_logs (id, actor_user_id, action, entity_type, entity_id, details)
+		VALUES (gen_random_uuid(), $1, 'ADMIN_EMAIL_SENT', 'merchant', $2, $3::jsonb)`,
+		actorID, merchantID, payload,
+	); err != nil {
+		return fmt.Errorf("recording merchant email audit: %w", err)
+	}
+	return nil
+}
+
 // UpdateProfile changes only merchant-editable contact and pickup fields.
 func (r *Repository) UpdateProfile(ctx context.Context, merchantID string, update ProfileUpdate) (Merchant, error) {
 	_, err := r.db.Exec(ctx, `
@@ -215,7 +234,7 @@ func newUUID() (string, error) {
 func validTransition(from, to MerchantStatus) bool {
 	switch to {
 	case MerchantStatusApproved:
-		return from == MerchantStatusPending || from == MerchantStatusSuspended
+		return from == MerchantStatusPending || from == MerchantStatusSuspended || from == MerchantStatusRejected
 	case MerchantStatusRejected:
 		return from == MerchantStatusPending
 	case MerchantStatusSuspended:

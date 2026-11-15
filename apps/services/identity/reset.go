@@ -23,20 +23,20 @@ func resetRouterOption(
 	cookies servicehttp.CookieConfig,
 	passwordResetTTL time.Duration,
 	mail emailSetup,
-) (servicehttp.Option, func(), error) {
+) (servicehttp.Option, *service.PasswordReset, func(), error) {
 	noop := func() {}
 	if mail.Sender == nil {
 		logger.Warn("Password reset is disabled: "+mail.DisabledReason,
 			"routes_disabled", "/auth/forgot-password, /auth/reset-password")
-		return nil, noop, nil
+		return nil, nil, noop, nil
 	}
 
 	reset, err := service.NewPasswordReset(identity, repo, mail.Sender, mail.Site.BaseURL, passwordResetTTL,
 		service.WithSupportEmail(mail.Site.SupportEmail))
 	if err != nil {
-		return nil, nil, fmt.Errorf("create password reset: %w", err)
+		return nil, nil, nil, fmt.Errorf("create password reset: %w", err)
 	}
 
 	logger.Info("Password reset is enabled")
-	return servicehttp.WithPasswordReset(servicehttp.PasswordResetRoutes{Service: reset, Cookies: cookies}), reset.Wait, nil
+	return servicehttp.WithPasswordReset(servicehttp.PasswordResetRoutes{Service: reset, Cookies: cookies}), reset, reset.Wait, nil
 }

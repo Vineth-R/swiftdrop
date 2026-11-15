@@ -20,6 +20,8 @@ type UserListProps = {
   onActivate: (user: AdminUser) => void;
   /** Asks first: the screen opens its confirmation dialog. */
   onDeactivate: (user: AdminUser) => void;
+  /** Opens the user details modal. */
+  onOpen: (user: AdminUser) => void;
 };
 
 /** The users as a table, and as cards below 768px. */
@@ -31,6 +33,7 @@ export function UserList({
   empty,
   onActivate,
   onDeactivate,
+  onOpen,
 }: UserListProps) {
   const columns: DataTableColumn<AdminUser>[] = [
     {
@@ -130,6 +133,8 @@ export function UserList({
       getRowId={(user) => user.id}
       isLoading={isLoading}
       empty={empty}
+      onRowClick={onOpen}
+      rowLabel={(user) => user.fullName}
     />
   );
 }
