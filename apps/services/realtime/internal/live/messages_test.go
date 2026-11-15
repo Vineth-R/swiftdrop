@@ -57,3 +57,26 @@ func TestErrorMessage(t *testing.T) {
 		t.Fatalf("ErrorMessage() = %v, want %v", got, want)
 	}
 }
+
+func TestUpdateMessageKeepsSubSecondOrdering(t *testing.T) {
+	first := Update{
+		TrackingNumber: trackingNumber,
+		PreviousStatus: "CREATED",
+		Status:         "PICKED_UP",
+		UpdatedAt:      time.Date(2026, 11, 2, 15, 40, 0, 100_000_000, time.UTC),
+	}
+	second := Update{
+		TrackingNumber: trackingNumber,
+		PreviousStatus: "PICKED_UP",
+		Status:         "IN_TRANSIT",
+		UpdatedAt:      time.Date(2026, 11, 2, 15, 40, 0, 200_000_000, time.UTC),
+	}
+	firstAt := decode(t, first.Message())["data"].(map[string]any)["updatedAt"]
+	secondAt := decode(t, second.Message())["data"].(map[string]any)["updatedAt"]
+	if firstAt == secondAt {
+		t.Fatalf("rapid updates share a timestamp: %v", firstAt)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, firstAt.(string)); err != nil {
+		t.Fatalf("updatedAt is not RFC3339Nano: %v", err)
+	}
+}
