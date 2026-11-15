@@ -6,7 +6,6 @@ import {
 } from '@playwright/test';
 
 import {
-  apiLogin,
   credentialsForRun,
   signInThroughForm,
   type Credentials,
