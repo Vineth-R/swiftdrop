@@ -2,12 +2,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
-import {
-  apiLogin,
-  apiUserId,
-  credentialsForRun,
-  type Credentials,
-} from './support/real-stack';
+import { apiLogin, apiUserId, credentialsForRun } from './support/real-stack';
 
 const EVENT_TIMEOUT = 60_000;
 const sinkControl = 'http://localhost:8099/control';
