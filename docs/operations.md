@@ -120,8 +120,8 @@ version, for example:
 ```text
 identity: 6
 pricing: 2
-parcel: 6
-merchant: 9
+parcel: 7
+merchant: 11
 notification: 2
 ```
 
@@ -132,7 +132,7 @@ exits non-zero.
 A dirty migration state prints the version followed by `(dirty)`:
 
 ```text
-merchant: 9 (dirty)
+merchant: 11 (dirty)
 ```
 
 and exits non-zero. Do not apply more migrations until the dirty version is
@@ -160,26 +160,25 @@ docker compose exec identity wget -qO- http://127.0.0.1:8081/ready
 
 `/ready` currently means:
 
-- **Database-backed services and workers** (`identity`, `pricing`, `parcel`,
-  `merchant`, `notification-worker`, and `realtime` when configured): ready only
-  when the PostgreSQL ping succeeds. `/ready` returns
-  `{"status":"ready","checks":{"database":"ok"}}`, or `503` with the database
-  check set to `down` when `DATABASE_URL` is unset or unreachable.
-- **`webhook-worker`**: the Compose health check is process health only. It has
-  no HTTP readiness endpoint and no published port; it does not prove broker
-  connectivity or that messages are being consumed.
-- **`ai-assistant`**: readiness is process health; a missing Gemini key leaves
-  the process running with an unconfigured provider and returns
-  `503 AI_UNAVAILABLE` on chat instead of taking down the gateway.
-- **`realtime`**: readiness checks PostgreSQL when configured, not the RabbitMQ
-  consumer. A ready pod can still be reconnecting to the broker.
-- **`notification-worker`**: its internal ADMIN read API is on port `8086` and
-  is reachable only through the gateway; an unset `JWT_ACCESS_SECRET` leaves
+- **`identity` and `pricing`**: ready when the PostgreSQL ping succeeds.
+- **`parcel`**: ready when PostgreSQL answers and, when publishing is configured,
+  its outbox relay has a usable broker connection.
+- **`merchant`**: ready when PostgreSQL answers and, when status sync is enabled,
+  its merchant-sync consumer is healthy.
+- **`realtime`**: ready when PostgreSQL answers and both the status and
+  assignment consumers are healthy.
+- **`notification-worker`**: ready when PostgreSQL answers and all three
+  consumers are healthy. Its internal ADMIN read API is on port `8086` and is
+  reachable only through the gateway; an unset `JWT_ACCESS_SECRET` leaves
   delivery running but makes that API fail closed.
+- **`webhook-worker`**: exposes internal `/health` and `/ready` on port `8088`;
+  readiness requires its consumer. The port is not published or routed by
+  Nginx.
+- **`ai-assistant`**: `/ready` returns `503` when its provider is disabled or
+  unconfigured; Compose uses `/health` because the AI capability is optional.
 
-RabbitMQ failures are visible in structured logs and through the management UI,
-not through most `/ready` endpoints. Treat a green `/ready` as "the service can
-serve database-backed requests", not "every dependency is healthy".
+A `503` includes the failing checks. `/health` remains liveness so a reconnecting
+consumer or a temporary dependency outage does not trigger a restart loop.
 
 ## Logs
 
@@ -204,9 +203,10 @@ docker compose exec web      wget -qO- http://127.0.0.1:3000/
 curl -s http://localhost:8080/healthz
 ```
 
-`/ready` returns `200 {"status":"ready","checks":{"database":"ok"}}` when the
-database ping succeeds and `503` with `"database":"down"` when it does not.
-`webhook-worker` has process health only; it exposes no HTTP endpoint.
+`/ready` returns `200 {"status":"ready","checks":{...}}` when all required
+checks succeed and `503` with the failing checks when they do not.
+`webhook-worker` exposes internal `/health` and `/ready` on port `8088`; it is
+not published or routed by Nginx.
 
 ## RabbitMQ queues and dead letters
 

@@ -58,12 +58,14 @@ The suite must fail when a rule is broken, or it proves nothing. Two checks do t
 
 ## Merchant API keys
 
-`apps/services/merchant/internal/http/api_key_access_integration_test.go` runs the real `MerchantAPIKey` middleware against the real merchant schema. An ACTIVE key of an APPROVED merchant works and resolves to its own merchant only. A revoked key gets 401 `INVALID_API_KEY`. A key of a suspended, pending or rejected merchant gets 403 `MERCHANT_NOT_APPROVED`, including the moment after suspension. A wrong secret, an unknown key, a malformed key and a missing key get 401. No gateway route uses this middleware yet, which is why the test mounts it on a probe route.
+`apps/services/merchant/internal/http/api_key_access_integration_test.go` runs the real `MerchantAPIKey` middleware against the real merchant schema. An ACTIVE key of an APPROVED merchant works and resolves to its own merchant only. A revoked key gets 401 `INVALID_API_KEY`. A key of a suspended, pending or rejected merchant gets 403 `MERCHANT_NOT_APPROVED`, including the moment after suspension. A wrong secret, an unknown key, a malformed key and a missing key get 401. `POST /merchant/orders` uses this middleware; the probe route keeps the middleware contract tested without creating an order.
 
 ## Known gaps these tests report
 
 - Merchant routes now verify access tokens. Merchant business routes also compare
   the JWT `sv` session version with Identity and require an APPROVED merchant.
   Merchant admin routes use the short-lived ADMIN JWT.
-- Customer parcel, dispatch and courier delivery routes participate in the matrix
-  and real ownership tests. Merchant order routes remain future work.
+- Customer parcel, dispatch, courier delivery, webhook settings and merchant
+  order read routes participate in the matrix. `POST /merchant/orders` is
+  API-key-only and is covered by the merchant integration tests rather than the
+  session-role matrix.

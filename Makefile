@@ -248,7 +248,7 @@ db-reset:
 	$(MAKE) migrate
 
 check-openapi:
-	node --test "tests/contracts/openapi.test.mjs"
+	node --test "tests/contracts/*.test.mjs"
 
 test:
 	go test -race -count=1 ./...
