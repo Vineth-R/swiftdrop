@@ -1,12 +1,6 @@
 import { Buffer } from 'node:buffer';
 
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type BrowserContext,
-  type Page,
-} from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import {
   apiLogin,
