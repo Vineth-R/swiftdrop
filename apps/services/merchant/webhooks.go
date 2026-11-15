@@ -37,11 +37,22 @@ func registerWebhooks(router *gin.Engine, repo *merchantrepository.Repository, i
 		logger.Warn("JWT_ACCESS_SECRET is not set; webhook settings endpoints will answer 503")
 	}
 
+	sender := webhookdelivery.NewSender()
+	if config.WebhookTestOrigin != "" {
+		testSender, err := webhookdelivery.NewTestOnlySender(config.WebhookTestOrigin)
+		if err != nil {
+			return fmt.Errorf("configure test webhook sender: %w", err)
+		}
+		sender = testSender
+		logger.Warn("test webhook origin is enabled", "origin", config.WebhookTestOrigin)
+	}
+
 	webhookConfig := servicehttp.WebhookConfig{
 		Repository:   repo,
-		Sender:       webhookdelivery.NewSender(),
+		Sender:       sender,
 		AccessSecret: config.AccessSecret,
 		CookieName:   config.CookieName,
+		TestOrigin:   config.WebhookTestOrigin,
 		Logger:       logger,
 		SessionCheck: func(ctx context.Context, userID string) (bool, int, error) {
 			state, err := identityClient.SessionState(ctx, userID)

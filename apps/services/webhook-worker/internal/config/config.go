@@ -3,9 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
+	"github.com/Vineth-R/swiftdrop/packages/webhookdelivery"
 )
 
 const (
@@ -40,6 +42,11 @@ type Config struct {
 	RetryDelay     time.Duration
 	ReconnectMin   time.Duration
 	ReconnectMax   time.Duration
+	// RetryDelays is an explicitly development-only schedule used by the
+	// real-stack retry test. Empty keeps the API v1.1 production schedule.
+	RetryDelays []time.Duration
+	// TestWebhookOrigin is an explicitly development-only HTTP receiver origin.
+	TestWebhookOrigin string
 }
 
 // UsesLegacyQueue reports whether the resolved configuration points at the
@@ -121,21 +128,62 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, errors.New("RABBITMQ_RECONNECT_MAX must be greater than or equal to RABBITMQ_RECONNECT_MIN")
 	}
 
+	retryDelays, err := parseTestRetryDelays(loader.String("WEBHOOK_RETRY_DELAYS", ""), appEnv)
+	if err != nil {
+		return Config{}, err
+	}
+	testOrigin := strings.TrimSpace(loader.String("WEBHOOK_TEST_ORIGIN", ""))
+	if testOrigin != "" {
+		if appEnv != "development" {
+			return Config{}, errors.New("WEBHOOK_TEST_ORIGIN is only allowed in development")
+		}
+		normalized, err := webhookdelivery.NormalizeTestOrigin(testOrigin)
+		if err != nil {
+			return Config{}, fmt.Errorf("WEBHOOK_TEST_ORIGIN: %w", err)
+		}
+		testOrigin = normalized
+	}
+
 	return Config{
-		AppEnv:         appEnv,
-		LogLevel:       logLevel,
-		Port:           port,
-		RabbitMQURL:    rabbitMQURL,
-		Exchange:       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
-		Queue:          queue,
-		RoutingKey:     loader.String("WEBHOOK_ROUTING_KEY", defaultRoutingKey),
-		Prefetch:       prefetch,
-		HandlerTimeout: handlerTimeout,
-		MaxRetries:     maxRetries,
-		RetryDelay:     retryDelay,
-		ReconnectMin:   reconnectMin,
-		ReconnectMax:   reconnectMax,
+		AppEnv:            appEnv,
+		LogLevel:          logLevel,
+		Port:              port,
+		RabbitMQURL:       rabbitMQURL,
+		Exchange:          loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
+		Queue:             queue,
+		RoutingKey:        loader.String("WEBHOOK_ROUTING_KEY", defaultRoutingKey),
+		Prefetch:          prefetch,
+		HandlerTimeout:    handlerTimeout,
+		MaxRetries:        maxRetries,
+		RetryDelay:        retryDelay,
+		ReconnectMin:      reconnectMin,
+		ReconnectMax:      reconnectMax,
+		RetryDelays:       retryDelays,
+		TestWebhookOrigin: testOrigin,
 	}, nil
+}
+
+func parseTestRetryDelays(raw, appEnv string) ([]time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	if appEnv != "development" {
+		return nil, errors.New("WEBHOOK_RETRY_DELAYS is only allowed in development")
+	}
+	parts := strings.Split(raw, ",")
+	if len(parts) != webhookdelivery.MaxAttempts-1 {
+		return nil, fmt.Errorf("WEBHOOK_RETRY_DELAYS must contain %d comma-separated durations", webhookdelivery.MaxAttempts-1)
+	}
+	delays := make([]time.Duration, 0, len(parts))
+	for _, part := range parts {
+		delay, err := time.ParseDuration(strings.TrimSpace(part))
+		if err != nil || delay < time.Second {
+			return nil, errors.New("WEBHOOK_RETRY_DELAYS entries must be durations of at least 1s")
+		}
+		delays = append(delays, delay)
+	}
+	return delays, nil
 }
 
 // Addr returns the internal HTTP listen address for health and readiness.
