@@ -755,10 +755,10 @@ func TestMigrationVersionFiles(t *testing.T) {
 
 	// Each service has its own migration version table, so versions are unique
 	// per service directory rather than across the whole repository.
-	if len(services["parcel"]) != 7 {
-		t.Errorf("parcel migration version count = %d; want 7", len(services["parcel"]))
+	if len(services["parcel"]) != 8 {
+		t.Errorf("parcel migration version count = %d; want 8", len(services["parcel"]))
 	}
-	for _, version := range []string{"000001", "000002", "000003", "000004", "000005", "000006", "000007"} {
+	for _, version := range []string{"000001", "000002", "000003", "000004", "000005", "000006", "000007", "000008"} {
 		if services["parcel"][version] == nil {
 			t.Errorf("parcel migration %s is missing", version)
 		}
@@ -821,13 +821,31 @@ func TestMigrationVersionFiles(t *testing.T) {
 		}
 	}
 
+	proofKind, err := os.ReadFile(repositoryPath("migrations/parcel/000008_proof_kind.up.sql"))
+	if err != nil {
+		t.Fatalf("read proof kind migration: %v", err)
+	}
+	if strings.Contains(string(proofKind), "CREATE TABLE") {
+		t.Error("000008_proof_kind must not create tables")
+	}
+	normalizedProofKind := strings.Join(strings.Fields(string(proofKind)), " ")
+	for _, want := range []string{
+		"proof_kind VARCHAR(20) NOT NULL DEFAULT 'DELIVERY'",
+		"CHECK (proof_kind IN ('PICKUP', 'DELIVERY'))",
+		"proofs_parcel_kind_idx",
+	} {
+		if !strings.Contains(normalizedProofKind, want) {
+			t.Errorf("000008_proof_kind does not contain %q", want)
+		}
+	}
+
 	var versions []string
 	for version := range services["parcel"] {
 		versions = append(versions, version)
 	}
 	sort.Strings(versions)
-	if strings.Join(versions, ",") != "000001,000002,000003,000004,000005,000006,000007" {
-		t.Errorf("parcel versions = %v; want [000001 000002 000003 000004 000005 000006 000007]", versions)
+	if strings.Join(versions, ",") != "000001,000002,000003,000004,000005,000006,000007,000008" {
+		t.Errorf("parcel versions = %v; want [000001 000002 000003 000004 000005 000006 000007 000008]", versions)
 	}
 }
 
