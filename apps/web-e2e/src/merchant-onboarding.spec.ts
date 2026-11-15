@@ -129,11 +129,13 @@ test.describe('merchant login states', () => {
 });
 
 test.describe('admin merchants', () => {
-  test('lists applications and rejects without a reason after confirmation', async ({
+  test('rejects an application with a required reason from the details modal', async ({
     page,
   }) => {
+    const reasonText = 'Phase 4 rejection evidence.';
     const { calls } = await signInAs(page, 'ADMIN', {
       'GET /admin/merchants': ok([merchant]),
+      [`GET /admin/merchants/${merchant.id}`]: ok(merchant),
       [`POST /admin/merchants/${merchant.id}/reject`]: ok({
         id: merchant.id,
         status: 'REJECTED',
@@ -142,26 +144,31 @@ test.describe('admin merchants', () => {
       }),
     });
     await page.goto('/admin/merchants');
+    await page.getByRole('button', { name: 'Review ShopZone Lanka' }).click();
+    const details = page.getByRole('dialog', { name: 'ShopZone Lanka' });
+    await expect(details).toBeVisible();
+    await details.getByRole('button', { name: 'Reject' }).click();
     await expect(
-      page.getByRole('button', { name: 'ShopZone Lanka' }).first(),
+      page.getByRole('heading', { name: 'Reject application' }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Reject' }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Reject application?' }),
-    ).toBeVisible();
-    const reason = page.getByLabel('Reason (optional)');
+    const reason = page.getByLabel('Reason');
     await expect(reason).toHaveAttribute('maxlength', '1000');
-    await page.getByRole('button', { name: 'Reject' }).last().click();
+    await reason.fill(reasonText);
+    await page
+      .getByRole('dialog', { name: 'Reject application' })
+      .getByRole('button', { name: 'Reject' })
+      .click();
     await expect(page.getByText('Merchant rejected.')).toBeVisible();
     const call = calls.find(
       (item) => item.key === 'POST /admin/merchants/' + merchant.id + '/reject',
     );
-    expect(call?.body).toEqual({});
+    expect(call?.body).toEqual({ reason: reasonText });
   });
 
   test('approval shows a pending identity sync warning', async ({ page }) => {
     await signInAs(page, 'ADMIN', {
       'GET /admin/merchants': ok([merchant]),
+      [`GET /admin/merchants/${merchant.id}`]: ok(merchant),
       [`POST /admin/merchants/${merchant.id}/approve`]: ok({
         id: merchant.id,
         status: 'APPROVED',
@@ -170,10 +177,17 @@ test.describe('admin merchants', () => {
       }),
     });
     await page.goto('/admin/merchants');
-    await page.getByRole('button', { name: 'Approve' }).click();
-    await page.getByRole('button', { name: 'Approve' }).last().click();
+    await page.getByRole('button', { name: 'Review ShopZone Lanka' }).click();
+    const details = page.getByRole('dialog', { name: 'ShopZone Lanka' });
+    await details.getByRole('button', { name: 'Approve' }).click();
+    await page
+      .getByRole('dialog', { name: 'Approve ShopZone Lanka?' })
+      .getByRole('button', { name: 'Approve' })
+      .click();
     await expect(
-      page.getByText('Identity has not applied it yet'),
+      page
+        .getByRole('dialog', { name: 'ShopZone Lanka' })
+        .getByText('Identity has not applied it yet'),
     ).toBeVisible();
   });
 });

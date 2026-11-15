@@ -20,9 +20,10 @@ function asApiError(error: unknown): ApiError {
 }
 
 function failureText(error: ApiError) {
+  if (error.status === 503) {
+    return 'Merchant email is not configured. Check the SMTP settings.';
+  }
   switch (error.code) {
-    case 'SERVICE_UNAVAILABLE':
-      return 'Merchant email is not configured. Check the SMTP settings.';
     case 'NOT_FOUND':
       return 'This merchant no longer exists. Close the dialog and reload.';
     case 'RATE_LIMITED':

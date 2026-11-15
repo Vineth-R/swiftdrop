@@ -51,6 +51,9 @@ function providerLabel(provider?: string) {
 }
 
 function actionMessage(error: ApiError): string {
+  if (error.status === 503) {
+    return 'Password reset email is not configured right now.';
+  }
   switch (error.code) {
     case 'CANNOT_DEACTIVATE_SELF':
       return 'You cannot deactivate your own account. Ask another administrator.';
@@ -58,8 +61,6 @@ function actionMessage(error: ApiError): string {
       return 'This account is deactivated. Activate it before sending a reset link.';
     case 'PASSWORD_RESET_NOT_SUPPORTED':
       return 'This account signs in with Google, so it has no password to reset.';
-    case 'SERVICE_UNAVAILABLE':
-      return 'Password reset email is not configured right now.';
     case 'NOT_FOUND':
       return 'This account no longer exists. Close the dialog and reload the list.';
     case 'RATE_LIMITED':

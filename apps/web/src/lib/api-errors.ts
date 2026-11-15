@@ -38,7 +38,6 @@ export type ApiErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'NETWORK'
-  | 'SERVICE_UNAVAILABLE'
   | 'INTERNAL';
 
 const codeFromApi: Record<string, ApiErrorCode> = {
@@ -83,7 +82,6 @@ const codeFromApi: Record<string, ApiErrorCode> = {
   REFRESH_TOKEN_INVALID: 'UNAUTHENTICATED',
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
-  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
 };
 
 function codeFromStatus(status: number): ApiErrorCode {
