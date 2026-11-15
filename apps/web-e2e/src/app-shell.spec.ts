@@ -10,7 +10,14 @@ test.use({ colorScheme: 'light' });
 test.describe('navigation by role', () => {
   const sidebarLabels: Record<Exclude<Role, 'COURIER'>, string[]> = {
     CUSTOMER: ['Dashboard', 'New delivery', 'My parcels', 'Profile'],
-    MERCHANT: ['Dashboard', 'Orders', 'API keys', 'Webhook', 'Business', 'Profile'],
+    MERCHANT: [
+      'Dashboard',
+      'Orders',
+      'API keys',
+      'Webhook',
+      'Business',
+      'Profile',
+    ],
     DISPATCHER: ['Unassigned', 'Workload', 'All parcels', 'Reports'],
     ADMIN: [
       'Unassigned',
@@ -184,7 +191,12 @@ test.describe('the drawer under 768px', () => {
 
   test('closes itself when a link is chosen', async ({ page }) => {
     await signInAs(page, 'DISPATCHER');
+    const dashboardLoaded = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/') && response.status() < 400,
+    );
     await page.goto('/dashboard');
+    await dashboardLoaded;
 
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await page

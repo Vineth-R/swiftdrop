@@ -1,5 +1,7 @@
 ## 2.4 Courier Use Cases
 
+> **Historical document.** Report source recorded before the Phase 3 baseline `686a03d`. It is kept for traceability and may describe features as planned or not implemented that have since shipped. For current behaviour use `AGENTS.md`, `README.md`, `docs/architecture.md` and `docs/phase-3-testing-documentation-qa.md`.
+
 **Actor:** Courier (`COURIER` role).
 
 Couriers work in the field, view only the parcels currently assigned to them, move those parcels through the permitted lifecycle states, and record proof of delivery. Every courier endpoint requires authentication and enforces the assignment check before returning or changing a parcel. Figure 3 shows the courier use case diagram.

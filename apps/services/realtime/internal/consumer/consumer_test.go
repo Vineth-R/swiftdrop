@@ -32,8 +32,8 @@ func event(eventType, data string) []byte {
 
 func TestHandleBroadcastsOnlyPublicFields(t *testing.T) {
 	rec := &recorder{}
-	body := event(EventType, `{"tracking_number":"SDK7M2Q9XP4","previous_status":"CREATED",`+
-		`"status":"PICKED_UP","merchant_id":"m1","customer_user_id":"u1","note":"secret"}`)
+	body := event(EventType, `{"parcel_id":"22222222-2222-4222-8222-222222222222","tracking_number":"SDK7M2Q9XP4","previous_status":"CREATED",`+
+		`"status":"PICKED_UP","merchant_id":"33333333-3333-4333-8333-333333333333","customer_user_id":"44444444-4444-4444-8444-444444444444","note":"secret"}`)
 	if err := New(rec).Handle(context.Background(), messaging.Message{Body: body}); err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestHandleRejectsBadEventsPermanently(t *testing.T) {
 func TestHandleSuppressesDuplicateEventID(t *testing.T) {
 	rec := &recorder{}
 	handler := New(rec)
-	body := event(EventType, `{"tracking_number":"SDK7M2Q9XP4","previous_status":"CREATED","status":"PICKED_UP"}`)
+	body := event(EventType, `{"parcel_id":"22222222-2222-4222-8222-222222222222","tracking_number":"SDK7M2Q9XP4","previous_status":"CREATED","status":"PICKED_UP"}`)
 	for i := 0; i < 2; i++ {
 		if err := handler.Handle(context.Background(), messaging.Message{Body: body}); err != nil {
 			t.Fatalf("Handle %d: %v", i, err)
@@ -107,8 +107,8 @@ func TestDedupeIsBoundedAndExpires(t *testing.T) {
 
 func TestAssignmentHandleBroadcastsOnlyPublicFields(t *testing.T) {
 	rec := &recorder{}
-	body := event(AssignmentEventType, `{"parcel_id":"p1","tracking_number":"SDK7M2Q9XP4",`+
-		`"courier_id":"c-secret","assigned_by":"d-secret","previous_courier_id":"old-secret"}`)
+	body := event(AssignmentEventType, `{"parcel_id":"22222222-2222-4222-8222-222222222222","tracking_number":"SDK7M2Q9XP4",`+
+		`"courier_id":"55555555-5555-4555-8555-555555555555","assigned_by":"66666666-6666-4666-8666-666666666666","previous_courier_id":"77777777-7777-4777-8777-777777777777"}`)
 	if err := NewAssignment(rec).Handle(context.Background(), messaging.Message{Body: body}); err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestAssignmentHandleBroadcastsOnlyPublicFields(t *testing.T) {
 		t.Fatalf("unexpected assignment %+v", a)
 	}
 	out := string(a.Message())
-	for _, leak := range []string{"c-secret", "d-secret", "old-secret", "courier_id", "assigned_by", "parcel_id", "previous_courier_id"} {
+	for _, leak := range []string{"55555555", "66666666", "77777777", "courier_id", "assigned_by", "parcel_id", "previous_courier_id"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("assignment message leaks %q: %s", leak, out)
 		}
@@ -133,7 +133,7 @@ func TestAssignmentHandleBroadcastsOnlyPublicFields(t *testing.T) {
 func TestAssignmentHandleDeduplicates(t *testing.T) {
 	rec := &recorder{}
 	handler := NewAssignment(rec)
-	body := event(AssignmentEventType, `{"tracking_number":"SDK7M2Q9XP4"}`)
+	body := event(AssignmentEventType, `{"parcel_id":"22222222-2222-4222-8222-222222222222","tracking_number":"SDK7M2Q9XP4","courier_id":"55555555-5555-4555-8555-555555555555","assigned_by":"66666666-6666-4666-8666-666666666666"}`)
 	for i := 0; i < 2; i++ {
 		if err := handler.Handle(context.Background(), messaging.Message{Body: body}); err != nil {
 			t.Fatalf("Handle: %v", err)

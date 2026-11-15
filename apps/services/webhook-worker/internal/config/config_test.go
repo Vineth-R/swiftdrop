@@ -250,3 +250,30 @@ func TestUsesLegacyQueue(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadFromReadinessPort(t *testing.T) {
+	loader := func(port string) sharedconfig.Loader {
+		return sharedconfig.NewLoader(func(key string) (string, bool) {
+			values := map[string]string{
+				"APP_ENV":      "development",
+				"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+			}
+			if port != "" {
+				values["PORT"] = port
+			}
+			value, ok := values[key]
+			return value, ok
+		})
+	}
+	config, err := LoadFrom(loader(""))
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if config.Port != 8088 || config.Addr() != ":8088" {
+		t.Fatalf("port/addr = %d/%q, want 8088/:8088", config.Port, config.Addr())
+	}
+	config, err = LoadFrom(loader("9099"))
+	if err != nil || config.Port != 9099 {
+		t.Fatalf("custom port = %d, %v", config.Port, err)
+	}
+}

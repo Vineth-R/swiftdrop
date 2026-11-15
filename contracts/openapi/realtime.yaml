@@ -1,25 +1,91 @@
 openapi: 3.0.3
 info:
   title: SwiftDrop Realtime API
-  version: 0.1.0
+  version: 1.1.0
   description: >-
-    Future live parcel tracking over WebSocket or Server-Sent Events. This
-    specification currently covers only the operational health and readiness endpoints.
-    Every response uses either the success shape shown below or the standard
-    error envelope `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`. Unmatched
-    routes return `404 NOT_FOUND`, disallowed methods return
-    `405 METHOD_NOT_ALLOWED` with an `Allow` header, and unexpected failures
-    return `500 INTERNAL_ERROR`.
+    WebSocket live updates for parcel tracking and dispatcher assignment
+    notices, plus operational health and readiness endpoints. Only `/ws` is
+    routed publicly through the gateway; `/health` and `/ready` are internal
+    service endpoints. The service uses an in-process hub, has no persistence
+    and does not replay missed events. Multiple replicas each consume from the
+    same durable queue, so an event reaches one replica; multi-replica fan-out
+    and SSE are not implemented.
+  contact:
+    name: SwiftDrop Platform
 servers:
-  - url: /ws
+  - url: /
 paths:
+  /ws:
+    get:
+      operationId: realtimeWebSocket
+      summary: Open a realtime WebSocket connection
+      description: >-
+        Upgrades an HTTP request to a WebSocket. Authentication is optional.
+        The access token is read from the `sd_access` cookie or, for
+        non-browser clients, from the `?token=` query parameter. A missing
+        token creates an anonymous connection that may follow one parcel at a
+        time. A valid CUSTOMER token may follow parcels; DISPATCHER and ADMIN
+        tokens may subscribe with `scope: all`. A token that is invalid,
+        expired or revoked closes the socket with `4401`; a session-state
+        outage at connect time closes with `1013`.
+      tags:
+        - Realtime
+      parameters:
+        - name: token
+          in: query
+          required: false
+          description: Access token for non-browser clients. Prefer the HttpOnly cookie in browsers.
+          schema:
+            type: string
+      responses:
+        '101':
+          description: >-
+            Switching protocols. The server sends JSON text messages described
+            by `ClientMessage` and `ServerMessage`.
+          headers:
+            Upgrade:
+              schema:
+                type: string
+                example: websocket
+            Connection:
+              schema:
+                type: string
+                example: Upgrade
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerMessage'
+        '403':
+          description: The browser Origin is not allowed by REALTIME_ALLOWED_ORIGINS.
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      x-websocket:
+        subprotocol: null
+        clientMessages:
+          $ref: '#/components/schemas/ClientMessage'
+        serverMessages:
+          $ref: '#/components/schemas/ServerMessage'
+        closeCodes:
+          '1000': 'Normal closure.'
+          '1001': 'Server shutdown; the client should reconnect.'
+          '1013': 'Try again later; the connection cannot keep up or session state is unavailable.'
+          '4401': 'Access token invalid, expired, revoked or required for scope all.'
+          '4403': 'Authenticated but not allowed to follow everything.'
+          '4429': 'Too many subscriptions or too many messages.'
   /health:
     get:
       operationId: realtimeHealth
-      summary: Process health
+      summary: Process liveness (internal)
+      description: Returns 200 while the realtime process is running, independent of temporary broker or database failures.
+      tags:
+        - Internal operations
       responses:
         '200':
-          description: The service process is healthy.
+          description: The process is alive.
           content:
             application/json:
               schema:
@@ -32,13 +98,22 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
+      x-internal: true
   /ready:
     get:
       operationId: realtimeReady
-      summary: Service readiness
+      summary: Service readiness (internal)
+      description: >-
+        Returns 200 only when PostgreSQL and both required consumers are
+        attached. The `checks` object reports `database`,
+        `consumer.status_changed` and `consumer.assigned` as `ok` or `down`.
+        Readiness is separate from liveness; a reconnecting consumer does not
+        restart the process.
+      tags:
+        - Internal operations
       responses:
         '200':
-          description: The service is ready. The database check is reported when DATABASE_URL is configured.
+          description: PostgreSQL and both consumers are available.
           content:
             application/json:
               schema:
@@ -47,8 +122,10 @@ paths:
                 status: ready
                 checks:
                   database: ok
+                  consumer.status_changed: ok
+                  consumer.assigned: ok
         '503':
-          description: A dependency check is down.
+          description: A required dependency is down.
           content:
             application/json:
               schema:
@@ -56,29 +133,181 @@ paths:
               example:
                 status: unavailable
                 checks:
-                  database: down
+                  database: ok
+                  consumer.status_changed: down
+                  consumer.assigned: ok
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
-
+      x-internal: true
 components:
   schemas:
+    ClientMessage:
+      description: >-
+        One JSON text message from the client. Subscribe and unsubscribe carry
+        exactly one target: either a tracking number or `scope: all`. Ping has
+        no additional fields.
+      oneOf:
+        - $ref: '#/components/schemas/SubscribeTrackingMessage'
+        - $ref: '#/components/schemas/SubscribeAllMessage'
+        - $ref: '#/components/schemas/UnsubscribeTrackingMessage'
+        - $ref: '#/components/schemas/UnsubscribeAllMessage'
+        - $ref: '#/components/schemas/PingMessage'
+    SubscribeTrackingMessage:
+      type: object
+      additionalProperties: false
+      required: [type, trackingNumber]
+      properties:
+        type:
+          type: string
+          enum: [subscribe]
+        trackingNumber:
+          type: string
+          pattern: '^SD[KN][A-Z0-9]{8}$'
+          example: SDK7M2Q9XP4
+    SubscribeAllMessage:
+      type: object
+      additionalProperties: false
+      required: [type, scope]
+      properties:
+        type:
+          type: string
+          enum: [subscribe]
+        scope:
+          type: string
+          enum: [all]
+    UnsubscribeTrackingMessage:
+      type: object
+      additionalProperties: false
+      required: [type, trackingNumber]
+      properties:
+        type:
+          type: string
+          enum: [unsubscribe]
+        trackingNumber:
+          type: string
+          pattern: '^SD[KN][A-Z0-9]{8}$'
+    UnsubscribeAllMessage:
+      type: object
+      additionalProperties: false
+      required: [type, scope]
+      properties:
+        type:
+          type: string
+          enum: [unsubscribe]
+        scope:
+          type: string
+          enum: [all]
+    PingMessage:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [ping]
+    ServerMessage:
+      description: One JSON text message from the server.
+      oneOf:
+        - $ref: '#/components/schemas/SubscribedTrackingMessage'
+        - $ref: '#/components/schemas/SubscribedAllMessage'
+        - $ref: '#/components/schemas/ParcelStatusUpdatedMessage'
+        - $ref: '#/components/schemas/ParcelAssignedUpdatedMessage'
+        - $ref: '#/components/schemas/ErrorMessage'
+    SubscribedTrackingMessage:
+      type: object
+      additionalProperties: false
+      required: [type, trackingNumber]
+      properties:
+        type:
+          type: string
+          enum: [subscribed]
+        trackingNumber:
+          type: string
+    SubscribedAllMessage:
+      type: object
+      additionalProperties: false
+      required: [type, scope]
+      properties:
+        type:
+          type: string
+          enum: [subscribed]
+        scope:
+          type: string
+          enum: [all]
+    ParcelStatusUpdatedMessage:
+      type: object
+      additionalProperties: false
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [parcel.status.updated]
+        data:
+          type: object
+          additionalProperties: false
+          required: [trackingNumber, previousStatus, status, updatedAt]
+          properties:
+            trackingNumber:
+              type: string
+            previousStatus:
+              type: string
+              enum: [CREATED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
+            status:
+              type: string
+              enum: [CREATED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
+            updatedAt:
+              type: string
+              format: date-time
+    ParcelAssignedUpdatedMessage:
+      description: >-
+        A dispatch-only signal that an assignment changed. It deliberately
+        contains no courier, assigner or contact identity; dispatch screens
+        refetch the authoritative REST state.
+      type: object
+      additionalProperties: false
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [parcel.assigned.updated]
+        data:
+          type: object
+          additionalProperties: false
+          required: [trackingNumber, updatedAt]
+          properties:
+            trackingNumber:
+              type: string
+            updatedAt:
+              type: string
+              format: date-time
+    ErrorMessage:
+      type: object
+      additionalProperties: false
+      required: [type, code, message]
+      properties:
+        type:
+          type: string
+          enum: [error]
+        code:
+          type: string
+          example: INVALID_MESSAGE
+        message:
+          type: string
     HealthResponse:
       type: object
       additionalProperties: false
-      required:
-        - status
+      required: [status]
       properties:
         status:
           type: string
           enum: [ok]
     ReadinessResponse:
       type: object
-      required:
-        - status
+      required: [status]
       properties:
         status:
           type: string
@@ -91,9 +320,7 @@ components:
     ErrorResponse:
       type: object
       additionalProperties: false
-      required:
-        - error
-        - meta
+      required: [error, meta]
       properties:
         error:
           $ref: '#/components/schemas/ErrorDetail'
@@ -102,78 +329,44 @@ components:
     ErrorDetail:
       type: object
       additionalProperties: false
-      required:
-        - code
-        - message
+      required: [code, message]
       properties:
         code:
           type: string
-          description: Stable machine-readable error code from API v1.1.
         message:
           type: string
-          description: Human-readable message with no internal implementation details.
         details:
           type: array
-          description: Field-level validation details, present only for validation errors.
           items:
             type: object
             additionalProperties: true
     ResponseMeta:
       type: object
       additionalProperties: false
-      required:
-        - requestId
+      required: [requestId]
       properties:
         requestId:
           type: string
-          description: Request correlation ID, also returned in the X-Request-Id header.
   responses:
     NotFound:
-      description: >-
-        No route matched the request path. Returns the standard error envelope
-        with code `NOT_FOUND`.
+      description: No route matched the request path.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error:
-              code: NOT_FOUND
-              message: route not found
-            meta:
-              requestId: req_01
     MethodNotAllowed:
-      description: >-
-        The HTTP method is not allowed for the requested path. Returns the
-        standard error envelope with code `METHOD_NOT_ALLOWED`; the `Allow`
-        header lists the permitted methods.
+      description: The method is not allowed for the path.
       headers:
         Allow:
-          description: Comma-separated list of methods allowed for the path.
           schema:
             type: string
-          example: GET
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error:
-              code: METHOD_NOT_ALLOWED
-              message: method not allowed
-            meta:
-              requestId: req_01
     InternalServerError:
-      description: >-
-        An unexpected server error occurred. Returns the standard error envelope
-        with code `INTERNAL_ERROR`; internal details are not exposed.
+      description: An unexpected server error.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error:
-              code: INTERNAL_ERROR
-              message: internal server error
-            meta:
-              requestId: req_01

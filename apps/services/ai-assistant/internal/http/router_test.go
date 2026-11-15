@@ -340,3 +340,25 @@ func TestChatRejectsForeignOriginBeforeService(t *testing.T) {
 		t.Fatalf("service calls = %d, want 1", chat.calls)
 	}
 }
+
+func TestReadyFailsWhenProviderIsUnconfigured(t *testing.T) {
+	router, err := New(testLogger(t), Options{
+		Service:         &fakeChatService{},
+		Limiter:         middleware.NewLimiter(10, time.Minute),
+		CookieName:      "sd_access",
+		GuestCookieName: "sd_ai_guest",
+		GuestSessionTTL: time.Minute,
+		FrontendOrigin:  "http://localhost:8080",
+		ProviderStatus:  "unconfigured",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for path, want := range map[string]int{"/health": 200, "/ready": http.StatusServiceUnavailable} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != want {
+			t.Fatalf("%s status = %d, want %d: %s", path, recorder.Code, want, recorder.Body.String())
+		}
+	}
+}

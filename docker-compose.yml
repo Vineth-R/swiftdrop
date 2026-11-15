@@ -152,6 +152,8 @@ services:
       OAUTH_STATE_TTL: ${OAUTH_STATE_TTL:-10m}
       PASSWORD_RESET_TOKEN_TTL: ${PASSWORD_RESET_TOKEN_TTL:-30m}
       EMAIL_VERIFICATION_TOKEN_TTL: ${EMAIL_VERIFICATION_TOKEN_TTL:-30m}
+      IDENTITY_TOKEN_RETENTION: ${IDENTITY_TOKEN_RETENTION:-720h}
+      IDENTITY_TOKEN_CLEANUP_INTERVAL: ${IDENTITY_TOKEN_CLEANUP_INTERVAL:-24h}
       MERCHANT_BASE_URL: ${MERCHANT_BASE_URL:-http://merchant:8084}
       MERCHANT_TIMEOUT: ${MERCHANT_TIMEOUT:-3s}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
@@ -286,7 +288,7 @@ services:
       PARCEL_BASE_URL: http://parcel:8082
       PARCEL_TIMEOUT: ${PARCEL_TIMEOUT:-3s}
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8087/ready']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8087/health']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -309,6 +311,8 @@ services:
       PARCEL_BASE_URL: ${PARCEL_BASE_URL:-http://parcel:8082}
       PARCEL_TIMEOUT: ${PARCEL_TIMEOUT:-3s}
       WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:-}
+      WEBHOOK_SECRET_KEY_ID: ${WEBHOOK_SECRET_KEY_ID:-k1}
+      WEBHOOK_SECRET_KEYS: ${WEBHOOK_SECRET_KEYS:-}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
@@ -414,6 +418,7 @@ services:
         SERVICE: webhook-worker
     environment:
       <<: [*app-env, *rabbitmq-env]
+      PORT: '8088'
       WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.parcel.status_changed.v1}
       WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-parcel.status_changed.v1}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
@@ -428,7 +433,7 @@ services:
       parcel:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'pgrep -x /usr/local/bin/service > /dev/null']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8088/ready']
       interval: 10s
       timeout: 5s
       retries: 5

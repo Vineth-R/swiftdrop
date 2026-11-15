@@ -35,7 +35,7 @@ func TestInternalMerchantContactResolvesStoredRecipient(t *testing.T) {
 		merchantID, owner := userID(t), userID(t)
 		if err := repo.CreateMerchant(ctx, repository.CreateMerchantParams{
 			ID: merchantID, OwnerUserID: owner, BusinessName: "Contact Test " + merchantID[:8],
-			BusinessRegNo: "CONTACT-" + merchantID[:8], ContactEmail: "contact-" + merchantID[:8] + "@example.test",
+			BusinessRegNo: fixtureBusinessRegNo("CONTACT", merchantID), ContactEmail: "contact-" + merchantID[:8] + "@example.test",
 			ContactPhone: "+94771234567", PickupAddress: "12 Galle Road", PickupZoneID: userID(t),
 		}); err != nil {
 			t.Fatal(err)

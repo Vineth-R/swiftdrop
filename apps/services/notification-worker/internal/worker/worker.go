@@ -17,6 +17,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/identityclient"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/merchantclient"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/eventschema"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
@@ -112,6 +113,9 @@ func (h *Handler) Handle(ctx context.Context, message messaging.Message) error {
 
 	if err := envelope.Validate(); err != nil {
 		return messaging.Permanent(fmt.Errorf("validate event envelope: %w", err))
+	}
+	if err := eventschema.Validate(message.Body); err != nil {
+		return messaging.Permanent(fmt.Errorf("validate event payload: %w", err))
 	}
 
 	if !validation.UUID(envelope.ID) {

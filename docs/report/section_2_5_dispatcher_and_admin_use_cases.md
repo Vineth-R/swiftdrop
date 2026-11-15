@@ -1,5 +1,7 @@
 ## 2.5 Dispatcher and Admin Use Cases
 
+> **Historical document.** Report source recorded before the Phase 3 baseline `686a03d`. It is kept for traceability and may describe features as planned or not implemented that have since shipped. For current behaviour use `AGENTS.md`, `README.md`, `docs/architecture.md` and `docs/phase-3-testing-documentation-qa.md`.
+
 **Actors:** Dispatcher (`DISPATCHER` role) and Administrator (`ADMIN` role).
 
 Dispatchers coordinate logistics operations: they inspect unassigned parcels, assign or reassign couriers, monitor courier workload, and monitor parcels. Administrators can perform the dispatch operations allowed by API v1.1 section 5 and additionally manage users, approve merchants, configure zones and pricing, and view reports. Figure 4 shows the dispatcher and administrator use case diagram.

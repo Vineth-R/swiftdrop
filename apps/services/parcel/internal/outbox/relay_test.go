@@ -338,3 +338,61 @@ func TestRelayMaxAttemptsTransitionsToFailed(t *testing.T) {
 		t.Fatalf("expected lastError = permanent failure, got %v", store.events[0].LastError)
 	}
 }
+
+func TestRelayHealthTracksPollOutcome(t *testing.T) {
+	publisher := &mockPublisher{}
+	store := &mockStore{events: []Event{{
+		ID: "00000000-0000-4000-8000-000000000002", EventType: "parcel.created",
+		RoutingKey: "parcel.created",
+		Payload:    json.RawMessage(`{"parcel_id":"p1","tracking_number":"SDK12345678"}`),
+		Status:     "PENDING", CreatedAt: time.Now().UTC(),
+	}}}
+	relay := NewRelay(store, publisher, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if relay.Health().Ready() {
+		t.Fatal("relay reported ready before its first successful poll")
+	}
+	if _, err := relay.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce() error = %v", err)
+	}
+	if !relay.Health().Ready() {
+		t.Fatal("relay did not become ready after a successful poll")
+	}
+
+	publisher.mu.Lock()
+	publisher.err = errors.New("broker down")
+	publisher.mu.Unlock()
+	store.mu.Lock()
+	store.events[0].Status = "PENDING"
+	store.mu.Unlock()
+	if _, err := relay.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce() error = %v; the row failure is recorded for retry", err)
+	}
+	if relay.Health().Ready() {
+		t.Fatal("relay stayed ready after a failed poll")
+	}
+}
+
+type ensuringPublisher struct{ err error }
+
+func (p *ensuringPublisher) Publish(context.Context, string, string, []byte) error { return nil }
+func (p *ensuringPublisher) Ensure(context.Context) error                          { return p.err }
+func (p *ensuringPublisher) Healthy() bool                                         { return p.err == nil }
+
+func TestRelayHealthReflectsBrokerConnectivityEvenWhenEmpty(t *testing.T) {
+	publisher := &ensuringPublisher{err: errors.New("broker down")}
+	relay := NewRelay(&mockStore{}, publisher, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := relay.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce() error = %v", err)
+	}
+	if relay.Health().Ready() {
+		t.Fatal("relay stayed ready while the publisher could not connect")
+	}
+
+	publisher.err = nil
+	if _, err := relay.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce() after recovery error = %v", err)
+	}
+	if !relay.Health().Ready() {
+		t.Fatal("relay did not recover after the broker reconnected")
+	}
+}

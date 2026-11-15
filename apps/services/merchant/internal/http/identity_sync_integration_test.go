@@ -20,7 +20,7 @@ func TestPendingIdentitySyncsListsOnlyStatusesIdentityHasNotApplied(t *testing.T
 		id := userID(t)
 		if err := repo.CreateMerchant(ctx, repository.CreateMerchantParams{
 			ID: id, OwnerUserID: userID(t), BusinessName: "Sync Test " + id[:8],
-			BusinessRegNo: "SYNC-" + id[:8], ContactEmail: "sync@example.test",
+			BusinessRegNo: fixtureBusinessRegNo("SYNC", id), ContactEmail: "sync@example.test",
 			ContactPhone: "+94771234567", PickupAddress: "12 Galle Road", PickupZoneID: userID(t),
 		}); err != nil {
 			t.Fatal(err)

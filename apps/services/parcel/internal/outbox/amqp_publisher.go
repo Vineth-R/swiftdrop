@@ -39,6 +39,24 @@ func NewAMQPPublisher(amqpURL, exchange string) *AMQPPublisher {
 	}
 }
 
+// Ensure verifies the AMQP connection and channel, dialing and declaring the
+// exchange when they are missing. The relay calls it on each poll so broker
+// connectivity is reflected in readiness even when the outbox is empty.
+func (p *AMQPPublisher) Ensure(context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, err := p.ensureChannel()
+	return err
+}
+
+// Healthy reports whether the publisher currently has an open connection and
+// channel. It is a cheap in-memory check and never dials.
+func (p *AMQPPublisher) Healthy() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.conn != nil && !p.conn.IsClosed() && p.channel != nil && !p.channel.IsClosed()
+}
+
 // Close closes the underlying AMQP channel and connection.
 func (p *AMQPPublisher) Close() error {
 	p.mu.Lock()

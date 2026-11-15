@@ -63,6 +63,14 @@ test.describe('touch targets', () => {
       await expect(
         page.getByRole('heading', { level: 1, name: 'Design tokens' }),
       ).toBeVisible();
+      // Prove React has hydrated before injecting DOM: theme changes only work
+      // once the client handler is attached, and an unhydrated page would
+      // reconcile the injected nodes away.
+      await page.getByRole('button', { name: 'Dark' }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+      await page.getByRole('button', { name: 'Light' }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
       // What CI found beside Radix's select: a 1px aria-hidden native select.
       await page.evaluate(`(() => {
         const main = document.querySelector('main');

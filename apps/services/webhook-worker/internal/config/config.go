@@ -29,6 +29,7 @@ const (
 type Config struct {
 	AppEnv         string
 	LogLevel       string
+	Port           int
 	RabbitMQURL    string
 	Exchange       string
 	Queue          string
@@ -59,6 +60,11 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	}
 
 	logLevel, err := loader.EnumFold("LOG_LEVEL", "info", "debug", "info", "warn", "warning", "error")
+	if err != nil {
+		return Config{}, err
+	}
+
+	port, err := loader.Port("PORT", 8088)
 	if err != nil {
 		return Config{}, err
 	}
@@ -118,6 +124,7 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 	return Config{
 		AppEnv:         appEnv,
 		LogLevel:       logLevel,
+		Port:           port,
 		RabbitMQURL:    rabbitMQURL,
 		Exchange:       loader.String("RABBITMQ_EXCHANGE", "swiftdrop.events"),
 		Queue:          queue,
@@ -129,4 +136,9 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		ReconnectMin:   reconnectMin,
 		ReconnectMax:   reconnectMax,
 	}, nil
+}
+
+// Addr returns the internal HTTP listen address for health and readiness.
+func (c Config) Addr() string {
+	return ":" + fmt.Sprint(c.Port)
 }

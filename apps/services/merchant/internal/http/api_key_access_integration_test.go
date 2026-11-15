@@ -256,7 +256,7 @@ func newMerchant(t *testing.T, ctx context.Context, repo *repository.Repository)
 		ID:            id,
 		OwnerUserID:   userID(t),
 		BusinessName:  "Access Test " + id[:8],
-		BusinessRegNo: "ACCESS-" + id[:8],
+		BusinessRegNo: fixtureBusinessRegNo("ACCESS", id),
 		ContactEmail:  "owner-" + id[:8] + "@example.test",
 		ContactPhone:  "+94771234567",
 		PickupAddress: "12 Galle Road, Colombo",

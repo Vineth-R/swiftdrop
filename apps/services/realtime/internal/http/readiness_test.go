@@ -14,6 +14,11 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 )
 
+type readinessResponse struct {
+	Status string            `json:"status"`
+	Checks map[string]string `json:"checks,omitempty"`
+}
+
 type fakePinger struct {
 	err error
 }

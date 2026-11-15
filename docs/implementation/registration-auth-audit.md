@@ -1,5 +1,7 @@
 # Registration, Email Verification and Merchant Onboarding — Repository Audit
 
+> **Historical document.** Recorded during the registration/auth milestone, before the Phase 3 baseline `686a03d`. It is kept for traceability and may describe features as planned or not implemented that have since shipped. For current behaviour use `AGENTS.md`, `README.md`, `docs/architecture.md` and `docs/phase-3-testing-documentation-qa.md`.
+
 ## Scope and baseline
 
 - Initial baseline: local `development` at `6652a44`.

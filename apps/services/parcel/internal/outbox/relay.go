@@ -310,6 +310,7 @@ type Relay struct {
 	options      RelayOptions
 	retryAfterMu sync.RWMutex
 	retryAfter   map[string]time.Time
+	health       *messaging.Health
 }
 
 // NewRelay returns an initialized Relay worker.
@@ -336,8 +337,14 @@ func NewRelay(store Store, publisher Publisher, logger *slog.Logger, options ...
 		logger:     logger,
 		options:    opts,
 		retryAfter: make(map[string]time.Time),
+		health:     messaging.NewHealth(),
 	}
 }
+
+// Health reports whether the relay is polling and publishing successfully.
+// The initial state is connecting; it becomes ready after the first successful
+// poll and reconnecting after a failure or while unconfigured.
+func (r *Relay) Health() *messaging.Health { return r.health }
 
 // Run executes the relay background loop until ctx is cancelled.
 func (r *Relay) Run(ctx context.Context) {
@@ -370,6 +377,7 @@ func (r *Relay) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			r.health.MarkStopped()
 			r.logger.Info("stopping outbox relay worker")
 			return
 
@@ -396,9 +404,17 @@ func (r *Relay) PollOnce(ctx context.Context) (int, error) {
 
 func (r *Relay) pollOnce(ctx context.Context) (int, error) {
 	if r.store == nil || r.publisher == nil {
+		r.health.MarkReconnecting(errors.New("outbox relay is not configured"))
 		return 0, nil
 	}
+	if ensurer, ok := r.publisher.(interface{ Ensure(context.Context) error }); ok {
+		if err := ensurer.Ensure(ctx); err != nil {
+			r.health.MarkReconnecting(err)
+			return 0, nil
+		}
+	}
 
+	var publishErr error
 	count, err := r.store.ProcessPending(ctx, r.options.BatchSize, func(event Event) error {
 		r.retryAfterMu.RLock()
 		until, inBackoff := r.retryAfter[event.ID]
@@ -442,6 +458,7 @@ func (r *Relay) pollOnce(ctx context.Context) (int, error) {
 				"error", err,
 			)
 
+			publishErr = err
 			backoff := BackoffDuration(event.Attempts + 1)
 			r.retryAfterMu.Lock()
 			r.retryAfter[event.ID] = time.Now().Add(backoff)
@@ -461,10 +478,22 @@ func (r *Relay) pollOnce(ctx context.Context) (int, error) {
 		return nil
 	})
 
-	if err != nil && !errors.Is(err, context.Canceled) {
-		r.logger.Warn("error processing outbox batch", "error", err)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			r.logger.Warn("error processing outbox batch", "error", err)
+		}
+		r.health.MarkReconnecting(err)
+		return count, err
 	}
-	return count, err
+	if publishErr != nil {
+		// A publish failure is recorded on the outbox row and retried; the
+		// relay loop itself stays alive. Readiness still reports the degraded
+		// broker connection.
+		r.health.MarkReconnecting(publishErr)
+		return count, nil
+	}
+	r.health.MarkReady()
+	return count, nil
 }
 
 // mapEventRouting converts stored internal labels to canonical published event types and routing keys (API v1.1 Section 11.4).

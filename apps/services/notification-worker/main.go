@@ -102,8 +102,16 @@ func run() error {
 	}
 	registry := metrics.NewRegistry()
 	router.GET("/metrics", metrics.Handler(registry))
+	legacyHealth := messaging.NewHealth()
+	createdHealth := messaging.NewHealth()
+	statusHealth := messaging.NewHealth()
 	router.GET("/health", postgres.HealthHandler())
-	router.GET("/ready", postgres.ReadyHandler(database, postgres.DefaultReadyTimeout))
+	router.GET("/ready", httpx.ReadinessHandler(
+		httpx.DatabaseDependency(database, postgres.DefaultReadyTimeout),
+		httpx.BooleanDependency("consumer.notification_requested", legacyHealth.Ready),
+		httpx.BooleanDependency("consumer.parcel_created", createdHealth.Ready),
+		httpx.BooleanDependency("consumer.parcel_status_changed", statusHealth.Ready),
+	))
 
 	if config.AccessSecret == "" {
 		logger.Warn("JWT_ACCESS_SECRET is not set; the admin notification-log API will return 503")
@@ -186,6 +194,7 @@ func run() error {
 			RetryDelay:     config.RetryDelay,
 			ReconnectMin:   config.ReconnectMin,
 			ReconnectMax:   config.ReconnectMax,
+			Health:         legacyHealth,
 		},
 		{
 			URL:            config.RabbitMQURL,
@@ -198,6 +207,7 @@ func run() error {
 			RetryDelay:     config.RetryDelay,
 			ReconnectMin:   config.ReconnectMin,
 			ReconnectMax:   config.ReconnectMax,
+			Health:         createdHealth,
 		},
 		{
 			URL:            config.RabbitMQURL,
@@ -210,6 +220,7 @@ func run() error {
 			RetryDelay:     config.RetryDelay,
 			ReconnectMin:   config.ReconnectMin,
 			ReconnectMax:   config.ReconnectMax,
+			Health:         statusHealth,
 		},
 	}
 

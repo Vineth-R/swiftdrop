@@ -1,5 +1,7 @@
 # M5.1 acceptance verification — November 1, 2026
 
+> **Historical document.** Verification record from before the Phase 3 baseline `686a03d`. It is kept for traceability and may describe features as planned or not implemented that have since shipped. For current behaviour use `AGENTS.md`, `README.md`, `docs/architecture.md` and `docs/phase-3-testing-documentation-qa.md`.
+
 **Result: M5.1 complete against the acceptance criteria supplied by the user.**
 Branch: `feature/m5-parcel-creation`. Baseline migrations and other members'
 implementation are preserved. This report records local verification before the

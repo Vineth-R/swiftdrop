@@ -5,10 +5,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/webhook-worker/internal/config"
 	"github.com/Vineth-R/swiftdrop/apps/services/webhook-worker/internal/worker"
 	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
 	"github.com/Vineth-R/swiftdrop/packages/webhookdelivery"
@@ -92,23 +96,53 @@ func run() error {
 		)
 	}
 
-	err = messaging.Run(ctx, messaging.ConsumerConfig{
-		URL:            config.RabbitMQURL,
-		Exchange:       config.Exchange,
-		Queue:          config.Queue,
-		RoutingKey:     config.RoutingKey,
-		Prefetch:       config.Prefetch,
-		HandlerTimeout: config.HandlerTimeout,
-		MaxRetries:     config.MaxRetries,
-		RetryDelay:     config.RetryDelay,
-		ReconnectMin:   config.ReconnectMin,
-		ReconnectMax:   config.ReconnectMax,
-	}, worker.New(logger, worker.Deps{
-		Merchants: worker.NewMerchantClient(clients.MerchantBaseURL, clients.InternalToken, clients.ClientTimeout),
-		Parcels:   worker.NewParcelClient(clients.ParcelBaseURL, clients.InternalToken, clients.ClientTimeout),
-		Sender:    webhookdelivery.NewSender(),
-		Scheduler: worker.NewAMQPScheduler(config.RabbitMQURL, config.Queue),
-	}), logger)
+	consumerHealth := messaging.NewHealth()
+	router := httpx.NewRouter(logger)
+	router.GET("/health", func(c *gin.Context) {
+		httpx.JSON(c, 200, gin.H{"status": "ok"})
+	})
+	router.GET("/ready", httpx.ReadinessHandler(
+		httpx.BooleanDependency("consumer.webhook", consumerHealth.Ready),
+	))
+	server := httpx.NewServer(httpx.ServerConfig{
+		Addr:              config.Addr(),
+		Handler:           router,
+		Logger:            logger,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	})
+
+	results := make(chan error, 2)
+	go func() { results <- httpx.Serve(ctx, server, 10*time.Second) }()
+	go func() {
+		results <- messaging.Run(ctx, messaging.ConsumerConfig{
+			URL:            config.RabbitMQURL,
+			Exchange:       config.Exchange,
+			Queue:          config.Queue,
+			RoutingKey:     config.RoutingKey,
+			Prefetch:       config.Prefetch,
+			HandlerTimeout: config.HandlerTimeout,
+			MaxRetries:     config.MaxRetries,
+			RetryDelay:     config.RetryDelay,
+			ReconnectMin:   config.ReconnectMin,
+			ReconnectMax:   config.ReconnectMax,
+			Health:         consumerHealth,
+		}, worker.New(logger, worker.Deps{
+			Merchants: worker.NewMerchantClient(clients.MerchantBaseURL, clients.InternalToken, clients.ClientTimeout),
+			Parcels:   worker.NewParcelClient(clients.ParcelBaseURL, clients.InternalToken, clients.ClientTimeout),
+			Sender:    webhookdelivery.NewSender(),
+			Scheduler: worker.NewAMQPScheduler(config.RabbitMQURL, config.Queue),
+		}), logger)
+	}()
+
+	first := <-results
+	cancel()
+	second := <-results
 	close(stopped)
-	return err
+	if first != nil {
+		return first
+	}
+	return second
 }

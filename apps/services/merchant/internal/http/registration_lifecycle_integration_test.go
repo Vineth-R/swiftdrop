@@ -25,7 +25,7 @@ func TestRejectionReasonIsOptionalAndAudited(t *testing.T) {
 			merchantID := userID(t)
 			if err := repo.CreateMerchant(ctx, repository.CreateMerchantParams{
 				ID: merchantID, OwnerUserID: userID(t), BusinessName: "Reason Test " + merchantID[:8],
-				BusinessRegNo: "REASON-" + merchantID[:8], ContactEmail: "reason@example.test",
+				BusinessRegNo: fixtureBusinessRegNo("REASON", merchantID), ContactEmail: "reason@example.test",
 				ContactPhone: "+94771234567", PickupAddress: "12 Galle Road", PickupZoneID: userID(t),
 			}); err != nil {
 				t.Fatal(err)

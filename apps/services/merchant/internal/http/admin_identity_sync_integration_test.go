@@ -49,7 +49,7 @@ func TestAdminViewsReportAPendingIdentitySync(t *testing.T) {
 		id := userID(t)
 		if err := repo.CreateMerchant(ctx, repository.CreateMerchantParams{
 			ID: id, OwnerUserID: userID(t), BusinessName: name + " " + id[:8],
-			BusinessRegNo: "ADM-" + id[:8], ContactEmail: "admin-sync@example.test",
+			BusinessRegNo: fixtureBusinessRegNo("ADM", id), ContactEmail: "admin-sync@example.test",
 			ContactPhone: "+94771234567", PickupAddress: "12 Galle Road", PickupZoneID: userID(t),
 		}); err != nil {
 			t.Fatal(err)

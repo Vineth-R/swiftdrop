@@ -25,8 +25,11 @@ const (
 var matrix = []accesskit.Case{
 	// Identity
 	{Name: "GET /users/me", Method: http.MethodGet, Path: "/api/v1/users/me", Allowed: accesskit.Roles},
+	{Name: "PATCH /users/me", Method: http.MethodPatch, Path: "/api/v1/users/me", Body: `{}`, Allowed: accesskit.Roles},
+	{Name: "PUT /users/me/password", Method: http.MethodPut, Path: "/api/v1/users/me/password", Body: `{}`, Allowed: accesskit.Roles},
 	{Name: "GET /admin/users/", Method: http.MethodGet, Path: "/api/v1/admin/users/", Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "POST /admin/users/", Method: http.MethodPost, Path: "/api/v1/admin/users/", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
+	{Name: "PATCH /admin/users/{id}", Method: http.MethodPatch, Path: "/api/v1/admin/users/" + anyID, Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "PATCH /admin/users/{id}/status", Method: http.MethodPatch, Path: "/api/v1/admin/users/" + anyID + "/status", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "GET /couriers/", Method: http.MethodGet, Path: "/api/v1/couriers/", Allowed: []auth.Role{auth.RoleDispatcher}},
 
@@ -42,9 +45,16 @@ var matrix = []accesskit.Case{
 	{Name: "GET /merchants/me", Method: http.MethodGet, Path: "/api/v1/merchants/me", Allowed: []auth.Role{auth.RoleMerchant}},
 	{Name: "GET /merchants/me/keys", Method: http.MethodGet, Path: "/api/v1/merchants/me/keys", Allowed: []auth.Role{auth.RoleMerchant}},
 	{Name: "POST /merchants/me/keys", Method: http.MethodPost, Path: "/api/v1/merchants/me/keys", Body: `{}`, Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "DELETE /merchants/me/keys/{id}", Method: http.MethodDelete, Path: "/api/v1/merchants/me/keys/" + anyID, Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "GET /merchants/me/webhook", Method: http.MethodGet, Path: "/api/v1/merchants/me/webhook", Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "PUT /merchants/me/webhook", Method: http.MethodPut, Path: "/api/v1/merchants/me/webhook", Body: `{}`, Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "GET /merchant/orders", Method: http.MethodGet, Path: "/api/v1/merchant/orders", Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "GET /merchant/orders/{id}", Method: http.MethodGet, Path: "/api/v1/merchant/orders/" + anyID, Allowed: []auth.Role{auth.RoleMerchant}},
 	{Name: "GET /admin/merchants", Method: http.MethodGet, Path: "/api/v1/admin/merchants", Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "GET /admin/merchants/{id}", Method: http.MethodGet, Path: "/api/v1/admin/merchants/" + anyID, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "POST /admin/merchants/{id}/approve", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/approve", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
+	{Name: "POST /admin/merchants/{id}/reject", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/reject", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
+	{Name: "POST /admin/merchants/{id}/suspend", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/suspend", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 
 	// Customer parcel and dispatcher operations. Courier lifecycle remains separate.
 	{Name: "POST /parcels", Method: http.MethodPost, Path: "/api/v1/parcels", Body: `{}`, Allowed: []auth.Role{auth.RoleCustomer}},
@@ -55,12 +65,16 @@ var matrix = []accesskit.Case{
 	{Name: "GET /parcels/{id}", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID, Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/history", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/history", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/receipt", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/receipt", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleAdmin}},
+	{Name: "GET /parcels/{id}/proof/photo", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/proof/photo", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /dispatch/unassigned", Method: http.MethodGet, Path: "/api/v1/dispatch/unassigned", Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "GET /dispatch/workload", Method: http.MethodGet, Path: "/api/v1/dispatch/workload", Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "PUT /dispatch/parcels/{id}/assignment", Method: http.MethodPut, Path: "/api/v1/dispatch/parcels/" + anyID + "/assignment", Body: `{}`, Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "GET /admin/parcels", Method: http.MethodGet, Path: "/api/v1/admin/parcels/", Allowed: []auth.Role{auth.RoleDispatcher}},
 	{Name: "GET /courier/deliveries", Method: http.MethodGet, Path: "/api/v1/courier/deliveries", Allowed: []auth.Role{auth.RoleCourier}},
+	{Name: "GET /courier/deliveries/{id}", Method: http.MethodGet, Path: "/api/v1/courier/deliveries/" + anyID, Allowed: []auth.Role{auth.RoleCourier}},
 	{Name: "POST /courier/deliveries/{id}/status", Method: http.MethodPost, Path: "/api/v1/courier/deliveries/" + anyID + "/status", Body: `{}`, Allowed: []auth.Role{auth.RoleCourier}},
+	{Name: "GET /reports/daily", Method: http.MethodGet, Path: "/api/v1/reports/daily", Allowed: []auth.Role{auth.RoleDispatcher}},
+	{Name: "GET /reports/outcomes", Method: http.MethodGet, Path: "/api/v1/reports/outcomes", Allowed: []auth.Role{auth.RoleDispatcher}},
 }
 
 func TestRoleMatrix(t *testing.T) {

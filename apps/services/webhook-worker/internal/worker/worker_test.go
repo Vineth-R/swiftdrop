@@ -120,8 +120,8 @@ func statusBody(t *testing.T, data string) []byte {
 	return body
 }
 
-const fullData = `{"parcel_id":"p-1","tracking_number":"SDN123","previous_status":"PICKED_UP",
-"status":"IN_TRANSIT","merchant_id":"m-1","note":"on the way"}`
+const fullData = `{"parcel_id":"22222222-2222-4222-8222-222222222222","tracking_number":"SDN7M2Q9XP4","previous_status":"PICKED_UP",
+"status":"IN_TRANSIT","merchant_id":"33333333-3333-4333-8333-333333333333","note":"on the way"}`
 
 func message(t *testing.T, data string, headers map[string]any) messaging.Message {
 	return messaging.Message{Body: statusBody(t, data), Headers: headers}
@@ -164,7 +164,7 @@ func TestHandleDelivers(t *testing.T) {
 	if err := r.handler().Handle(context.Background(), message(t, fullData, nil)); err != nil {
 		t.Fatalf("Handle() error: %v", err)
 	}
-	if r.merchants.merchantID != "m-1" {
+	if r.merchants.merchantID != "33333333-3333-4333-8333-333333333333" {
 		t.Fatalf("merchant = %q", r.merchants.merchantID)
 	}
 	if r.sender.target.URL != "https://merchant.example.com/hook" || r.sender.target.Secret != "whsec_test" {
@@ -172,7 +172,7 @@ func TestHandleDelivers(t *testing.T) {
 	}
 	d := r.sender.event.Data
 	if r.sender.event.ID != "11111111-2222-4333-8444-555555555555" ||
-		d.TrackingNumber != "SDN123" || d.Status != "IN_TRANSIT" ||
+		d.TrackingNumber != "SDN7M2Q9XP4" || d.Status != "IN_TRANSIT" ||
 		d.ExternalOrderID == nil || *d.ExternalOrderID != "ORDER-9" ||
 		d.PreviousStatus == nil || *d.PreviousStatus != "PICKED_UP" ||
 		d.Note == nil || *d.Note != "on the way" {
@@ -183,7 +183,7 @@ func TestHandleDelivers(t *testing.T) {
 	}
 	a := r.merchants.attempts[0]
 	if !a.Success || a.AttemptNumber != 1 || a.NextRetryAt != nil || a.DeadLettered ||
-		a.HTTPStatus == nil || *a.HTTPStatus != 200 || a.DurationMs != 120 || a.ParcelID != "p-1" {
+		a.HTTPStatus == nil || *a.HTTPStatus != 200 || a.DurationMs != 120 || a.ParcelID != "22222222-2222-4222-8222-222222222222" {
 		t.Fatalf("attempt = %+v", a)
 	}
 	if r.scheduler.calls != 0 {
@@ -257,8 +257,7 @@ func TestHandleSkipsWithoutWebhookOrMerchant(t *testing.T) {
 		data   string
 		mutate func(*rig)
 	}{
-		"no merchant":    {data: `{"parcel_id":"p","tracking_number":"T","status":"DELIVERED"}`},
-		"blank merchant": {data: `{"parcel_id":"p","tracking_number":"T","status":"DELIVERED","merchant_id":" "}`},
+		"no merchant":    {data: `{"parcel_id":"22222222-2222-4222-8222-222222222222","tracking_number":"SDN7M2Q9XP4","previous_status":"PICKED_UP","status":"DELIVERED"}`},
 		"not configured": {data: fullData, mutate: func(r *rig) { r.merchants.webhookErr = ErrNotConfigured }},
 	}
 	for name, tt := range tests {
