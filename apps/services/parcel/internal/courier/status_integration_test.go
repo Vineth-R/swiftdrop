@@ -80,12 +80,12 @@ func TestCourierStatusDatabase(t *testing.T) {
 	pool := database.Pool
 	repo := NewRepository(pool)
 
-	t.Run("full lifecycle stores delivery fields and matching event history", func(t *testing.T) {
-		id := insertStatusParcel(t, pool, "CREATED", statusCourierID, false)
-		previous := statemachine.StatusCreated
-		for i, next := range []statemachine.ParcelStatus{"PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"} {
+	t.Run("generic transitions store matching history and events", func(t *testing.T) {
+		id := insertStatusParcel(t, pool, "PICKED_UP", statusCourierID, false)
+		previous := statemachine.StatusPickedUp
+		for i, next := range []statemachine.ParcelStatus{"IN_TRANSIT", "OUT_FOR_DELIVERY"} {
 			result, err := repo.UpdateStatus(t.Context(), StatusInput{ParcelID: id,
-				CourierID: statusCourierID, Status: next, RecipientName: " Accepted By ", Note: "At door"})
+				CourierID: statusCourierID, Status: next, Note: "At the hub"})
 			if err != nil || result.PreviousStatus != previous || result.UpdatedAt.IsZero() {
 				t.Fatalf("%+v %v", result, err)
 			}
@@ -95,7 +95,7 @@ func TestCourierStatusDatabase(t *testing.T) {
 			err = pool.QueryRow(t.Context(), `SELECT previous_status,actor_user_id,actor_role,note,created_at
 				FROM parcel.parcel_status_history WHERE parcel_id=$1 AND new_status=$2`, id, next).
 				Scan(&historyPrevious, &actor, &role, &note, &historyTime)
-			if err != nil || historyPrevious != string(previous) || actor != statusCourierID || role != "COURIER" || note != "At door" || !historyTime.Equal(result.UpdatedAt) {
+			if err != nil || historyPrevious != string(previous) || actor != statusCourierID || role != "COURIER" || note != "At the hub" || !historyTime.Equal(result.UpdatedAt) {
 				t.Fatalf("history %s/%s/%s/%s/%s; %v", historyPrevious, actor, role, note, historyTime, err)
 			}
 			var data map[string]any
@@ -125,16 +125,26 @@ func TestCourierStatusDatabase(t *testing.T) {
 			}
 			previous = next
 		}
-		var name, original string
-		var delivered time.Time
-		var failed *time.Time
-		var reason *string
-		if err := pool.QueryRow(t.Context(), `SELECT delivered_to_name,recipient_name,delivered_at,failed_at,failure_reason
-			FROM parcel.parcels WHERE id=$1`, id).Scan(&name, &original, &delivered, &failed, &reason); err != nil {
-			t.Fatal(err)
-		}
-		if name != "Accepted By" || original != "Original Recipient" || delivered.IsZero() || failed != nil || reason != nil {
-			t.Fatal("incorrect terminal delivery fields")
+	})
+
+	t.Run("generic endpoint rejects proof-backed transitions", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, from string
+			to         statemachine.ParcelStatus
+			want       error
+		}{
+			{name: "pickup needs proof", from: "CREATED", to: "PICKED_UP", want: ErrPickupProofRequired},
+			{name: "delivery needs proof", from: "OUT_FOR_DELIVERY", to: "DELIVERED", want: ErrDeliveryProofRequired},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				id := insertStatusParcel(t, pool, tc.from, statusCourierID, false)
+				_, err := repo.UpdateStatus(t.Context(), StatusInput{ParcelID: id,
+					CourierID: statusCourierID, Status: tc.to, RecipientName: "Accepted By"})
+				if !errors.Is(err, tc.want) {
+					t.Fatalf("error=%v want=%v", err, tc.want)
+				}
+				assertStatusRows(t, pool, id, tc.from, 0)
+			})
 		}
 	})
 
@@ -208,7 +218,7 @@ func TestCourierStatusDatabase(t *testing.T) {
 	})
 	for _, table := range []string{"parcel_status_history", "outbox_events"} {
 		t.Run("rollback on "+table+" failure", func(t *testing.T) {
-			id := insertStatusParcel(t, pool, "OUT_FOR_DELIVERY", statusCourierID, false)
+			id := insertStatusParcel(t, pool, "IN_TRANSIT", statusCourierID, false)
 			column := "parcel_id"
 			if table == "outbox_events" {
 				column = "aggregate_id"
@@ -224,19 +234,14 @@ func TestCourierStatusDatabase(t *testing.T) {
 				}
 			})
 			if _, err := repo.UpdateStatus(t.Context(), StatusInput{ParcelID: id, CourierID: statusCourierID,
-				Status: "DELIVERED", RecipientName: "Accepted By"}); err == nil {
+				Status: "OUT_FOR_DELIVERY"}); err == nil {
 				t.Fatal("expected injected persistence failure")
 			}
-			assertStatusRows(t, pool, id, "OUT_FOR_DELIVERY", 0)
-			var name *string
-			var delivered *time.Time
-			if err := pool.QueryRow(t.Context(), `SELECT delivered_to_name,delivered_at FROM parcel.parcels WHERE id=$1`, id).Scan(&name, &delivered); err != nil || name != nil || delivered != nil {
-				t.Fatalf("delivery fields escaped rollback: %v", err)
-			}
+			assertStatusRows(t, pool, id, "IN_TRANSIT", 0)
 		})
 	}
 	t.Run("concurrent identical requests commit once", func(t *testing.T) {
-		id := insertStatusParcel(t, pool, "CREATED", statusCourierID, false)
+		id := insertStatusParcel(t, pool, "IN_TRANSIT", statusCourierID, false)
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		start := make(chan struct{})
@@ -244,7 +249,7 @@ func TestCourierStatusDatabase(t *testing.T) {
 		for range 2 {
 			go func() {
 				<-start
-				_, err := repo.UpdateStatus(ctx, StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "PICKED_UP"})
+				_, err := repo.UpdateStatus(ctx, StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "OUT_FOR_DELIVERY"})
 				errorsCh <- err
 			}()
 		}
@@ -263,10 +268,10 @@ func TestCourierStatusDatabase(t *testing.T) {
 		if success != 1 || conflict != 1 {
 			t.Fatalf("success/conflict=%d/%d", success, conflict)
 		}
-		assertStatusRows(t, pool, id, "PICKED_UP", 1)
+		assertStatusRows(t, pool, id, "OUT_FOR_DELIVERY", 1)
 	})
 	t.Run("uncommitted status history and event are invisible to relay", func(t *testing.T) {
-		id := insertStatusParcel(t, pool, "CREATED", statusCourierID, false)
+		id := insertStatusParcel(t, pool, "IN_TRANSIT", statusCourierID, false)
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		tx, err := pool.Begin(ctx)
@@ -278,7 +283,7 @@ func TestCourierStatusDatabase(t *testing.T) {
 		go func() {
 			gated := statusCommitGate{Tx: tx, ready: ready, release: release}
 			_, err := NewRepository(statusDB{tx: gated}).UpdateStatus(ctx,
-				StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "PICKED_UP"})
+				StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "OUT_FOR_DELIVERY"})
 			finished <- err
 		}()
 		select {
@@ -286,7 +291,7 @@ func TestCourierStatusDatabase(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("status transaction did not reach commit")
 		}
-		assertStatusRows(t, pool, id, "CREATED", 0)
+		assertStatusRows(t, pool, id, "IN_TRANSIT", 0)
 		store := outbox.NewSQLStore(pool)
 		_, err = store.ProcessPending(ctx, 100, func(event outbox.Event) error {
 			if event.AggregateID != nil && *event.AggregateID == id {
@@ -301,10 +306,10 @@ func TestCourierStatusDatabase(t *testing.T) {
 		if err := <-finished; err != nil {
 			t.Fatal(err)
 		}
-		assertStatusRows(t, pool, id, "PICKED_UP", 1)
+		assertStatusRows(t, pool, id, "OUT_FOR_DELIVERY", 1)
 	})
 	t.Run("M6 reassignment wins before blocked status update", func(t *testing.T) {
-		id := insertStatusParcel(t, pool, "CREATED", statusCourierID, false)
+		id := insertStatusParcel(t, pool, "IN_TRANSIT", statusCourierID, false)
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		locked, err := pool.Begin(ctx)
@@ -323,7 +328,7 @@ func TestCourierStatusDatabase(t *testing.T) {
 		finished := make(chan error, 1)
 		go func() {
 			_, err := NewRepository(statusObservedDB{DB: pool, attempted: attempted}).UpdateStatus(ctx,
-				StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "PICKED_UP"})
+				StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "OUT_FOR_DELIVERY"})
 			finished <- err
 		}()
 		select {
@@ -341,11 +346,11 @@ func TestCourierStatusDatabase(t *testing.T) {
 		if err := <-finished; !errors.Is(err, statemachine.ErrForbidden) {
 			t.Fatalf("former courier retained write access: %v", err)
 		}
-		assertStatusRows(t, pool, id, "CREATED", 0)
+		assertStatusRows(t, pool, id, "IN_TRANSIT", 0)
 	})
 	t.Run("relay uses canonical envelope and publish failure cannot undo status", func(t *testing.T) {
-		id := insertStatusParcel(t, pool, "CREATED", statusCourierID, false)
-		if _, err := repo.UpdateStatus(t.Context(), StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "PICKED_UP"}); err != nil {
+		id := insertStatusParcel(t, pool, "IN_TRANSIT", statusCourierID, false)
+		if _, err := repo.UpdateStatus(t.Context(), StatusInput{ParcelID: id, CourierID: statusCourierID, Status: "OUT_FOR_DELIVERY"}); err != nil {
 			t.Fatal(err)
 		}
 		publisher := &statusFailingPublisher{parcelID: id}
@@ -356,7 +361,7 @@ func TestCourierStatusDatabase(t *testing.T) {
 		if publisher.problem != "" || !publisher.seen {
 			t.Fatalf("relay compatibility: seen=%t problem=%s", publisher.seen, publisher.problem)
 		}
-		assertStatusRows(t, pool, id, "PICKED_UP", 1)
+		assertStatusRows(t, pool, id, "OUT_FOR_DELIVERY", 1)
 		var state string
 		var attempts int
 		if err := pool.QueryRow(t.Context(), `SELECT status,attempts FROM parcel.outbox_events WHERE aggregate_id=$1`, id).Scan(&state, &attempts); err != nil || state != "PENDING" || attempts != 1 {

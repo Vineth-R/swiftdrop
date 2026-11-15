@@ -2497,9 +2497,15 @@ proof metadata.
 
 Response 200: the item shape from 6.1 plus description , sizeCategory , senderName ,
 
- senderPhone , history (same shape as 4.4) and proof (null or { "recipientName",
+ senderPhone , history (same shape as 4.4) and proof (the latest proof, or null).
 
-"note", "hasPhoto", "createdAt" } ).
+Each proof has { "id", "kind" ("PICKUP" or "DELIVERY"), "recipientName", "note",
+
+"hasPhoto", "createdAt" }. The additive proofs array returns every proof for the parcel,
+
+oldest first, so the courier can show the pickup photo and the delivery photo separately.
+
+Older proofs written before the workflow are reported as "DELIVERY".
 
 
 
@@ -2515,46 +2521,21 @@ Access: COURIER (assigned only).
 
 
 
-Purpose: Moves the parcel to its next status, validating the transition and the required
+Purpose: Moves the parcel to a status that does not require a new proof. Pickup and
 
-fields.
+delivery are proof-backed and have their own endpoints (6.5 and 6.6).
 
 
 
 Request body:
 
 
-<!-- PDF page 27 -->
 
-{
-
-       "status": "DELIVERED",
-
-       "note": "Handed over at the front door",
-
-       "recipientName": "Amali Fernando"
-
-   }
+   { "status": "OUT_FOR_DELIVERY", "note": "On the final leg" }
 
 
 
-
-
-For a failed delivery:
-
-
-
-   { "status": "FAILED", "failureReason": "Recipient not available after two
-
-   attempts" }
-
-
-
-
-
-Allowed transitions:
-
-
+Allowed transitions on this route:
 
 
 
@@ -2562,11 +2543,11 @@ Allowed transitions:
 
 
 
-  CREATED                                   PICKED_UP, FAILED
+  CREATED                                   FAILED
 
 
 
-  PICKED_UP                                 IN_TRANSIT, FAILED
+  PICKED_UP                                 IN_TRANSIT (legacy recovery), FAILED
 
 
 
@@ -2574,7 +2555,7 @@ Allowed transitions:
 
 
 
-  OUT_FOR_DELIVERY                          DELIVERED, FAILED
+  OUT_FOR_DELIVERY                          FAILED
 
 
 
@@ -2586,13 +2567,21 @@ Allowed transitions:
 
 
 
+CREATED → PICKED_UP and OUT_FOR_DELIVERY → DELIVERED are rejected with
+
+422 PROOF_REQUIRED; use 6.5 and 6.6 so the proof, history and outbox commit together.
+
+A parcel already in PICKED_UP from historical data can move to IN_TRANSIT with this route
+
+without repeating the pickup photo.
+
 
 
 Field rules: failureReason is required (5 to 255 characters) when status is FAILED.
 
- recipientName is required when status is DELIVERED. note is optional (up to 500
+note is optional (up to 500 characters). recipientName is still accepted for backward
 
-characters).
+compatibility but is ignored; delivery uses 6.6.
 
 
 
@@ -2608,28 +2597,25 @@ Response 200:
 
            "trackingNumber": "SDK7M2Q9XP4",
 
-           "previousStatus": "OUT_FOR_DELIVERY",
+           "previousStatus": "IN_TRANSIT",
 
-           "status": "DELIVERED",
+           "status": "OUT_FOR_DELIVERY",
 
-         "updatedAt": "2026-11-02T16:05:00Z"
+         "updatedAt": "2026-11-02T15:05:00Z"
 
        },
 
-       "meta": { "requestId": "req_19", "timestamp": "2026-11-02T16:05:00Z" }
+       "meta": { "requestId": "req_19", "timestamp": "2026-11-02T15:05:00Z" }
 
    }
 
 
 
-
-
 Errors: 403 FORBIDDEN , 404, 409 INVALID_TRANSITION , 422 FAILURE_REASON_REQUIRED ,
 
-422 RECIPIENT_REQUIRED .
+422 PROOF_REQUIRED , 422 VALIDATION_ERROR.
 
 
-<!-- PDF page 28 -->
 
 Side effects, in one database transaction: update the parcel status, insert the status
 
@@ -2637,9 +2623,7 @@ history row, insert the outbox event. After commit the event parcel.status_chang
 
 published to RabbitMQ, which triggers email notification, the merchant webhook and live
 
-tracking updates.
-
-
+tracking updates. A downstream consumer failure never rolls back the status.
 
 
 
@@ -2649,13 +2633,15 @@ Access: COURIER (assigned only).
 
 
 
-Purpose: Uploads proof of delivery: recipient name, a note and an optional photo.
+Purpose: Stores a manual proof record: recipient name, a note and an optional photo. The
+
+pickup and delivery workflow stores its own mandatory proofs (6.5 and 6.6); this additive
+
+route remains for manual notes and older clients. It does not change the parcel status.
 
 
 
 Content type: multipart/form-data . At least one field must be present.
-
-
 
 
 
@@ -2674,6 +2660,8 @@ Content type: multipart/form-data . At least one field must be present.
   note                           text         No         Up to 500 characters
 
 
+
+Every proof written through this route is stored with kind DELIVERY.
 
 
 
@@ -2695,13 +2683,193 @@ Response 201:
 
 
 
+Errors: 403, 404, 409 PROOF_LIMIT_REACHED , 413 PAYLOAD_TOO_LARGE ,
+
+415 UNSUPPORTED_MEDIA_TYPE . Files are saved under a generated safe name and are never
+
+served from a public path.
 
 
-Errors: 403, 404, 413 PAYLOAD_TOO_LARGE , 415 UNSUPPORTED_MEDIA_TYPE . Files are saved
 
-under a generated safe name and are never served from a public path.
+6.5 POST /courier/deliveries/{parcelId}/pickup
+
+Access: COURIER (assigned only).
 
 
+
+Purpose: Confirms pickup with a mandatory photo. The courier performs one action; the
+
+service records both PICKED_UP and IN_TRANSIT and leaves the parcel IN_TRANSIT. The courier
+
+must not submit a second IN_TRANSIT update.
+
+
+
+Content type: multipart/form-data .
+
+
+
+  Field                          Type         Required   Rules
+
+
+
+  photo                          file         Yes        Valid JPEG or PNG, at most 5 MB
+
+
+
+  note                           text         No         Up to 500 characters (stored on
+
+                                                          the PICKED_UP row)
+
+
+
+Response 200:
+
+
+
+   {
+
+     "data": {
+
+       "parcelId": "e5a1...",
+
+       "trackingNumber": "SDK7M2Q9XP4",
+
+       "previousStatus": "CREATED",
+
+       "status": "IN_TRANSIT",
+
+       "updatedAt": "2026-11-02T11:20:01Z",
+
+       "alreadyApplied": false,
+
+       "history": [
+
+         { "previousStatus": "CREATED", "status": "PICKED_UP", ... },
+
+         { "previousStatus": "PICKED_UP", "status": "IN_TRANSIT", ... }
+
+       ],
+
+       "proof": { "id": "...", "kind": "PICKUP", "hasPhoto": true, ... }
+
+     },
+
+     "meta": { "requestId": "req_21", "timestamp": "2026-11-02T11:20:01Z" }
+
+   }
+
+
+
+Side effects, in one database transaction: insert the PICKUP proof, insert the PICKED_UP
+
+history row, insert the IN_TRANSIT history row, set the parcel to IN_TRANSIT, and insert a
+
+PENDING parcel.status_changed outbox event for each transition. The pickup object is
+
+written before the transaction and deleted again if the transaction does not commit. A
+
+retried request that finds the parcel already IN_TRANSIT returns 200 with
+
+alreadyApplied: true and creates no duplicate proof, history or event rows; the retry's
+
+unused upload is deleted. Duplicate or lost-response retries are therefore safe.
+
+
+
+Errors: 403 FORBIDDEN , 404, 409 INVALID_TRANSITION , 409 PROOF_LIMIT_REACHED ,
+
+413 PAYLOAD_TOO_LARGE , 415 UNSUPPORTED_MEDIA_TYPE , 422 PROOF_REQUIRED ,
+
+422 VALIDATION_ERROR , 429 RATE_LIMITED.
+
+
+
+6.6 POST /courier/deliveries/{parcelId}/delivery
+
+Access: COURIER (assigned only).
+
+
+
+Purpose: Confirms delivery with a mandatory recipient name and photo. Only a parcel in
+
+OUT_FOR_DELIVERY can be delivered.
+
+
+
+Content type: multipart/form-data .
+
+
+
+  Field                          Type         Required   Rules
+
+
+
+  recipientName                  text         Yes        1 to 150 characters after
+
+                                                          trimming
+
+
+
+  photo                          file         Yes        Valid JPEG or PNG, at most 5 MB
+
+
+
+  note                           text         No         Up to 500 characters
+
+
+
+Response 200: the shape from 6.5 with previousStatus OUT_FOR_DELIVERY , status
+
+DELIVERED , one DELIVERED history row and proof.kind DELIVERY . alreadyApplied is false
+
+for a new delivery.
+
+
+
+Side effects, in one database transaction: insert the DELIVERY proof with the recipient and
+
+note, set delivered_to_name and delivered_at, set the parcel to DELIVERED, insert the
+
+DELIVERED history row and insert the PENDING parcel.status_changed outbox event. A retried
+
+request for an already DELIVERED parcel returns 200 with alreadyApplied: true and creates
+
+no duplicate rows.
+
+
+
+Errors: 403 FORBIDDEN , 404, 409 INVALID_TRANSITION , 409 PROOF_LIMIT_REACHED ,
+
+413 PAYLOAD_TOO_LARGE , 415 UNSUPPORTED_MEDIA_TYPE , 422 RECIPIENT_REQUIRED ,
+
+422 PROOF_REQUIRED , 422 VALIDATION_ERROR , 429 RATE_LIMITED.
+
+
+
+6.7 GET /parcels/{parcelId}/proofs/{proofId}/photo
+
+Access: CUSTOMER owner, currently assigned COURIER, DISPATCHER, ADMIN.
+
+Additive to API v1.1.
+
+
+
+Purpose: Returns a short-lived target for one specific proof photo, so the activity view
+
+can open the pickup and delivery photos independently. Authorization is identical to
+
+GET /parcels/{parcelId}/proof/photo: the proof must belong to the parcel and have a photo.
+
+Local storage returns stream: true and the matching
+
+/parcels/{parcelId}/proofs/{proofId}/photo/content route. No public or permanent path is
+
+returned.
+
+
+
+Errors: 401, 403, 404 NOT_FOUND or PROOF_NOT_FOUND , 503.
 
 
 
@@ -4600,6 +4768,26 @@ Section           Method              Path                                      
   6.4               POST                 /courier/deliveries/{parcelId}/proof       COURIER
 
                                                                                     (assigned)
+
+
+
+  6.5               POST                 /courier/deliveries/{parcelId}/pickup      COURIER
+
+                                                                                    (assigned)
+
+
+
+  6.6               POST                 /courier/deliveries/{parcelId}/delivery    COURIER
+
+                                                                                    (assigned)
+
+
+
+  6.7               GET                  /parcels/{parcelId}/proofs/{proofId}/photo CUSTOMER (owner),
+
+                                                                                    COURIER, DISPATCHER,
+
+                                                                                    ADMIN
 
 
 <!-- PDF page 48 -->

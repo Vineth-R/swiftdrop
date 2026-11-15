@@ -149,6 +149,16 @@ func TestUpdateStatusTransitions(t *testing.T) {
 					}
 					return
 				}
+				// Pickup and delivery are proof-backed and must use their own
+				// endpoints; the generic status route rejects them.
+				wantProofError := to == statemachine.StatusDelivered ||
+					(from == statemachine.StatusCreated && to == statemachine.StatusPickedUp)
+				if wantProofError {
+					if err == nil || tx.writes != 0 || tx.commits != 0 {
+						t.Fatalf("proof-backed transition: err=%v writes=%d commits=%d", err, tx.writes, tx.commits)
+					}
+					return
+				}
 				if err != nil || tx.commits != 1 || tx.writes != 3 || tx.ctx != ctx || tx.rollbacks != 1 {
 					t.Fatalf("successful transition: err=%v tx=%+v", err, tx)
 				}
@@ -198,14 +208,16 @@ func TestUpdateStatusValidationOrderAndBounds(t *testing.T) {
 		{name: "unknown status", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "OTHER", want: statemachine.ErrUnknownStatus},
 		{name: "recipient blank", owner: statusCourierID, actor: statusCourierID, from: "OUT_FOR_DELIVERY", to: "DELIVERED", recipient: "  ", want: statemachine.ErrRecipientRequired},
 		{name: "recipient long", owner: statusCourierID, actor: statusCourierID, from: "OUT_FOR_DELIVERY", to: "DELIVERED", recipient: strings.Repeat("名", 151), want: statemachine.ErrValidationError},
-		{name: "recipient Unicode limit", owner: statusCourierID, actor: statusCourierID, from: "OUT_FOR_DELIVERY", to: "DELIVERED", recipient: strings.Repeat("名", 150)},
+		{name: "recipient Unicode limit", owner: statusCourierID, actor: statusCourierID, from: "OUT_FOR_DELIVERY", to: "DELIVERED", recipient: strings.Repeat("名", 150), want: ErrDeliveryProofRequired},
 		{name: "reason missing", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "FAILED", want: statemachine.ErrFailureReasonRequired},
 		{name: "reason short after trimming", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "FAILED", reason: " abcd ", want: statemachine.ErrFailureReasonRequired},
 		{name: "reason too long", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "FAILED", reason: strings.Repeat("名", 256), want: statemachine.ErrFailureReasonRequired},
 		{name: "reason minimum", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "FAILED", reason: " abcde "},
 		{name: "reason Unicode maximum", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "FAILED", reason: strings.Repeat("名", 255)},
 		{name: "note too long", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "PICKED_UP", note: strings.Repeat("名", 501), want: statemachine.ErrValidationError},
-		{name: "note Unicode maximum", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "PICKED_UP", note: strings.Repeat("名", 500)},
+		{name: "note Unicode maximum", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "PICKED_UP", note: strings.Repeat("名", 500), want: ErrPickupProofRequired},
+		{name: "delivery requires the proof endpoint", owner: statusCourierID, actor: statusCourierID, from: "OUT_FOR_DELIVERY", to: "DELIVERED", recipient: "Recipient", want: ErrDeliveryProofRequired},
+		{name: "pickup requires the proof endpoint", owner: statusCourierID, actor: statusCourierID, from: "CREATED", to: "PICKED_UP", want: ErrPickupProofRequired},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tx := newStatusTx(tc.from)
@@ -228,14 +240,14 @@ func TestUpdateStatusTransactionFailures(t *testing.T) {
 	cause := errors.New("database failed")
 	for _, stage := range []string{"begin", "lock", "assignment", "update", "history", "outbox", "commit"} {
 		t.Run(stage, func(t *testing.T) {
-			tx := newStatusTx(statemachine.StatusCreated)
+			tx := newStatusTx(statemachine.StatusInTransit)
 			tx.fail, tx.cause = stage, cause
 			db := statusDB{tx: tx}
 			if stage == "begin" {
 				db.err = cause
 			}
 			result, err := NewRepository(db).UpdateStatus(t.Context(), StatusInput{
-				ParcelID: statusParcelID, CourierID: statusCourierID, Status: statemachine.StatusPickedUp,
+				ParcelID: statusParcelID, CourierID: statusCourierID, Status: statemachine.StatusOutForDelivery,
 			})
 			if !errors.Is(err, cause) {
 				t.Fatalf("error = %v", err)
@@ -256,15 +268,15 @@ func TestUpdateStatusTransactionFailures(t *testing.T) {
 		})
 	}
 	t.Run("unexpected rollback error after commit is not a failure", func(t *testing.T) {
-		tx := newStatusTx(statemachine.StatusCreated)
+		tx := newStatusTx(statemachine.StatusInTransit)
 		tx.fail, tx.cause = "rollback", cause
 		result, err := NewRepository(statusDB{tx: tx}).UpdateStatus(t.Context(), StatusInput{
-			ParcelID: statusParcelID, CourierID: statusCourierID, Status: statemachine.StatusPickedUp,
+			ParcelID: statusParcelID, CourierID: statusCourierID, Status: statemachine.StatusOutForDelivery,
 		})
 		if err != nil {
 			t.Fatalf("committed update reported an error: %v", err)
 		}
-		if result.Status != statemachine.StatusPickedUp || result.ParcelID != statusParcelID || tx.commits != 1 || tx.rollbacks != 1 {
+		if result.Status != statemachine.StatusOutForDelivery || result.ParcelID != statusParcelID || tx.commits != 1 || tx.rollbacks != 1 {
 			t.Fatalf("result=%+v tx=%+v", result, tx)
 		}
 	})
@@ -276,10 +288,10 @@ func TestUpdateStatusTransactionFailures(t *testing.T) {
 	if _, err := NewRepository(statusDB{tx: tx}).UpdateStatus(t.Context(), StatusInput{}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing parcel: %v", err)
 	}
-	tx = newStatusTx(statemachine.StatusCreated)
+	tx = newStatusTx(statemachine.StatusInTransit)
 	tx.assignmentCurrent = false
 	if _, err := NewRepository(statusDB{tx: tx}).UpdateStatus(t.Context(), StatusInput{
-		ParcelID: statusParcelID, CourierID: statusCourierID, Status: statemachine.StatusPickedUp,
+		ParcelID: statusParcelID, CourierID: statusCourierID, Status: statemachine.StatusOutForDelivery,
 	}); !errors.Is(err, ErrInconsistentAssignment) {
 		t.Fatalf("inconsistent assignment: %v", err)
 	}

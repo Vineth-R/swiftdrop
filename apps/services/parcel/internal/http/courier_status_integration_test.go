@@ -3,22 +3,39 @@
 package servicehttp
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/courier"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/objectstore"
 	"github.com/Vineth-R/swiftdrop/tests/integration/parceltest"
 )
 
 func TestCourierStatusHTTPDatabase(t *testing.T) {
 	database := parceltest.New(t)
 	repository := courier.NewRepository(database.Pool)
-	router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(), Courier: repository, CourierStatus: repository})
+	storage, err := objectstore.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	workflow := courier.NewWorkflowService(database.Pool, storage, 0)
+	router := reportRouter(t, Options{AccessSecret: reportTestSecret, SessionCheck: allowSessions(),
+		Courier: repository, CourierStatus: repository, CourierWorkflow: workflow})
 	id, other := parceltest.UUID(t), parceltest.UUID(t)
-	_, err := database.Pool.Exec(t.Context(), `INSERT INTO parcel.parcels (
+	_, err = database.Pool.Exec(t.Context(), `INSERT INTO parcel.parcels (
 		id,tracking_number,customer_user_id,sender_name,sender_phone,pickup_address,
 		pickup_city,pickup_zone_id,recipient_name,recipient_phone,dropoff_address,
 		dropoff_city,dropoff_zone_id,weight_kg,size_category,price_amount,price_breakdown,
@@ -64,34 +81,34 @@ func TestCourierStatusHTTPDatabase(t *testing.T) {
 		t.Fatalf("missing parcel: %d %s", missing.Code, missing.Body)
 	}
 	t.Run("HTTP lifecycle and existing reads", func(t *testing.T) {
-		for _, next := range []string{"PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"} {
-			if next == "DELIVERED" {
-				invalid := courierStatusRequest(t, router, id, `{"status":"DELIVERED","recipientName":"  "}`, courierTestID, auth.RoleCourier, true)
-				if invalid.Code != 422 || !strings.Contains(invalid.Body.String(), `"code":"RECIPIENT_REQUIRED"`) {
-					t.Fatalf("missing recipient: %d %s", invalid.Code, invalid.Body)
-				}
-			}
-			// Exercise both route forms through the real router. Gin must not
-			// redirect either form, because a redirect Location would omit the
-			// gateway's /api/v1 prefix.
-			path := "/courier/deliveries/" + id + "/status"
-			if next == "PICKED_UP" {
-				path += "/"
-			}
-			rec := courierStatusRequestPath(t, router, path, `{"status":"`+next+`","recipientName":"Accepted By"}`, courierTestID, auth.RoleCourier, true)
-			if rec.Code != 200 {
-				t.Fatalf("update via %s: %d %s", path, rec.Code, rec.Body)
-			}
-			if location := rec.Header().Get("Location"); location != "" {
-				t.Fatalf("update via %s redirected to %q", path, location)
-			}
-			var body struct {
-				Data courier.StatusResult `json:"data"`
-			}
-			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || string(body.Data.Status) != next || body.Data.ParcelID != id || body.Data.UpdatedAt.IsZero() {
-				t.Fatalf("envelope: %s %v", rec.Body, err)
-			}
+		pickupBody, pickupType := proofForm(t, map[string]string{"note": "Collected"}, workflowPNG(t), "image/png")
+		pickup := workflowHTTPRequest(t, router, "/courier/deliveries/"+id+"/pickup", pickupBody, pickupType)
+		if pickup.Code != 200 || !strings.Contains(pickup.Body.String(), `"status":"IN_TRANSIT"`) {
+			t.Fatalf("pickup: %d %s", pickup.Code, pickup.Body)
 		}
+		if location := pickup.Header().Get("Location"); location != "" {
+			t.Fatalf("pickup redirected to %q", location)
+		}
+
+		out := courierStatusRequestPath(t, router, "/courier/deliveries/"+id+"/status/", `{"status":"OUT_FOR_DELIVERY"}`, courierTestID, auth.RoleCourier, true)
+		if out.Code != 200 || !strings.Contains(out.Body.String(), `"status":"OUT_FOR_DELIVERY"`) {
+			t.Fatalf("out for delivery: %d %s", out.Code, out.Body)
+		}
+
+		// The generic route must not bypass the delivery proof transaction.
+		noProof := courierStatusRequest(t, router, id, `{"status":"DELIVERED","recipientName":"Accepted By"}`, courierTestID, auth.RoleCourier, true)
+		if noProof.Code != 422 || !strings.Contains(noProof.Body.String(), `"code":"PROOF_REQUIRED"`) {
+			t.Fatalf("delivery without proof: %d %s", noProof.Code, noProof.Body)
+		}
+
+		deliveryBody, deliveryType := proofForm(t, map[string]string{
+			"recipientName": "Accepted By", "note": "Handed over",
+		}, workflowPNG(t), "image/png")
+		delivery := workflowHTTPRequest(t, router, "/courier/deliveries/"+id+"/delivery/", deliveryBody, deliveryType)
+		if delivery.Code != 200 || !strings.Contains(delivery.Body.String(), `"status":"DELIVERED"`) {
+			t.Fatalf("delivery: %d %s", delivery.Code, delivery.Body)
+		}
+
 		// The pre-existing read routes return the committed status and history.
 		detail := courierRequest(t, router, "/courier/deliveries/"+id, courierTestID, auth.RoleCourier, false)
 		var body struct {
@@ -100,7 +117,10 @@ func TestCourierStatusHTTPDatabase(t *testing.T) {
 		if detail.Code != 200 {
 			t.Fatalf("detail: %d %s", detail.Code, detail.Body)
 		}
-		if err := json.Unmarshal(detail.Body.Bytes(), &body); err != nil || body.Data.Status != "DELIVERED" || len(body.Data.History) != 4 || body.Data.RecipientName != "Original Recipient" {
+		if err := json.Unmarshal(detail.Body.Bytes(), &body); err != nil ||
+			body.Data.Status != "DELIVERED" || len(body.Data.History) != 4 ||
+			len(body.Data.Proofs) != 2 || body.Data.Proofs[0].Kind != courier.ProofKindPickup ||
+			body.Data.Proofs[1].Kind != courier.ProofKindDelivery {
 			t.Fatalf("read after write: %s %v", detail.Body, err)
 		}
 		date := body.Data.History[len(body.Data.History)-1].ChangedAt.Add(5*time.Hour + 30*time.Minute).Format(time.DateOnly)
@@ -109,4 +129,22 @@ func TestCourierStatusHTTPDatabase(t *testing.T) {
 			t.Fatalf("list after write: %d %s", list.Code, list.Body)
 		}
 	})
+}
+
+func workflowHTTPRequest(t *testing.T, router *gin.Engine, path string, body []byte, contentType string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	manager, err := auth.NewTokenManager(reportTestSecret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := manager.Issue(courierTestID, auth.RoleCourier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: "sd_access", Value: token})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	return recorder
 }

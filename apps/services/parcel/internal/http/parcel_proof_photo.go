@@ -18,7 +18,9 @@ import (
 
 type ProofPhotoStore interface {
 	Photo(context.Context, string, courier.PhotoViewer) (courier.ProofPhotoDownload, error)
+	PhotoByProof(context.Context, string, string, courier.PhotoViewer) (courier.ProofPhotoDownload, error)
 	Open(context.Context, string, courier.PhotoViewer) (io.ReadCloser, string, int64, error)
+	OpenByProof(context.Context, string, string, courier.PhotoViewer) (io.ReadCloser, string, int64, error)
 }
 
 // unavailableProofPhotoStore keeps the route registered while failing closed
@@ -29,7 +31,15 @@ func (unavailableProofPhotoStore) Photo(context.Context, string, courier.PhotoVi
 	return courier.ProofPhotoDownload{}, courier.ErrUnavailable
 }
 
+func (unavailableProofPhotoStore) PhotoByProof(context.Context, string, string, courier.PhotoViewer) (courier.ProofPhotoDownload, error) {
+	return courier.ProofPhotoDownload{}, courier.ErrUnavailable
+}
+
 func (unavailableProofPhotoStore) Open(context.Context, string, courier.PhotoViewer) (io.ReadCloser, string, int64, error) {
+	return nil, "", 0, courier.ErrUnavailable
+}
+
+func (unavailableProofPhotoStore) OpenByProof(context.Context, string, string, courier.PhotoViewer) (io.ReadCloser, string, int64, error) {
 	return nil, "", 0, courier.ErrUnavailable
 }
 
@@ -85,6 +95,71 @@ func (h *parcelHandlers) proofPhotoContent(c *gin.Context) {
 	}
 }
 
+func (h *parcelHandlers) proofPhotoByID(c *gin.Context) {
+	store := h.photoStore
+	if store == nil {
+		store = unavailableProofPhotoStore{}
+	}
+	parcelID, proofID, viewer, ok := proofPhotoByIDRequest(c)
+	if !ok {
+		return
+	}
+	result, err := store.PhotoByProof(c.Request.Context(), parcelID, proofID, viewer)
+	if err != nil {
+		h.writeProofPhotoError(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{
+		"url":       result.URL,
+		"expiresAt": result.ExpiresAt,
+		"mimeType":  result.MIMEType,
+		"stream":    result.Stream,
+	})
+}
+
+func (h *parcelHandlers) proofPhotoByIDContent(c *gin.Context) {
+	store := h.photoStore
+	if store == nil {
+		store = unavailableProofPhotoStore{}
+	}
+	parcelID, proofID, viewer, ok := proofPhotoByIDRequest(c)
+	if !ok {
+		return
+	}
+	body, contentType, size, err := store.OpenByProof(c.Request.Context(), parcelID, proofID, viewer)
+	if err != nil {
+		h.writeProofPhotoError(c, err)
+		return
+	}
+	defer func() { _ = body.Close() }()
+
+	c.Header("Content-Type", contentType)
+	if size > 0 {
+		c.Header("Content-Length", strconv.FormatInt(size, 10))
+	}
+	c.Header("Content-Disposition", `inline; filename="delivery-proof"`)
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "no-store")
+	c.Status(http.StatusOK)
+	if _, err := io.Copy(c.Writer, body); err != nil {
+		h.logger.ErrorContext(c.Request.Context(), "delivery proof stream failed",
+			"request_id", requestid.FromGin(c), "error", err)
+	}
+}
+
+func proofPhotoByIDRequest(c *gin.Context) (string, string, courier.PhotoViewer, bool) {
+	parcelID, viewer, ok := proofPhotoRequest(c)
+	if !ok {
+		return "", "", courier.PhotoViewer{}, false
+	}
+	proofID := c.Param("proofId")
+	if !validation.UUID(proofID) {
+		httpx.Error(c, http.StatusBadRequest, "BAD_REQUEST", "proofId must be a valid UUID")
+		return "", "", courier.PhotoViewer{}, false
+	}
+	return parcelID, proofID, viewer, true
+}
+
 func proofPhotoRequest(c *gin.Context) (string, courier.PhotoViewer, bool) {
 	parcelID := c.Param("parcelId")
 	if !validation.UUID(parcelID) {
@@ -112,6 +187,8 @@ func (h *parcelHandlers) writeProofPhotoError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "parcel not found")
 	case errors.Is(err, courier.ErrForbidden):
 		httpx.Error(c, http.StatusForbidden, "FORBIDDEN", "proof photo is not available to this user")
+	case errors.Is(err, courier.ErrProofNotFound):
+		httpx.Error(c, http.StatusNotFound, "PROOF_NOT_FOUND", "delivery proof not found")
 	case errors.Is(err, courier.ErrProofPhotoNotFound):
 		httpx.Error(c, http.StatusNotFound, "PROOF_PHOTO_NOT_FOUND", "no delivery proof photo is available")
 	case errors.Is(err, courier.ErrUnavailable):

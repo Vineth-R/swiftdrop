@@ -154,6 +154,8 @@ func run() error {
 			}()
 			options.CourierProof = courier.NewProofService(database, proofStorage, config.ProofMaxPerParcel).
 				WithMaxPhotoBytes(config.ProofMaxSizeBytes)
+			options.CourierWorkflow = courier.NewWorkflowService(database, proofStorage, config.ProofMaxPerParcel).
+				WithMaxPhotoBytes(config.ProofMaxSizeBytes)
 			options.CourierProofPhoto = courier.NewProofPhotoService(database, proofStorage, config.Storage.PresignTTL)
 		}
 		options.Tracking = tracking.NewRepository(database)

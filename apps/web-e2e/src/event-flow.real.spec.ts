@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 
 import {
@@ -8,6 +9,12 @@ import {
 } from '@playwright/test';
 
 import { apiLogin, apiUserId, credentialsForRun } from './support/real-stack';
+
+// A 1x1 transparent PNG for the mandatory pickup proof.
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAH0lEQVR4nAASAO3/Av8AAP8AAAAAAAAAAAAAAAAAAwAfFwIBJnyuSgAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 const LIVE_TIMEOUT = 20_000;
 const EVENT_TIMEOUT = 60_000;
@@ -38,16 +45,17 @@ type RealtimeMessage = {
 
 /**
  * The group event-flow item (M1, M6, M7, M8, M9) on the real stack: ONE courier
- * status change on a merchant's parcel is checked in every consumer.
+ * pickup action on a merchant's parcel (which records PICKED_UP and IN_TRANSIT)
+ * is checked in every consumer.
  *
  *   1. A fresh merchant is registered, approved, given an API key and a webhook.
  *   2. The merchant creates an order; the dispatcher assigns the parcel.
  *   3. A socket subscribed to the parcel is opened.
- *   4. The courier sets PICKED_UP (the one change).
+ *   4. The courier confirms pickup; the API records both transitions.
  *
- * Then it asserts that the same event reached the realtime service, the merchant
- * order snapshot, the webhook worker and the notification worker, and that the
- * webhook attempt and the SENT notification log share the event ID.
+ * Then it asserts that both events reached the realtime service and the snapshot
+ * settled on IN_TRANSIT. For the webhook and notification workers it checks one
+ * published event, and that its webhook attempt and SENT log share the event ID.
  *
  * The webhook target is a public HTTPS placeholder, so the HTTP outcome is not
  * asserted. What is asserted is that the worker processed the event and recorded
@@ -125,31 +133,37 @@ test.describe('one status change reaches every consumer', () => {
       })
       .toBe(true);
 
-    await updateCourierStatus(request, courierToken, parcelId, 'PICKED_UP');
+    await confirmPickup(request, courierToken, parcelId);
 
-    // Realtime: exactly one update, with only the four public tracking fields.
+    // Realtime: the single pickup action publishes PICKED_UP and IN_TRANSIT.
     await expect
       .poll(() => page.evaluate<number>('window.__eventFlow.messages.length'), {
         timeout: LIVE_TIMEOUT,
       })
-      .toBe(1);
+      .toBe(2);
     const messages = await page.evaluate<RealtimeMessage[]>(
       'window.__eventFlow.messages',
     );
-    expect(messages).toHaveLength(1);
-    expect(messages[0].type).toBe('parcel.status.updated');
-    expect(Object.keys(messages[0].data).sort()).toEqual([
-      'previousStatus',
-      'status',
-      'trackingNumber',
-      'updatedAt',
-    ]);
+    expect(messages).toHaveLength(2);
+    for (const message of messages) {
+      expect(message.type).toBe('parcel.status.updated');
+      expect(Object.keys(message.data).sort()).toEqual([
+        'previousStatus',
+        'status',
+        'trackingNumber',
+        'updatedAt',
+      ]);
+      expect(message.data.trackingNumber).toBe(order.trackingNumber);
+      expect(JSON.stringify(message)).not.toContain(parcelId);
+    }
     expect(messages[0].data).toMatchObject({
-      trackingNumber: order.trackingNumber,
       previousStatus: 'CREATED',
       status: 'PICKED_UP',
     });
-    expect(JSON.stringify(messages[0])).not.toContain(parcelId);
+    expect(messages[1].data).toMatchObject({
+      previousStatus: 'PICKED_UP',
+      status: 'IN_TRANSIT',
+    });
 
     await page.evaluate('window.__eventFlowSocket.close()');
 
@@ -159,7 +173,7 @@ test.describe('one status change reaches every consumer', () => {
         async () => (await getOrder(request, apiKey, order.orderId)).status,
         { timeout: EVENT_TIMEOUT },
       )
-      .toBe('PICKED_UP');
+      .toBe('IN_TRANSIT');
 
     // Webhook worker: the first attempt is recorded for the same event.
     const attempt = await waitForWebhookAttempt(
@@ -330,17 +344,18 @@ async function assignParcel(
   expect(response.status(), await response.text()).toBe(200);
 }
 
-async function updateCourierStatus(
+async function confirmPickup(
   request: APIRequestContext,
   courierToken: string,
   parcelId: string,
-  status: string,
 ): Promise<void> {
   const response = await request.post(
-    `/api/v1/courier/deliveries/${parcelId}/status`,
+    `/api/v1/courier/deliveries/${parcelId}/pickup`,
     {
       headers: { Authorization: `Bearer ${courierToken}` },
-      data: { status },
+      multipart: {
+        photo: { name: 'pickup.png', mimeType: 'image/png', buffer: PNG },
+      },
     },
   );
   expect(response.status(), await response.text()).toBe(200);

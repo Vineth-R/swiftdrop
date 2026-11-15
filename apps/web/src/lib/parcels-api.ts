@@ -128,3 +128,18 @@ export function getParcelProofPhoto(id: string, signal?: AbortSignal) {
     { signal },
   );
 }
+
+/**
+ * Returns one specific proof photo. The server authorizes the caller against
+ * the parcel exactly as for the latest-photo route.
+ */
+export function getParcelProofPhotoByProof(
+  id: string,
+  proofId: string,
+  signal?: AbortSignal,
+) {
+  return api<ProofPhotoTarget>(
+    `/parcels/${encodeURIComponent(id)}/proofs/${encodeURIComponent(proofId)}/photo`,
+    { signal },
+  );
+}

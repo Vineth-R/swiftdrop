@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 
 import {
@@ -18,8 +19,11 @@ import {
 
 const LIVE_TIMEOUT = 20_000;
 
-type CourierStatus =
-  'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'FAILED';
+// A 1x1 transparent PNG for the mandatory pickup proof.
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAH0lEQVR4nAASAO3/Av8AAP8AAAAAAAAAAAAAAAAAAwAfFwIBJnyuSgAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 /**
  * Real stack: a customer's parcel is assigned to the first courier. The courier
@@ -99,23 +103,26 @@ test.describe('courier parcel workflow on the real stack', () => {
       await expect(card).toBeVisible({ timeout: LIVE_TIMEOUT });
       await card.getByRole('link', { name: 'View delivery' }).click();
       await expect(page).toHaveURL(new RegExp(`/deliveries/${parcel.id}$`));
-      const deliveryStatus = page.getByRole('region', {
-        name: 'Delivery status',
+      const progress = page.getByRole('list', { name: 'Delivery progress' });
+      await expect(progress.locator('[aria-current="step"]')).toContainText(
+        'Created',
+        { timeout: LIVE_TIMEOUT },
+      );
+      await page.getByLabel('Pickup proof photo').setInputFiles({
+        name: 'pickup.png',
+        mimeType: 'image/png',
+        buffer: PNG,
       });
+      await page.getByRole('button', { name: 'Confirm pickup' }).click();
       await expect(
-        deliveryStatus.getByText('CREATED', { exact: true }),
-      ).toBeVisible({ timeout: LIVE_TIMEOUT });
-      await page.getByLabel('Next status').selectOption('PICKED_UP');
-      await page.getByRole('button', { name: 'Save status' }).click();
-      await expect(
-        page.getByText('Delivery status saved', { exact: true }),
+        page.getByText('Pickup confirmed. The parcel is now in transit.'),
       ).toBeVisible({ timeout: LIVE_TIMEOUT });
 
-      // No Refresh and no reload: /track heard the change.
+      // No Refresh and no reload: /track heard both transitions.
       await expect(
-        trackingPage.getByText('PICKED UP', { exact: true }),
+        trackingPage.getByText('IN TRANSIT', { exact: true }),
       ).toBeVisible({ timeout: LIVE_TIMEOUT });
-      await expect(currentStep(trackingPage)).toContainText('Picked up');
+      await expect(currentStep(trackingPage)).toContainText('In transit');
       expect(await pageMark(trackingPage)).toBe(mark);
     } finally {
       await publicContext.close();
@@ -179,9 +186,9 @@ test.describe('courier parcel workflow on the real stack', () => {
 
     // The courier moves the parcel on through the API (this test is about the
     // dispatcher's page); the dispatcher page is not touched.
-    await updateCourierStatus(request, courierToken, parcel.id, 'PICKED_UP');
+    await confirmPickup(request, courierToken, parcel.id);
 
-    await expect(row.getByText('PICKED UP', { exact: true })).toBeVisible({
+    await expect(row.getByText('IN TRANSIT', { exact: true })).toBeVisible({
       timeout: LIVE_TIMEOUT,
     });
     expect(await pageMark(page)).toBe(mark);
@@ -210,17 +217,18 @@ async function assignParcel(
   expect(response.status(), await response.text()).toBe(200);
 }
 
-async function updateCourierStatus(
+async function confirmPickup(
   request: APIRequestContext,
   token: string,
   parcelId: string,
-  status: CourierStatus,
 ): Promise<void> {
   const response = await request.post(
-    `/api/v1/courier/deliveries/${parcelId}/status`,
+    `/api/v1/courier/deliveries/${parcelId}/pickup`,
     {
       headers: { Authorization: `Bearer ${token}` },
-      data: { status },
+      multipart: {
+        photo: { name: 'pickup.png', mimeType: 'image/png', buffer: PNG },
+      },
     },
   );
   expect(response.status(), await response.text()).toBe(200);

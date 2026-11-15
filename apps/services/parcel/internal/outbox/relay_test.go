@@ -396,3 +396,20 @@ func TestRelayHealthReflectsBrokerConnectivityEvenWhenEmpty(t *testing.T) {
 		t.Fatal("relay did not recover after the broker reconnected")
 	}
 }
+
+func TestClaimedEventsKeepCommitOrder(t *testing.T) {
+	base := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	events := []claimedEvent{
+		{Event: Event{ID: "b", Status: "PENDING", CreatedAt: base.Add(time.Microsecond)}},
+		{Event: Event{ID: "a", Status: "PENDING", CreatedAt: base}},
+		{Event: Event{ID: "c", Status: "PENDING", CreatedAt: base}},
+	}
+	sortClaimedEvents(events)
+	got := []string{events[0].ID, events[1].ID, events[2].ID}
+	want := []string{"a", "c", "b"}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
+	}
+}

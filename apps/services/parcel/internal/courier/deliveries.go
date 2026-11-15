@@ -55,6 +55,8 @@ type History struct {
 }
 
 type Proof struct {
+	ID            string    `json:"id"`
+	Kind          string    `json:"kind"`
 	RecipientName *string   `json:"recipientName"`
 	Note          *string   `json:"note"`
 	HasPhoto      bool      `json:"hasPhoto"`
@@ -68,7 +70,11 @@ type Detail struct {
 	SenderName   string                  `json:"senderName"`
 	SenderPhone  string                  `json:"senderPhone"`
 	History      []History               `json:"history"`
-	Proof        *Proof                  `json:"proof"`
+	// Proof is the latest proof, kept for clients that only need one photo.
+	Proof *Proof `json:"proof"`
+	// Proofs is every proof, oldest first, so the courier activity view can
+	// show the pickup and delivery photos side by side.
+	Proofs []Proof `json:"proofs"`
 }
 
 type Page struct {
@@ -232,16 +238,30 @@ func (r *Repository) Detail(ctx context.Context, courierID, parcelID string) (re
 			Status: entry.NewStatus, Note: entry.Note, FailureReason: entry.FailureReason,
 			ActorRole: entry.ActorRole, ChangedAt: entry.CreatedAt.UTC()})
 	}
-	var proof Proof
-	err = tx.QueryRow(ctx, `SELECT recipient_name, note, photo_path IS NOT NULL, created_at
-		FROM parcel.delivery_proofs WHERE parcel_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, parcelID).
-		Scan(&proof.RecipientName, &proof.Note, &proof.HasPhoto, &proof.CreatedAt)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return Detail{}, fmt.Errorf("read courier proof: %w", err)
+	rows, err := tx.Query(ctx, `SELECT id, proof_kind, recipient_name, note,
+		photo_path IS NOT NULL, created_at
+		FROM parcel.delivery_proofs WHERE parcel_id = $1
+		ORDER BY created_at, id`, parcelID)
+	if err != nil {
+		return Detail{}, fmt.Errorf("read courier proofs: %w", err)
 	}
-	if err == nil {
+	defer rows.Close()
+	result.Proofs = make([]Proof, 0)
+	for rows.Next() {
+		var proof Proof
+		if err := rows.Scan(&proof.ID, &proof.Kind, &proof.RecipientName,
+			&proof.Note, &proof.HasPhoto, &proof.CreatedAt); err != nil {
+			return Detail{}, fmt.Errorf("scan courier proof: %w", err)
+		}
 		proof.CreatedAt = proof.CreatedAt.UTC()
-		result.Proof = &proof
+		result.Proofs = append(result.Proofs, proof)
+	}
+	if err := rows.Err(); err != nil {
+		return Detail{}, fmt.Errorf("iterate courier proofs: %w", err)
+	}
+	if len(result.Proofs) > 0 {
+		latest := result.Proofs[len(result.Proofs)-1]
+		result.Proof = &latest
 	}
 	return result, nil
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -116,6 +117,18 @@ const claimPendingSQL = `
 	RETURNING e.id, e.event_type, e.routing_key, e.payload, e.attempts,
 	          e.created_at, e.aggregate_type, e.aggregate_id, e.claim_token`
 
+// sortClaimedEvents restores commit order after RETURNING. RETURNING does not
+// preserve the inner SELECT's ORDER BY, so two events committed for the same
+// aggregate could otherwise reach consumers newest-first. The ID breaks ties.
+func sortClaimedEvents(events []claimedEvent) {
+	sort.SliceStable(events, func(left, right int) bool {
+		if events[left].CreatedAt.Equal(events[right].CreatedAt) {
+			return events[left].ID < events[right].ID
+		}
+		return events[left].CreatedAt.Before(events[right].CreatedAt)
+	})
+}
+
 // ProcessPending claims a batch of PENDING events atomically, invokes handler
 // for each claimed event without holding database row locks during the broker
 // publish, and then records the outcome scoped to the claim token. Two relay
@@ -160,6 +173,7 @@ func (s *SQLStore) ProcessPending(ctx context.Context, limit int, handler func(e
 		return 0, fmt.Errorf("iterate claimed outbox rows: %w", err)
 	}
 	rows.Close()
+	sortClaimedEvents(events)
 
 	processed := 0
 	for _, event := range events {

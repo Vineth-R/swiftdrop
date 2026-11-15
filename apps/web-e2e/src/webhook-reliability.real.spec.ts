@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createHmac, randomUUID } from 'node:crypto';
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -5,6 +6,11 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { apiLogin, apiUserId, credentialsForRun } from './support/real-stack';
 
 const EVENT_TIMEOUT = 60_000;
+const PNG_PROOF = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAH0lEQVR4nAASAO3/Av8AAP8AAAAAAAAAAAAAAAAAAwAfFwIBJnyuSgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
 const sinkControl = 'http://localhost:8099/control';
 
 type Attempt = {
@@ -39,7 +45,12 @@ test.describe('real-stack webhook reliability', () => {
   }) => {
     await resetSink(request, [500, 200]);
     const merchant = await createMerchantCase(request);
-    await triggerStatus(request, merchant.parcelID, 'PICKED_UP');
+    await triggerStatus(
+      request,
+      merchant.parcelID,
+      'FAILED',
+      'Recipient refused the delivery',
+    );
 
     const attempts = await waitForAttempts(request, merchant, 2);
     expect(attempts.map((a) => a.attemptNumber)).toEqual([1, 2]);
@@ -68,7 +79,12 @@ test.describe('real-stack webhook reliability', () => {
   }) => {
     await resetSink(request, [500, 500, 500, 500, 500, 500], 500);
     const merchant = await createMerchantCase(request);
-    await triggerStatus(request, merchant.parcelID, 'PICKED_UP');
+    await triggerStatus(
+      request,
+      merchant.parcelID,
+      'FAILED',
+      'Recipient refused the delivery',
+    );
 
     const attempts = await waitForAttempts(request, merchant, 6);
     expect(attempts.map((a) => a.attemptNumber)).toEqual([1, 2, 3, 4, 5, 6]);
@@ -86,30 +102,33 @@ test.describe('real-stack webhook reliability', () => {
   }) => {
     await resetSink(request, [200], 200);
     const merchant = await createMerchantCase(request);
-    await triggerStatus(request, merchant.parcelID, 'PICKED_UP');
-    let attempts = await waitForAttempts(request, merchant, 1);
-    expect(attempts[0].success).toBe(true);
+    // Pickup records PICKED_UP and IN_TRANSIT, so the old secret signs both.
+    await confirmPickup(request, merchant.parcelID);
+    let attempts = await waitForAttempts(request, merchant, 2);
+    expect(attempts.every((attempt) => attempt.success)).toBe(true);
     let sink = await sinkRequests(request);
-    expect(sink).toHaveLength(1);
-    expect(signatureMatches(sink[0], merchant.secret)).toBe(true);
+    expect(sink).toHaveLength(2);
+    expect(
+      sink.every((entry) => signatureMatches(entry, merchant.secret)),
+    ).toBe(true);
 
     const rotated = await rotateWebhook(request, merchant.token);
     expect(rotated).toMatch(/^whsec_/);
     expect(rotated).not.toBe(merchant.secret);
 
-    await triggerStatus(request, merchant.parcelID, 'IN_TRANSIT');
+    await triggerStatus(request, merchant.parcelID, 'OUT_FOR_DELIVERY');
     await expect
       .poll(async () => (await sinkRequests(request)).length, {
         timeout: EVENT_TIMEOUT,
         intervals: [500, 1000, 2000],
       })
-      .toBe(2);
+      .toBe(3);
     sink = await sinkRequests(request);
-    expect(signatureMatches(sink[1], rotated)).toBe(true);
-    expect(signatureMatches(sink[1], merchant.secret)).toBe(false);
+    expect(signatureMatches(sink[2], rotated)).toBe(true);
+    expect(signatureMatches(sink[2], merchant.secret)).toBe(false);
 
-    attempts = await waitForAttempts(request, merchant, 2);
-    expect(attempts.filter((a) => a.success)).toHaveLength(2);
+    attempts = await waitForAttempts(request, merchant, 3);
+    expect(attempts.filter((attempt) => attempt.success)).toHaveLength(3);
   });
 });
 
@@ -246,6 +265,7 @@ async function triggerStatus(
   request: APIRequestContext,
   parcelID: string,
   status: string,
+  failureReason?: string,
 ) {
   const courier = credentialsForRun('COURIER_1');
   if (!courier) throw new Error('COURIER_1 is required');
@@ -254,7 +274,27 @@ async function triggerStatus(
     `/api/v1/courier/deliveries/${parcelID}/status`,
     {
       headers: { Authorization: `Bearer ${token}` },
-      data: { status },
+      data: failureReason ? { status, failureReason } : { status },
+    },
+  );
+  expect(response.status(), await response.text()).toBe(200);
+}
+
+async function confirmPickup(request: APIRequestContext, parcelID: string) {
+  const courier = credentialsForRun('COURIER_1');
+  if (!courier) throw new Error('COURIER_1 is required');
+  const token = await apiLogin(request, courier.email, courier.password);
+  const response = await request.post(
+    `/api/v1/courier/deliveries/${parcelID}/pickup`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        photo: {
+          name: 'pickup.png',
+          mimeType: 'image/png',
+          buffer: PNG_PROOF,
+        },
+      },
     },
   );
   expect(response.status(), await response.text()).toBe(200);

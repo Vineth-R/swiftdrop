@@ -131,16 +131,16 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 	}
 
 	// A real courier status transaction writes the parcel, history and outbox.
-	customerParcel, customerTracking := insertParcel(t, pool, customerID, false)
+	customerParcel, customerTracking := insertParcel(t, pool, customerID, false, "IN_TRANSIT")
 	if _, err := courierRepo.UpdateStatus(ctx, parcelevents.StatusInput{
-		ParcelID: customerParcel, CourierID: courierIDFor(t, pool, customerParcel), Status: parcelevents.StatusPickedUp,
+		ParcelID: customerParcel, CourierID: courierIDFor(t, pool, customerParcel), Status: parcelevents.StatusOutForDelivery,
 	}); err != nil {
 		t.Fatalf("customer status update: %v", err)
 	}
-	merchantParcel, merchantTracking := insertParcel(t, pool, merchantID, true)
+	merchantParcel, merchantTracking := insertParcel(t, pool, merchantID, true, "IN_TRANSIT")
 	insertMerchantOrder(t, pool, merchantID, merchantParcel, merchantTracking)
 	if _, err := courierRepo.UpdateStatus(ctx, parcelevents.StatusInput{
-		ParcelID: merchantParcel, CourierID: courierIDFor(t, pool, merchantParcel), Status: parcelevents.StatusPickedUp,
+		ParcelID: merchantParcel, CourierID: courierIDFor(t, pool, merchantParcel), Status: parcelevents.StatusOutForDelivery,
 	}); err != nil {
 		t.Fatalf("merchant status update: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestParcelStatusChangeFlowsToNotificationWebhookAndRealtime(t *testing.T) {
 	// snapshot and timeline exactly once.
 	waitUntil(t, eventWaitTimeout, "merchant order status synchronization", func() error {
 		status := scalar(t, pool, "SELECT last_known_status FROM merchant.merchant_orders WHERE parcel_id='"+merchantParcel+"'")
-		if status != "PICKED_UP" {
+		if status != "OUT_FOR_DELIVERY" {
 			return fmt.Errorf("merchant order status = %q", status)
 		}
 		return nil
@@ -365,7 +365,7 @@ func insertMerchantOrder(t *testing.T, pool *postgres.Pool, merchantID, parcelID
 	}
 }
 
-func insertParcel(t *testing.T, pool *postgres.Pool, ownerID string, merchant bool) (string, string) {
+func insertParcel(t *testing.T, pool *postgres.Pool, ownerID string, merchant bool, status string) (string, string) {
 	t.Helper()
 	id := newUUID(t, pool)
 	courierID := newUUID(t, pool)
@@ -381,9 +381,9 @@ func insertParcel(t *testing.T, pool *postgres.Pool, ownerID string, merchant bo
 		dropoff_address, dropoff_city, dropoff_zone_id, weight_kg, size_category,
 		status, current_courier_id, price_amount, price_breakdown, created_by_user_id
 	) VALUES ($1,$2,$3,$4,'Sender','+94770000001','Pickup','Colombo',$5,
-		'Recipient','+94770000002','Dropoff','Kandy',$5,2,'SMALL','CREATED',$6,550,
+		'Recipient','+94770000002','Dropoff','Kandy',$5,2,'SMALL',$7::text,$6,550,
 		'{"base_fee":450,"weight_charge":100,"size_surcharge":0}',$5)`,
-		id, tracking, customer, merchantID, courierID, courierID)
+		id, tracking, customer, merchantID, courierID, courierID, status)
 	if err != nil {
 		t.Fatalf("insert parcel: %v", err)
 	}
