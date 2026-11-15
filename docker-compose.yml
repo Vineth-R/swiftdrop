@@ -444,10 +444,10 @@ services:
   webhook-sink:
     profiles: ['webhook-test']
     image: golang:1.27-alpine
-    working_dir: /app
+    working_dir: /src/tests/webhook-sink
     volumes:
-      - ./tests/webhook-sink:/app:ro
-    command: ['go', 'run', 'main.go']
+      - .:/src:ro
+    command: ['go', 'run', '.']
     ports:
       - '127.0.0.1:${WEBHOOK_SINK_PORT:-8099}:8099'
     healthcheck:
