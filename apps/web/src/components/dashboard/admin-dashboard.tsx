@@ -47,13 +47,7 @@ export function AdminDashboard({ name }: { name: string }) {
 
   return (
     <>
-      <PageHeader
-        title="Dashboard"
-        description={`Signed in as ${name}.`}
-        actions={
-          <ButtonLink href="/admin/merchants">Review merchants</ButtonLink>
-        }
-      />
+      <PageHeader title="Dashboard" description={`Signed in as ${name}.`} />
 
       <Section title="Waiting for you">
         <div className="grid gap-4 md:grid-cols-3">

@@ -13,6 +13,7 @@ export type Merchant = {
   pickupAddress: string;
   pickupZoneId: string;
   status: MerchantStatus;
+  approvedBy?: string;
   approvedAt?: string;
   rejectionReason?: string;
   suspensionReason?: string;
@@ -124,6 +125,9 @@ export type MerchantDecision = {
   status: MerchantStatus;
   identitySync: 'APPLIED' | 'PENDING';
   alreadyDone: boolean;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
+  suspensionReason?: string | null;
 };
 export function approveMerchant(id: string) {
   return api<MerchantDecision>(
@@ -149,6 +153,17 @@ export function suspendMerchant(id: string, reason?: string) {
     },
   );
 }
+/** Sends an administrator-composed email to the merchant's business address. */
+export function sendMerchantEmail(
+  id: string,
+  input: { subject: string; message: string },
+) {
+  return api<{ message: string }>(
+    `/admin/merchants/${encodeURIComponent(id)}/email`,
+    { method: 'POST', body: input },
+  );
+}
+
 export function listMerchantKeys(signal?: AbortSignal) {
   return api<MerchantKey[]>('/merchants/me/keys', { signal });
 }

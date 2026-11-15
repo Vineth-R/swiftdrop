@@ -18,6 +18,7 @@ type Store interface {
 	Owned(context.Context, string, string, bool) (repository.Parcel, error)
 	List(context.Context, string, Filter) ([]repository.Parcel, int, error)
 	History(context.Context, string) ([]repository.StatusHistory, error)
+	ParcelAssignments(context.Context, string) ([]repository.ParcelAssignment, error)
 }
 type Quoter interface {
 	Quote(context.Context, CreateInput) (Fee, error)
@@ -273,6 +274,33 @@ func (s *Service) History(ctx context.Context, id, user string, staff bool) ([]H
 	}
 	return out, nil
 }
+
+// Assignments returns the courier assignment history of a parcel, oldest
+// first. Ownership is checked exactly as for Detail and History.
+func (s *Service) Assignments(ctx context.Context, id, user string, staff bool) ([]AssignmentItem, error) {
+	if _, err := s.authorized(ctx, id, user, staff); err != nil {
+		return nil, err
+	}
+	rows, err := s.store.ParcelAssignments(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AssignmentItem, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AssignmentItem{
+			ID:                row.ID,
+			CourierID:         row.CourierID,
+			PreviousCourierID: row.PreviousCourierID,
+			AssignedBy:        row.AssignedBy,
+			AssignedAt:        row.AssignedAt,
+			UnassignedAt:      row.UnassignedAt,
+			IsCurrent:         row.IsCurrent,
+			Reason:            row.Reason,
+		})
+	}
+	return out, nil
+}
+
 func (s *Service) Summary(ctx context.Context, id string) (Summary, error) {
 	if !validation.UUID(id) {
 		return Summary{}, invalid("parcelId", "must be a UUID")

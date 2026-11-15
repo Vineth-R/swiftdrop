@@ -85,6 +85,11 @@ func (f *fakeAdminStore) SetUserActive(_ context.Context, id string, active bool
 	return f.err
 }
 
+func (f *fakeAdminStore) AuditPasswordResetRequested(context.Context, string, string) error {
+	f.writes++
+	return f.err
+}
+
 func (f *fakeAdminStore) ListCouriers(_ context.Context, filter repository.CourierFilter) ([]repository.CourierListing, int, error) {
 	f.courierFilter = filter
 	return nil, f.total, f.err
@@ -570,5 +575,70 @@ func TestAdminUsers_CurrentAccess(t *testing.T) {
 	store.findErr = errStore
 	if _, err := admin.CurrentAccess(context.Background(), adminID); !errors.Is(err, errStore) || errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("store failure error = %v, want the store error and not ErrUserNotFound", err)
+	}
+}
+
+type fakeResetter struct {
+	email string
+	err   error
+}
+
+func (f *fakeResetter) ForgotPassword(_ context.Context, in ForgotPasswordInput) error {
+	f.email = in.Email
+	return f.err
+}
+
+func TestAdminUsers_InitiatePasswordReset(t *testing.T) {
+	base := newFixture(t)
+	store := newFakeAdminStore()
+	store.users[targetID] = repository.AdminUser{
+		ID: targetID, Email: "t@example.com", FullName: "Target",
+		Role: auth.RoleCustomer, AuthProvider: "LOCAL", IsActive: true,
+	}
+	reset := &fakeResetter{}
+	admin, err := NewAdminUsers(base.service, store, WithPasswordReset(reset))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.InitiatePasswordReset(context.Background(), adminID, targetID); err != nil {
+		t.Fatalf("InitiatePasswordReset: %v", err)
+	}
+	if reset.email != "t@example.com" {
+		t.Fatalf("reset email = %q", reset.email)
+	}
+	if store.writes != 1 {
+		t.Fatalf("audit writes = %d, want 1", store.writes)
+	}
+}
+
+func TestAdminUsers_InitiatePasswordReset_rejections(t *testing.T) {
+	base := newFixture(t)
+	store := newFakeAdminStore()
+	store.users[targetID] = repository.AdminUser{
+		ID: targetID, Email: "t@example.com", Role: auth.RoleCustomer,
+		AuthProvider: "GOOGLE", IsActive: true,
+	}
+	admin, err := NewAdminUsers(base.service, store, WithPasswordReset(&fakeResetter{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.InitiatePasswordReset(context.Background(), adminID, targetID); !errors.Is(err, ErrPasswordResetNotSupported) {
+		t.Fatalf("Google account error = %v, want ErrPasswordResetNotSupported", err)
+	}
+
+	store.users[targetID] = repository.AdminUser{
+		ID: targetID, Email: "t@example.com", Role: auth.RoleCustomer,
+		AuthProvider: "LOCAL", IsActive: false,
+	}
+	if err := admin.InitiatePasswordReset(context.Background(), adminID, targetID); !errors.Is(err, ErrUserInactive) {
+		t.Fatalf("inactive account error = %v, want ErrUserInactive", err)
+	}
+
+	noReset, err := NewAdminUsers(base.service, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := noReset.InitiatePasswordReset(context.Background(), adminID, targetID); !errors.Is(err, ErrPasswordResetUnavailable) {
+		t.Fatalf("unconfigured reset error = %v, want ErrPasswordResetUnavailable", err)
 	}
 }

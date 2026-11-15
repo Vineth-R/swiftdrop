@@ -43,7 +43,7 @@ func TestRouter_everyOptionTogether(t *testing.T) {
 		"GET /internal/couriers/:courierId/eligibility", "GET /internal/users/:userId/contact",
 		"GET /users/me",
 		"PATCH /admin/users/:userId", "PATCH /admin/users/:userId/status", "PATCH /users/me",
-		"POST /admin/users", "POST /admin/users/",
+		"POST /admin/users", "POST /admin/users/", "POST /admin/users/:userId/password-reset",
 		"POST /auth/forgot-password", "POST /auth/login", "POST /auth/logout", "POST /auth/refresh",
 		"POST /auth/register", "POST /auth/reset-password",
 		"PUT /users/me/password",

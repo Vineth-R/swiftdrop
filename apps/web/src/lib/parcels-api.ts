@@ -75,6 +75,18 @@ export type ParcelHistory = {
   changedAt: string;
 };
 
+/** One courier assignment in a parcel's history (additive API route). */
+export type ParcelAssignment = {
+  id: string;
+  courierId: string;
+  previousCourierId: string | null;
+  assignedBy: string;
+  assignedAt: string;
+  unassignedAt: string | null;
+  isCurrent: boolean;
+  reason: string | null;
+};
+
 export type ProofPhotoTarget = {
   url: string;
   expiresAt: string;
@@ -115,6 +127,13 @@ export function getParcelHistory(id: string, signal?: AbortSignal) {
   return api<ParcelHistory[]>(`/parcels/${encodeURIComponent(id)}/history`, {
     signal,
   });
+}
+
+export function getParcelAssignments(id: string, signal?: AbortSignal) {
+  return api<ParcelAssignment[]>(
+    `/parcels/${encodeURIComponent(id)}/assignments`,
+    { signal },
+  );
 }
 
 export function getParcelReceipt(id: string, signal?: AbortSignal) {

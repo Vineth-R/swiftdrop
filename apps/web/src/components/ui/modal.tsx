@@ -20,7 +20,7 @@ type ModalProps = {
    * nothing. Use it only while a request is running or when the person must choose.
    */
   isDismissible?: boolean;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 };
 
 /**
@@ -86,8 +86,11 @@ export function Modal({
     >
       <div
         className={cn(
-          'flex max-h-full w-full flex-col gap-4 overflow-y-auto rounded-card border border-line bg-surface p-6 shadow-modal',
-          size === 'sm' ? 'max-w-sm' : 'max-w-md',
+          'flex max-h-full w-full flex-col gap-4 rounded-card border border-line bg-surface p-6 shadow-modal',
+          size === 'sm' && 'max-w-sm',
+          size === 'md' && 'max-w-md',
+          size === 'lg' && 'max-w-2xl',
+          size === 'xl' && 'max-w-4xl',
         )}
       >
         <div className="flex items-start justify-between gap-4">
@@ -110,7 +113,7 @@ export function Modal({
             {description}
           </p>
         )}
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
         {actions && (
           <div className="flex flex-col-reverse gap-3 md:flex-row md:justify-end">
             {actions}

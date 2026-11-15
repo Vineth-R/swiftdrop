@@ -1017,9 +1017,9 @@ Access: ADMIN. Purpose: Full administrative view of one user.
 
 
 
-Response 200: one user object including courierProfile (if a courier), lastLoginAt
+Response 200: one user object including courierProfile (if a courier),
 
-and updatedAt . Errors: 404.
+ authProvider ( LOCAL or GOOGLE ), lastLoginAt and updatedAt . Errors: 404.
 
 
 
@@ -1348,6 +1348,28 @@ Request body: { "email": "nimal@example.com" }
 Response 202: { "data": { "message": "If an account needs verification, a new verification email will be sent." }, "meta": { "requestId": "req_21" } }
 
 Errors: 422, 429.
+
+2.20 POST /admin/users/{userId}/password-reset
+
+Access: ADMIN.
+
+Purpose: Lets an administrator start the existing password-recovery flow for a user who
+
+cannot sign in. The reset link is sent only to that account's registered email address;
+
+the administrator never sees a token, link or password. The account must be active and
+
+must use LOCAL password authentication (Google-only accounts have no password to reset).
+
+The action is audited as PASSWORD_RESET_REQUESTED .
+
+Response 202: { "data": { "message": "Password reset requested..." } } . Errors:
+
+404, 409 ACCOUNT_DEACTIVATED , 409 PASSWORD_RESET_NOT_SUPPORTED , 503
+
+ SERVICE_UNAVAILABLE when email is not configured. Existing sessions end only after the
+
+person completes the reset, following the rules in 2.17.
 
 ## 3. Pricing and Zones Service
 
@@ -2187,6 +2209,16 @@ Provided by the Parcel Operations service. Routed from /api/v1/dispatch and
 
 
 
+
+4.7 GET /parcels/{parcelId}/assignments
+
+Access: DISPATCHER, ADMIN.
+
+Purpose: Returns the parcel's courier assignment history, oldest first. A reassignment
+
+closes the previous row and inserts a new current row, so the list is append-only. IDs
+
+are Identity user IDs; the current courier contact is already in 4.3. Errors: 404, 422.
 
 5.1 GET /dispatch/unassigned
 
@@ -3028,9 +3060,9 @@ Request: no body. Response 200: { "data": { "id": "m1a2...", "status":
 
 
 
-Errors: 404, 409 INVALID_MERCHANT_STATE (allowed from PENDING or SUSPENDED).
+Errors: 404, 409 INVALID_MERCHANT_STATE (allowed from PENDING, SUSPENDED or
 
-Audited.
+REJECTED; re-approving a rejected application clears the rejection reason). Audited.
 
 
 
@@ -3104,6 +3136,8 @@ Pending, rejected and suspended merchants cannot obtain sessions.
 - Suspension commits SUSPENDED immediately, then deactivates Identity and
   revokes refresh tokens. If Identity is unavailable the response reports
   identitySync PENDING and the merchant stays blocked.
+- Re-approval is allowed from REJECTED as well as PENDING and SUSPENDED. It
+  activates Identity and clears the stored rejection and suspension reasons.
 - Rejection reason is optional, nullable and limited to 1,000 characters. Empty
   or whitespace-only values are stored as NULL. The rejection email omits the
   reason when none is provided. Suspension still requires a reason.
@@ -3577,6 +3611,26 @@ Errors: 404 (also returned for another merchant's order).
 
 
 
+
+8.19 POST /admin/merchants/{merchantId}/email
+
+Access: ADMIN.
+
+Purpose: Sends an administrative message to the merchant's registered business email.
+
+Request body: { "subject": "Missing registration details", "message": "..." } . Subject
+
+is 1-150 characters on one line; message is 1-5,000 characters. Delivery is synchronous
+
+and a failure is reported instead of shown as success. The endpoint is rate limited to
+
+30 requests per minute per client address. A successful send is audited as
+
+ ADMIN_EMAIL_SENT with the subject only. Response 200:
+
+ { "data": { "message": "Email sent." } } . Errors: 404, 422, 429, 500 when the mail
+
+server rejects the message, 503 when merchant email is not configured.
 
 ## 9. Real-Time Tracking (WebSocket)
 
@@ -4462,6 +4516,10 @@ Section           Method              Path                             Access
 
 
 
+  2.20              POST                 /admin/users/{userId}/password-reset    ADMIN
+
+
+
   3.1               POST                 /pricing/estimate               Public
 
 
@@ -4557,6 +4615,12 @@ Section           Method              Path                                      
 
 
 
+  4.7               GET                  /parcels/{parcelId}/assignments             DISPATCHER,
+
+                                                                                    ADMIN
+
+
+
   5.1               GET                  /dispatch/unassigned                       DISPATCHER,
 
                                                                                     ADMIN
@@ -4647,6 +4711,10 @@ Section           Method              Path                                     A
 
 
   8.8               POST                 /admin/merchants/{merchantId}/suspend   ADMIN
+
+
+
+  8.19              POST                 /admin/merchants/{merchantId}/email     ADMIN
 
 
 

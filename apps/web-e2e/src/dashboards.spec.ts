@@ -246,6 +246,15 @@ test.describe('admin dashboard', () => {
     await expect(
       page.getByRole('link', { name: 'Manage accounts' }),
     ).toHaveAttribute('href', '/admin/users');
+    // The redundant dashboard action and sidebar entry were removed.
+    await expect(
+      page.getByRole('link', { name: 'Review merchants' }),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Main' })
+        .getByRole('link', { name: 'Dashboard', exact: true }),
+    ).toHaveCount(0);
   });
 
   test('asks each list for one row and reads the total', async ({ page }) => {

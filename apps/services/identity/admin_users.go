@@ -18,8 +18,13 @@ func adminRouterOption(
 	identity *service.Service,
 	verifier auth.Verifier,
 	cookies servicehttp.CookieConfig,
+	reset *service.PasswordReset,
 ) (servicehttp.Option, error) {
-	admin, err := service.NewAdminUsers(identity, repo)
+	var options []service.AdminUsersOption
+	if reset != nil {
+		options = append(options, service.WithPasswordReset(reset))
+	}
+	admin, err := service.NewAdminUsers(identity, repo, options...)
 	if err != nil {
 		return nil, fmt.Errorf("create admin users service: %w", err)
 	}

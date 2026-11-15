@@ -73,6 +73,19 @@ export function setUserActive(
   );
 }
 
+/**
+ * Starts the existing password-reset flow for a user. The link goes only to
+ * the account's registered email; no token or password is returned.
+ */
+export function requestUserPasswordReset(
+  userId: string,
+): Promise<{ message: string }> {
+  return api<{ message: string }>(
+    `/admin/users/${encodeURIComponent(userId)}/password-reset`,
+    { method: 'POST' },
+  );
+}
+
 /** The roles an administrator can create an account for (API v1.1 section 2.11). */
 export const createableRoles = ['COURIER', 'DISPATCHER', 'ADMIN'] as const;
 export type CreateableRole = (typeof createableRoles)[number];
@@ -116,6 +129,8 @@ export type AdminCourierProfile = {
 /** One user in full (API v1.1 section 2.12), with `courierProfile` when they have one. */
 export type AdminUserDetail = AdminUser & {
   courierProfile?: AdminCourierProfile;
+  /** LOCAL accounts sign in with a password; GOOGLE accounts do not. */
+  authProvider?: string;
   lastLoginAt: string | null;
   updatedAt: string;
 };

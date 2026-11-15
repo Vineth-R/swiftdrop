@@ -95,3 +95,32 @@ func TestFailedSendIsLoggedWithoutRecipientOrErrorText(t *testing.T) {
 		}
 	}
 }
+
+func TestNotifierSendAdminMessageIsSynchronous(t *testing.T) {
+	sender := &fakeMailer{}
+	n := New(sender, emails.Site{BaseURL: "https://swiftdrop.test", SupportEmail: "support@swiftdrop.test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	err := n.SendAdminMessage(context.Background(), "owner@example.test", "Shop", "Missing documents", "Please send the registration document.")
+	if err != nil {
+		t.Fatalf("SendAdminMessage: %v", err)
+	}
+	if len(sender.messages) != 1 {
+		t.Fatalf("messages = %d, want 1 delivered before return", len(sender.messages))
+	}
+	message := sender.messages[0]
+	if message.Subject != "Missing documents" || message.To != "owner@example.test" {
+		t.Fatalf("message = %+v", message)
+	}
+	if !strings.Contains(message.Text, "Please send the registration document.") {
+		t.Fatalf("message text missing body:\n%s", message.Text)
+	}
+}
+
+func TestNotifierSendAdminMessageReportsFailure(t *testing.T) {
+	sender := &fakeMailer{err: errors.New("smtp down")}
+	n := New(sender, emails.Site{BaseURL: "https://swiftdrop.test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := n.SendAdminMessage(context.Background(), "owner@example.test", "Shop", "Subject", "Message"); err == nil {
+		t.Fatal("SendAdminMessage returned nil for a failed delivery")
+	}
+}

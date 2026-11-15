@@ -683,8 +683,9 @@ paths:
       summary: Approve and activate a merchant (8.6)
       description: >-
         Applies an Identity lifecycle transition and only then commits APPROVED.
-        If activation fails, the merchant stays in its previous state, login
-        remains blocked, and the same transition can be retried.
+        Allowed from PENDING, SUSPENDED and REJECTED (re-approval). If activation
+        fails, the merchant stays in its previous state, login remains blocked,
+        and the same transition can be retried.
       security:
         - AccessCookie: []
         - BearerAuth: []
@@ -756,6 +757,56 @@ paths:
       responses:
         '200': { description: 'Suspended; identitySync is APPLIED or PENDING.' }
         '409': { description: INVALID_MERCHANT_STATE. }
+  /admin/merchants/{merchantId}/email:
+    post:
+      operationId: adminSendMerchantEmail
+      summary: Send an administrative email to a merchant
+      description: >-
+        Sends a message from an administrator to the merchant's registered
+        business email. Delivery is synchronous and a failure is reported rather
+        than shown as success. The endpoint is rate limited to 30 requests per
+        minute per client address, and a successful send is audited as
+        `ADMIN_EMAIL_SENT` with the subject only.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [subject, message]
+              properties:
+                subject: { type: string, minLength: 1, maxLength: 150 }
+                message: { type: string, minLength: 1, maxLength: 5000 }
+      responses:
+        '200':
+          description: The SMTP server accepted the message.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [message]
+                    properties:
+                      message: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { description: The email could not be sent. }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
 components:
   securitySchemes:

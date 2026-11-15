@@ -33,6 +33,7 @@ var matrix = []accesskit.Case{
 	{Name: "POST /admin/users/", Method: http.MethodPost, Path: "/api/v1/admin/users/", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "PATCH /admin/users/{id}", Method: http.MethodPatch, Path: "/api/v1/admin/users/" + anyID, Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "PATCH /admin/users/{id}/status", Method: http.MethodPatch, Path: "/api/v1/admin/users/" + anyID + "/status", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
+	{Name: "POST /admin/users/{id}/password-reset", Method: http.MethodPost, Path: "/api/v1/admin/users/" + anyID + "/password-reset", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "GET /couriers/", Method: http.MethodGet, Path: "/api/v1/couriers/", Allowed: []auth.Role{auth.RoleDispatcher}},
 
 	// Pricing
@@ -68,6 +69,7 @@ var matrix = []accesskit.Case{
 	{Name: "POST /admin/merchants/{id}/approve", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/approve", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "POST /admin/merchants/{id}/reject", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/reject", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "POST /admin/merchants/{id}/suspend", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/suspend", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
+	{Name: "POST /admin/merchants/{id}/email", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/email", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},
 
 	// Customer parcel and dispatcher operations. Courier lifecycle remains separate.
 	{Name: "POST /parcels", Method: http.MethodPost, Path: "/api/v1/parcels", Body: `{}`, Allowed: []auth.Role{auth.RoleCustomer}},
@@ -77,6 +79,7 @@ var matrix = []accesskit.Case{
 	// checked without relying on the hierarchy alone.
 	{Name: "GET /parcels/{id}", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID, Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/history", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/history", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin}},
+	{Name: "GET /parcels/{id}/assignments", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/assignments", Allowed: []auth.Role{auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/receipt", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/receipt", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/proof/photo", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/proof/photo", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin}},
 	{Name: "GET /parcels/{id}/proof/photo/content", Method: http.MethodGet, Path: "/api/v1/parcels/" + anyID + "/proof/photo/content", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleCourier, auth.RoleDispatcher, auth.RoleAdmin}},

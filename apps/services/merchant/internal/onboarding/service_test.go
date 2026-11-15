@@ -268,6 +268,28 @@ func TestApproveActivatesThenCommits(t *testing.T) {
 	}
 }
 
+func TestApproveRejectedMerchantReactivates(t *testing.T) {
+	service, store, identity, notifier := fixture()
+	store.merchant = repository.Merchant{
+		ID: "m-1", OwnerUserID: "user-1", BusinessName: "ShopZone",
+		Status:          repository.MerchantStatusRejected,
+		RejectionReason: ptr("Documents missing"),
+	}
+	result, err := service.Approve(context.Background(), "m-1", "admin-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Merchant.Status != repository.MerchantStatusApproved || result.IdentitySync != "APPLIED" {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(identity.lifecycleCalls) != 1 || identity.lifecycleCalls[0].Operation != "APPROVE" {
+		t.Fatalf("lifecycle calls = %+v", identity.lifecycleCalls)
+	}
+	if notifier.approved != 1 {
+		t.Fatalf("approval emails = %d, want 1", notifier.approved)
+	}
+}
+
 func TestApproveActivationFailureLeavesMerchantPending(t *testing.T) {
 	service, store, identity, _ := fixture()
 	store.merchant = repository.Merchant{ID: "m-1", OwnerUserID: "user-1", Status: repository.MerchantStatusPending}

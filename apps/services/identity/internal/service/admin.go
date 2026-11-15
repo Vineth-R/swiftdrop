@@ -30,7 +30,24 @@ var (
 	// ErrCannotChangeOwnRole means an administrator tried to change their own
 	// role, which could leave the system without an administrator (409 CONFLICT).
 	ErrCannotChangeOwnRole = errors.New("cannot change your own role")
+
+	// ErrPasswordResetUnavailable means password reset email is not configured.
+	ErrPasswordResetUnavailable = errors.New("password reset is not configured")
+
+	// ErrPasswordResetNotSupported means the account has no password to reset,
+	// such as a Google-only account.
+	ErrPasswordResetNotSupported = errors.New("account cannot reset a password")
+
+	// ErrUserInactive means the account is deactivated and must be activated
+	// before a reset link can be sent.
+	ErrUserInactive = errors.New("account is deactivated")
 )
+
+// PasswordResetter starts the existing password-reset flow for an account.
+// *PasswordReset satisfies it.
+type PasswordResetter interface {
+	ForgotPassword(context.Context, ForgotPasswordInput) error
+}
 
 // AdminUser is the administrative view of a user (API v1.1 sections 2.10 to
 // 2.13).
@@ -67,6 +84,7 @@ type AdminStore interface {
 	CreateStaffUser(ctx context.Context, params repository.CreateStaffParams, actorID string) (repository.AdminUser, error)
 	UpdateAdminUser(ctx context.Context, userID string, change repository.UserChange, actorID string) (repository.AdminUser, error)
 	SetUserActive(ctx context.Context, userID string, active bool, actorID string, now time.Time) error
+	AuditPasswordResetRequested(ctx context.Context, actorID, userID string) error
 	ListCouriers(ctx context.Context, filter repository.CourierFilter) ([]repository.CourierListing, int, error)
 }
 
@@ -76,14 +94,29 @@ type AdminStore interface {
 type AdminUsers struct {
 	base  *Service
 	store AdminStore
+	reset PasswordResetter
+}
+
+// AdminUsersOption customises an AdminUsers.
+type AdminUsersOption func(*AdminUsers)
+
+// WithPasswordReset lets administrators start the existing password-reset
+// flow. Without it the reset action fails closed with
+// ErrPasswordResetUnavailable.
+func WithPasswordReset(reset PasswordResetter) AdminUsersOption {
+	return func(a *AdminUsers) { a.reset = reset }
 }
 
 // NewAdminUsers returns an AdminUsers.
-func NewAdminUsers(base *Service, store AdminStore) (*AdminUsers, error) {
+func NewAdminUsers(base *Service, store AdminStore, opts ...AdminUsersOption) (*AdminUsers, error) {
 	if base == nil || store == nil {
 		return nil, errors.New("admin users requires a service and a store")
 	}
-	return &AdminUsers{base: base, store: store}, nil
+	admin := &AdminUsers{base: base, store: store}
+	for _, opt := range opts {
+		opt(admin)
+	}
+	return admin, nil
 }
 
 // CurrentAccess is a caller's role and active flag as stored now, not as they
@@ -375,6 +408,36 @@ func (a *AdminUsers) SetUserActive(ctx context.Context, actorID, userID string, 
 	if user, err := a.base.store.UserByID(ctx, userID); err == nil {
 		a.base.notifier.AccountStatusChanged(ctx, recipientOf(user), active)
 	}
+	return nil
+}
+
+// InitiatePasswordReset starts the existing password-reset flow for the
+// selected account. The link goes to the account's registered email; the
+// administrator never sees a token, a link or a password. The reset endpoint
+// still spends the token once and revokes every session on completion.
+func (a *AdminUsers) InitiatePasswordReset(ctx context.Context, actorID, userID string) error {
+	if a.reset == nil {
+		return ErrPasswordResetUnavailable
+	}
+	user, err := a.GetUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if !user.IsActive {
+		return ErrUserInactive
+	}
+	if !strings.EqualFold(user.AuthProvider, "LOCAL") {
+		return ErrPasswordResetNotSupported
+	}
+	if err := a.reset.ForgotPassword(ctx, ForgotPasswordInput{Email: user.Email}); err != nil {
+		return fmt.Errorf("initiate password reset: %w", err)
+	}
+	// The reset request already succeeded. An audit write failure must not make
+	// the administrator retry and send a second email.
+	if err := a.store.AuditPasswordResetRequested(ctx, actorID, userID); err != nil {
+		a.base.logger.ErrorContext(ctx, "password reset audit failed", "actor_id", actorID, "user_id", userID, "error", err)
+	}
+	a.base.logger.InfoContext(ctx, "administrator initiated a password reset", "actor_id", actorID, "user_id", userID)
 	return nil
 }
 
