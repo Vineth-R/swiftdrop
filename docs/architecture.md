@@ -150,7 +150,7 @@ Demo users are created by a local operator tool, `make seed`, not by service sta
 Every HTTP service exposes:
 
 - `GET /health` — liveness, `{"status":"ok"}`. `/healthz` remains a deprecated alias.
-- `GET /ready` — readiness. Returns `200 {"status":"ready","checks":{"database":"ok"}}` after a bounded-context database ping, or `503` with `"database":"down"` when `DATABASE_URL` is unset or unreachable. `/readyz` remains a deprecated alias.
+- `GET /ready` — readiness. Returns `200 {"status":"ready","checks":{...}}` only when the database and every required workload dependency are healthy, or `503` with the failing checks. `/readyz` remains a deprecated alias.
 
 Readiness includes each service's required workload dependencies. Identity and pricing require PostgreSQL. Parcel requires PostgreSQL and, when a publisher is configured, a healthy outbox relay. Merchant requires PostgreSQL and, when sync is enabled, a healthy merchant-sync consumer. Realtime requires PostgreSQL and both status/assignment consumers. The notification worker requires PostgreSQL and all three consumers. The webhook worker exposes an internal `/ready` on `8088` that requires its consumer. The AI assistant `/ready` returns `503` when the provider is disabled or unconfigured because chat cannot work; Compose uses its `/health` liveness endpoint because the AI capability is optional. `/health` remains liveness everywhere, so a reconnecting consumer or identity outage does not cause a restart loop. Mailpit's healthcheck uses `/readyz`, which also verifies its storage, rather than the liveness-only `/livez`. The gateway exposes only `/healthz` publicly.
 
