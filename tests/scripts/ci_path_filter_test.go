@@ -275,6 +275,7 @@ func TestCIPathFiltersRouteRealStackChanges(t *testing.T) {
 		{"parcel migration", []string{"migrations/parcel/000007_outbox_claim.up.sql"}, true},
 		{"pricing migration", []string{"migrations/pricing/000002_tables.up.sql"}, true},
 		{"notification migration", []string{"migrations/notification/000002_tables.up.sql"}, true},
+		{"webhook sink", []string{"tests/webhook-sink/main.go"}, true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -177,7 +177,7 @@ func newWebhookFixtureWithOptions(role, accessSecret string, cipher secretCipher
 		}
 	}
 
-	h, err := registerWebhookRoutes(router, store, cipher, sender, accessSecret, webhookTestCookie, nil, nil)
+	h, err := registerWebhookRoutes(router, store, cipher, sender, accessSecret, webhookTestCookie, nil, "", nil)
 	if err != nil {
 		panic(err)
 	}
