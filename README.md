@@ -703,6 +703,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 
 - [`DESIGN.md`](DESIGN.md): the frontend design guide. Read it before building or changing any screen in `apps/web`.
 - [`docs/architecture.md`](docs/architecture.md): service boundaries, routing, lifecycle, messaging, and readiness.
+- [`docs/data-retention.md`](docs/data-retention.md): approved retention for notification logs, merchant reservations, processed events and identity tokens.
 - [`docs/db.sql`](docs/db.sql): canonical 26-table baseline (five schemas, triggers, seeds); additive migrations bring the current chain to 31 tables.
 - [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md) and [`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md): product API and database design sources.
 - [`docs/how-to-error-logging.md`](docs/how-to-error-logging.md): adopting the shared error envelope and safe logging.
