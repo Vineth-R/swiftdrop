@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,15 +48,24 @@ var parcelDownMigrations = []string{
 func newIsolatedDatabase(t *testing.T) (context.Context, *pgx.Conn) {
 	t.Helper()
 
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
+	ctx, conn, _ := newIsolatedDatabaseWithURL(t)
+	return ctx, conn
+}
+
+// newIsolatedDatabaseWithURL also returns the generated database URL so
+// migration-tool tests can run the real golang-migrate CLI against it.
+func newIsolatedDatabaseWithURL(t *testing.T) (context.Context, *pgx.Conn, string) {
+	t.Helper()
+
+	serverURL := os.Getenv("TEST_DATABASE_URL")
+	if serverURL == "" {
 		t.Skip("TEST_DATABASE_URL is not set; skipping PostgreSQL integration tests")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), databaseTestTimeout)
 	t.Cleanup(cancel)
 
-	adminConfig, err := pgx.ParseConfig(url)
+	adminConfig, err := pgx.ParseConfig(serverURL)
 	if err != nil {
 		t.Fatalf("parse TEST_DATABASE_URL: %v", err)
 	}
@@ -80,11 +90,16 @@ func newIsolatedDatabase(t *testing.T) (context.Context, *pgx.Conn) {
 		_ = admin.Close(cleanupCtx)
 	})
 
-	testConfig, err := pgx.ParseConfig(url)
+	testConfig, err := pgx.ParseConfig(serverURL)
 	if err != nil {
 		t.Fatalf("parse TEST_DATABASE_URL for isolated database: %v", err)
 	}
 	testConfig.Database = databaseName
+	isolatedURL, err := url.Parse(serverURL)
+	if err != nil {
+		t.Fatalf("parse isolated database URL: %v", err)
+	}
+	isolatedURL.Path = "/" + databaseName
 	conn, err := pgx.ConnectConfig(ctx, testConfig)
 	if err != nil {
 		t.Fatalf("connect to isolated database: %v", err)
@@ -93,7 +108,7 @@ func newIsolatedDatabase(t *testing.T) (context.Context, *pgx.Conn) {
 		_ = conn.Close(context.Background())
 	})
 
-	return ctx, conn
+	return ctx, conn, isolatedURL.String()
 }
 
 func randomHex(bytes int) string {
