@@ -1,6 +1,6 @@
 // Package notificationlog provides the read side of the notification delivery
-// log. It is intentionally separate from the idempotency store: this package
-// only reads notification.notification_logs for the administrator API.
+// log for the administrator API and the approved retention cleanup for
+// notification.notification_logs. It never reads or writes the merchant schema.
 package notificationlog
 
 import (
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
 )
@@ -22,13 +23,16 @@ const MaxPageSize = 100
 var (
 	ErrUnavailable   = errors.New("notification log database unavailable")
 	ErrInvalidFilter = errors.New("invalid notification log filter")
+	ErrInvalidCutoff = errors.New("notification log cleanup cutoff must not be zero")
 	ErrListFailed    = errors.New("notification log query failed")
+	ErrCleanupFailed = errors.New("notification log cleanup failed")
 )
 
 // DB is the subset of the shared PostgreSQL pool this repository needs.
 type DB interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
 // Log is one notification delivery-log row.
@@ -134,4 +138,25 @@ func (r *Repository) List(ctx context.Context, filter Filter) ([]Log, int, error
 		return nil, 0, ErrListFailed
 	}
 	return logs, total, nil
+}
+
+// DeleteBefore removes delivery logs older than cutoff and returns the number
+// of deleted rows. Rows exactly on the cutoff are retained. The statement is a
+// single database-side delete scoped to notification.notification_logs; it
+// never touches notification.processed_events or the merchant schema.
+func (r *Repository) DeleteBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, ErrUnavailable
+	}
+	if cutoff.IsZero() {
+		return 0, ErrInvalidCutoff
+	}
+	tag, err := r.db.Exec(ctx,
+		`DELETE FROM notification.notification_logs WHERE created_at < $1`,
+		cutoff.UTC(),
+	)
+	if err != nil {
+		return 0, ErrCleanupFailed
+	}
+	return tag.RowsAffected(), nil
 }

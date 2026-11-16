@@ -16,6 +16,8 @@ import (
 const (
 	defaultProcessedEventsRetention       = 30 * 24 * time.Hour
 	defaultProcessedEventsCleanupInterval = 24 * time.Hour
+	defaultNotificationLogRetention       = 180 * 24 * time.Hour
+	defaultNotificationLogCleanupInterval = 24 * time.Hour
 )
 
 type Config struct {
@@ -38,6 +40,8 @@ type Config struct {
 	CookieName                     string
 	ProcessedEventsRetention       time.Duration
 	ProcessedEventsCleanupInterval time.Duration
+	NotificationLogRetention       time.Duration
+	NotificationLogCleanupInterval time.Duration
 	IdentityBaseURL                string
 	IdentityTimeout                time.Duration
 	MerchantBaseURL                string
@@ -147,6 +151,22 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	notificationLogRetention, err := loader.Duration("NOTIFICATION_LOG_RETENTION", defaultNotificationLogRetention)
+	if err != nil {
+		return Config{}, err
+	}
+	if notificationLogRetention <= 0 {
+		return Config{}, errors.New("NOTIFICATION_LOG_RETENTION must be positive")
+	}
+
+	notificationLogCleanupInterval, err := loader.Duration("NOTIFICATION_LOG_CLEANUP_INTERVAL", defaultNotificationLogCleanupInterval)
+	if err != nil {
+		return Config{}, err
+	}
+	if notificationLogCleanupInterval <= 0 {
+		return Config{}, errors.New("NOTIFICATION_LOG_CLEANUP_INTERVAL must be positive")
+	}
+
 	accessSecret, err := sharedconfig.LoadAccessSecret(loader, appEnv, false)
 	if err != nil {
 		return Config{}, err
@@ -247,6 +267,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		CookieName:                     loader.String("COOKIE_NAME", "sd_access"),
 		ProcessedEventsRetention:       retention,
 		ProcessedEventsCleanupInterval: cleanupInterval,
+		NotificationLogRetention:       notificationLogRetention,
+		NotificationLogCleanupInterval: notificationLogCleanupInterval,
 		IdentityBaseURL:                identityBaseURL,
 		IdentityTimeout:                identityTimeout,
 		MerchantBaseURL:                merchantBaseURL,

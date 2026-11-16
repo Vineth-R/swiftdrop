@@ -91,8 +91,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure identity session checker: %w", err)
 	}
+	logStore := notificationlog.NewRepository(database)
 	router, err := servicehttp.New(logger, servicehttp.Options{
-		Store:        notificationlog.NewRepository(database),
+		Store:        logStore,
 		AccessSecret: config.AccessSecret,
 		CookieName:   config.CookieName,
 		SessionCheck: sessioncheck.New(sessionClient),
@@ -106,12 +107,7 @@ func run() error {
 	createdHealth := messaging.NewHealth()
 	statusHealth := messaging.NewHealth()
 	router.GET("/health", postgres.HealthHandler())
-	router.GET("/ready", httpx.ReadinessHandler(
-		httpx.DatabaseDependency(database, postgres.DefaultReadyTimeout),
-		httpx.BooleanDependency("consumer.notification_requested", legacyHealth.Ready),
-		httpx.BooleanDependency("consumer.parcel_created", createdHealth.Ready),
-		httpx.BooleanDependency("consumer.parcel_status_changed", statusHealth.Ready),
-	))
+	router.GET("/ready", notificationReadinessHandler(database, legacyHealth, createdHealth, statusHealth))
 
 	if config.AccessSecret == "" {
 		logger.Warn("JWT_ACCESS_SECRET is not set; the admin notification-log API will return 503")
@@ -175,11 +171,28 @@ func run() error {
 		"retention", config.ProcessedEventsRetention,
 		"cleanup_interval", config.ProcessedEventsCleanupInterval,
 	)
+	logger.Info("notification-log retention enabled",
+		"retention", config.NotificationLogRetention,
+		"cleanup_interval", config.NotificationLogCleanupInterval,
+	)
 
 	cleanupDone := make(chan struct{})
 	go func() {
 		defer close(cleanupDone)
 		retention.Run(ctx, logger, store, config.ProcessedEventsRetention, config.ProcessedEventsCleanupInterval)
+	}()
+	logCleanupDone := make(chan struct{})
+	go func() {
+		defer close(logCleanupDone)
+		retention.RunJob(ctx, logger, retention.Job{
+			Name:        "notification-log",
+			Operation:   "cleanup_notification_logs",
+			Retention:   config.NotificationLogRetention,
+			Interval:    config.NotificationLogCleanupInterval,
+			Clean:       logStore.DeleteBefore,
+			LogDuration: true,
+			LogError:    true,
+		})
 	}()
 
 	consumers := []messaging.ConsumerConfig{
@@ -244,5 +257,21 @@ func run() error {
 	}
 	close(stopped)
 	<-cleanupDone
+	<-logCleanupDone
 	return firstErr
+}
+
+// notificationReadinessHandler reports only the database and the three
+// notification consumers. A cleanup failure is intentionally not a readiness
+// dependency: retention is maintenance and must not stop delivery.
+func notificationReadinessHandler(
+	database postgres.Pinger,
+	legacy, created, status *messaging.Health,
+) gin.HandlerFunc {
+	return httpx.ReadinessHandler(
+		httpx.DatabaseDependency(database, postgres.DefaultReadyTimeout),
+		httpx.BooleanDependency("consumer.notification_requested", legacy.Ready),
+		httpx.BooleanDependency("consumer.parcel_created", created.Ready),
+		httpx.BooleanDependency("consumer.parcel_status_changed", status.Ready),
+	)
 }
