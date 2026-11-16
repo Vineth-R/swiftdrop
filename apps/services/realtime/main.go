@@ -109,7 +109,7 @@ func run() error {
 	}
 
 	hub := live.NewHub()
-	router.GET("/ws", gin.WrapH(ws.NewHandler(ctx, ws.Options{
+	servicehttp.RegisterWebSocket(router, ws.NewHandler(ctx, ws.Options{
 		Hub:                  hub,
 		Verifier:             verifier,
 		CookieName:           config.CookieName,
@@ -117,7 +117,7 @@ func run() error {
 		Logger:               logger,
 		SessionValidator:     sessionValidator,
 		SessionCheckInterval: config.SessionCheckInterval,
-	})))
+	}))
 
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
