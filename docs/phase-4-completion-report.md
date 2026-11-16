@@ -35,23 +35,23 @@ at startup.
 
 ## 2. Findings status
 
-| Finding                                 | Priority | Status                            | Evidence                                                                                                         |
-| --------------------------------------- | -------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| P4-01 Cross-role acceptance             | P1       | Complete                          | `customer-delivery-journey.real.spec.ts`                                                                         |
-| P4-02 Courier completion/proof          | P1       | Complete                          | `courier-completion.real.spec.ts`                                                                                |
-| P4-03 Customer UI journey               | P1       | Complete                          | `customer-parcel-journey.real.spec.ts`                                                                           |
-| P4-04 Dispatcher UI assignment          | P2       | Complete                          | `dispatcher-assignment.real.spec.ts`                                                                             |
-| P4-05 Webhook retry/exhaustion/rotation | P2       | Complete                          | `webhook-reliability.real.spec.ts`, worker/confix tests                                                          |
-| P4-06 Admin mutations/reports           | P2       | Complete                          | `admin-mutations.real.spec.ts`, `admin-pricing-reports.real.spec.ts`                                             |
-| P4-07 Access matrix                     | P2       | Complete                          | 56-route matrix in `tests/access/matrix_test.go`                                                                 |
-| P4-08 Documentation truth               | P2       | Complete                          | Readiness/migration/test docs corrected in #160                                                                  |
-| P4-09 Performance evidence              | P2       | Complete                          | `tests/perf/delivery-flow.js`, `docs/phase-4-performance-baseline.md`                                            |
-| P4-10 Outage recovery                   | P2       | Complete                          | `tests/recovery/outage-recovery.sh`, real-stack CI job                                                           |
-| P4-11 OpenAPI/route coverage            | P2       | Partially complete                | Public operations, access matrix and Nginx locations are cross-checked; Gin source-to-spec parity remains manual |
-| P4-12 Auth browser journeys             | P3       | Complete (reset); Google optional | `auth-reset.real.spec.ts`; no live Google dependency added                                                       |
-| P4-13 Restore/rollback                  | P3       | Deferred                          | Existing backup/restore scripts remain; no automated restore rehearsal in this delivery                          |
-| P4-14 AI live provider                  | P3       | Deferred/optional                 | Deterministic AI tests remain the merge gate; no live provider dependency added                                  |
-| P4-15 Retention policy                  | P3       | Decision pending                  | No cleanup implemented; identity token cleanup remains the only approved retention job                           |
+| Finding                                 | Priority | Status                            | Evidence                                                                                                                                       |
+| --------------------------------------- | -------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| P4-01 Cross-role acceptance             | P1       | Complete                          | `customer-delivery-journey.real.spec.ts`                                                                                                       |
+| P4-02 Courier completion/proof          | P1       | Complete                          | `courier-completion.real.spec.ts`                                                                                                              |
+| P4-03 Customer UI journey               | P1       | Complete                          | `customer-parcel-journey.real.spec.ts`                                                                                                         |
+| P4-04 Dispatcher UI assignment          | P2       | Complete                          | `dispatcher-assignment.real.spec.ts`                                                                                                           |
+| P4-05 Webhook retry/exhaustion/rotation | P2       | Complete                          | `webhook-reliability.real.spec.ts`, worker/confix tests                                                                                        |
+| P4-06 Admin mutations/reports           | P2       | Complete                          | `admin-mutations.real.spec.ts`, `admin-pricing-reports.real.spec.ts`                                                                           |
+| P4-07 Access matrix                     | P2       | Complete                          | 56-route matrix in `tests/access/matrix_test.go`                                                                                               |
+| P4-08 Documentation truth               | P2       | Complete                          | Readiness/migration/test docs corrected in #160                                                                                                |
+| P4-09 Performance evidence              | P2       | Complete                          | `tests/perf/delivery-flow.js`, `docs/phase-4-performance-baseline.md`                                                                          |
+| P4-10 Outage recovery                   | P2       | Complete                          | `tests/recovery/outage-recovery.sh`, real-stack CI job                                                                                         |
+| P4-11 OpenAPI/route coverage            | P2       | Complete                          | Runtime Gin inventories in `contracts/routes`, OpenAPI cross-check and Nginx upstream validation in `tests/contracts/route-inventory.test.mjs` |
+| P4-12 Auth browser journeys             | P3       | Complete (reset); Google optional | `auth-reset.real.spec.ts`; no live Google dependency added                                                                                     |
+| P4-13 Restore/rollback                  | P3       | Deferred                          | Existing backup/restore scripts remain; no automated restore rehearsal in this delivery                                                        |
+| P4-14 AI live provider                  | P3       | Deferred/optional                 | Deterministic AI tests remain the merge gate; no live provider dependency added                                                                |
+| P4-15 Retention policy                  | P3       | Decision pending                  | No cleanup implemented; identity token cleanup remains the only approved retention job                                                         |
 
 ## 3. Delivered workflows
 
@@ -121,9 +121,10 @@ Observed across the implementation PRs:
 
 ## 5. Known limitations
 
-- P4-11 still relies on manual Gin-source review; the automated checks cover
-  public OpenAPI operations, access cases and Nginx locations, not every router
-  registration.
+- P4-11 now snapshots `gin.Engine.Routes()` per service and cross-checks every
+  route with OpenAPI and the gateway upstream. Operational probes registered by
+  service entrypoints (`/health`, `/ready`, `/metrics`) remain explicit
+  exemptions because they are mounted outside the business routers.
 - P4-13 backup/restore rehearsal and broader rollback testing are deferred.
 - P4-14 live Gemini smoke remains an opt-in/manual procedure; normal CI never
   calls the provider.

@@ -465,11 +465,17 @@ on; do not switch these tests back to `nx dev`.
 The Playwright configuration also defines Firefox and WebKit projects, but CI
 runs Chromium only in this phase.
 
-Validate OpenAPI contracts:
+Validate OpenAPI contracts and the runtime route inventories:
 
 ```sh
-pnpm exec node --test "tests/contracts/openapi.test.mjs"
+make check-openapi
 ```
+
+The committed `contracts/routes/<service>.json` inventories are snapshots of
+`gin.Engine.Routes()`. After an intentional route change, regenerate them with
+`UPDATE_ROUTES=1 go test -run TestRouteInventory ./apps/services/...` and review
+the diff with the OpenAPI and Nginx changes. See
+[`contracts/routes/README.md`](contracts/routes/README.md).
 
 Local k6 smoke/load scenarios live in `tests/perf`; see
 [`docs/phase-3-performance-baseline.md`](docs/phase-3-performance-baseline.md).
@@ -687,8 +693,9 @@ Start feature branches from `development` and open pull requests into `developme
 3. Add a `project.json` with `build`, `test`, `lint`, and `serve` targets using `nx:run-commands`.
 4. Add a service-owned schema migration under `migrations/<name>/` if the service persists data.
 5. Add an OpenAPI specification under `contracts/openapi/`.
-6. If the service is public, add an Nginx route and matching Gin paths, then update the Compose service and documentation.
-7. Run `gofmt`, `go test ./...`, `go build ./...`, and the Nx targets.
+6. Add a `TestRouteInventory` beside the router and a `contracts/routes/<name>.json` inventory; add the service to `tests/contracts/route-inventory.test.mjs`.
+7. If the service is public, add an Nginx route and matching Gin paths, then update the Compose service and documentation.
+8. Run `gofmt`, `go test ./...`, `go build ./...`, `make check-openapi`, and the Nx targets.
 
 Do not create a nested `go.mod` or `go.work`. Do not give services a shared business-logic package or direct access to another service's tables.
 

@@ -187,7 +187,7 @@ Do not add gRPC, Protocol Buffers, Kafka, Turborepo, Kubernetes, Terraform, or a
   - `/healthz` -> gateway only; `/internal` is never routed
   - `/` -> Next.js web on `3000`
 - Do not add a second prefix inside a Gin router unless the routing architecture is deliberately changed.
-- When adding or changing a public route, update the Gin route, `contracts/openapi/<service>.yaml`, and `infra/nginx/default.conf` together.
+- When adding or changing a public route, update the Gin route, `contracts/openapi/<service>.yaml`, `infra/nginx/default.conf`, and the service's `contracts/routes/<service>.json` inventory together. Regenerate the inventory explicitly with `UPDATE_ROUTES=1 go test -run TestRouteInventory ./apps/services/...`; ordinary test runs must not rewrite it. Internal routes belong in the service's OpenAPI specification (`*-internal.yaml` where the service has one, otherwise the main specification) and must never be proxied by Nginx. See [`contracts/routes/README.md`](contracts/routes/README.md).
 - Validate request bodies, query parameters, and path parameters. Reject malformed input with an appropriate 4xx response.
 - Use appropriate status codes: 200/201/204 for success, 400 for malformed input, 401/403 for auth failures, 404 for missing resources, 409 for conflicts, 422 for semantic validation failures, and 500 for unexpected server errors. Pricing returns `422 WEIGHT_NOT_PRICED` for any weight outside every active band (including above the maximum) and `422 ROUTE_NOT_SERVICEABLE` for an unpriced route; the route error takes precedence.
 - Use the shared response helpers. The error shape follows API v1.1:
@@ -316,6 +316,7 @@ Add or update tests for every meaningful change.
 - Existing tests use the Go standard library testing package. Follow that style unless there is a clear reason to add another tool.
 - Unit tests must not require PostgreSQL or RabbitMQ. Use `//go:build integration` for infrastructure-backed tests under `tests/integration`.
 - Broker-backed messaging tests cover acknowledgement, retry-then-success, permanent dead-lettering, retry exhaustion, and panic recovery. Coverage that must not depend on a live broker stays in `packages/go-common/messaging`. Run `make check-openapi` for contract validation and `node --test "tests/contracts/*.test.mjs"` for event schemas.
+- Route contract tests live beside each service's HTTP router (`TestRouteInventory`) and use `packages/go-common/routecontract` to snapshot `gin.Engine.Routes()`. They must not start the database, broker or HTTP listener. `tests/contracts/route-inventory.test.mjs` cross-checks the committed inventories against OpenAPI and Nginx, including methods, path parameters, classifications and upstreams. Update an inventory only with `UPDATE_ROUTES=1 go test -run TestRouteInventory ./apps/services/...`; review the diff with the OpenAPI and Nginx change.
 - Use `go test -race ./...` for concurrency-sensitive changes when feasible.
 - CI sets `RABBITMQ_URL` for the integration job and fails when any integration test is skipped. Do not rely on silent skips.
 
@@ -498,7 +499,7 @@ Before reporting a task complete:
 - Relevant Nx targets pass, such as `pnpm exec nx test identity` or an `nx run-many` command for the affected Go projects.
 - Frontend changes pass `pnpm exec nx lint @org/web` and `pnpm exec nx build @org/web`; E2E changes pass `pnpm exec nx typecheck @org/web-e2e` and the relevant `pnpm exec nx e2e @org/web-e2e` target.
 - Messaging changes run the broker-backed integration tests when RabbitMQ is available and report any coverage that could not run.
-- API contract changes run `make check-openapi`; event changes run `node --test "tests/contracts/*.test.mjs"`.
+- API contract changes run `make check-openapi` and the affected `TestRouteInventory` packages; event changes run `node --test "tests/contracts/*.test.mjs"`. A public/internal route change must include the regenerated `contracts/routes/<service>.json`.
 - Access-control changes run `make test-access` against the Compose gateway.
 - Performance-sensitive changes run the relevant `tests/perf` k6 scenario and record the environment and results.
 - `docker compose config` passes for Compose changes.
