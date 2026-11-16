@@ -472,6 +472,8 @@ jobs:
           contracts/events/README.md
           contracts/openapi/README.md
           contracts/openapi/merchant-internal.yaml
+          contracts/routes/README.md
+          "contracts/routes/*.json"
           ".github/workflows/*.yml"
           "apps/web/src/**/*.{css,json}"
 
@@ -481,7 +483,7 @@ jobs:
       - name: Test the API clients
         run: node --test "apps/web/src/lib/*.test.mjs"
 
-      - name: Validate event contracts
+      - name: Validate contract and event tests
         run: node --test "tests/contracts/*.test.mjs"
 
       - name: Validate OpenAPI contracts

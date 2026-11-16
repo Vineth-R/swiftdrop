@@ -109,12 +109,7 @@ func run() error {
 
 	consumerHealth := messaging.NewHealth()
 	router := httpx.NewRouter(logger)
-	router.GET("/health", func(c *gin.Context) {
-		httpx.JSON(c, 200, gin.H{"status": "ok"})
-	})
-	router.GET("/ready", httpx.ReadinessHandler(
-		httpx.BooleanDependency("consumer.webhook", consumerHealth.Ready),
-	))
+	registerHTTPRoutes(router, consumerHealth)
 	server := httpx.NewServer(httpx.ServerConfig{
 		Addr:              config.Addr(),
 		Handler:           router,
@@ -157,4 +152,16 @@ func run() error {
 		return first
 	}
 	return second
+}
+
+// registerHTTPRoutes mounts the webhook worker's internal HTTP surface. The
+// worker has no business routes; only its operational probes are exposed, and
+// the route inventory test uses this helper without starting the consumer.
+func registerHTTPRoutes(router *gin.Engine, consumerHealth *messaging.Health) {
+	router.GET("/health", func(c *gin.Context) {
+		httpx.JSON(c, 200, gin.H{"status": "ok"})
+	})
+	router.GET("/ready", httpx.ReadinessHandler(
+		httpx.BooleanDependency("consumer.webhook", consumerHealth.Ready),
+	))
 }

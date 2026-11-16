@@ -1,0 +1,21 @@
+{
+  "service": "webhook-worker",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "service liveness probe registered by the service entrypoint; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "service readiness probe registered by the service entrypoint; not routed through the gateway"
+    }
+  ]
+}
