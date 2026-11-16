@@ -147,6 +147,6 @@ Observed across the implementation PRs:
 ## 6. Exit state
 
 The core Phase 4 workflow and integration evidence is delivered. The only open
-The only open Phase 4 item is the optional P4-14 live Gemini experiment. P4-13
-and P4-15 are complete: recovery is rehearsed against disposable databases, and
-only notification delivery logs are deleted after the approved 180-day window.
+Phase 4 item is the optional P4-14 live Gemini experiment. P4-13 and P4-15 are
+complete: recovery is rehearsed against disposable databases, and only
+notification delivery logs are deleted after the approved 180-day window.

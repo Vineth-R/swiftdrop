@@ -29,3 +29,11 @@ programmatically.
 
 `m2-section-2.6-and-7-review.md` is a review note for Sections 2.6 and 7. It is
 not report content; use it to complete those sections with the owning author.
+
+## Outstanding source material
+
+The Word report currently contains empty headings for Section 6.1
+(“Customer delivery flow”) and Section 8 (“Design Patterns and Principles”).
+Figures 8 and 9 have no source or caption in `docs/report` or `docs/diagrams`.
+The report owner must supply the missing prose and figure sources before final
+assembly. Do not infer or fabricate report content from the implementation.

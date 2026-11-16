@@ -1,8 +1,7 @@
 # Phase 3 — Testing, Documentation and QA Improvements
 
-Status: implementation complete on `feat/phase-3-testing-documentation-qa`; pull
-request open for review. Base: `development` at
-`686a03dc25538f6353839fbb16dd83c0c56457e5`.
+Status: merged into `development` at
+`9b719c8daad32dc1a541e02da8d0ad4b768d65a5` (PR #156).
 
 ## 1. Scope
 
@@ -15,36 +14,36 @@ new business capabilities or production infrastructure.
 
 ## 2. Findings addressed
 
-| Finding                               | Status                        | Evidence                                                                                                                                |
-| ------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| F-01 flaky merchant fixture           | Fixed                         | All UUID-derived test registration numbers now include a guaranteed digit; regression test loops 2,000 UUIDs                            |
-| F-02 Compose webhook rotation env     | Fixed                         | `WEBHOOK_SECRET_KEY_ID` and `WEBHOOK_SECRET_KEYS` are passed to Merchant; Compose config test added                                     |
-| F-03 realtime OpenAPI                 | Fixed                         | `/ws` auth, lifecycle, messages, close codes and consumer readiness documented                                                          |
-| F-04 README stale claims              | Fixed                         | AI, profiles, realtime readiness, live updates, pricing UI and live-stack statements corrected                                          |
-| F-05 architecture stale claims        | Fixed                         | Identity profiles, pricing and parcel lifecycle boundaries corrected                                                                    |
-| F-06 CI real-stack path filter        | Fixed                         | Parcel/realtime/notification/webhook/AI service and migration paths added; path-filter tests updated                                    |
-| F-07 performance evidence             | Partially addressed           | k6 public/auth/WebSocket scenarios and a local baseline added; merchant/parcel/outbox load still open                                   |
-| F-08 worker/outbox readiness          | Fixed                         | Notification, merchant sync, parcel relay and webhook worker readiness now report consumer/relay health                                 |
-| F-09 OpenAPI validation               | Fixed                         | OpenAPI parse/ref/operation/critical-route test added to CI; two stale merchant `$ref` defects were found and fixed                     |
-| F-10 runtime event schema validation  | Fixed                         | Embedded schema package validates consumer bodies; invalid payloads are permanent failures                                              |
-| F-11 access matrix                    | Fixed                         | Expanded from 26 to 40 protected-route cases                                                                                            |
-| F-12 admin real-stack UI              | Fixed                         | Real-stack read journeys added for users, pricing and reports                                                                           |
-| F-13 AI provider testing              | Partially addressed           | Deterministic tests remain; opt-in `scripts/ai-live-smoke.mjs` added; normal CI stays offline                                           |
-| F-14 Playwright flakiness             | Fixed                         | Local E2E now runs the production build; the nine previously failing tests pass together                                                |
-| F-15 identity token retention         | Fixed                         | Bounded cleanup for refresh/reset/verification tokens; integration test added                                                           |
-| F-16 merchant reservation retention   | Deferred with approval needed | No safe idempotency-window policy exists; deleting rows could allow duplicate orders                                                    |
-| F-17 notification recipient retention | Documented                    | Raw recipient remains for delivery/audit; access is ADMIN-only and masked at the API; retention policy needs owner approval             |
-| F-18 readiness semantics              | Fixed/documented              | AI readiness is 503 when unavailable; Compose uses liveness for the optional AI capability                                              |
-| F-19 historical docs                  | Fixed                         | Historical banners added to old audits/implementation/report files                                                                      |
-| F-20 pricing tracking note            | Fixed                         | Superseded M5 note corrected                                                                                                            |
-| F-21 parcel OpenAPI proof text        | Fixed                         | Proof upload/read is no longer described as planned                                                                                     |
-| F-22 Phase 1 record                   | Fixed                         | `docs/phase-1-completion-record.md` added                                                                                               |
-| F-23 Compose production limits        | Documented                    | Compose remains local-first; no resource limits or production TLS claim                                                                 |
-| F-24 Google nonce/azp                 | Accepted limitation           | PKCE, signature, issuer, audience and expiry are validated; no nonce is sent                                                            |
-| F-25 CSP unsafe-inline                | Accepted limitation           | Required by Next hydration/theme and React styles; documented                                                                           |
-| F-26..F-30, F-33, F-34                | Accepted/deferred             | Shared limiter/AI state, realtime fan-out, local proof storage, tracing/monitoring, client codegen and scrape config remain future work |
-| F-31 migration rollback coverage      | Resolved by P4-13             | `TestAllServiceMigrationCycles` covers fresh up, down-one, reapply and clean version tracking for all five services                     |
-| F-32 backup/restore verification      | Resolved by P4-13             | `make db-rehearse-restore` creates disposable source/target databases and validates the real backup/restore scripts                     |
+| Finding                               | Status                      | Evidence                                                                                                                                                          |
+| ------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F-01 flaky merchant fixture           | Fixed                       | All UUID-derived test registration numbers now include a guaranteed digit; regression test loops 2,000 UUIDs                                                      |
+| F-02 Compose webhook rotation env     | Fixed                       | `WEBHOOK_SECRET_KEY_ID` and `WEBHOOK_SECRET_KEYS` are passed to Merchant; Compose config test added                                                               |
+| F-03 realtime OpenAPI                 | Fixed                       | `/ws` auth, lifecycle, messages, close codes and consumer readiness documented                                                                                    |
+| F-04 README stale claims              | Fixed                       | AI, profiles, realtime readiness, live updates, pricing UI and live-stack statements corrected                                                                    |
+| F-05 architecture stale claims        | Fixed                       | Identity profiles, pricing and parcel lifecycle boundaries corrected                                                                                              |
+| F-06 CI real-stack path filter        | Fixed                       | Parcel/realtime/notification/webhook/AI service and migration paths added; path-filter tests updated                                                              |
+| F-07 performance evidence             | Partially addressed         | k6 public/auth/WebSocket and the Phase 4 authenticated delivery-flow baseline; sustained merchant/order/outbox load remains open                                  |
+| F-08 worker/outbox readiness          | Fixed                       | Notification, merchant sync, parcel relay and webhook worker readiness now report consumer/relay health                                                           |
+| F-09 OpenAPI validation               | Fixed                       | OpenAPI parse/ref/operation/critical-route test added to CI; two stale merchant `$ref` defects were found and fixed                                               |
+| F-10 runtime event schema validation  | Fixed                       | Embedded schema package validates consumer bodies; invalid payloads are permanent failures                                                                        |
+| F-11 access matrix                    | Fixed                       | Expanded from 26 to 40 protected-route cases                                                                                                                      |
+| F-12 admin real-stack UI              | Fixed                       | Real-stack read journeys added for users, pricing and reports                                                                                                     |
+| F-13 AI provider testing              | Partially addressed         | Deterministic tests remain; opt-in `scripts/ai-live-smoke.mjs` added; normal CI stays offline                                                                     |
+| F-14 Playwright flakiness             | Fixed                       | Local E2E now runs the production build; the nine previously failing tests pass together                                                                          |
+| F-15 identity token retention         | Fixed                       | Bounded cleanup for refresh/reset/verification tokens; integration test added                                                                                     |
+| F-16 merchant reservation retention   | Decided: indefinite (P4-15) | Reservations are never deleted; API v1.1 has no safe idempotency-key lifetime, so deletion could allow duplicate orders                                           |
+| F-17 notification recipient retention | Resolved by P4-15           | Delivery logs are retained for 180 days by default and deleted by the notification worker; processed events remain 30 days; recipients stay ADMIN-only and masked |
+| F-18 readiness semantics              | Fixed/documented            | AI readiness is 503 when unavailable; Compose uses liveness for the optional AI capability                                                                        |
+| F-19 historical docs                  | Fixed                       | Historical banners added to old audits/implementation/report files                                                                                                |
+| F-20 pricing tracking note            | Fixed                       | Superseded M5 note corrected                                                                                                                                      |
+| F-21 parcel OpenAPI proof text        | Fixed                       | Proof upload/read is no longer described as planned                                                                                                               |
+| F-22 Phase 1 record                   | Fixed                       | `docs/phase-1-completion-record.md` added                                                                                                                         |
+| F-23 Compose production limits        | Documented                  | Compose remains local-first; no resource limits or production TLS claim                                                                                           |
+| F-24 Google nonce/azp                 | Accepted limitation         | PKCE, signature, issuer, audience and expiry are validated; no nonce is sent                                                                                      |
+| F-25 CSP unsafe-inline                | Accepted limitation         | Required by Next hydration/theme and React styles; documented                                                                                                     |
+| F-26..F-30, F-33, F-34                | Accepted/deferred           | Shared limiter/AI state, realtime fan-out, local proof storage, tracing/monitoring, client codegen and scrape config remain future work                           |
+| F-31 migration rollback coverage      | Resolved by P4-13           | `TestAllServiceMigrationCycles` covers fresh up, down-one, reapply and clean version tracking for all five services                                               |
+| F-32 backup/restore verification      | Resolved by P4-13           | `make db-rehearse-restore` creates disposable source/target databases and validates the real backup/restore scripts                                               |
 
 ## 3. Implementation summary
 
@@ -218,13 +217,14 @@ Observed during this implementation:
 
 ## 6. Remaining limitations
 
-- Merchant order reservation retention needs an approved policy; no deletion is
-  performed.
-- Notification delivery-log retention needs an approved policy; recipients remain
-  stored for delivery/audit and are masked by the admin API.
-- Performance coverage is public/auth/WebSocket only; parcel creation, merchant
-  orders, outbox drain, consumer throughput and retry recovery under sustained
-  load are not yet measured.
+- Merchant order reservations are retained indefinitely by the approved P4-15
+  policy; no deletion is performed.
+- Notification delivery logs are retained for 180 days by default and processed
+  events for 30 days. Raw recipients remain for delivery/audit and are masked by
+  the admin API.
+- Performance coverage includes public/auth/WebSocket and the authenticated
+  Phase 4 delivery-flow baseline; sustained merchant/order/outbox load remains
+  open.
 - Migration rollback coverage now spans every service through `TestAllServiceMigrationCycles`; the restore path is exercised by `make db-rehearse-restore` in CI.
 - Compose is not a production deployment: no TLS, resource limits, Kubernetes,
   Terraform or monitoring stack.
