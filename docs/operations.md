@@ -89,7 +89,10 @@ the password, `INTERNAL_TOKEN`, or `DATABASE_URL`.
 
   Expected: a path under `${HOME}/swiftdrop-backups` (or `BACKUP_DIR`),
   `verified: pg_restore --list succeeded`, and a `.sha256` file. Never commit
-  dumps or checksums.
+  dumps or checksums. The URL form uses the pinned PostgreSQL helper container
+  by default. Set `BACKUP_USE_HOST_CLIENT=1` only when a compatible host
+  `pg_dump`/`pg_restore` is available and the helper container cannot reach the
+  database.
 
 - A restore overwrites a target and needs an explicit target and environment:
 
@@ -99,9 +102,34 @@ the password, `INTERNAL_TOKEN`, or `DATABASE_URL`.
   make db-restore BACKUP=/path/to/swiftdrop-<timestamp>.dump
   ```
 
-  The checksum is verified when the `.sha256` file is present. After a restore,
-  run `make migrate-status` and do not run `make migrate` again unless the
-  restored database is behind the local migrations.
+  The checksum is verified when the `.sha256` file is present. Set
+  `RESTORE_USE_HOST_CLIENT=1` to use a compatible host `pg_restore` instead of
+  the pinned helper container. The restore then runs `scripts/verify-db.sh`
+  against the target unless `SKIP_RESTORE_VALIDATION=1` is explicitly set. Validation checks the five
+  schemas, 31 tables, baseline seed data, the notification retention index and
+  every service's migration version plus dirty flag. After a restore, run
+  `make migrate-status` and do not run `make migrate` again unless the restored
+  database is behind the local migrations.
+
+- Rehearse the complete backup/restore path on a disposable server. The script
+  creates unique source and target databases, applies all migrations, seeds
+  representative rows in all five schemas, backs up the source with
+  `scripts/backup-db.sh`, restores with `scripts/restore-db.sh`, validates the
+  target, and drops only the databases it created:
+
+  ```sh
+  REHEARSAL_DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable' \
+    make db-rehearse-restore
+  ```
+
+  The URL must allow `CREATE DATABASE` and must point at a disposable server.
+  The rehearsal requires `psql`, `pg_dump`, `pg_restore` and the pinned
+  `migrate` CLI on `PATH`. It uses host clients explicitly and never points at
+  production or a shared database.
+
+  A normal restore refuses a target that already contains user tables. Use an
+  empty disposable database, `RESTORE_CLEAN=1` for an approved overwrite, or
+  `RESTORE_ALLOW_NONEMPTY=1` only for an intentional additive restore.
 
 - `RESTORE_CLEAN=1` additionally drops pre-existing objects. Use it only on a
   disposable target.
@@ -128,6 +156,22 @@ notification: 3
 A database with no applied migrations may report
 `no applied migrations or unreadable version`. That is not a clean status and
 exits non-zero.
+
+Roll back one migration per service and reapply on a disposable database:
+
+```sh
+APP_ENV=development make migrate-down
+make migrate
+make migrate-status
+```
+
+The automated all-service cycle test verifies fresh up, down-one, schema removal,
+reapply and clean version tracking:
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  go test -tags=integration -count=1 -run TestAllServiceMigrationCycles ./tests/integration/database
+```
 
 A dirty migration state prints the version followed by `(dirty)`:
 
@@ -346,6 +390,9 @@ Common causes:
 
 - `dirty` migration state: investigate the failed statement, then use an
   approved `migrate force` operation. Never delete a version row by guesswork.
+- restore validation fails: confirm the backup belongs to the expected schema
+  version, inspect the first failing `PASS`/`FAIL` line, and do not run
+  migrations until the target is understood.
 - `no applied migrations or unreadable version`: apply migrations.
 - `database: down` on `/ready`: the pool cannot reach PostgreSQL; check the
   container, credentials and network.
@@ -385,5 +432,18 @@ APP_ENV=development DATABASE_URL_DIRECT='postgres://...' \
 
 Backups are written outside the repository, verified with `pg_restore --list`,
 and accompanied by a SHA-256 checksum. A restore overwrites the target; confirm
-the host and project first with `make project-name`. After a restore, run
-`make migrate-status`. Proof objects are backed up separately from PostgreSQL.
+the host and project first with `make project-name`. Restores validate the
+target by default; `SKIP_RESTORE_VALIDATION=1` is only for an older backup that
+will be migrated afterward. After a restore, run `make migrate-status`. Proof
+objects are backed up separately from PostgreSQL.
+
+Known recovery limitations:
+
+- The restore rehearsal requires host PostgreSQL client tools compatible with
+  the server (PostgreSQL 16 in this repository) and a disposable server URL.
+- It validates schema, seed data, migration versions and representative rows,
+  not every application table.
+- A backup does not include local proof objects; use the separate proof storage
+  backup/proof-transfer procedure for those.
+- Restore is single-target and does not perform production cutover or DNS
+  switching.

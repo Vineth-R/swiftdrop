@@ -43,8 +43,8 @@ new business capabilities or production infrastructure.
 | F-24 Google nonce/azp                 | Accepted limitation           | PKCE, signature, issuer, audience and expiry are validated; no nonce is sent                                                            |
 | F-25 CSP unsafe-inline                | Accepted limitation           | Required by Next hydration/theme and React styles; documented                                                                           |
 | F-26..F-30, F-33, F-34                | Accepted/deferred             | Shared limiter/AI state, realtime fan-out, local proof storage, tracing/monitoring, client codegen and scrape config remain future work |
-| F-31 migration rollback coverage      | Still open                    | Parcel/notification rollback is tested; other services remain partial                                                                   |
-| F-32 backup/restore verification      | Still open                    | Scripts exist; no automated restore rehearsal                                                                                           |
+| F-31 migration rollback coverage      | Resolved by P4-13             | `TestAllServiceMigrationCycles` covers fresh up, down-one, reapply and clean version tracking for all five services                     |
+| F-32 backup/restore verification      | Resolved by P4-13             | `make db-rehearse-restore` creates disposable source/target databases and validates the real backup/restore scripts                     |
 
 ## 3. Implementation summary
 
@@ -225,8 +225,7 @@ Observed during this implementation:
 - Performance coverage is public/auth/WebSocket only; parcel creation, merchant
   orders, outbox drain, consumer throughput and retry recovery under sustained
   load are not yet measured.
-- Migration rollback tests cover parcel/notification baseline, not every service.
-- Backup/restore scripts exist but are not exercised by CI.
+- Migration rollback coverage now spans every service through `TestAllServiceMigrationCycles`; the restore path is exercised by `make db-rehearse-restore` in CI.
 - Compose is not a production deployment: no TLS, resource limits, Kubernetes,
   Terraform or monitoring stack.
 - Shared rate limiting/AI conversation state remain process-local.

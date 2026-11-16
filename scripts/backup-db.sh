@@ -32,14 +32,25 @@ else
         echo "error: DATABASE_URL is required for BACKUP_SOURCE=url" >&2
         exit 2
     fi
-    docker run --rm -i -e PGURL="${DATABASE_URL}" postgres:16-alpine \
-        sh -c 'pg_dump "$PGURL" -Fc --no-owner --no-privileges' >"${partial}"
+    # Keep the pinned image as the default. Host clients are opt-in for
+    # environments where the helper container cannot reach the database.
+    if [ "${BACKUP_USE_HOST_CLIENT:-}" = "1" ] && command -v pg_dump >/dev/null 2>&1; then
+        PGURL="${DATABASE_URL}" sh -c 'pg_dump "$PGURL" -Fc --no-owner --no-privileges' >"${partial}"
+    else
+        docker run --rm -i -e PGURL="${DATABASE_URL}" postgres:16-alpine \
+            sh -c 'pg_dump "$PGURL" -Fc --no-owner --no-privileges' >"${partial}"
+    fi
 fi
 
 mv "${partial}" "${output}"
 chmod 600 "${output}"
 
-if ! docker run --rm -v "${output_dir}:/backups:ro" postgres:16-alpine \
+if [ "${BACKUP_USE_HOST_CLIENT:-}" = "1" ] && command -v pg_restore >/dev/null 2>&1; then
+    if ! pg_restore --list "${output}" >/dev/null; then
+        echo "error: backup verification failed; keeping the file for inspection" >&2
+        exit 1
+    fi
+elif ! docker run --rm -v "${output_dir}:/backups:ro" postgres:16-alpine \
     pg_restore --list "/backups/$(basename "${output}")" >/dev/null; then
     echo "error: backup verification failed; keeping the file for inspection" >&2
     exit 1

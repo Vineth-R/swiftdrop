@@ -1,8 +1,8 @@
 # Phase 4 Completion Report
 
 Status: implementation complete for the Phase 4 workflow scope. The approved
-P4-15 retention policy and cleanup are implemented; P4-13/P4-14 remain optional
-operational experiments.
+P4-13 backup/restore/rollback verification and P4-15 retention are implemented;
+P4-14 remains an optional operational experiment.
 
 ## 1. Baseline and merged delivery
 
@@ -50,7 +50,7 @@ at startup.
 | P4-10 Outage recovery                   | P2       | Complete                          | `tests/recovery/outage-recovery.sh`, real-stack CI job                                                                                         |
 | P4-11 OpenAPI/route coverage            | P2       | Complete                          | Runtime Gin inventories in `contracts/routes`, OpenAPI cross-check and Nginx upstream validation in `tests/contracts/route-inventory.test.mjs` |
 | P4-12 Auth browser journeys             | P3       | Complete (reset); Google optional | `auth-reset.real.spec.ts`; no live Google dependency added                                                                                     |
-| P4-13 Restore/rollback                  | P3       | Deferred                          | Existing backup/restore scripts remain; no automated restore rehearsal in this delivery                                                        |
+| P4-13 Restore/rollback                  | P3       | Complete                          | Disposable restore rehearsal, automatic post-restore validation and all-service golang-migrate up/down/reapply cycle in CI                     |
 | P4-14 AI live provider                  | P3       | Deferred/optional                 | Deterministic AI tests remain the merge gate; no live provider dependency added                                                                |
 | P4-15 Retention policy                  | P3       | Complete                          | Approved: notification logs 180 days, merchant reservations indefinite, processed events unchanged at 30 days; see `docs/data-retention.md`    |
 
@@ -126,7 +126,11 @@ Observed across the implementation PRs:
   route with OpenAPI and the gateway upstream. Operational probes registered by
   service entrypoints (`/health`, `/ready`, `/metrics`) remain explicit
   exemptions because they are mounted outside the business routers.
-- P4-13 backup/restore rehearsal and broader rollback testing are deferred.
+- P4-13 is complete: `make db-rehearse-restore` creates isolated source/target
+  databases, uses the real backup and restore scripts, and validates schemas,
+  data, migration versions, dirty state and the notification retention index.
+  `TestAllServiceMigrationCycles` covers fresh up, down-one, reapply and clean
+  version tracking for every service.
 - P4-14 live Gemini smoke remains an opt-in/manual procedure; normal CI never
   calls the provider.
 - P4-15 is complete. Notification delivery logs are deleted after 180 days by
@@ -143,7 +147,6 @@ Observed across the implementation PRs:
 ## 6. Exit state
 
 The core Phase 4 workflow and integration evidence is delivered. The only open
-Phase 4 items are the optional P4-13/P4-14 operational experiments. P4-15 is
-complete: only notification delivery logs are deleted after the approved
-180-day window; merchant order reservations and processed events keep their
-approved policies.
+The only open Phase 4 item is the optional P4-14 live Gemini experiment. P4-13
+and P4-15 are complete: recovery is rehearsed against disposable databases, and
+only notification delivery logs are deleted after the approved 180-day window.

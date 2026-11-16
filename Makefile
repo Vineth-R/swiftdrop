@@ -190,6 +190,13 @@ db-restore:
 	@test -n "$${BACKUP:-}" || { echo "error: BACKUP=/path/to/dump is required" >&2; exit 2; }
 	./scripts/restore-db.sh "$${BACKUP}"
 
+db-rehearse-restore:
+	@if [ -z "$${REHEARSAL_DATABASE_URL:-$${TEST_DATABASE_URL:-}}" ]; then \
+		echo "error: REHEARSAL_DATABASE_URL (or TEST_DATABASE_URL) is required." >&2; \
+		exit 2; \
+	fi
+	REHEARSAL_DATABASE_URL="$${REHEARSAL_DATABASE_URL:-$${TEST_DATABASE_URL}}" ./scripts/rehearse-restore.sh
+
 proof-transfer:
 	go run ./apps/services/parcel/proof-transfer
 
