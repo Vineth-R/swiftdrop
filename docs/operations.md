@@ -120,9 +120,9 @@ version, for example:
 ```text
 identity: 6
 pricing: 2
-parcel: 7
+parcel: 8
 merchant: 11
-notification: 2
+notification: 3
 ```
 
 A database with no applied migrations may report

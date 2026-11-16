@@ -630,7 +630,7 @@ jobs:
               pricing) expected=2 ;;
               parcel) expected=8 ;;
               merchant) expected=11 ;;
-              notification) expected=2 ;;
+              notification) expected=3 ;;
               *) echo "::error::unexpected migration service ${service}"; exit 1 ;;
             esac
             if [ "${version}" != "${expected}" ]; then
