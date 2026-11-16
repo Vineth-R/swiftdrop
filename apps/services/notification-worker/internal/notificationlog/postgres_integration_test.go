@@ -71,6 +71,7 @@ func newNotificationLogTestDatabase(t *testing.T) (context.Context, *pgx.Conn) {
 		"infra/docker/postgres/init/01-schemas.sql",
 		"migrations/notification/000001_initial_schema.up.sql",
 		"migrations/notification/000002_tables.up.sql",
+		"migrations/notification/000003_notification_log_created_at_index.up.sql",
 	} {
 		applyNotificationLogSQLFile(t, ctx, conn, path)
 	}
@@ -288,5 +289,73 @@ func TestRepositoryListEmptyTable(t *testing.T) {
 	}
 	if total != 0 || logs == nil || len(logs) != 0 {
 		t.Fatalf("empty list = %+v total=%d", logs, total)
+	}
+}
+
+func TestRepositoryDeleteBeforeRetainsBoundaryAndProcessedEvents(t *testing.T) {
+	ctx, conn := newNotificationLogTestDatabase(t)
+	repo := NewRepository(conn)
+	cutoff := time.Date(2026, time.November, 16, 12, 0, 0, 0, time.UTC)
+
+	old := insertNotificationLog(t, ctx, conn, idempotency.StatusSent, "EMAIL", "old@example.com", cutoff.Add(-time.Hour), nil, nil, nil)
+	boundary := insertNotificationLog(t, ctx, conn, idempotency.StatusSent, "EMAIL", "boundary@example.com", cutoff, nil, nil, nil)
+	newer := insertNotificationLog(t, ctx, conn, idempotency.StatusFailed, "EMAIL", "newer@example.com", cutoff.Add(time.Hour), nil, nil, nil)
+
+	var processedEventID string
+	if err := conn.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&processedEventID); err != nil {
+		t.Fatalf("generate processed event ID: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO notification.processed_events (consumer, event_id)
+		VALUES ('notification-worker', $1::uuid)`, processedEventID); err != nil {
+		t.Fatalf("insert processed event: %v", err)
+	}
+
+	deleted, err := repo.DeleteBefore(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("DeleteBefore returned error: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+
+	logs, total, err := repo.List(ctx, Filter{Limit: 20})
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if total != 2 || len(logs) != 2 || logs[0].ID != newer.id || logs[1].ID != boundary.id {
+		t.Fatalf("retained logs = %+v total=%d, want boundary and newer only", logs, total)
+	}
+	for _, entry := range logs {
+		if entry.ID == old.id {
+			t.Fatalf("old log %s was retained", old.id)
+		}
+	}
+
+	var processed int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM notification.processed_events`).Scan(&processed); err != nil {
+		t.Fatalf("count processed events: %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("processed events = %d, want 1", processed)
+	}
+
+	deleted, err = repo.DeleteBefore(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("repeated DeleteBefore returned error: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("repeated deleted = %d, want 0", deleted)
+	}
+}
+
+func TestRepositoryDeleteBeforeEmptyTable(t *testing.T) {
+	ctx, conn := newNotificationLogTestDatabase(t)
+	deleted, err := NewRepository(conn).DeleteBefore(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("DeleteBefore returned error: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("deleted = %d, want 0", deleted)
 	}
 }

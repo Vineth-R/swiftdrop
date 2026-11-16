@@ -134,7 +134,7 @@ func TestParcelServiceMigrationCompatibility(t *testing.T) {
 		"identity": 9, "pricing": 5, "parcel": 5, "merchant": 10, "notification": 2,
 	}
 	expectedVersions := map[string]int{
-		"identity": 6, "pricing": 2, "parcel": 8, "merchant": 11, "notification": 2,
+		"identity": 6, "pricing": 2, "parcel": 8, "merchant": 11, "notification": 3,
 	}
 	for service, expected := range expectedTables {
 		t.Run(service, func(t *testing.T) {

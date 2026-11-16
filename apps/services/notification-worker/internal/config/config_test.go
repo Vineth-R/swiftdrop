@@ -73,6 +73,12 @@ func TestLoadFrom(t *testing.T) {
 	if config.ProcessedEventsCleanupInterval != 24*time.Hour {
 		t.Fatalf("ProcessedEventsCleanupInterval = %v, want 24h", config.ProcessedEventsCleanupInterval)
 	}
+	if config.NotificationLogRetention != 180*24*time.Hour {
+		t.Fatalf("NotificationLogRetention = %v, want 4320h", config.NotificationLogRetention)
+	}
+	if config.NotificationLogCleanupInterval != 24*time.Hour {
+		t.Fatalf("NotificationLogCleanupInterval = %v, want 24h", config.NotificationLogCleanupInterval)
+	}
 	if config.DatabaseURL != "postgres://swiftdrop:swiftdrop@postgres:5432/swiftdrop?sslmode=disable" {
 		t.Fatalf("DatabaseURL = %q", config.DatabaseURL)
 	}
@@ -583,6 +589,48 @@ func TestLoadFromRejectsInvalidIdentityConfig(t *testing.T) {
 			}
 			if _, err := LoadFrom(newLoader(values)); err == nil {
 				t.Fatal("LoadFrom() error = nil, want a configuration error")
+			}
+		})
+	}
+}
+
+func TestLoadFromParsesNotificationLogRetentionConfig(t *testing.T) {
+	loader := newLoader(map[string]string{
+		"RABBITMQ_URL":                      "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+		"NOTIFICATION_LOG_RETENTION":        "2160h",
+		"NOTIFICATION_LOG_CLEANUP_INTERVAL": "6h",
+	})
+
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+	if config.NotificationLogRetention != 2160*time.Hour {
+		t.Fatalf("NotificationLogRetention = %v, want 2160h", config.NotificationLogRetention)
+	}
+	if config.NotificationLogCleanupInterval != 6*time.Hour {
+		t.Fatalf("NotificationLogCleanupInterval = %v, want 6h", config.NotificationLogCleanupInterval)
+	}
+	if config.ProcessedEventsRetention != 30*24*time.Hour {
+		t.Fatalf("ProcessedEventsRetention = %v, want 720h", config.ProcessedEventsRetention)
+	}
+}
+
+func TestLoadFromRejectsInvalidNotificationLogRetentionConfig(t *testing.T) {
+	tests := map[string]map[string]string{
+		"zero retention":      {"NOTIFICATION_LOG_RETENTION": "0s"},
+		"negative retention":  {"NOTIFICATION_LOG_RETENTION": "-1h"},
+		"malformed retention": {"NOTIFICATION_LOG_RETENTION": "not-a-duration"},
+		"zero interval":       {"NOTIFICATION_LOG_CLEANUP_INTERVAL": "0s"},
+		"negative interval":   {"NOTIFICATION_LOG_CLEANUP_INTERVAL": "-1h"},
+		"malformed interval":  {"NOTIFICATION_LOG_CLEANUP_INTERVAL": "not-a-duration"},
+	}
+
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
+			if _, err := LoadFrom(newLoader(values)); err == nil {
+				t.Fatal("LoadFrom() should have failed")
 			}
 		})
 	}

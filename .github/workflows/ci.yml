@@ -467,7 +467,10 @@ jobs:
           docs/architecture.md
           docs/security-scanning.md
           docs/operations.md
+          docs/data-retention.md
+          docs/phase-4-completion-report.md
           docs/merchant-internal-api.md
+          migrations/notification/README.md
           tests/integration/README.md
           contracts/events/README.md
           contracts/openapi/README.md
@@ -627,7 +630,7 @@ jobs:
               pricing) expected=2 ;;
               parcel) expected=8 ;;
               merchant) expected=11 ;;
-              notification) expected=2 ;;
+              notification) expected=3 ;;
               *) echo "::error::unexpected migration service ${service}"; exit 1 ;;
             esac
             if [ "${version}" != "${expected}" ]; then

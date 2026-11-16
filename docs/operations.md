@@ -120,9 +120,9 @@ version, for example:
 ```text
 identity: 6
 pricing: 2
-parcel: 7
+parcel: 8
 merchant: 11
-notification: 2
+notification: 3
 ```
 
 A database with no applied migrations may report
@@ -249,6 +249,13 @@ during a retryable SMTP failure; `FAILED` for an invalid message. A permanent
 failure (unapproved merchant, unknown contact, SMS) dead-letters without an
 email. `processed_events` prevents a successful event from being sent twice.
 
+Notification delivery logs are retained for 180 days by default. The worker
+deletes rows older than `NOTIFICATION_LOG_RETENTION` at startup and every
+`NOTIFICATION_LOG_CLEANUP_INTERVAL` (default 24 hours). Check the worker log for
+`notification-log cleanup completed` and the deleted count. A cleanup failure is
+logged, retried on the next interval, and does not affect delivery or `/ready`.
+See [`docs/data-retention.md`](data-retention.md).
+
 ## Webhook troubleshooting
 
 1. `docker compose logs webhook-worker`.
@@ -296,11 +303,18 @@ Identity deletes expired refresh/reset/verification tokens after
 `IDENTITY_TOKEN_RETENTION` (default 30 days) at startup and every
 `IDENTITY_TOKEN_CLEANUP_INTERVAL` (default 24 hours).
 
-Notification processed events are retained for 30 days. Published outbox rows are
-retained for 14 days. Merchant order reservations and notification delivery logs
-currently have no automatic deletion; their retention policy needs owner
-approval because deleting them can weaken duplicate-order protection or delivery
-auditability.
+The approved retention policy is:
+
+- notification delivery logs: **180 days** (`NOTIFICATION_LOG_RETENTION=4320h`),
+  cleaned by the notification worker;
+- notification processed events: **30 days**, unchanged;
+- merchant order reservations: **indefinite**, because deleting them can break
+  duplicate-order protection;
+- identity tokens: existing cleanup policy.
+
+Published outbox rows are retained for 14 days. Notification-log cleanup failures
+are maintenance failures only and do not change worker readiness. See
+[`docs/data-retention.md`](data-retention.md) for the full policy.
 
 Alert thresholds and the deferred monitoring stack are listed in
 [phase-2-security-reliability.md](phase-2-security-reliability.md).
