@@ -36,6 +36,7 @@ Current chain:
 - `000007_outbox_claim` (parcel) adds the nullable `outbox_events.claim_token` and `claimed_at` columns. The relay claims a batch with `UPDATE ... WHERE id IN (SELECT ... WHERE status = 'PENDING' AND (claimed_at IS NULL OR claimed_at < stale_cutoff) ORDER BY created_at LIMIT n FOR UPDATE SKIP LOCKED)`, so concurrent replicas take disjoint rows and a claim left by a crashed replica is reclaimable after the stale window. The migration is additive and does not change the outbox statuses or storage labels.
 - `000008_proof_kind` (parcel) adds the additive `delivery_proofs.proof_kind` column (`VARCHAR(20) NOT NULL DEFAULT 'DELIVERY'`, checked to `PICKUP` or `DELIVERY`) and the `(parcel_id, proof_kind, created_at)` index. Existing rows are delivery proofs and keep that kind. The pickup workflow writes `PICKUP`; the delivery workflow and the manual proof route write `DELIVERY`. It does not change the proof constraints or add a table.
 - `000006_merchant_constraints` is the merchant service's forward migration. It adds the stricter merchant CHECK constraints through additive `ALTER TABLE` statements.
+- `000003_notification_log_created_at_index` (notification) adds the `(created_at)` index used by the approved 180-day notification-log retention cleanup. It is additive and does not change the log rows or the processed-event table.
 - The baseline remains 26 tables; identity `000004`-`000006`, merchant `000007` and merchant `000011` add five additive tables, so the complete chain is 31 tables.
 - `000009_restore_business_reg_no_required` (merchant) restores the mandatory registration-number constraint after `000008`. It drops any existing constraint, adds the NULL/whitespace check `NOT VALID`, then validates existing rows. If existing data is invalid, validation fails instead of inventing values.
 - `000010_merchant_order_snapshots` (merchant) adds the pickup and recipient contact snapshot columns needed by API 8.16 and the `(merchant_id, updated_at)` order-list index. It is additive and nullable for pre-M8 rows.
@@ -69,6 +70,35 @@ make migrate          # apply pending migrations
 make migrate-down     # one version per service; APP_ENV is required; production requires ALLOW_PRODUCTION_ROLLBACK=1
 make migrate-create SERVICE=parcel NAME=add_my_index
 ```
+
+### Rollback and recovery rehearsal
+
+`make migrate-down` rolls back one version per service in reverse service order
+and requires `APP_ENV`; production also requires
+`ALLOW_PRODUCTION_ROLLBACK=1`. Run it only against a disposable database.
+
+The automated migration-cycle test uses the real golang-migrate CLI on a
+uniquely named disposable database for every service. It asserts fresh up,
+version, down-one, schema removal, reapply and final clean/dirty state:
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  go test -tags=integration -count=1 -run TestAllServiceMigrationCycles ./tests/integration/database
+```
+
+The restore rehearsal creates its own source and target databases, applies all
+migrations, seeds representative data across all five schemas, calls the real
+`scripts/backup-db.sh` and `scripts/restore-db.sh`, and validates schemas,
+tables, migration versions, dirty state, retention index and representative data:
+
+```sh
+REHEARSAL_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  make db-rehearse-restore
+```
+
+Neither rehearsal targets the application database. See
+[`docs/operations.md`](../docs/operations.md) and
+[`docs/phase-4-completion-report.md`](../docs/phase-4-completion-report.md).
 
 `scripts/bootstrap-db.sh` creates the five schemas and
 `public.set_updated_at()` before migrations. It uses the local Compose service

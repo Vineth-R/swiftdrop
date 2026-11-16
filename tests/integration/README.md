@@ -115,6 +115,16 @@ TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmod
 
 Tests skip when `TEST_DATABASE_URL` is unset. CI starts a PostgreSQL 16 service container, sets the variable, and fails the job if any database test is skipped.
 
+`TestAllServiceMigrationCycles` uses the real golang-migrate CLI on one isolated database. For identity, pricing, parcel, merchant and notification it runs fresh up, version check, down-one, schema-removal check, up again, and a final clean/dirty version check.
+
+The restore rehearsal lives in `scripts/rehearse-restore.sh` and is run by CI after installing PostgreSQL client tools:
+
+```sh
+REHEARSAL_DATABASE_URL="$TEST_DATABASE_URL" make db-rehearse-restore
+```
+
+It creates unique source and target databases, applies all migrations, seeds representative rows in all five schemas, uses the real `scripts/backup-db.sh` and `scripts/restore-db.sh`, validates the restored database, and drops only the databases it created. The restore script now runs `scripts/verify-db.sh` automatically; validation includes schemas, 31 tables, seed data, migration versions, dirty flags and the notification retention index. Never point `REHEARSAL_DATABASE_URL` at production or a shared database.
+
 ## M4 pricing and public tracking
 
 `tests/integration/database/pricing_migrations_test.go` applies `pricing/000001` and `pricing/000002` to a uniquely named disposable database, then verifies the seed, `(min, max]` boundaries, foreign keys, unique/check/exclusion constraints, repeated execution, and down/reapply behavior.
