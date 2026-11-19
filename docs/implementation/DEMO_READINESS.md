@@ -254,3 +254,80 @@ make db-backup                # verified backup outside the repo
 The demo was executed in this acceptance pass: `make up-build`, migrations,
 `make seed-demo`, the route checks, the 63-endpoint access matrix and the real-stack Playwright suite all passed. Use the troubleshooting rows above if
 the local `.env` differs from the Mailpit defaults.
+
+---
+
+## 9. Non-deployment finalization additions
+
+### Audit logs
+
+1. Sign in as ADMIN.
+2. Open **Administration → Audit logs**.
+3. Choose Identity, Merchant or Pricing; filter by actor, action, resource type
+   or date range.
+4. Open **Show details**. Credential-like keys are shown as `[redacted]`.
+
+### Failed-outbox recovery
+
+```sh
+make outbox-failed
+make outbox-replay OUTBOX_ARGS="-older-than 720h"
+make outbox-expire OUTBOX_ARGS="-older-than 720h"
+```
+
+Replay/expire are dry runs unless the Make targets pass `-apply`.
+
+### Retention
+
+```sh
+make prune-retention          # dry run
+make prune-retention-apply    # bounded batches
+BATCH_SIZE=2000 MAX_BATCHES=50 make prune-retention-apply
+```
+
+### Webhook reliability demo
+
+```sh
+docker compose --profile webhook-test up -d --wait webhook-sink
+WEBHOOK_RETRY_DELAYS=2s,2s,2s,2s,2s \
+WEBHOOK_TEST_ORIGIN=https://webhook-sink:8098 \
+WEBHOOK_TEST_CA_FILE=/test-certs/cert.pem \
+docker compose up -d --no-deps --force-recreate merchant webhook-worker
+```
+
+Run `webhook-reliability.real.spec.ts`. Afterwards recreate merchant/webhook-worker
+without the test env so normal webhook validation applies.
+
+### S3-compatible storage demo
+
+```sh
+make storage-up
+docker run --rm --network swiftdrop_default \
+  -e AWS_ACCESS_KEY_ID=... -e AWS_SECRET_ACCESS_KEY=... \
+  -e AWS_DEFAULT_REGION=us-east-2 amazon/aws-cli:2.28.0 \
+  --endpoint-url http://s3:7070 s3api create-bucket \
+  --bucket delivery-proofs-test \
+  --create-bucket-configuration LocationConstraint=us-east-2
+STORAGE_TEST_ENDPOINT=http://localhost:7070 \
+STORAGE_TEST_ACCESS_KEY=... STORAGE_TEST_SECRET_KEY=... \
+STORAGE_TEST_BUCKET=delivery-proofs-test STORAGE_TEST_REGION=us-east-2 \
+make test-storage
+```
+
+### Live Gemini
+
+```sh
+AI_LIVE_SMOKE=1 BASE_URL=http://localhost:8080 node scripts/ai-live-smoke.mjs
+```
+
+### Google OAuth
+
+A full consent/link check requires an interactive browser and a real Google
+account. Verify the redirect locally:
+
+```sh
+curl -s -o /dev/null -D - http://localhost:8080/api/v1/auth/google/login
+```
+
+Then complete consent in a browser and confirm the callback creates/links the
+account and issues a session. This is **BLOCKED** for automated local acceptance.

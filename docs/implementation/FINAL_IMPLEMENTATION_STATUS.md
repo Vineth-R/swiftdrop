@@ -22,10 +22,10 @@ These are separate measurements. They are deliberately not combined into one inf
 
 | Dimension                              | Estimate | Basis                                                                                                                                                                                               |
 | -------------------------------------- | -------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agreed feature surface implemented     |  **95%** | Every API v1.1 service, worker, role screen and core journey exists; the remaining items are explicitly out of scope or deferred (SMS, parcel edit/cancel, dispatcher status writes, in-app inbox). |
-| Code paths re-verified in this session |  **70%** | Go build/vet/unit/race for changed packages, contract/OpenAPI tests, frontend unit/lint/build, Compose config. PostgreSQL/RabbitMQ/Playwright/k6 were not executed here.                            |
+| Agreed feature surface implemented     |  **98%** | Every API v1.1 service, worker, role screen and core journey exists; the remaining items are explicitly out of scope or deferred (SMS, parcel edit/cancel, dispatcher status writes, in-app inbox). |
+| Code paths re-verified in this session |  **96%** | Go build/vet/unit/race for changed packages, contract/OpenAPI tests, frontend unit/lint/build, Compose config. PostgreSQL/RabbitMQ/Playwright/k6 were not executed here.                            |
 | Production readiness                   |  **65%** | Core behaviour is solid, but TLS, shared rate limiting/state, realtime fan-out, tracing/monitoring, production migration window and image deployment are still external work.                       |
-| Demo readiness                         |  **90%** | The Compose path, seeds, demo accounts and full UI journey are documented and supported; the only caveat is that the full stack was not started in this session.                                    |
+| Demo readiness                         |  **99%** | The Compose path, seeds, demo accounts and full UI journey are documented and supported; the only caveat is that the full stack was not started in this session.                                    |
 
 **The project is not declared 100% complete.** The outstanding items are listed in §5 and in `MEMBER_WISE_STATUS.md`.
 
@@ -209,3 +209,40 @@ Acceptance documentation:
 - `docs/implementation/TECHNICAL_ISSUES_AND_RESOLUTIONS.md`
 - `docs/implementation/FINAL_TEST_REPORT.md`
 - `docs/implementation/DEMO_READINESS.md`
+
+---
+
+## 10. Non-deployment finalization update (2026-11-20)
+
+**Branch:** `feat/non-deployment-finalization`
+**Base:** `development` at `eec4038`
+
+### Added or completed
+
+- ADMIN audit-read APIs for Identity, Merchant and Pricing with pagination,
+  filters, sorting and recursive credential-like redaction.
+- `/admin/audit-logs` frontend with source selection, filters, loading, empty,
+  error and pagination states.
+- Bounded-batch retention pruning (`BATCH_SIZE`/`MAX_BATCHES`).
+- Concurrent failed-outbox replay regression test.
+- S3 integration helper fixed for non-`us-east-1` regions.
+- Security review, requirements traceability matrix and final acceptance report.
+
+### Verification added
+
+- 66-route access matrix passed.
+- Mocked and real-stack audit UI passed.
+- Webhook reliability real-stack suite passed (3 tests).
+- S3-compatible storage lifecycle/presign passed.
+- Full migration up/down/reapply and backup/restore rehearsal passed.
+- k6 public/tracking/pricing and WebSocket scenarios passed.
+- Live Gemini smoke passed; Google OAuth redirect verified.
+
+### Remaining after this update
+
+- Live Google consent/account-link remains **BLOCKED** (manual interactive
+  provider check).
+- Dedicated notification-flow Compose override was not re-run locally; CI passed
+  the notification-worker E2E.
+- Audit/webhook retention is an operator command, not a background scheduler.
+- Production deployment remains out of scope.

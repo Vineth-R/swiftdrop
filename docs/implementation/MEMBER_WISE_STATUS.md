@@ -269,3 +269,24 @@ verified the live socket and the authoritative REST state after completion.
 | Merchant internal contact/webhook | M8        | Notification and webhook workers                                             |
 | RabbitMQ + PostgreSQL             | M10/infra | All asynchronous and persistence evidence                                    |
 | Compose stack + seeds             | M10       | Demo and Playwright/access evidence                                          |
+
+---
+
+## Non-deployment finalization updates (2026-11-20)
+
+| Member | Added/final state                                                           |
+| ------ | --------------------------------------------------------------------------- |
+| M1     | Bounded-batch audit/webhook retention; failed-outbox concurrent replay test |
+| M2     | Logout/session fix remains verified by the 66-route matrix                  |
+| M3     | Identity ADMIN audit-log API and page; audit redaction                      |
+| M4     | Pricing ADMIN audit-log API                                                 |
+| M5     | Outbox replay/expiry verification; no new migration                         |
+| M6     | Assignment/outbox evidence unchanged and green                              |
+| M7     | Proof lifecycle policy documented; storage reconciliation verified          |
+| M8     | Merchant ADMIN audit-log API; webhook reliability still green               |
+| M9     | Webhook reliability real-stack suite passed (retry, exhaustion, rotation)   |
+| M10    | Audit UI tests; k6, migration cycle, backup/restore, S3, Gemini smoke       |
+
+**Member conclusion:** all M1–M10 mandatory non-deployment responsibilities have
+implementation and executed evidence. The only external-provider gap is live
+Google consent, which is recorded as blocked/manual.
