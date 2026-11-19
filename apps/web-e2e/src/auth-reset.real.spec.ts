@@ -1,5 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
+import { loginRequest } from './support/real-stack';
+
 const mailpit = process.env['MAILPIT_URL'] || 'http://localhost:8025';
 const baseURL = process.env['BASE_URL'] || 'http://localhost:8080';
 
@@ -110,15 +112,11 @@ test.describe('real-stack password recovery', () => {
       timeout: 20_000,
     });
 
-    const oldLogin = await request.post('/api/v1/auth/login', {
-      headers: { 'X-Token-Mode': 'body' },
-      data: { email, password: oldPassword },
-    });
+    // The real-stack suite shares the per-address login limit; wait it out
+    // instead of turning a transient 429 into a false regression.
+    const oldLogin = await loginRequest(request, email, oldPassword);
     expect(oldLogin.status()).toBe(401);
-    const newLogin = await request.post('/api/v1/auth/login', {
-      headers: { 'X-Token-Mode': 'body' },
-      data: { email, password: newPassword },
-    });
+    const newLogin = await loginRequest(request, email, newPassword);
     expect(newLogin.ok()).toBeTruthy();
 
     const reused = await request.post('/api/v1/auth/reset-password', {
