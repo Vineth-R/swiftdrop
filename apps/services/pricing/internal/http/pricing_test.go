@@ -26,6 +26,9 @@ const validBody = `{"originZoneId":"` + testOrigin + `","destinationZoneId":"` +
 type fixtureStore struct {
 	quoteErr    error
 	mutationErr error
+	auditRows   []pricing.AuditLog
+	auditTotal  int
+	auditErr    error
 }
 
 func (s fixtureStore) Quote(_ context.Context, in pricing.Input) (pricing.Quote, error) {
@@ -44,7 +47,7 @@ func (s fixtureStore) List(context.Context, string, pricing.Filter) ([]json.RawM
 	return []json.RawMessage{}, 0, nil
 }
 func (s fixtureStore) ListAuditLogs(context.Context, pricing.AuditLogFilter) ([]pricing.AuditLog, int, error) {
-	return []pricing.AuditLog{}, 0, nil
+	return s.auditRows, s.auditTotal, s.auditErr
 }
 
 type permissiveFetcher struct{}
@@ -415,4 +418,93 @@ func TestAdminPricingAuditLogsValidationAndAccess(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAdminPricingAuditLogsResponseAndRedaction(t *testing.T) {
+	rows := []pricing.AuditLog{{
+		ID: testOrigin, ActorUserID: testOrigin, Action: "pricing.zones.updated",
+		EntityType: "zones", Details: []byte(`{"name":"Colombo","password":"never-return","nested":{"token":"never-return"}}`),
+		CreatedAt: time.Date(2026, time.November, 3, 8, 0, 0, 0, time.UTC),
+	}}
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Store: fixtureStore{auditRows: rows, auditTotal: 1}, AccessSecret: testSecret, SessionCheck: allowSessions(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/admin/audit-logs/pricing?page=1&pageSize=20", nil)
+	request.Header.Set("Authorization", "Bearer "+adminToken(t, auth.RoleAdmin))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body)
+	}
+	if strings.Contains(recorder.Body.String(), "never-return") {
+		t.Fatal("audit response leaked a credential-like value")
+	}
+	if !strings.Contains(recorder.Body.String(), "[redacted]") || !strings.Contains(recorder.Body.String(), `"totalItems":1`) {
+		t.Fatalf("body = %s", recorder.Body)
+	}
+
+	for _, path := range []string{
+		"/admin/audit-logs/pricing?page=0",
+		"/admin/audit-logs/pricing?pageSize=101",
+		"/admin/audit-logs/pricing?actorUserId=nope",
+		"/admin/audit-logs/pricing?entityId=nope",
+		"/admin/audit-logs/pricing?from=2026-11-03&to=2026-11-02",
+		"/admin/audit-logs/pricing?from=nope",
+		"/admin/audit-logs/pricing?sort=createdAt:nope",
+		"/admin/audit-logs/pricing?action=" + strings.Repeat("a", 61),
+		"/admin/audit-logs/pricing?entityType=" + strings.Repeat("a", 41),
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Authorization", "Bearer "+adminToken(t, auth.RoleAdmin))
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("%s status = %d, want 422: %s", path, recorder.Code, recorder.Body)
+		}
+	}
+}
+
+func TestPricingAuditSanitizerAndFailures(t *testing.T) {
+	if got := sanitizePricingAuditDetails([]byte(`not-json`)); len(got.(map[string]any)) != 0 {
+		t.Fatalf("invalid details = %#v", got)
+	}
+	long := strings.Repeat("x", 2100)
+	got := sanitizePricingAuditDetails([]byte(`{"items":[{"apiKey":"secret","value":"` + long + `"}]}`))
+	text := JSONString(got)
+	if strings.Contains(text, "secret") || !strings.Contains(text, "[redacted]") || !strings.Contains(text, "…") {
+		t.Fatalf("sanitized = %s", text)
+	}
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"unavailable", pricing.ErrUnavailable, http.StatusServiceUnavailable},
+		{"internal", errors.New("boom"), http.StatusInternalServerError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+				Store: fixtureStore{auditErr: test.err}, AccessSecret: testSecret, SessionCheck: allowSessions(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodGet, "/admin/audit-logs/pricing", nil)
+			request.Header.Set("Authorization", "Bearer "+adminToken(t, auth.RoleAdmin))
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != test.want {
+				t.Fatalf("status = %d, want %d: %s", recorder.Code, test.want, recorder.Body)
+			}
+		})
+	}
+}
+
+func JSONString(value any) string {
+	encoded, _ := json.Marshal(value)
+	return string(encoded)
 }

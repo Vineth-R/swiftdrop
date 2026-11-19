@@ -16,9 +16,5 @@ test('an administrator reads audit records from the real services', async ({
   ).toBeVisible();
   const table = page.getByRole('table', { name: 'Administrative audit logs' });
   await expect(table).toBeVisible();
-  await expect(table.getByRole('row'))
-    .toHaveCount(1, { timeout: 2_000 })
-    .catch(() => {
-      // The local stack may have records; the header-only case is still valid.
-    });
+  await expect(table.getByRole('row').first()).toBeVisible();
 });
