@@ -180,3 +180,47 @@ func TestAuthenticatedRoutesEnforceSessionRevocation(t *testing.T) {
 		})
 	}
 }
+
+func TestParcelCreateIsRateLimitedPerCustomer(t *testing.T) {
+	secret := strings.Repeat("s", 32)
+	manager, err := auth.NewTokenManager(secret, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := manager.Issue("11111111-1111-4111-8111-111111111111", auth.RoleCustomer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		AccessSecret: secret,
+		SessionCheck: allowSessions(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The body is invalid, so each admitted request is rejected by validation
+	// rather than reaching the database. The limiter still counts the attempt.
+	for i := 0; i < 30; i++ {
+		req := httptest.NewRequest("POST", "/parcels", strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code == 429 {
+			t.Fatalf("request %d was rate limited too early: %s", i+1, w.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest("POST", "/parcels", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != 429 || !strings.Contains(w.Body.String(), "RATE_LIMITED") {
+		t.Fatalf("status = %d, want 429 RATE_LIMITED: %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Fatal("rate-limited response lacks Retry-After")
+	}
+}

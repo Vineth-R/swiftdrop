@@ -667,3 +667,24 @@ func TestLegacyUpgradeDoesNotOverwriteAConcurrentRotation(t *testing.T) {
 		t.Fatalf("read-repair overwrote a concurrent rotation: %q", store.webhook.SigningSecretEnc)
 	}
 }
+
+func TestTestSendIsRateLimitedPerMerchant(t *testing.T) {
+	f := newWebhookFixture("MERCHANT")
+	f.call(http.MethodPut, "/merchants/me/webhook", `{"url":"https://shopzone.lk/a"}`)
+	f.sender.result = webhookdelivery.Result{StatusCode: 200, Success: true}
+
+	for i := 0; i < 10; i++ {
+		recorder, _ := f.call(http.MethodPost, "/merchants/me/webhook/test", "")
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("test send %d status = %d, want 200", i+1, recorder.Code)
+		}
+	}
+
+	recorder, body := f.call(http.MethodPost, "/merchants/me/webhook/test", "")
+	if recorder.Code != http.StatusTooManyRequests || webhookErrorCode(body) != "RATE_LIMITED" {
+		t.Fatalf("got %d %v, want 429 RATE_LIMITED", recorder.Code, body)
+	}
+	if recorder.Header().Get("Retry-After") == "" {
+		t.Fatal("rate-limited response lacks Retry-After")
+	}
+}
