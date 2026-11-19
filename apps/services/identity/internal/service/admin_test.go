@@ -35,6 +35,9 @@ type fakeAdminStore struct {
 	statusActive  *bool
 	statusActor   string
 	courierFilter repository.CourierFilter
+	auditFilter   repository.AuditLogFilter
+	auditRows     []repository.AuditLog
+	auditTotal    int
 	writes        int
 }
 
@@ -48,6 +51,11 @@ func newFakeAdminStore() *fakeAdminStore {
 func (f *fakeAdminStore) ListAdminUsers(_ context.Context, filter repository.UserFilter) ([]repository.AdminUser, int, error) {
 	f.listFilter = filter
 	return f.listed, f.total, f.err
+}
+
+func (f *fakeAdminStore) ListAuditLogs(_ context.Context, filter repository.AuditLogFilter) ([]repository.AuditLog, int, error) {
+	f.auditFilter = filter
+	return f.auditRows, f.auditTotal, f.err
 }
 
 func (f *fakeAdminStore) AdminUserByID(_ context.Context, id string) (repository.AdminUser, error) {
@@ -640,5 +648,45 @@ func TestAdminUsers_InitiatePasswordReset_rejections(t *testing.T) {
 	}
 	if err := noReset.InitiatePasswordReset(context.Background(), adminID, targetID); !errors.Is(err, ErrPasswordResetUnavailable) {
 		t.Fatalf("unconfigured reset error = %v, want ErrPasswordResetUnavailable", err)
+	}
+}
+
+func TestListAuditLogs(t *testing.T) {
+	admin, store, _ := newAdminFixture(t)
+	store.auditRows = []repository.AuditLog{{
+		ID: adminID, ActorUserID: adminID, Action: "USER_UPDATED", EntityType: "user",
+		Details: []byte(`{"role":"COURIER"}`),
+	}}
+	store.auditTotal = 1
+
+	page, err := admin.ListAuditLogs(context.Background(), ListAuditLogsInput{
+		ActorUserID: adminID, Action: "USER_UPDATED", EntityType: "user",
+		Sort: "createdAt:asc", Page: 2, PageSize: 10,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditLogs returned error: %v", err)
+	}
+	if page.TotalItems != 1 || page.Page != 2 || page.PageSize != 10 || len(page.Entries) != 1 {
+		t.Fatalf("page = %+v", page)
+	}
+	if !store.auditFilter.Ascending || store.auditFilter.ActorUserID != adminID || store.auditFilter.Offset != 10 {
+		t.Fatalf("filter = %+v", store.auditFilter)
+	}
+
+	for _, input := range []ListAuditLogsInput{
+		{ActorUserID: "not-a-uuid"},
+		{EntityID: "not-a-uuid"},
+		{Action: strings.Repeat("a", 61)},
+		{EntityType: strings.Repeat("a", 41)},
+		{Sort: "createdAt:nope"},
+	} {
+		if _, err := admin.ListAuditLogs(context.Background(), input); err == nil {
+			t.Fatalf("accepted invalid input %+v", input)
+		}
+	}
+
+	store.err = errors.New("store down")
+	if _, err := admin.ListAuditLogs(context.Background(), ListAuditLogsInput{}); err == nil {
+		t.Fatal("hid a store failure")
 	}
 }

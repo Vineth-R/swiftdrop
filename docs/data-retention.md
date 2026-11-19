@@ -109,8 +109,11 @@ make prune-retention-apply    # deletes rows past the windows below
 
 Both windows must be at least 30 days. `APPLY=1` (which the
 `prune-retention-apply` target sets) is required to delete anything; the default
-is a read-only dry run. The script never touches notification logs, processed
-events, merchant orders, reservations, parcel rows or proof objects.
+is a read-only dry run. Deletion runs in bounded batches (`BATCH_SIZE`, default 5000) for a bounded number of rounds (`MAX_BATCHES`, default 100), so one run
+does not hold a long lock or build one huge transaction. Re-running the command
+is safe and continues from the remaining rows. The script never touches
+notification logs, processed events, merchant orders, reservations, parcel rows
+or proof objects.
 
 ## Failed outbox events
 

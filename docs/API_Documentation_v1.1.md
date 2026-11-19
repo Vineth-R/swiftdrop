@@ -1371,6 +1371,24 @@ Response 202: { "data": { "message": "Password reset requested..." } } . Errors:
 
 person completes the reset, following the rules in 2.17.
 
+2.21 GET /admin/audit-logs/{source} (additive)
+
+Access: ADMIN.
+
+
+
+Source is identity, merchant or pricing. Each service owns and serves its own audit records; Nginx maps /api/v1/admin/audit-logs/identity to Identity, /api/v1/admin/audit-logs/merchant to Merchant and /api/v1/admin/audit-logs/pricing to Pricing.
+
+
+
+Purpose: Read-only administrative audit trail. Records identify the actor user ID, action, entity type and ID, timestamp and a JSON details object. Credential-like detail keys (password, token, secret, credential, authorization, cookie, api key) are replaced with "[redacted]" by the read API. No audit row can be modified or deleted through this endpoint.
+
+
+
+Query parameters: page, pageSize (1-100), actorUserId, action, entityType, entityId, from, to (inclusive YYYY-MM-DD dates) and sort (createdAt:asc or createdAt:desc). Response 200 is the standard list envelope with pagination. Errors: 401, 403 FORBIDDEN, 422 VALIDATION_ERROR for malformed filters, 503 SERVICE_UNAVAILABLE when the service is not configured.
+
+
+
 ## 3. Pricing and Zones Service
 
 Routed by Nginx from /api/v1/pricing , /api/v1/zones , /api/v1/admin/pricing and

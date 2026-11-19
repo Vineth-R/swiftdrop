@@ -332,3 +332,49 @@ func TestFailedOutboxReplayAndExpiry(t *testing.T) {
 		t.Fatal("expired event still exists")
 	}
 }
+
+func TestFailedOutboxConcurrentReplayClaimsEachRowOnce(t *testing.T) {
+	pool, _ := newIsolatedDatabase(t)
+	store := parcelevents.NewSQLStore(pool)
+	ids := insertPendingOutbox(t, pool, 20)
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	for _, id := range ids {
+		if _, err := pool.Exec(t.Context(), `
+			UPDATE parcel.outbox_events
+			SET status = 'FAILED', attempts = 5, created_at = $2
+			WHERE id = $1`, id, old); err != nil {
+			t.Fatalf("mark outbox event failed: %v", err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var total int64
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n, err := store.ReplayFailed(t.Context(), time.Now().UTC(), 50)
+			if err != nil {
+				t.Errorf("ReplayFailed: %v", err)
+				return
+			}
+			mu.Lock()
+			total += n
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	if total != int64(len(ids)) {
+		t.Fatalf("replayed %d rows across four workers, want %d", total, len(ids))
+	}
+	var failed, pending int
+	if err := pool.QueryRow(t.Context(), `
+		SELECT count(*) FILTER (WHERE status = 'FAILED'), count(*) FILTER (WHERE status = 'PENDING')
+		FROM parcel.outbox_events`).Scan(&failed, &pending); err != nil {
+		t.Fatalf("count replayed rows: %v", err)
+	}
+	if failed != 0 || pending != len(ids) {
+		t.Fatalf("failed=%d pending=%d, want 0/%d", failed, pending, len(ids))
+	}
+}

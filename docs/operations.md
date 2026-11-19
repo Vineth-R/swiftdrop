@@ -358,6 +358,11 @@ The approved retention policy is:
 - identity, merchant and pricing audit logs: **365 days**, operator command;
 - merchant webhook delivery attempts: **90 days**, operator command.
 
+ADMIN audit records are readable at `/api/v1/admin/audit-logs/identity`,
+`/api/v1/admin/audit-logs/merchant` and `/api/v1/admin/audit-logs/pricing`.
+Each service reads only its own schema. The response is paginated and filtered;
+credential-like detail keys are redacted.
+
 Published outbox rows are retained for 14 days. Failed outbox rows are retained
 for investigation until an operator replays or expires them:
 

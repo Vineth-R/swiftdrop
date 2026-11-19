@@ -29,6 +29,7 @@ test.describe('navigation by role', () => {
       'Zones',
       'Pricing',
       'Notification logs',
+      'Audit logs',
     ],
   };
 

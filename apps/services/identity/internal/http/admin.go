@@ -33,6 +33,7 @@ type AdminService interface {
 	InitiatePasswordReset(ctx context.Context, actorID, userID string) error
 	CurrentAccess(ctx context.Context, userID string) (service.CurrentAccess, error)
 	ListCouriers(ctx context.Context, input service.ListCouriersInput) (service.CourierPage, error)
+	ListAuditLogs(ctx context.Context, input service.ListAuditLogsInput) (service.AuditLogPage, error)
 }
 
 // AdminRoutes carries what the admin user endpoints and GET /couriers need.
@@ -152,6 +153,12 @@ func registerAdminRoutes(router *gin.Engine, routes AdminRoutes, logger *slog.Lo
 	admin.PATCH("/:userId", handlers.updateUser)
 	admin.PATCH("/:userId/status", handlers.setStatus)
 	admin.POST("/:userId/password-reset", handlers.passwordReset)
+
+	audit := router.Group("/admin/audit-logs/identity", noStore(), authenticate, auth.RequireRoles(auth.RoleAdmin),
+		handlers.requireCurrentAccess(auth.RoleAdmin), limitByUser(limiter))
+	for _, path := range []string{"", "/"} {
+		audit.GET(path, handlers.listAuditLogs)
+	}
 
 	// ADMIN also satisfies DISPATCHER (API v1.1 section 1.3).
 	couriers := router.Group("/couriers", noStore(), authenticate, auth.RequireRoles(auth.RoleDispatcher),

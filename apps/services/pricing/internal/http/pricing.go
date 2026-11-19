@@ -24,6 +24,7 @@ type PricingStore interface {
 	Zone(context.Context, string) (pricing.Zone, error)
 	Mutate(context.Context, string, string, string, pricing.Mutation) (json.RawMessage, error)
 	List(context.Context, string, pricing.Filter) ([]json.RawMessage, int, error)
+	ListAuditLogs(context.Context, pricing.AuditLogFilter) ([]pricing.AuditLog, int, error)
 }
 type Options struct {
 	Store          PricingStore
@@ -75,6 +76,16 @@ func registerPricing(router *gin.Engine, logger *slog.Logger, options Options) e
 	}
 	admin.GET("/pricing/surcharges", h.list("surcharges"))
 	admin.PUT("/pricing/surcharges/:id", h.mutate("surcharges", false))
+
+	auditLimiter := httpx.NewRateLimiter(300, time.Minute).MiddlewareKeyed(func(c *gin.Context) string {
+		claims, ok := auth.ClaimsFrom(c)
+		if !ok || claims.UserID == "" {
+			return ""
+		}
+		return "admin:" + claims.UserID
+	})
+	admin.GET("/audit-logs/pricing", auditLimiter, h.listAuditLogs)
+	admin.GET("/audit-logs/pricing/", auditLimiter, h.listAuditLogs)
 	return nil
 }
 

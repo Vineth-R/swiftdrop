@@ -1,6 +1,7 @@
 import {
   ChartColumn,
   CircleDollarSign,
+  FileClock,
   FileText,
   History,
   KeyRound,
@@ -123,6 +124,11 @@ export const navByRole: Record<Role, NavGroup[]> = {
           label: 'Notification logs',
           href: '/admin/notification-logs',
           icon: ScrollText,
+        },
+        {
+          label: 'Audit logs',
+          href: '/admin/audit-logs',
+          icon: FileClock,
         },
       ],
     },

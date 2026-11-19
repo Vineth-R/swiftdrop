@@ -210,3 +210,35 @@ pricing, parcel, dispatch, courier proof, notification, webhook, merchant sync,
 realtime and the frontend. The remaining gaps are operational (production
 deployment, multi-replica state, live providers, full migration rehearsal) and
 are listed explicitly rather than counted as verified.
+
+---
+
+## 9. Non-deployment finalization results (2026-11-20)
+
+| Check                              | Command                                                    | Result                                      |
+| ---------------------------------- | ---------------------------------------------------------- | ------------------------------------------- |
+| Go format/build/vet/unit           | `gofmt`, `go build ./...`, `go vet ./...`, `go test ./...` | PASS                                        |
+| Race tests                         | identity, merchant HTTP, pricing HTTP, objectstore         | PASS                                        |
+| Contract/OpenAPI/route tests       | `node --test tests/contracts/*.test.mjs`                   | PASS — 32                                   |
+| Frontend unit/lint/build/typecheck | Nx targets                                                 | PASS                                        |
+| Audit mocked UI                    | `admin-audit-logs.spec.ts`                                 | PASS — 2                                    |
+| Audit real-stack UI                | `admin-audit-logs.real.spec.ts`                            | PASS                                        |
+| Authorization matrix               | `make test-access`                                         | PASS — 66 endpoints                         |
+| Audit API live smoke               | ADMIN vs CUSTOMER vs anonymous via gateway                 | PASS — 200/403/401                          |
+| Webhook reliability                | `webhook-reliability.real.spec.ts`                         | PASS — 3 (retry, exhaustion, rotation)      |
+| S3-compatible storage              | `make test-storage` with VersityGW `us-east-2`             | PASS                                        |
+| Migration cycle                    | `TestAllServiceMigrationCycles` against PostgreSQL 16      | PASS                                        |
+| Backup/restore rehearsal           | `scripts/rehearse-restore.sh` against PostgreSQL 16        | PASS                                        |
+| Retention dry run                  | `make prune-retention`                                     | PASS                                        |
+| Failed-outbox concurrency          | integration test, 20 rows / 4 workers                      | PASS                                        |
+| k6 public/tracking/pricing         | 5 VU / 10s                                                 | PASS — 0 failed, p95 ≈ 11 ms                |
+| k6 WebSocket                       | 3 VU / 8s                                                  | PASS                                        |
+| Live Gemini                        | `AI_LIVE_SMOKE=1 node scripts/ai-live-smoke.mjs`           | PASS — HTTP 200                             |
+| Google OAuth redirect              | `GET /auth/google/login`                                   | PASS — 302 with PKCE/state; consent BLOCKED |
+| Compose config                     | `docker compose config`                                    | PASS                                        |
+| Prettier/diff check                | changed docs and `git diff --check`                        | PASS                                        |
+
+**Not executed:** live Google consent/account-link (blocked), dedicated
+notification-flow Compose override locally (CI `Notification worker E2E` passed),
+full real-stack suite after the audit changes (audit real-stack spec passed; CI
+runs the full suite on the PR).

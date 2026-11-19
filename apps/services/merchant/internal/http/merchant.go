@@ -106,6 +106,26 @@ func registerMerchantRoutes(router *gin.Engine, options Options) {
 	adminEmailLimiter := httpx.NewRateLimiter(30, time.Minute)
 	admin.POST("/:merchantId/email", adminEmailLimiter.Middleware(), h.adminEmail)
 
+	// Merchant audit rows are separate from identity and pricing audit rows.
+	// The source-specific path keeps the gateway mapping unambiguous.
+	auditGroup := router.Group("/admin/audit-logs/merchant", noStore())
+	auditLimiter := httpx.NewRateLimiter(300, time.Minute)
+	if manager == nil {
+		auditGroup.Use(unavailable("authentication is not configured"))
+	} else {
+		auditGroup.Use(auth.Authenticate(manager, cookie), auth.RequireRoles(auth.RoleAdmin),
+			auditLimiter.MiddlewareKeyed(func(c *gin.Context) string {
+				claims, ok := auth.ClaimsFrom(c)
+				if !ok || claims.UserID == "" {
+					return ""
+				}
+				return "admin:" + claims.UserID
+			}))
+	}
+	for _, path := range []string{"", "/"} {
+		auditGroup.GET(path, h.listAuditLogs)
+	}
+
 	registerMerchantOrderRoutes(router, h, manager)
 }
 

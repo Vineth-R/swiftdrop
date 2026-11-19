@@ -16,6 +16,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 func testConfig(t *testing.T) Config {
@@ -50,7 +51,13 @@ func ensureBucket(t *testing.T, config Config) {
 		options.BaseEndpoint = aws.String(config.Endpoint)
 		options.UsePathStyle = true
 	})
-	if _, err := client.CreateBucket(context.Background(), &s3.CreateBucketInput{Bucket: aws.String(config.Bucket)}); err != nil {
+	input := &s3.CreateBucketInput{Bucket: aws.String(config.Bucket)}
+	if config.Region != "us-east-1" {
+		input.CreateBucketConfiguration = &types.CreateBucketConfiguration{
+			LocationConstraint: types.BucketLocationConstraint(config.Region),
+		}
+	}
+	if _, err := client.CreateBucket(context.Background(), input); err != nil {
 		// S3-compatible endpoints return BucketAlreadyOwnedByYou/BucketAlreadyExists on repeat runs.
 		if !strings.Contains(err.Error(), "BucketAlready") {
 			t.Fatal(err)

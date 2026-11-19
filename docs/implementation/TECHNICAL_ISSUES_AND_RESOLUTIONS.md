@@ -507,3 +507,17 @@ the Compose network: the identity repository suite, the event-flow suite
 passed. The full migration-cycle, dedicated notification-flow, k6, restore,
 storage and live-provider checks were not executed; see
 `FINAL_TEST_REPORT.md` for the exact list.
+
+---
+
+## Non-deployment finalization defects (2026-11-20)
+
+| ID      | Severity | Issue                                                     | Resolution                                                                                                 |
+| ------- | -------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| DEF-016 | Medium   | ADMIN audit rows had no read API/UI                       | Added Identity/Merchant/Pricing audit endpoints, redaction, `/admin/audit-logs`, mocked + real-stack tests |
+| DEF-017 | Medium   | Retention apply used one unbounded delete per table       | Bounded batches with `BATCH_SIZE`/`MAX_BATCHES`, resumable and idempotent                                  |
+| DEF-018 | Low      | S3 integration helper failed outside `us-east-1`          | CreateBucket now sends the configured LocationConstraint; S3 suite passes on `us-east-2`                   |
+| DEF-019 | Low      | Audit routes could drift from Nginx/OpenAPI/access matrix | Route inventories, OpenAPI, Nginx and 66-route matrix updated together; contract tests pass                |
+
+No critical or high-severity application defect remains open in the
+non-deployment scope.
