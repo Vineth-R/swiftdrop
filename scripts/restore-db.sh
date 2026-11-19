@@ -38,6 +38,10 @@ fi
 backup_dir="$(CDPATH= cd -- "$(dirname -- "${backup}")" && pwd)"
 backup_name="$(basename -- "${backup}")"
 
+container_url() {
+    printf '%s' "$1" | sed -E 's#@(localhost|127\.0\.0\.1|\[::1\])([:/])#@host.docker.internal\2#'
+}
+
 if [ "${RESTORE_CLEAN:-}" != "1" ] && [ "${RESTORE_ALLOW_NONEMPTY:-}" != "1" ]; then
     target_sql="SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')"
     if command -v psql >/dev/null 2>&1; then
@@ -46,7 +50,8 @@ if [ "${RESTORE_CLEAN:-}" != "1" ] && [ "${RESTORE_ALLOW_NONEMPTY:-}" != "1" ]; 
             exit 1
         }
     else
-        target_objects="$(docker run --rm -e PGURL="${DATABASE_URL_DIRECT}" -e TARGET_SQL="$target_sql" postgres:16-alpine \
+        target_objects="$(docker run --rm --add-host host.docker.internal:host-gateway \
+            -e PGURL="$(container_url "${DATABASE_URL_DIRECT}")" -e TARGET_SQL="$target_sql" postgres:16-alpine \
             sh -c 'psql "$PGURL" -X -At -v ON_ERROR_STOP=1 -c "$TARGET_SQL"')" || {
             echo "error: could not inspect the restore target; refusing an unchecked restore" >&2
             exit 1
@@ -77,7 +82,8 @@ if [ "${RESTORE_USE_HOST_CLIENT:-}" = "1" ] && command -v pg_restore >/dev/null 
     PGURL="${DATABASE_URL_DIRECT}" BACKUP_PATH="${backup}" sh -c \
         "pg_restore -d \"\$PGURL\" ${args} \"\$BACKUP_PATH\""
 else
-    docker run --rm -v "${backup_dir}:/backups:ro" -e PGURL="${DATABASE_URL_DIRECT}" postgres:16-alpine \
+    docker run --rm --add-host host.docker.internal:host-gateway \
+        -v "${backup_dir}:/backups:ro" -e PGURL="$(container_url "${DATABASE_URL_DIRECT}")" postgres:16-alpine \
         sh -c "pg_restore -d \"\$PGURL\" ${args} /backups/${backup_name}"
 fi
 

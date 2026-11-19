@@ -23,6 +23,13 @@ fi
 mkdir -p "${output_dir}"
 chmod 700 "${output_dir}"
 
+# A helper container cannot reach the host through "localhost". Rewrite only
+# the loopback host so the pinned PostgreSQL 16 client can reach a local
+# rehearsal database without changing any remote URL.
+container_url() {
+    printf '%s' "$1" | sed -E 's#@(localhost|127\.0\.0\.1|\[::1\])([:/])#@host.docker.internal\2#'
+}
+
 if [ "$source" = "compose" ]; then
     ${compose} exec -T postgres pg_dump \
         -U "${POSTGRES_USER:-swiftdrop}" -d "${POSTGRES_DB:-swiftdrop}" \
@@ -37,7 +44,8 @@ else
     if [ "${BACKUP_USE_HOST_CLIENT:-}" = "1" ] && command -v pg_dump >/dev/null 2>&1; then
         PGURL="${DATABASE_URL}" sh -c 'pg_dump "$PGURL" -Fc --no-owner --no-privileges' >"${partial}"
     else
-        docker run --rm -i -e PGURL="${DATABASE_URL}" postgres:16-alpine \
+        docker run --rm -i --add-host host.docker.internal:host-gateway \
+            -e PGURL="$(container_url "${DATABASE_URL}")" postgres:16-alpine \
             sh -c 'pg_dump "$PGURL" -Fc --no-owner --no-privileges' >"${partial}"
     fi
 fi
