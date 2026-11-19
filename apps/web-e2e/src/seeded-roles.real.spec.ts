@@ -4,6 +4,7 @@ import {
   credentialsFor,
   credentialsForRun,
   isCI,
+  signInThroughForm,
   type SeededAccount,
 } from './support/real-stack';
 
@@ -50,10 +51,10 @@ test.describe('seeded users on the real stack', () => {
       );
       if (!credentials) return;
 
-      await page.goto('/login');
-      await page.locator('#login-email').fill(credentials.email);
-      await page.locator('#login-password').fill(credentials.password);
-      await page.getByRole('button', { name: 'Log in' }).click();
+      // The suite shares the per-address login limit with the other real-stack
+      // specs, so the helper waits out a 429 instead of reporting a false
+      // failure when several journeys run in one worker.
+      await signInThroughForm(page, credentials.email, credentials.password);
 
       await expect(page).toHaveURL(home);
       await expect(page.getByRole('main')).toBeVisible();
