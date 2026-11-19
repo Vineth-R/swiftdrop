@@ -540,6 +540,84 @@ paths:
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /admin/audit-logs/identity:
+    get:
+      operationId: identityAdminAuditLogs
+      summary: List identity audit records (ADMIN)
+      description: Read-only. Only ADMIN may call it; credential-like detail keys are redacted.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - {
+            name: page,
+            in: query,
+            schema: { type: integer, minimum: 1, default: 1 },
+          }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+        - {
+            name: actorUserId,
+            in: query,
+            schema: { type: string, format: uuid },
+          }
+        - { name: action, in: query, schema: { type: string, maxLength: 60 } }
+        - {
+            name: entityType,
+            in: query,
+            schema: { type: string, maxLength: 40 },
+          }
+        - { name: entityId, in: query, schema: { type: string, format: uuid } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - {
+            name: sort,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: ['createdAt:asc', 'createdAt:desc'],
+                default: 'createdAt:desc',
+              },
+          }
+      responses:
+        '200':
+          description: One page of identity audit records. Credential-like detail keys are redacted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        [
+                          id,
+                          actorUserId,
+                          action,
+                          entityType,
+                          details,
+                          createdAt,
+                        ]
+                      properties:
+                        id: { type: string, format: uuid }
+                        actorUserId: { type: string, format: uuid }
+                        action: { type: string }
+                        entityType: { type: string }
+                        entityId: { type: string, format: uuid, nullable: true }
+                        details: { type: object, additionalProperties: true }
+                        createdAt: { type: string, format: date-time }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /admin/users:
     get:
       operationId: identityAdminListUsers

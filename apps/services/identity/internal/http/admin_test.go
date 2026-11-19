@@ -31,6 +31,8 @@ type fakeAdminService struct {
 	createInput  service.CreateStaffInput
 	updateInput  service.UpdateUserInput
 	courierInput service.ListCouriersInput
+	auditInput   service.ListAuditLogsInput
+	auditPage    service.AuditLogPage
 	actor        string
 	gotUserID    string
 	gotActive    *bool
@@ -92,6 +94,12 @@ func (f *fakeAdminService) ListCouriers(_ context.Context, in service.ListCourie
 	f.calls++
 	f.courierInput = in
 	return f.couriers, f.err
+}
+
+func (f *fakeAdminService) ListAuditLogs(_ context.Context, in service.ListAuditLogsInput) (service.AuditLogPage, error) {
+	f.calls++
+	f.auditInput = in
+	return f.auditPage, f.err
 }
 
 type adminHarness struct {
@@ -156,6 +164,7 @@ var adminEndpoints = []struct{ method, path, body string }{
 	{http.MethodGet, "/admin/users/" + targetUserID, ""},
 	{http.MethodPatch, "/admin/users/" + targetUserID, `{"fullName":"New Name"}`},
 	{http.MethodPatch, "/admin/users/" + targetUserID + "/status", `{"isActive":false}`},
+	{http.MethodGet, "/admin/audit-logs/identity", ""},
 }
 
 func TestAdminEndpoints_requireAuthentication(t *testing.T) {
@@ -723,6 +732,75 @@ func TestAdminPasswordReset_mapsUnavailableStates(t *testing.T) {
 
 		if response.Code != test.status || errorCode(t, response) != test.code {
 			t.Fatalf("%v: status = %d body = %s, want %d %s", test.err, response.Code, response.Body, test.status, test.code)
+		}
+	}
+}
+
+func TestAdminAuditLogs_readsAndRedactsDetails(t *testing.T) {
+	h := newAdminHarness(t)
+	entityID := targetUserID
+	h.service.auditPage = service.AuditLogPage{
+		Entries: []service.AuditLogEntry{{
+			ID: "audit-1", ActorUserID: adminUserID, Action: "USER_UPDATED",
+			EntityType: "user", EntityID: &entityID,
+			Details:   []byte(`{"role":"COURIER","password":"never-return-this","nested":{"accessToken":"never-return-this-either"},"note":"ok"}`),
+			CreatedAt: time.Date(2026, time.November, 3, 8, 0, 0, 0, time.UTC),
+		}},
+		Page: 2, PageSize: 10, TotalItems: 11,
+	}
+
+	response := h.do(t, auth.RoleAdmin, http.MethodGet,
+		"/admin/audit-logs/identity?actorUserId="+adminUserID+"&action=USER_UPDATED&entityType=user&entityId="+targetUserID+"&from=2026-11-01&to=2026-11-02&page=2&pageSize=10&sort=createdAt:asc", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body)
+	}
+	if strings.Contains(response.Body.String(), "never-return-this") {
+		t.Fatal("audit response leaked a credential-like value")
+	}
+	if !strings.Contains(response.Body.String(), "[redacted]") {
+		t.Fatalf("audit response was not redacted: %s", response.Body)
+	}
+	var envelope struct {
+		Data []struct {
+			ID      string         `json:"id"`
+			Details map[string]any `json:"details"`
+		} `json:"data"`
+		Meta struct {
+			Pagination struct {
+				Page       int `json:"page"`
+				PageSize   int `json:"pageSize"`
+				TotalItems int `json:"totalItems"`
+			} `json:"pagination"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(envelope.Data) != 1 || envelope.Data[0].ID != "audit-1" {
+		t.Fatalf("data = %+v", envelope.Data)
+	}
+	if envelope.Meta.Pagination.Page != 2 || envelope.Meta.Pagination.PageSize != 10 || envelope.Meta.Pagination.TotalItems != 11 {
+		t.Fatalf("pagination = %+v", envelope.Meta.Pagination)
+	}
+	if h.service.auditInput.ActorUserID != adminUserID || h.service.auditInput.Action != "USER_UPDATED" ||
+		h.service.auditInput.EntityID != targetUserID || h.service.auditInput.Sort != "createdAt:asc" ||
+		h.service.auditInput.From == nil || h.service.auditInput.To == nil {
+		t.Fatalf("service input = %+v", h.service.auditInput)
+	}
+}
+
+func TestAdminAuditLogs_rejectsInvalidFilters(t *testing.T) {
+	h := newAdminHarness(t)
+	for _, path := range []string{
+		"/admin/audit-logs/identity?page=0",
+		"/admin/audit-logs/identity?pageSize=101",
+		"/admin/audit-logs/identity?actorUserId=not-a-uuid",
+		"/admin/audit-logs/identity?from=2026-11-03&to=2026-11-02",
+		"/admin/audit-logs/identity?sort=createdAt:nope",
+	} {
+		response := h.do(t, auth.RoleAdmin, http.MethodGet, path, "")
+		if response.Code != http.StatusUnprocessableEntity || errorCode(t, response) != "VALIDATION_ERROR" {
+			t.Fatalf("%s status = %d body = %s, want 422 VALIDATION_ERROR", path, response.Code, response.Body)
 		}
 	}
 }

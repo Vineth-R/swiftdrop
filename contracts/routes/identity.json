@@ -3,6 +3,13 @@
   "routes": [
     {
       "method": "GET",
+      "path": "/admin/audit-logs/identity",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
       "path": "/admin/users",
       "classification": "public",
       "documented": true,

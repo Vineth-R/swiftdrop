@@ -3,6 +3,13 @@
   "routes": [
     {
       "method": "GET",
+      "path": "/admin/audit-logs/merchant",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
       "path": "/admin/merchants",
       "classification": "public",
       "documented": true,

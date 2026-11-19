@@ -14,6 +14,7 @@ const publicSpecs = {
     '/api/v1/auth',
     '/api/v1/users',
     '/api/v1/admin/users',
+    '/api/v1/admin/audit-logs/identity',
     '/api/v1/couriers',
   ],
   'pricing.yaml': [
@@ -21,6 +22,7 @@ const publicSpecs = {
     '/api/v1/zones',
     '/api/v1/admin/pricing',
     '/api/v1/admin/zones',
+    '/api/v1/admin/audit-logs/pricing',
   ],
   'parcel.yaml': [
     '/api/v1/parcels',
@@ -34,6 +36,7 @@ const publicSpecs = {
     '/api/v1/merchants',
     '/api/v1/merchant',
     '/api/v1/admin/merchants',
+    '/api/v1/admin/audit-logs/merchant',
   ],
   'notification.yaml': ['/api/v1/admin/notification-logs'],
   'ai-assistant.yaml': ['/api/v1/ai/chat'],

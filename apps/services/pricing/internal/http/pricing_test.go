@@ -43,6 +43,9 @@ func (s fixtureStore) Mutate(context.Context, string, string, string, pricing.Mu
 func (s fixtureStore) List(context.Context, string, pricing.Filter) ([]json.RawMessage, int, error) {
 	return []json.RawMessage{}, 0, nil
 }
+func (s fixtureStore) ListAuditLogs(context.Context, pricing.AuditLogFilter) ([]pricing.AuditLog, int, error) {
+	return []pricing.AuditLog{}, 0, nil
+}
 
 type permissiveFetcher struct{}
 
@@ -375,6 +378,40 @@ func TestAdminRoutesEnforceSessionRevocation(t *testing.T) {
 			}
 			if !strings.Contains(recorder.Body.String(), test.code) {
 				t.Fatalf("body = %s, want code %s", recorder.Body.String(), test.code)
+			}
+		})
+	}
+}
+
+func TestAdminPricingAuditLogsValidationAndAccess(t *testing.T) {
+	router, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Store: fixtureStore{}, AccessSecret: testSecret, SessionCheck: allowSessions(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := adminToken(t, auth.RoleAdmin)
+	customer := adminToken(t, auth.RoleCustomer)
+
+	for _, test := range []struct {
+		name   string
+		token  string
+		path   string
+		status int
+	}{
+		{"valid", admin, "/admin/audit-logs/pricing?page=1&pageSize=20", 200},
+		{"invalid page", admin, "/admin/audit-logs/pricing?page=0", 422},
+		{"invalid actor", admin, "/admin/audit-logs/pricing?actorUserId=nope", 422},
+		{"invalid sort", admin, "/admin/audit-logs/pricing?sort=createdAt:nope", 422},
+		{"customer refused", customer, "/admin/audit-logs/pricing", 403},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request.Header.Set("Authorization", "Bearer "+test.token)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != test.status {
+				t.Fatalf("status = %d, want %d: %s", recorder.Code, test.status, recorder.Body)
 			}
 		})
 	}

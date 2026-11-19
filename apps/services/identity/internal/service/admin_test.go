@@ -35,6 +35,9 @@ type fakeAdminStore struct {
 	statusActive  *bool
 	statusActor   string
 	courierFilter repository.CourierFilter
+	auditFilter   repository.AuditLogFilter
+	auditRows     []repository.AuditLog
+	auditTotal    int
 	writes        int
 }
 
@@ -48,6 +51,11 @@ func newFakeAdminStore() *fakeAdminStore {
 func (f *fakeAdminStore) ListAdminUsers(_ context.Context, filter repository.UserFilter) ([]repository.AdminUser, int, error) {
 	f.listFilter = filter
 	return f.listed, f.total, f.err
+}
+
+func (f *fakeAdminStore) ListAuditLogs(_ context.Context, filter repository.AuditLogFilter) ([]repository.AuditLog, int, error) {
+	f.auditFilter = filter
+	return f.auditRows, f.auditTotal, f.err
 }
 
 func (f *fakeAdminStore) AdminUserByID(_ context.Context, id string) (repository.AdminUser, error) {

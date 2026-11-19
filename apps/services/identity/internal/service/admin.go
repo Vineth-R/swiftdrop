@@ -86,6 +86,7 @@ type AdminStore interface {
 	SetUserActive(ctx context.Context, userID string, active bool, actorID string, now time.Time) error
 	AuditPasswordResetRequested(ctx context.Context, actorID, userID string) error
 	ListCouriers(ctx context.Context, filter repository.CourierFilter) ([]repository.CourierListing, int, error)
+	ListAuditLogs(ctx context.Context, filter repository.AuditLogFilter) ([]repository.AuditLog, int, error)
 }
 
 // AdminUsers implements user management for administrators and the courier
@@ -197,6 +198,96 @@ func (a *AdminUsers) ListUsers(ctx context.Context, input ListUsersInput) (UserP
 		return UserPage{}, fmt.Errorf("list users: %w", err)
 	}
 	return UserPage{Users: users, Page: page, PageSize: pageSize, TotalItems: total}, nil
+}
+
+// ListAuditLogsInput filters the ADMIN audit-log read API. Times are already
+// parsed by the HTTP layer; this method validates identity and paging.
+type ListAuditLogsInput struct {
+	ActorUserID string
+	Action      string
+	EntityType  string
+	EntityID    string
+	From        *time.Time
+	To          *time.Time
+	Sort        string
+	Page        int
+	PageSize    int
+}
+
+// AuditLogEntry is one safe audit row for the ADMIN API. Details is the stored
+// JSON object; the HTTP layer redacts credential-like keys before rendering.
+type AuditLogEntry struct {
+	ID          string
+	ActorUserID string
+	Action      string
+	EntityType  string
+	EntityID    *string
+	Details     []byte
+	CreatedAt   time.Time
+}
+
+// AuditLogPage is one page of audit rows.
+type AuditLogPage struct {
+	Entries    []AuditLogEntry
+	Page       int
+	PageSize   int
+	TotalItems int
+}
+
+// ListAuditLogs returns a page of identity audit rows for ADMIN callers.
+func (a *AdminUsers) ListAuditLogs(ctx context.Context, input ListAuditLogsInput) (AuditLogPage, error) {
+	page, pageSize, issues := normalizePaging(input.Page, input.PageSize)
+	actor := strings.TrimSpace(input.ActorUserID)
+	entity := strings.TrimSpace(input.EntityID)
+	if actor != "" && !ValidUUID(actor) {
+		issues = append(issues, Issue{Field: "actorUserId", Issue: "must be a UUID"})
+	}
+	if entity != "" && !ValidUUID(entity) {
+		issues = append(issues, Issue{Field: "entityId", Issue: "must be a UUID"})
+	}
+	action := strings.TrimSpace(input.Action)
+	if validation.RuneLength(action) > 60 {
+		issues = append(issues, Issue{Field: "action", Issue: "must be at most 60 characters"})
+	}
+	entityType := strings.TrimSpace(input.EntityType)
+	if validation.RuneLength(entityType) > 40 {
+		issues = append(issues, Issue{Field: "entityType", Issue: "must be at most 40 characters"})
+	}
+	ascending := false
+	switch input.Sort {
+	case "", "createdAt:desc":
+	case "createdAt:asc":
+		ascending = true
+	default:
+		issues = append(issues, Issue{Field: "sort", Issue: "must be createdAt:asc or createdAt:desc"})
+	}
+	if len(issues) > 0 {
+		return AuditLogPage{}, &ValidationError{Issues: issues}
+	}
+
+	rows, total, err := a.store.ListAuditLogs(ctx, repository.AuditLogFilter{
+		ActorUserID: actor,
+		Action:      action,
+		EntityType:  entityType,
+		EntityID:    entity,
+		From:        input.From,
+		To:          input.To,
+		Limit:       pageSize,
+		Offset:      (page - 1) * pageSize,
+		Ascending:   ascending,
+	})
+	if err != nil {
+		return AuditLogPage{}, fmt.Errorf("list audit logs: %w", err)
+	}
+	entries := make([]AuditLogEntry, 0, len(rows))
+	for _, row := range rows {
+		entries = append(entries, AuditLogEntry{
+			ID: row.ID, ActorUserID: row.ActorUserID, Action: row.Action,
+			EntityType: row.EntityType, EntityID: row.EntityID,
+			Details: row.Details, CreatedAt: row.CreatedAt,
+		})
+	}
+	return AuditLogPage{Entries: entries, Page: page, PageSize: pageSize, TotalItems: total}, nil
 }
 
 // GetUser returns one user, or ErrUserNotFound for an unknown or malformed ID.
