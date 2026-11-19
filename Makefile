@@ -11,7 +11,7 @@ MIGRATE_RUN = docker run --rm \
 	-e DATABASE_URL -e DATABASE_URL_DIRECT -e APP_ENV -e ALLOW_PRODUCTION_ROLLBACK -e MIGRATE_SERVICES \
 	$(MIGRATE_IMAGE)
 
-.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify db-reset seed seed-parcels seed-demo check-routes check-openapi test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview seed-merchant
+.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify prune-retention prune-retention-apply outbox-failed outbox-replay outbox-expire db-reset seed seed-parcels seed-demo check-routes check-openapi test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview seed-merchant
 
 help:
 	@echo "Targets:"
@@ -28,6 +28,11 @@ help:
 	@echo "  make db-backup      verified local PostgreSQL backup outside the repo"
 	@echo "  make proof-transfer dry-run local proof files into object storage"
 	@echo "  make proof-reconcile compare database proof keys with stored objects"
+	@echo "  make prune-retention dry-run audit-log and webhook-attempt retention"
+	@echo "  make prune-retention-apply delete rows past the approved windows"
+	@echo "  make outbox-failed  report failed parcel outbox events"
+	@echo "  make outbox-replay  return failed outbox events to PENDING (OUTBOX_ARGS=\"-older-than 720h\")"
+	@echo "  make outbox-expire  delete old failed outbox events (OUTBOX_ARGS=\"-older-than 720h\")"
 	@echo "  make db-verify      verify the documented database baseline (read-only)"
 	@echo "  make seed           create the five deterministic demo users"
 	@echo "  make seed-merchant  create and approve the deterministic merchant demo account"
@@ -205,6 +210,21 @@ proof-transfer-apply:
 
 proof-reconcile:
 	go run ./apps/services/parcel/proof-transfer -reconcile
+
+prune-retention:
+	./scripts/prune-retention.sh
+
+prune-retention-apply:
+	APPLY=1 ./scripts/prune-retention.sh
+
+outbox-failed:
+	go run ./apps/services/parcel/outbox-tool
+
+outbox-replay:
+	go run ./apps/services/parcel/outbox-tool -replay -apply $(OUTBOX_ARGS)
+
+outbox-expire:
+	go run ./apps/services/parcel/outbox-tool -expire -apply $(OUTBOX_ARGS)
 
 db-verify:
 	@COMPOSE="$(COMPOSE)" ./scripts/verify-db.sh

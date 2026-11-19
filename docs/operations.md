@@ -354,11 +354,24 @@ The approved retention policy is:
 - notification processed events: **30 days**, unchanged;
 - merchant order reservations: **indefinite**, because deleting them can break
   duplicate-order protection;
-- identity tokens: existing cleanup policy.
+- identity tokens: existing cleanup policy;
+- identity, merchant and pricing audit logs: **365 days**, operator command;
+- merchant webhook delivery attempts: **90 days**, operator command.
 
-Published outbox rows are retained for 14 days. Notification-log cleanup failures
-are maintenance failures only and do not change worker readiness. See
-[`docs/data-retention.md`](data-retention.md) for the full policy.
+Published outbox rows are retained for 14 days. Failed outbox rows are retained
+for investigation until an operator replays or expires them:
+
+```sh
+make outbox-failed
+make outbox-replay OUTBOX_ARGS="-older-than 720h"
+make outbox-expire OUTBOX_ARGS="-older-than 720h"
+make prune-retention          # dry run
+make prune-retention-apply    # delete rows past the approved windows
+```
+
+Notification-log cleanup failures are maintenance failures only and do not
+change worker readiness. See [`docs/data-retention.md`](data-retention.md) for the
+full policy.
 
 Alert thresholds and the deferred monitoring stack are listed in
 [phase-2-security-reliability.md](phase-2-security-reliability.md).

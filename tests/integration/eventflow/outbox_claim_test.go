@@ -263,3 +263,72 @@ func TestOutboxRelayDoesNotPublishAfterLostClaim(t *testing.T) {
 		t.Errorf("reclaimed event status = %s, want PENDING", got)
 	}
 }
+
+func TestFailedOutboxReplayAndExpiry(t *testing.T) {
+	pool, _ := newIsolatedDatabase(t)
+	store := parcelevents.NewSQLStore(pool)
+
+	ids := insertPendingOutbox(t, pool, 3)
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	for i, id := range ids {
+		status, attempts := "FAILED", 5
+		if i == 2 {
+			status, attempts = "PENDING", 0
+		}
+		if _, err := pool.Exec(t.Context(), `
+			UPDATE parcel.outbox_events
+			SET status = $2, attempts = $3, created_at = $4
+			WHERE id = $1`, id, status, attempts, old); err != nil {
+			t.Fatalf("mark outbox event %s: %v", id, err)
+		}
+	}
+
+	summary, err := store.FailedSummary(t.Context())
+	if err != nil {
+		t.Fatalf("FailedSummary returned error: %v", err)
+	}
+	if summary.Count != 2 || summary.Oldest == nil {
+		t.Fatalf("summary = %+v, want two failed events", summary)
+	}
+
+	replayed, err := store.ReplayFailed(t.Context(), time.Now().UTC(), 10)
+	if err != nil {
+		t.Fatalf("ReplayFailed returned error: %v", err)
+	}
+	if replayed != 2 {
+		t.Fatalf("replayed = %d, want 2", replayed)
+	}
+	for _, id := range ids[:2] {
+		var status string
+		var attempts int
+		if err := pool.QueryRow(t.Context(), `
+			SELECT status, attempts FROM parcel.outbox_events WHERE id = $1`, id).
+			Scan(&status, &attempts); err != nil {
+			t.Fatalf("read replayed event: %v", err)
+		}
+		if status != "PENDING" || attempts != 0 {
+			t.Fatalf("event %s = %s/%d, want PENDING/0", id, status, attempts)
+		}
+	}
+
+	// Return one event to FAILED and expire it; the other replayed events stay.
+	if _, err := pool.Exec(t.Context(), `
+		UPDATE parcel.outbox_events SET status = 'FAILED', attempts = 5, created_at = $2
+		WHERE id = $1`, ids[0], old); err != nil {
+		t.Fatalf("mark event failed: %v", err)
+	}
+	deleted, err := store.DeleteFailed(t.Context(), time.Now().UTC(), 10)
+	if err != nil {
+		t.Fatalf("DeleteFailed returned error: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+	var remaining int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM parcel.outbox_events WHERE id = $1`, ids[0]).Scan(&remaining); err != nil {
+		t.Fatalf("count deleted event: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatal("expired event still exists")
+	}
+}
