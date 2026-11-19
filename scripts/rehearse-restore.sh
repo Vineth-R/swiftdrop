@@ -154,7 +154,11 @@ if [ -z "$dump" ] || [ ! -f "$dump" ]; then
     echo "error: backup script did not produce a dump" >&2
     exit 1
 fi
-if ! pg_restore --list "$dump" >/dev/null; then
+# Use the pinned PostgreSQL 16 client for the archive check. A host client may
+# be older than the server that wrote the archive (or newer than the target that
+# will restore it), so the rehearsal must not depend on the host version.
+if ! docker run --rm -v "$tmp:/backups:ro" postgres:16-alpine \
+    pg_restore --list "/backups/$(basename "$dump")" >/dev/null; then
     echo "error: backup dump is not readable by pg_restore" >&2
     exit 1
 fi
