@@ -468,3 +468,39 @@ func TestIdempotencyKeyConflictWinsOverExternalOrderReplay(t *testing.T) {
 	}
 	_ = first
 }
+
+func TestCreateRecoversAfterMerchantPersistenceFailsFollowingParcelCreation(t *testing.T) {
+	store := newFakeStore()
+	parcel := &fakeParcel{result: testParcelResult()}
+	service := New(store, parcel, fakeZones{name: "Colombo"})
+	key := "orphan-recovery-key"
+
+	store.createErr = errors.New("merchant database unavailable")
+	if _, err := service.Create(context.Background(), testMerchant(), key, testInput()); err == nil {
+		t.Fatal("first Create succeeded despite a persistence failure")
+	}
+	if len(parcel.calls) != 1 {
+		t.Fatalf("parcel calls after failure = %d, want 1", len(parcel.calls))
+	}
+
+	// Parcel already owns the parcel for (merchantId, externalOrderId). The retry
+	// must reuse that parcel rather than creating a second one, then persist the
+	// merchant snapshot that the first attempt could not write.
+	store.createErr = nil
+	result, err := service.Create(context.Background(), testMerchant(), key, testInput())
+	if err != nil {
+		t.Fatalf("retry Create() error = %v", err)
+	}
+	if !result.Created || result.Order.ParcelID != testParcelID {
+		t.Fatalf("retry result = %+v, want the original parcel", result)
+	}
+	if len(parcel.calls) != 2 {
+		t.Fatalf("parcel calls after retry = %d, want 2 (idempotent replay)", len(parcel.calls))
+	}
+	if store.createCalls != 2 {
+		t.Fatalf("store create calls = %d, want 2", store.createCalls)
+	}
+	if len(store.byExternal) != 1 {
+		t.Fatalf("merchant orders = %d, want one", len(store.byExternal))
+	}
+}
