@@ -732,15 +732,15 @@ retry after a lost response) is refused without revoking anything.
 
 2.4 POST /auth/logout
 
-Access: Any user.
+Access: Any caller holding the refresh token (no live access token required).
 
 
 
-Purpose: Revokes the current refresh token and clears the cookies, ending the session.
+Purpose: Revokes the session that owns the presented refresh token and clears the cookies, ending the session. The refresh token is the credential, so a browser can still sign out after its short-lived access token expires. A missing, unknown or already revoked token is not an error; logout is idempotent. If a concurrent refresh already rotated the token, logout revokes the successor as well.
 
 
 
-Request: no body. Response 204 with no content.
+Request: no body. In token mode the refresh token may be sent as {"refreshToken":"..."} with X-Token-Mode: body. Response 204 with no content; both authentication cookies are expired on every response, including a server error.
 
 
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/parcels"
@@ -43,7 +44,17 @@ func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) e
 		}
 		group.Use(auth.Authenticate(manager, cookie), sessioncheck.Middleware(options.SessionCheck))
 	}
-	group.POST("", auth.RequireRoles(auth.RoleCustomer), h.create)
+	// Creation calls Pricing and writes three rows, so a single customer must
+	// not be able to drive unbounded work. The verified subject is the abuse
+	// boundary; an empty claim falls back to the client address.
+	createLimiter := httpx.NewRateLimiter(30, time.Minute).MiddlewareKeyed(func(c *gin.Context) string {
+		claims, ok := auth.ClaimsFrom(c)
+		if !ok || claims.UserID == "" {
+			return ""
+		}
+		return "customer:" + strings.ToLower(claims.UserID)
+	})
+	group.POST("", createLimiter, auth.RequireRoles(auth.RoleCustomer), h.create)
 	group.GET("", auth.RequireRoles(auth.RoleCustomer), h.list)
 	group.GET("/:parcelId", auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin), h.detail)
 	group.GET("/:parcelId/history", auth.RequireRoles(auth.RoleCustomer, auth.RoleDispatcher, auth.RoleAdmin), h.history)

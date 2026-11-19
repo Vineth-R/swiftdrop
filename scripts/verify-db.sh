@@ -71,6 +71,10 @@ SELECT check_name, expected, actual FROM checks;
 SQL
 )"
 
+container_url() {
+  printf '%s' "$1" | sed -E 's#@(localhost|127\.0\.0\.1|\[::1\])([:/])#@host.docker.internal\2#'
+}
+
 if [ -n "${DATABASE_URL_DIRECT:-}" ]; then
   if [ "${VERIFY_USE_HOST_CLIENT:-}" = "1" ] && command -v psql >/dev/null 2>&1; then
     if ! result="$(printf '%s\n' "$sql" | PGOPTIONS="-c default_transaction_read_only=on" \
@@ -78,7 +82,8 @@ if [ -n "${DATABASE_URL_DIRECT:-}" ]; then
       printf 'error: remote database verification query failed.\n' >&2
       exit 1
     fi
-  elif ! result="$(printf '%s\n' "$sql" | docker run --rm -i -e PGURL="${DATABASE_URL_DIRECT}" postgres:16-alpine \
+  elif ! result="$(printf '%s\n' "$sql" | docker run --rm -i --add-host host.docker.internal:host-gateway \
+    -e PGURL="$(container_url "${DATABASE_URL_DIRECT}")" postgres:16-alpine \
     sh -c 'PGOPTIONS="-c default_transaction_read_only=on" psql "$PGURL" -v ON_ERROR_STOP=1 -At -F "|" -f -')"; then
     printf 'error: remote database verification query failed.\n' >&2
     exit 1

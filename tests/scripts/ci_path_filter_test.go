@@ -684,3 +684,54 @@ func runGateScript(t *testing.T, script string, results map[string]string) (stri
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
+
+func TestRequiredGateRequiresPathFilteredSuitesWhenInScope(t *testing.T) {
+	workflow := readCIWorkflow(t)
+	script := extractRunScript(t, workflowJob(t, workflow, "gate"))
+
+	successes := map[string]string{
+		"GO_RESULT":               "success",
+		"HYGIENE_RESULT":          "success",
+		"INTEGRATION_RESULT":      "success",
+		"DATABASE_RESULT":         "success",
+		"EVENTFLOW_RESULT":        "success",
+		"FRONTEND_RESULT":         "success",
+		"E2E_RESULT":              "success",
+		"CHANGES_RESULT":          "success",
+		"DOCKER_RESULT":           "success",
+		"ACCESS_RESULT":           "success",
+		"SECURITY_GATE_RESULT":    "success",
+		"NOTIFICATIONFLOW_RESULT": "success",
+		"REALSTACK_RESULT":        "success",
+		"MIGRATIONS_RESULT":       "success",
+		"STORAGE_RESULT":          "success",
+		"POOLED_RESULT":           "success",
+	}
+
+	for _, test := range []struct {
+		name   string
+		result string
+		value  string
+	}{
+		{name: "access skipped in scope", result: "ACCESS_RESULT", value: "skipped"},
+		{name: "notificationflow skipped in scope", result: "NOTIFICATIONFLOW_RESULT", value: "skipped"},
+		{name: "real stack skipped in scope", result: "REALSTACK_RESULT", value: "skipped"},
+		{name: "real stack failed in scope", result: "REALSTACK_RESULT", value: "failure"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			results := make(map[string]string, len(successes)+4)
+			for key, value := range successes {
+				results[key] = value
+			}
+			results["ACCESS_CHANGED"] = "true"
+			results["NOTIFICATIONFLOW_CHANGED"] = "true"
+			results["REALSTACK_CHANGED"] = "true"
+			results[test.result] = test.value
+
+			output, err := runGateScript(t, script, results)
+			if err == nil {
+				t.Fatalf("gate accepted %s=%s when the path filter was in scope:\n%s", test.result, test.value, output)
+			}
+		})
+	}
+}

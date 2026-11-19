@@ -366,7 +366,9 @@ func scanUnsafePatterns(servicesDir string) []string {
 		}
 		relative, _ := filepath.Rel(filepath.Join(servicesDir, "..", ".."), path)
 		// Operator CLIs and demo seeds print human-readable output by design.
-		operatorCLI := strings.Contains(relative, "/proof-transfer/") || strings.Contains(relative, "/seed/")
+		operatorCLI := strings.Contains(relative, "/proof-transfer/") ||
+			strings.Contains(relative, "/outbox-tool/") ||
+			strings.Contains(relative, "/seed/")
 		for lineNumber, line := range strings.Split(string(content), "\n") {
 			trimmed := strings.TrimSpace(line)
 			switch {

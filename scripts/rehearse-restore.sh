@@ -148,19 +148,23 @@ if [ "$source_counts" != "2|1|1|1|5" ]; then
 fi
 
 echo "creating and verifying a backup through scripts/backup-db.sh"
-BACKUP_USE_HOST_CLIENT=1 BACKUP_SOURCE=url DATABASE_URL="$source_url" BACKUP_DIR="$tmp" "$root/scripts/backup-db.sh"
+BACKUP_SOURCE=url DATABASE_URL="$source_url" BACKUP_DIR="$tmp" "$root/scripts/backup-db.sh"
 dump="$(find "$tmp" -maxdepth 1 -name 'swiftdrop-*.dump' -print | head -n 1)"
 if [ -z "$dump" ] || [ ! -f "$dump" ]; then
     echo "error: backup script did not produce a dump" >&2
     exit 1
 fi
-if ! pg_restore --list "$dump" >/dev/null; then
+# Use the pinned PostgreSQL 16 client for the archive check. A host client may
+# be older than the server that wrote the archive (or newer than the target that
+# will restore it), so the rehearsal must not depend on the host version.
+if ! docker run --rm -v "$tmp:/backups:ro" postgres:16-alpine \
+    pg_restore --list "/backups/$(basename "$dump")" >/dev/null; then
     echo "error: backup dump is not readable by pg_restore" >&2
     exit 1
 fi
 
 echo "restoring through scripts/restore-db.sh and validating the target"
-RESTORE_USE_HOST_CLIENT=1 APP_ENV=development DATABASE_URL_DIRECT="$target_url" "$root/scripts/restore-db.sh" "$dump"
+APP_ENV=development DATABASE_URL_DIRECT="$target_url" "$root/scripts/restore-db.sh" "$dump"
 
 target_counts="$(psql "$target_url" -X -At -F '|' -v ON_ERROR_STOP=1 -c "
 SELECT

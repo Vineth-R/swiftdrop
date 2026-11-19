@@ -224,13 +224,32 @@ func (m *memoryStore) RotateRefreshToken(
 	return old.userID, nil
 }
 
-func (m *memoryStore) RevokeRefreshToken(_ context.Context, userID, tokenHash string, _ time.Time) error {
-	if err := m.fail("RevokeRefreshToken"); err != nil {
+func (m *memoryStore) RevokeRefreshSession(_ context.Context, tokenHash string, now time.Time) error {
+	if err := m.fail("RevokeRefreshSession"); err != nil {
 		return err
 	}
-	if token, ok := m.tokens[tokenHash]; ok && token.userID == userID {
-		token.revoked = true
+	token, ok := m.tokens[tokenHash]
+	if !ok {
+		return nil
 	}
+	if token.revoked {
+		// A rotated token identifies its successor chain, so logout stays
+		// effective when a concurrent refresh replaced the cookie.
+		for next := token.replacedBy; next != ""; {
+			successor, exists := m.tokens[next]
+			if !exists {
+				break
+			}
+			if !successor.revoked {
+				successor.revoked = true
+				successor.revokedAt = now
+			}
+			next = successor.replacedBy
+		}
+		return nil
+	}
+	token.revoked = true
+	token.revokedAt = now
 	return nil
 }
 
@@ -845,7 +864,7 @@ func TestService_Refresh(t *testing.T) {
 		f.service.logger = newCapturingLogger(&logs)
 		first := login(t, f)
 
-		if err := f.service.Logout(context.Background(), first.Account.ID, first.RefreshToken); err != nil {
+		if err := f.service.Logout(context.Background(), first.RefreshToken); err != nil {
 			t.Fatalf("Logout returned error: %v", err)
 		}
 		f.advance(time.Hour)
@@ -913,12 +932,12 @@ func TestService_Refresh(t *testing.T) {
 }
 
 func TestService_Logout(t *testing.T) {
-	t.Run("revokes the refresh token", func(t *testing.T) {
+	t.Run("revokes the refresh session", func(t *testing.T) {
 		f := newFixture(t)
 		f.register(t)
 		session, _ := f.login("Str0ngPass!")
 
-		if err := f.service.Logout(context.Background(), session.Account.ID, session.RefreshToken); err != nil {
+		if err := f.service.Logout(context.Background(), session.RefreshToken); err != nil {
 			t.Fatalf("Logout returned error: %v", err)
 		}
 		_, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: session.RefreshToken})
@@ -927,25 +946,49 @@ func TestService_Logout(t *testing.T) {
 		}
 	})
 
-	t.Run("does not revoke another user's token", func(t *testing.T) {
+	t.Run("revokes only the presented session", func(t *testing.T) {
+		f := newFixture(t)
+		f.register(t)
+		first, _ := f.login("Str0ngPass!")
+		second, _ := f.login("Str0ngPass!")
+
+		if err := f.service.Logout(context.Background(), first.RefreshToken); err != nil {
+			t.Fatalf("Logout returned error: %v", err)
+		}
+		if _, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: first.RefreshToken}); !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("the logged-out token still refreshes: %v", err)
+		}
+		if _, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: second.RefreshToken}); err != nil {
+			t.Fatalf("another login was revoked by logout: %v", err)
+		}
+	})
+
+	t.Run("revokes the successor when a concurrent refresh already rotated the token", func(t *testing.T) {
+		f := newFixture(t)
+		f.register(t)
+		session, _ := f.login("Str0ngPass!")
+		rotated, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: session.RefreshToken})
+		if err != nil {
+			t.Fatalf("Refresh returned error: %v", err)
+		}
+
+		// The browser may still hold the old value when logout wins the race
+		// against the refresh response. Presenting it must end the new session.
+		if err := f.service.Logout(context.Background(), session.RefreshToken); err != nil {
+			t.Fatalf("Logout returned error: %v", err)
+		}
+		if _, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: rotated.RefreshToken}); !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("the rotated successor still refreshes: %v", err)
+		}
+	})
+
+	t.Run("is idempotent and succeeds without a refresh token", func(t *testing.T) {
 		f := newFixture(t)
 		f.register(t)
 		session, _ := f.login("Str0ngPass!")
 
-		if err := f.service.Logout(context.Background(), "someone-else", session.RefreshToken); err != nil {
-			t.Fatalf("Logout returned error: %v", err)
-		}
-		if _, err := f.service.Refresh(context.Background(), RefreshInput{RefreshToken: session.RefreshToken}); err != nil {
-			t.Fatalf("the token was revoked by a different user: %v", err)
-		}
-	})
-
-	t.Run("succeeds without a refresh token", func(t *testing.T) {
-		f := newFixture(t)
-		f.store.failOnOps["RevokeRefreshToken"] = true
-
-		for _, token := range []string{"", "garbage"} {
-			if err := f.service.Logout(context.Background(), "user-1", token); err != nil {
+		for _, token := range []string{session.RefreshToken, session.RefreshToken, "", "garbage"} {
+			if err := f.service.Logout(context.Background(), token); err != nil {
 				t.Fatalf("Logout(%q) returned error: %v", token, err)
 			}
 		}
@@ -953,9 +996,9 @@ func TestService_Logout(t *testing.T) {
 
 	t.Run("reports a store failure", func(t *testing.T) {
 		f := newFixture(t)
-		f.store.failOnOps["RevokeRefreshToken"] = true
+		f.store.failOnOps["RevokeRefreshSession"] = true
 
-		err := f.service.Logout(context.Background(), "user-1", "rt_somethingsomethingsomething")
+		err := f.service.Logout(context.Background(), "rt_somethingsomethingsomething")
 		if !errors.Is(err, errStore) {
 			t.Fatalf("Logout error = %v, want the store error", err)
 		}

@@ -101,8 +101,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // The caller navigates away afterwards. The state is left alone here on
     // purpose: marking the session empty first would let the signed-in guard
     // redirect to the login page before the caller can show "signed out".
-    await logout();
-    emitSessionIdentity(null);
+    // Even when the request fails, this browser must stop advertising the
+    // previous identity to live screens.
+    try {
+      await logout();
+    } finally {
+      emitSessionIdentity(null);
+    }
   }, []);
 
   const setUser = useCallback((user: User) => {

@@ -33,7 +33,7 @@ type AuthService interface {
 	Register(ctx context.Context, input service.RegisterInput) (service.Account, error)
 	Login(ctx context.Context, input service.LoginInput) (service.Session, error)
 	Refresh(ctx context.Context, input service.RefreshInput) (service.Session, error)
-	Logout(ctx context.Context, userID, refreshToken string) error
+	Logout(ctx context.Context, refreshToken string) error
 	VerifyEmail(ctx context.Context, token string) error
 	ResendVerification(ctx context.Context, email string, ip netip.Addr) error
 }
@@ -87,12 +87,19 @@ type sessionResponse struct {
 func registerAuthRoutes(router *gin.Engine, routes AuthRoutes, logger *slog.Logger) {
 	handlers := &authHandlers{service: routes.Service, cookies: routes.Cookies, logger: logger}
 	limiter := newRateLimiter(authAttemptsPerMinute, time.Minute, nil)
+	// Refresh is a high-entropy credential exchange, so this is a coarse abuse
+	// bound rather than a brute-force defence.
+	refreshLimiter := newRateLimiter(refreshAttemptsPerMinute, time.Minute, nil)
 
 	group := router.Group("/auth", noStore())
 	group.POST("/register", limitByClient(limiter), handlers.register)
 	group.POST("/login", limitByClient(limiter), handlers.login)
-	group.POST("/refresh", handlers.refresh)
-	group.POST("/logout", auth.Authenticate(routes.Verifier, routes.Cookies.AccessName), handlers.logout)
+	group.POST("/refresh", limitByClient(refreshLimiter), handlers.refresh)
+	// Logout authenticates with the refresh token, not the access token. A
+	// browser must be able to sign out after its 15-minute access token expired;
+	// requiring a live access token left the refresh cookie alive and silently
+	// signed the user back in on the next page load.
+	group.POST("/logout", handlers.logout)
 
 	verifyLimiter := newRateLimiter(verificationAttemptsPerMinute, time.Minute, nil)
 	resendLimiter := newRateLimiter(verificationAttemptsPerMinute, time.Minute, nil)
@@ -103,8 +110,10 @@ func registerAuthRoutes(router *gin.Engine, routes AuthRoutes, logger *slog.Logg
 
 const (
 	verificationAttemptsPerMinute = 5
-	verifyEmailMessage            = "Your email has been verified. You can now sign in to SwiftDrop."
-	resendVerificationMessage     = "If an account needs verification, a new verification email will be sent."
+	// refreshAttemptsPerMinute bounds refresh-token churn per client address.
+	refreshAttemptsPerMinute  = 60
+	verifyEmailMessage        = "Your email has been verified. You can now sign in to SwiftDrop."
+	resendVerificationMessage = "If an account needs verification, a new verification email will be sent."
 )
 
 type verifyEmailRequest struct {
@@ -237,15 +246,17 @@ func (h *authHandlers) refresh(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, sessionBody(session, nil, tokenMode(c)))
 }
 
-// logout handles POST /auth/logout (API v1.1 section 2.4). The caller is
-// already authenticated by the access token.
+// logout handles POST /auth/logout (API v1.1 section 2.4).
+//
+// The refresh token is the credential. A valid access token is deliberately not
+// required: after the short-lived access token expires, the browser must still
+// be able to revoke the refresh session and clear its cookies. Without this,
+// "Sign out" returned 401, the refresh cookie survived, and the next page load
+// silently restored the session.
+//
+// Logout is idempotent: no token, an unknown token and a repeated logout all
+// answer 204 and clear both cookies.
 func (h *authHandlers) logout(c *gin.Context) {
-	claims, ok := auth.ClaimsFrom(c)
-	if !ok {
-		httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
-		return
-	}
-
 	token := h.cookies.RefreshToken(c)
 	if token == "" && tokenMode(c) && c.Request.ContentLength != 0 {
 		var request refreshRequest
@@ -255,11 +266,14 @@ func (h *authHandlers) logout(c *gin.Context) {
 		token = request.RefreshToken
 	}
 
-	if err := h.service.Logout(c.Request.Context(), claims.UserID, token); err != nil {
+	// Clear the browser state even if revocation fails. A database outage must
+	// not leave the user apparently signed in; the next logout retry can revoke
+	// the server-side token.
+	h.cookies.Clear(c)
+	if err := h.service.Logout(c.Request.Context(), token); err != nil {
 		h.fail(c, err)
 		return
 	}
-	h.cookies.Clear(c)
 	c.Status(http.StatusNoContent)
 }
 

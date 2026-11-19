@@ -40,6 +40,11 @@ type Case struct {
 	// satisfies one of them (ADMIN satisfies DISPATCHER) is allowed too.
 	Allowed []auth.Role
 
+	// Public marks an endpoint that is intentionally callable without a token,
+	// such as logout when the refresh cookie is the credential. Anonymous must
+	// get an answer from the handler, not 401 or 403.
+	Public bool
+
 	// Pending explains why the allowed roles cannot be checked yet, for
 	// example a service that does not verify access tokens yet. Callers that
 	// must be refused, anonymous ones included, are still checked: they have to
@@ -139,6 +144,9 @@ func Check(gateway Gateway, cases []Case) ([]Violation, error) {
 // needs the refusal, because its service may not tell "no token" from "wrong
 // role" yet.
 func judgeAnonymous(c Case, status int) (want string, ok bool) {
+	if c.Public {
+		return "an answer from the handler (not 401 or 403)", status != http.StatusUnauthorized && status != http.StatusForbidden
+	}
 	if c.Pending != "" {
 		return "401 or 403", status == http.StatusUnauthorized || status == http.StatusForbidden
 	}
@@ -148,6 +156,8 @@ func judgeAnonymous(c Case, status int) (want string, ok bool) {
 func judge(c Case, role auth.Role, status int) (want string, ok bool) {
 	refused := status == http.StatusUnauthorized || status == http.StatusForbidden
 	switch {
+	case c.Public:
+		return "an answer from the handler (not 401 or 403)", !refused
 	case c.Allows(role) && c.Pending != "":
 		return "", true
 	case c.Allows(role):

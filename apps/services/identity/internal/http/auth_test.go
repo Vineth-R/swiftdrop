@@ -29,7 +29,6 @@ type fakeService struct {
 	registered service.RegisterInput
 	loggedIn   service.LoginInput
 	refreshed  service.RefreshInput
-	logoutUser string
 	logoutTok  string
 	calls      int
 }
@@ -62,9 +61,9 @@ func (f *fakeService) ResendVerification(_ context.Context, email string, _ neti
 	return f.err
 }
 
-func (f *fakeService) Logout(_ context.Context, userID, refreshToken string) error {
+func (f *fakeService) Logout(_ context.Context, refreshToken string) error {
 	f.calls++
-	f.logoutUser, f.logoutTok = userID, refreshToken
+	f.logoutTok = refreshToken
 	return f.err
 }
 
@@ -484,60 +483,95 @@ func TestAuthHandlers_refresh(t *testing.T) {
 }
 
 func TestAuthHandlers_logout(t *testing.T) {
-	t.Run("requires an access token", func(t *testing.T) {
+	t.Run("revokes the refresh session without an access token", func(t *testing.T) {
 		h := newHarness(t)
-		recorder := h.do(http.MethodPost, "/auth/logout", "")
-
-		if recorder.Code != http.StatusUnauthorized || decode(t, recorder).Error.Code != "UNAUTHENTICATED" {
-			t.Fatalf("got %d %s", recorder.Code, recorder.Body.String())
-		}
-		if h.service.calls != 0 {
-			t.Fatal("logout reached the service without authentication")
-		}
-	})
-
-	t.Run("revokes the caller's own refresh token and clears the cookies", func(t *testing.T) {
-		h := newHarness(t)
-		recorder := h.do(http.MethodPost, "/auth/logout", "", h.bearer(auth.RoleCustomer), func(r *http.Request) {
+		recorder := h.do(http.MethodPost, "/auth/logout", "", func(r *http.Request) {
 			r.AddCookie(&http.Cookie{Name: "sd_refresh", Value: "rt_current"})
 		})
 
 		if recorder.Code != http.StatusNoContent || recorder.Body.Len() != 0 {
 			t.Fatalf("got %d with body %q, want an empty 204", recorder.Code, recorder.Body.String())
 		}
-		if h.service.logoutUser != "user-1" || h.service.logoutTok != "rt_current" {
-			t.Fatalf("service received user %q token %q", h.service.logoutUser, h.service.logoutTok)
+		if h.service.logoutTok != "rt_current" {
+			t.Fatalf("service received token %q", h.service.logoutTok)
 		}
 		if cookieByName(t, recorder, "sd_access").MaxAge >= 0 || cookieByName(t, recorder, "sd_refresh").MaxAge >= 0 {
 			t.Fatal("logout did not clear both cookies")
 		}
 	})
 
-	t.Run("works without a refresh cookie", func(t *testing.T) {
+	t.Run("works with an expired access token and a valid refresh token", func(t *testing.T) {
 		h := newHarness(t)
-		recorder := h.do(http.MethodPost, "/auth/logout", "", h.bearer(auth.RoleCourier))
+		expired, err := auth.NewTokenManager(handlerTestSecret, time.Minute,
+			auth.WithClock(func() time.Time { return time.Now().Add(-time.Hour) }))
+		if err != nil {
+			t.Fatalf("NewTokenManager returned error: %v", err)
+		}
+		token, _, err := expired.Issue("user-1", auth.RoleCustomer)
+		if err != nil {
+			t.Fatalf("Issue returned error: %v", err)
+		}
 
-		if recorder.Code != http.StatusNoContent || h.service.logoutTok != "" {
-			t.Fatalf("status %d, token %q", recorder.Code, h.service.logoutTok)
+		recorder := h.do(http.MethodPost, "/auth/logout", "", func(r *http.Request) {
+			r.Header.Set("Authorization", "Bearer "+token)
+			r.AddCookie(&http.Cookie{Name: "sd_refresh", Value: "rt_current"})
+		})
+
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204 (%s)", recorder.Code, recorder.Body.String())
+		}
+		if h.service.logoutTok != "rt_current" {
+			t.Fatalf("logout token = %q, want rt_current", h.service.logoutTok)
+		}
+		if cookieByName(t, recorder, "sd_access").MaxAge >= 0 || cookieByName(t, recorder, "sd_refresh").MaxAge >= 0 {
+			t.Fatal("logout did not clear both cookies after an expired access token")
+		}
+	})
+
+	t.Run("is idempotent without tokens and when repeated", func(t *testing.T) {
+		h := newHarness(t)
+		for i := 0; i < 2; i++ {
+			recorder := h.do(http.MethodPost, "/auth/logout", "")
+			if recorder.Code != http.StatusNoContent {
+				t.Fatalf("logout %d status = %d, want 204", i+1, recorder.Code)
+			}
+		}
+
+		recorder := h.do(http.MethodPost, "/auth/logout", "", func(r *http.Request) {
+			r.AddCookie(&http.Cookie{Name: "sd_refresh", Value: "rt_current"})
+		})
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", recorder.Code)
 		}
 	})
 
 	t.Run("token mode may send the refresh token in the body", func(t *testing.T) {
 		h := newHarness(t)
-		h.do(http.MethodPost, "/auth/logout", `{"refreshToken":"rt_from_body"}`, h.bearer(auth.RoleCustomer), withHeader("X-Token-Mode", "body"))
+		recorder := h.do(http.MethodPost, "/auth/logout", `{"refreshToken":"rt_from_body"}`, withHeader("X-Token-Mode", "body"))
 
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", recorder.Code)
+		}
 		if h.service.logoutTok != "rt_from_body" {
 			t.Fatalf("logout token = %q, want rt_from_body", h.service.logoutTok)
 		}
+		if cookieByName(t, recorder, "sd_access").MaxAge >= 0 || cookieByName(t, recorder, "sd_refresh").MaxAge >= 0 {
+			t.Fatal("logout did not clear both cookies")
+		}
 	})
 
-	t.Run("a service failure is a generic 500", func(t *testing.T) {
+	t.Run("a service failure is a generic 500 but still clears the cookies", func(t *testing.T) {
 		h := newHarness(t)
 		h.service.err = errors.New("boom")
 
-		recorder := h.do(http.MethodPost, "/auth/logout", "", h.bearer(auth.RoleCustomer))
+		recorder := h.do(http.MethodPost, "/auth/logout", "", func(r *http.Request) {
+			r.AddCookie(&http.Cookie{Name: "sd_refresh", Value: "rt_current"})
+		})
 		if recorder.Code != http.StatusInternalServerError {
 			t.Fatalf("status = %d, want 500", recorder.Code)
+		}
+		if cookieByName(t, recorder, "sd_access").MaxAge >= 0 || cookieByName(t, recorder, "sd_refresh").MaxAge >= 0 {
+			t.Fatal("logout did not clear both cookies on a service failure")
 		}
 	})
 }

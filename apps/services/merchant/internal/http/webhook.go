@@ -184,9 +184,20 @@ func registerWebhookRoutes(router *gin.Engine, store webhookStore, cipher secret
 		}
 	}
 
+	// A test send performs an outbound request to the merchant's endpoint. Bound
+	// how often one merchant can trigger it so the endpoint cannot be used as a
+	// request amplifier.
+	testLimiter := httpx.NewRateLimiter(10, time.Minute).MiddlewareKeyed(func(c *gin.Context) string {
+		claims, ok := auth.ClaimsFrom(c)
+		if !ok || claims.UserID == "" {
+			return ""
+		}
+		return "merchant:" + strings.ToLower(claims.UserID)
+	})
+
 	group.GET("", h.get)
 	group.PUT("", h.put)
-	group.POST("/test", h.test)
+	group.POST("/test", testLimiter, h.test)
 	group.GET("/deliveries", h.deliveries)
 	return h, nil
 }

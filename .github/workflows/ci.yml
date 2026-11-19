@@ -1343,12 +1343,20 @@ jobs:
           SECURITY_GATE_RESULT: ${{ needs['security-gate'].result }}
           NOTIFICATIONFLOW_RESULT: ${{ needs.notificationflow.result }}
           REALSTACK_RESULT: ${{ needs.real-stack-e2e.result }}
+          ACCESS_CHANGED: ${{ needs.changes.outputs.access }}
+          NOTIFICATIONFLOW_CHANGED: ${{ needs.changes.outputs.notificationflow }}
+          REALSTACK_CHANGED: ${{ needs.changes.outputs.realstack }}
           MIGRATIONS_RESULT: ${{ needs.migrations.result }}
           STORAGE_RESULT: ${{ needs.storage.result }}
           POOLED_RESULT: ${{ needs.pooled.result }}
         run: |
           set -euo pipefail
           REALSTACK_RESULT="${REALSTACK_RESULT:-skipped}"
+          NOTIFICATIONFLOW_RESULT="${NOTIFICATIONFLOW_RESULT:-skipped}"
+          ACCESS_RESULT="${ACCESS_RESULT:-skipped}"
+          ACCESS_CHANGED="${ACCESS_CHANGED:-false}"
+          NOTIFICATIONFLOW_CHANGED="${NOTIFICATIONFLOW_CHANGED:-false}"
+          REALSTACK_CHANGED="${REALSTACK_CHANGED:-false}"
           failed=0
 
           check_required() {
@@ -1381,13 +1389,28 @@ jobs:
           check_required "e2e" "$E2E_RESULT"
           check_required "changes" "$CHANGES_RESULT"
           check_optional "docker" "$DOCKER_RESULT"
-          check_optional "access" "$ACCESS_RESULT"
+          if [ "$ACCESS_CHANGED" = "true" ]; then
+            check_required "access" "$ACCESS_RESULT"
+          else
+            check_optional "access" "$ACCESS_RESULT"
+          fi
           check_required "security-gate" "$SECURITY_GATE_RESULT"
           check_required "migrations" "$MIGRATIONS_RESULT"
           check_required "storage" "$STORAGE_RESULT"
           check_required "pooled" "$POOLED_RESULT"
-          check_optional "notificationflow" "$NOTIFICATIONFLOW_RESULT"
-          check_optional "real-stack-e2e" "$REALSTACK_RESULT"
+          # A path-filtered real-stack suite is mandatory for the changes that
+          # require it. It may be skipped only when no relevant path changed, so
+          # a genuine failure or a conditional skip cannot pass the gate.
+          if [ "$NOTIFICATIONFLOW_CHANGED" = "true" ]; then
+            check_required "notificationflow" "$NOTIFICATIONFLOW_RESULT"
+          else
+            check_optional "notificationflow" "$NOTIFICATIONFLOW_RESULT"
+          fi
+          if [ "$REALSTACK_CHANGED" = "true" ]; then
+            check_required "real-stack-e2e" "$REALSTACK_RESULT"
+          else
+            check_optional "real-stack-e2e" "$REALSTACK_RESULT"
+          fi
 
           exit "$failed"
 

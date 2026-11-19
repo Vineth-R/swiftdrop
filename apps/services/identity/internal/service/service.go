@@ -29,7 +29,7 @@ type Store interface {
 	RecordFailedLogin(ctx context.Context, userID string, policy lockout.Policy, now time.Time) (lockout.State, error)
 	CreateRefreshToken(ctx context.Context, token repository.NewRefreshToken) (string, error)
 	RotateRefreshToken(ctx context.Context, oldHash string, next repository.NextRefreshToken, now time.Time) (string, error)
-	RevokeRefreshToken(ctx context.Context, userID, tokenHash string, now time.Time) error
+	RevokeRefreshSession(ctx context.Context, tokenHash string, now time.Time) error
 	UpdateProfile(ctx context.Context, userID string, change repository.ProfileChange) (repository.User, error)
 	ChangePassword(ctx context.Context, userID, expectedHash, newHash string, now time.Time) error
 }
@@ -379,13 +379,16 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (Session, err
 	return session, nil
 }
 
-// Logout revokes the caller's current refresh token. It always succeeds for a
-// missing or unknown token, so signing out is never blocked.
-func (s *Service) Logout(ctx context.Context, userID, refreshToken string) error {
+// Logout revokes the session that owns the presented refresh token. It always
+// succeeds for a missing or unknown token, so signing out is never blocked by a
+// stale cookie. The refresh token is the credential: an expired access token is
+// deliberately not required, because a user must be able to sign out after the
+// short-lived access token has expired.
+func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 	if !plausibleRefreshToken(refreshToken) {
 		return nil
 	}
-	if err := s.store.RevokeRefreshToken(ctx, userID, hashRefreshToken(refreshToken), s.nowUTC()); err != nil {
+	if err := s.store.RevokeRefreshSession(ctx, hashRefreshToken(refreshToken), s.nowUTC()); err != nil {
 		return fmt.Errorf("logout: %w", err)
 	}
 	return nil
