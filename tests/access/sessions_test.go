@@ -120,18 +120,23 @@ func TestSessions_logoutEndsTheRefreshToken(t *testing.T) {
 	user := s.newCustomer(t)
 	_, in := s.login(t, user.email, user.password)
 
-	if r := s.mustDo(t, http.MethodPost, "/api/v1/auth/logout", "", nil); r.status != http.StatusUnauthorized {
-		t.Fatalf("logout without a token answered %d, want 401", r.status)
+	if r := s.mustDo(t, http.MethodPost, "/api/v1/auth/logout", "", nil); r.status != http.StatusNoContent {
+		t.Fatalf("logout without any token answered %d, want an idempotent 204", r.status)
 	}
 
+	// Deliberately no Authorization header: the refresh token is the credential,
+	// so logout must work after the access token has expired.
 	body, _ := json.Marshal(map[string]string{"refreshToken": in.RefreshToken})
-	headers := bearer(in.AccessToken)
-	headers["X-Token-Mode"] = "body"
-	if r := s.mustDo(t, http.MethodPost, "/api/v1/auth/logout", string(body), headers); r.status != http.StatusNoContent && r.status != http.StatusOK {
+	headers := map[string]string{"X-Token-Mode": "body"}
+	if r := s.mustDo(t, http.MethodPost, "/api/v1/auth/logout", string(body), headers); r.status != http.StatusNoContent {
 		t.Fatalf("logout answered %d: %s", r.status, r.body)
 	}
 	if r, _ := s.refresh(t, in.RefreshToken); r.status != http.StatusUnauthorized {
 		t.Fatalf("a logged out refresh token answered %d, want 401", r.status)
+	}
+	// Repeated logout with the same token is idempotent.
+	if r := s.mustDo(t, http.MethodPost, "/api/v1/auth/logout", string(body), headers); r.status != http.StatusNoContent {
+		t.Fatalf("repeated logout answered %d: %s", r.status, r.body)
 	}
 }
 

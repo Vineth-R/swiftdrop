@@ -169,8 +169,8 @@ func TestRepository_ChangePassword(t *testing.T) {
 		if _, err := repo.CreateRefreshToken(ctx, newToken(user.ID, "rt_old", expiry)); err != nil {
 			t.Fatalf("create refresh token: %v", err)
 		}
-		if err := repo.RevokeRefreshToken(ctx, user.ID, sha256Hex("rt_old"), integrationNow); err != nil {
-			t.Fatalf("RevokeRefreshToken returned error: %v", err)
+		if err := repo.RevokeRefreshSession(ctx, sha256Hex("rt_old"), integrationNow); err != nil {
+			t.Fatalf("RevokeRefreshSession returned error: %v", err)
 		}
 
 		if err := repo.ChangePassword(ctx, user.ID, originalPasswordHash, changedPasswordHash, changeTime); err != nil {

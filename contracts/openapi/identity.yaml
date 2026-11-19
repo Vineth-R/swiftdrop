@@ -241,9 +241,11 @@ paths:
       operationId: identityLogout
       summary: Log out (API v1.1 section 2.4)
       description: >-
-        Revokes the caller's current refresh token and clears both cookies.
-        Requires a valid access token (cookie or Bearer header). It never fails
-        because the refresh token is missing or unknown.
+        Revokes the session that owns the presented refresh token and clears
+        both cookies. The refresh token is the credential, so a valid access
+        token is not required: a browser must be able to sign out after its
+        short-lived access token has expired. It never fails because the refresh
+        token is missing or unknown, and repeating logout is safe.
       parameters:
         - $ref: '#/components/parameters/TokenMode'
       requestBody:
@@ -255,15 +257,11 @@ paths:
               $ref: '#/components/schemas/RefreshRequest'
       responses:
         '204':
-          description: Signed out. No body.
-        '401':
           description: >-
-            No valid access token (`UNAUTHENTICATED`, or `TOKEN_EXPIRED` when the
-            access token has expired and should be refreshed).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+            Signed out and both cookies expired. Returned whether or not a
+            refresh token was present.
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /auth/google/login:

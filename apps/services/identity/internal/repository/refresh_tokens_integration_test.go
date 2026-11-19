@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"strings"
 	"sync"
@@ -187,44 +188,98 @@ func TestRepository_RotateRefreshToken_concurrent(t *testing.T) {
 	}
 }
 
-func TestRepository_RevokeRefreshToken(t *testing.T) {
+func TestRepository_RevokeRefreshSession(t *testing.T) {
 	repo, _ := newTestRepository(t)
 	ctx := context.Background()
 	owner := createTestUser(t, repo, "owner@example.com")
-	other := createTestUser(t, repo, "other@example.com")
 	expiry := integrationNow.Add(7 * 24 * time.Hour)
 
 	if _, err := repo.CreateRefreshToken(ctx, newToken(owner.ID, "rt_logout", expiry)); err != nil {
 		t.Fatalf("CreateRefreshToken returned error: %v", err)
 	}
+	if _, err := repo.CreateRefreshToken(ctx, newToken(owner.ID, "rt_other_login", expiry)); err != nil {
+		t.Fatalf("CreateRefreshToken returned error: %v", err)
+	}
 
-	t.Run("another user cannot revoke the token", func(t *testing.T) {
-		if err := repo.RevokeRefreshToken(ctx, other.ID, sha256Hex("rt_logout"), integrationNow); err != nil {
-			t.Fatalf("RevokeRefreshToken returned error: %v", err)
+	t.Run("the presented token stops working and other logins survive", func(t *testing.T) {
+		if err := repo.RevokeRefreshSession(ctx, sha256Hex("rt_logout"), integrationNow); err != nil {
+			t.Fatalf("RevokeRefreshSession returned error: %v", err)
 		}
-		if _, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_logout"), nextToken("rt_after", expiry), integrationNow); err != nil {
-			t.Fatalf("the token was revoked by a different user: %v", err)
-		}
-	})
-
-	t.Run("the owner revokes it and it stops working", func(t *testing.T) {
-		if err := repo.RevokeRefreshToken(ctx, owner.ID, sha256Hex("rt_after"), integrationNow); err != nil {
-			t.Fatalf("RevokeRefreshToken returned error: %v", err)
-		}
-		_, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_after"), nextToken("rt_again", expiry), integrationNow)
-		if !errors.Is(err, ErrRefreshTokenInvalid) {
+		if _, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_logout"), nextToken("rt_after", expiry), integrationNow); !errors.Is(err, ErrRefreshTokenInvalid) {
 			t.Fatalf("RotateRefreshToken error = %v, want ErrRefreshTokenInvalid", err)
 		}
+		if _, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_other_login"), nextToken("rt_other_next", expiry), integrationNow); err != nil {
+			t.Fatalf("another login was revoked: %v", err)
+		}
 	})
 
-	t.Run("revoking is idempotent", func(t *testing.T) {
-		if err := repo.RevokeRefreshToken(ctx, owner.ID, sha256Hex("rt_after"), integrationNow); err != nil {
-			t.Fatalf("second RevokeRefreshToken returned error: %v", err)
+	t.Run("a rotated token revokes its successor", func(t *testing.T) {
+		if _, err := repo.CreateRefreshToken(ctx, newToken(owner.ID, "rt_old", expiry)); err != nil {
+			t.Fatalf("CreateRefreshToken returned error: %v", err)
 		}
-		if err := repo.RevokeRefreshToken(ctx, owner.ID, sha256Hex("rt_never_existed"), integrationNow); err != nil {
-			t.Fatalf("RevokeRefreshToken of an unknown token returned error: %v", err)
+		if _, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_old"), nextToken("rt_new", expiry), integrationNow); err != nil {
+			t.Fatalf("RotateRefreshToken returned error: %v", err)
+		}
+		if err := repo.RevokeRefreshSession(ctx, sha256Hex("rt_old"), integrationNow.Add(time.Second)); err != nil {
+			t.Fatalf("RevokeRefreshSession returned error: %v", err)
+		}
+		if _, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_new"), nextToken("rt_newer", expiry), integrationNow.Add(time.Second)); !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("the rotated successor still refreshes: %v", err)
 		}
 	})
+
+	t.Run("revoking is idempotent and unknown tokens are ignored", func(t *testing.T) {
+		if err := repo.RevokeRefreshSession(ctx, sha256Hex("rt_other_next"), integrationNow); err != nil {
+			t.Fatalf("second RevokeRefreshSession returned error: %v", err)
+		}
+		if err := repo.RevokeRefreshSession(ctx, sha256Hex("rt_never_existed"), integrationNow); err != nil {
+			t.Fatalf("RevokeRefreshSession of an unknown token returned error: %v", err)
+		}
+	})
+}
+
+func TestRepository_RevokeRefreshSessionConcurrentWithRefresh(t *testing.T) {
+	repo, _ := newTestRepository(t)
+	ctx := context.Background()
+	owner := createTestUser(t, repo, "logout-race@example.com")
+	expiry := integrationNow.Add(7 * 24 * time.Hour)
+
+	for iteration := 0; iteration < 20; iteration++ {
+		oldRaw := fmt.Sprintf("rt_race_old_%d", iteration)
+		newRaw := fmt.Sprintf("rt_race_new_%d", iteration)
+		if _, err := repo.CreateRefreshToken(ctx, newToken(owner.ID, oldRaw, expiry)); err != nil {
+			t.Fatalf("CreateRefreshToken returned error: %v", err)
+		}
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		var rotateErr, revokeErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, rotateErr = repo.RotateRefreshToken(ctx, sha256Hex(oldRaw), nextToken(newRaw, expiry), integrationNow)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			revokeErr = repo.RevokeRefreshSession(ctx, sha256Hex(oldRaw), integrationNow)
+		}()
+		close(start)
+		wg.Wait()
+
+		if revokeErr != nil {
+			t.Fatalf("RevokeRefreshSession returned error: %v", revokeErr)
+		}
+		if rotateErr != nil && !errors.Is(rotateErr, ErrRefreshTokenInvalid) {
+			t.Fatalf("RotateRefreshToken returned unexpected error: %v", rotateErr)
+		}
+		// Whether refresh won or lost, the session must be dead afterwards. If
+		// refresh won, revoking the old token must have revoked the successor.
+		if _, err := repo.RotateRefreshToken(ctx, sha256Hex(newRaw), nextToken(fmt.Sprintf("rt_race_after_%d", iteration), expiry), integrationNow.Add(time.Second)); !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("iteration %d: the refreshed session survived logout: %v", iteration, err)
+		}
+	}
 }
 
 func TestRepository_RotateRefreshToken_reuse(t *testing.T) {
@@ -321,8 +376,8 @@ func TestRepository_RotateRefreshToken_reuse(t *testing.T) {
 	t.Run("a token revoked by logout is not a reuse", func(t *testing.T) {
 		create(t, "rt_d1")
 		create(t, "rt_d_other")
-		if err := repo.RevokeRefreshToken(ctx, user.ID, sha256Hex("rt_d1"), integrationNow); err != nil {
-			t.Fatalf("RevokeRefreshToken returned error: %v", err)
+		if err := repo.RevokeRefreshSession(ctx, sha256Hex("rt_d1"), integrationNow); err != nil {
+			t.Fatalf("RevokeRefreshSession returned error: %v", err)
 		}
 
 		_, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_d1"), nextToken("rt_d2", expiry), integrationNow.Add(time.Hour))
@@ -337,8 +392,8 @@ func TestRepository_RotateRefreshToken_reuse(t *testing.T) {
 	t.Run("a replay of a chain that has already ended is still reported", func(t *testing.T) {
 		create(t, "rt_f1")
 		rotate(t, "rt_f1", "rt_f2", integrationNow)
-		if err := repo.RevokeRefreshToken(ctx, user.ID, sha256Hex("rt_f2"), integrationNow.Add(time.Minute)); err != nil {
-			t.Fatalf("RevokeRefreshToken returned error: %v", err)
+		if err := repo.RevokeRefreshSession(ctx, sha256Hex("rt_f2"), integrationNow.Add(time.Minute)); err != nil {
+			t.Fatalf("RevokeRefreshSession returned error: %v", err)
 		}
 
 		_, err := repo.RotateRefreshToken(ctx, sha256Hex("rt_f1"), nextToken("rt_f3", expiry), integrationNow.Add(time.Hour))

@@ -167,17 +167,61 @@ func revokeChain(ctx context.Context, tx pgx.Tx, rootID string, now time.Time) e
 	return nil
 }
 
-// RevokeRefreshToken revokes the user's refresh token with hash tokenHash. It is
-// idempotent: an unknown, foreign or already revoked token is not an error, so
-// logout always succeeds.
-func (r *Repository) RevokeRefreshToken(ctx context.Context, userID, tokenHash string, now time.Time) error {
-	if _, err := r.db.Exec(ctx, `
+// RevokeRefreshSession ends the session family that owns the presented refresh
+// token hash. Logout calls it without requiring a live access token, so an
+// expired or missing access token must still be able to end the session.
+//
+// It is idempotent: an unknown, already revoked or expired token is not an
+// error. The row is locked before inspection, so a concurrent refresh either
+// completes first (and the logout revokes the newly rotated successor) or waits
+// and then sees the token revoked. Either ordering ends the session; a refresh
+// can never leave a live successor behind a completed logout.
+func (r *Repository) RevokeRefreshSession(ctx context.Context, tokenHash string, now time.Time) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("revoking refresh session: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		id         string
+		revokedAt  *time.Time
+		replacedBy *string
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT id, revoked_at, replaced_by
+		FROM identity.refresh_tokens
+		WHERE token_hash = $1
+		FOR UPDATE`,
+		tokenHash,
+	).Scan(&id, &revokedAt, &replacedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading refresh token for logout: %w", err)
+	}
+
+	if revokedAt != nil {
+		// A rotated token that is presented again identifies the whole family.
+		// Revoking the chain makes logout effective even when a concurrent
+		// refresh already replaced the cookie.
+		if replacedBy != nil {
+			if err := revokeChain(ctx, tx, id, now); err != nil {
+				return err
+			}
+		}
+	} else if _, err := tx.Exec(ctx, `
 		UPDATE identity.refresh_tokens
-		SET revoked_at = $3
-		WHERE user_id = $1 AND token_hash = $2 AND revoked_at IS NULL`,
-		userID, tokenHash, now.UTC(),
+		SET revoked_at = $2
+		WHERE id = $1`,
+		id, now.UTC(),
 	); err != nil {
 		return fmt.Errorf("revoking refresh token: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("revoking refresh session: %w", err)
 	}
 	return nil
 }
