@@ -136,8 +136,11 @@ export function getParcelAssignments(id: string, signal?: AbortSignal) {
   );
 }
 
-export function getParcelReceipt(id: string, signal?: AbortSignal) {
-  return apiBlob(`/parcels/${encodeURIComponent(id)}/receipt`, { signal });
+/** Accepts the parcel UUID or its public tracking number. */
+export function getParcelReceipt(reference: string, signal?: AbortSignal) {
+  return apiBlob(`/parcels/${encodeURIComponent(reference)}/receipt`, {
+    signal,
+  });
 }
 
 /** Returns a short-lived proof photo target; no permanent URL is exposed. */
