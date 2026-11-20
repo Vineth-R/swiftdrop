@@ -155,18 +155,18 @@ The corrected guidance is in `DEMO_READINESS.md`.
 
 ## 4. Not executed in this session
 
-| Suite                                                    | Reason                                                                                                             | How to run                                                                                                |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Full migration-cycle test (`tests/integration/database`) | The test container does not include the `golang-migrate` CLI; CI and `make db-rehearse-restore` cover it           | `TEST_DATABASE_URL=... go test -tags=integration ./tests/integration/database/...` with `migrate` on PATH |
-| Dedicated notification-flow integration                  | Its dedicated Compose override was not started; email delivery is covered by the event flow and real-stack journey | CI job `notificationflow`                                                                                 |
-| Full mocked Playwright suite                             | The real-stack suite was prioritised; mocked suites are unchanged                                                  | `pnpm exec nx e2e @org/web-e2e`                                                                           |
-| k6 public/auth/websocket/delivery-flow                   | Not part of this acceptance run                                                                                    | `k6 run tests/perf/...`                                                                                   |
-| Backup/restore rehearsal                                 | Needs disposable source/target URLs                                                                                | `REHEARSAL_DATABASE_URL=... make db-rehearse-restore`                                                     |
-| S3-compatible storage tests                              | VersityGW profile not started                                                                                      | `make storage-up && make test-storage`                                                                    |
-| Live Gemini smoke                                        | No provider call was made                                                                                          | `docs/ai-assistant.md` procedure                                                                          |
-| Live Google OAuth                                        | No real Google consent flow was performed                                                                          | Manual provider verification                                                                              |
-| Retention prune `APPLY=1`                                | Destructive; only the dry-run script was syntax-checked                                                            | `make prune-retention` first                                                                              |
-| GitHub Actions execution                                 | Workflows cannot run locally                                                                                       | Next pushed PR/tag                                                                                        |
+| Suite                                                    | Reason                                                                                                                                                      | How to run                                                                                                |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Full migration-cycle test (`tests/integration/database`) | The test container does not include the `golang-migrate` CLI; CI and `make db-rehearse-restore` cover it                                                    | `TEST_DATABASE_URL=... go test -tags=integration ./tests/integration/database/...` with `migrate` on PATH |
+| Dedicated notification-flow integration                  | Its dedicated Compose override was not started in this earlier session; it was later run successfully (18/18) in section 10, and CI runs `notificationflow` | `go test -tags=notificationflow ./tests/integration/notificationflow/...`                                 |
+| Full mocked Playwright suite                             | The real-stack suite was prioritised; mocked suites are unchanged                                                                                           | `pnpm exec nx e2e @org/web-e2e`                                                                           |
+| k6 public/auth/websocket/delivery-flow                   | Not part of this acceptance run                                                                                                                             | `k6 run tests/perf/...`                                                                                   |
+| Backup/restore rehearsal                                 | Needs disposable source/target URLs                                                                                                                         | `REHEARSAL_DATABASE_URL=... make db-rehearse-restore`                                                     |
+| S3-compatible storage tests                              | VersityGW profile not started                                                                                                                               | `make storage-up && make test-storage`                                                                    |
+| Live Gemini smoke                                        | No provider call was made                                                                                                                                   | `docs/ai-assistant.md` procedure                                                                          |
+| Live Google OAuth                                        | No real Google consent flow was performed                                                                                                                   | Manual provider verification                                                                              |
+| Retention prune `APPLY=1`                                | Destructive; only the dry-run script was syntax-checked                                                                                                     | `make prune-retention` first                                                                              |
+| GitHub Actions execution                                 | Workflows cannot run locally                                                                                                                                | Next pushed PR/tag                                                                                        |
 
 ## 5. Coverage
 
@@ -193,7 +193,7 @@ tests plus integration tests for refresh/logout concurrency and outbox recovery.
 ## 7. What the executed evidence does not establish
 
 - The full migration down/up cycle in this environment (tooling gap only).
-- The dedicated notification-flow Compose override.
+- The dedicated notification-flow Compose override in this earlier session (closed in section 10: 18/18 pass).
 - k6 performance/SLO behaviour.
 - Backup/restore and storage-provider integration.
 - Live Google or Gemini provider behaviour.
@@ -238,10 +238,10 @@ are listed explicitly rather than counted as verified.
 | Compose config                     | `docker compose config`                                    | PASS                                        |
 | Prettier/diff check                | changed docs and `git diff --check`                        | PASS                                        |
 
-**Not executed:** live Google consent/account-link (blocked), dedicated
-notification-flow Compose override locally (CI `Notification worker E2E` passed),
+**Not executed in this session:** live Google consent/account-link (blocked),
 full real-stack suite after the audit changes (audit real-stack spec passed; CI
-runs the full suite on the PR).
+runs the full suite on the PR). The dedicated notification-flow override was
+later run successfully in section 10 (18/18).
 
 ---
 

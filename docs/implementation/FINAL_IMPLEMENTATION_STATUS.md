@@ -98,12 +98,13 @@ These are separate measurements. They are deliberately not combined into one inf
 
 ### P2 — product and evidence follow-ups
 
-9. Run the remaining Compose-backed evidence that was not part of this pass:
-   the full migration-cycle test, the dedicated notification-flow override,
-   the full mocked Playwright suite, k6, backup/restore rehearsal and the
-   S3-compatible storage suite.
-10. Run the live Gemini and Google OAuth smoke procedures with real credentials;
-    neither is part of CI.
+9. Closed in the post-merge verification pass: the full migration-cycle test,
+   the dedicated notification-flow override (18/18), backup/restore rehearsal,
+   the S3-compatible storage suite, k6 and the mocked/real-stack UI suites have
+   executed evidence. See section 10 and `FINAL_TEST_REPORT.md` section 10.
+10. Gemini live smoke passed. Google OAuth initiation and provider reachability
+    are verified; completing account consent/linking still needs an interactive
+    Google account and remains blocked.
 11. Optional product scope: parcel edit/cancel, dispatcher-initiated status
     writes, SMS, in-app notification inbox, customer account deletion, email
     change, session/device management.
