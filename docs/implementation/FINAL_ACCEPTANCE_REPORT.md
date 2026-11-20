@@ -281,7 +281,7 @@ pnpm exec nx run @org/web-e2e:e2e --args="--project=real-stack"
 Provider, notification-flow, retention and storage procedures are documented in
 `DEMO_READINESS.md` and `tests/integration/notificationflow/README.md`.
 
-## 17. Post-acceptance merchant enhancement (2026-11-20)
+## 17. Post-acceptance merchant and receipt enhancement (2026-11-20)
 
 This section records work completed after the accepted baseline
 (`682205a`/`6686de2`). It is **additive** and does not change the acceptance
@@ -314,6 +314,16 @@ baseline and does not imply the baseline was defective.
   [`docs/merchant-api-guide.html`](../merchant-api-guide.html) and
   [`docs/merchant-api-guide.pdf`](../merchant-api-guide.pdf), and as a download
   from the integration page.
+- The customer parcel receipt at `GET /api/v1/parcels/{reference}/receipt`
+  (parcel UUID or public tracking number) now uses the same SwiftDrop print
+  identity: navy header, lime mark, status, sender/recipient cards, parcel
+  details, fee table, status timeline, support footer and page numbers.
+  Ownership is enforced in the same query; another customer receives 404.
+- Both receipts use `packages/go-common/receiptdesign` for the palette, page
+  geometry, status labels and money/date/contact formatting. The merchant
+  receipt uses `fpdf`; the customer receipt retains the shaping-capable text
+  engine because `fpdf` cannot shape Sinhala/Tamil/Arabic/Hebrew. This is a
+  deliberate quality trade-off, not an incomplete migration.
 
 ### Verification
 
@@ -326,7 +336,7 @@ baseline and does not imply the baseline was defective.
   integration page, clickable rows, the receipt download and the dashboard row.
 - Security: cross-merchant receipt access returns 404, anonymous access returns
   401, receipts are `no-store`, and no internal owner ID appears in merchant
-  self-service responses. The updated access matrix covers 67 endpoints.
+  self-service responses. The updated access matrix covers 68 endpoints.
 
 The production deployment, multi-replica and operator-retention limitations in
 sections 13–15 remain unchanged.

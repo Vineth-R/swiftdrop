@@ -134,3 +134,7 @@ baseline status of any requirement above.
 **Post-acceptance conclusion:** the enhancement is implemented and verified
 without changing the accepted baseline contract for `orderId` or existing
 routes.
+
+| ME-16 | Customer parcel receipt PDF | Parcel/Web | `GET /parcels/{reference}/receipt` accepts UUID or tracking; shared receipt design; timeline and support footer | `TestCustomerReceiptWithHistoryAndSupport`, `TestReceiptDataByTrackingChecksOwnership`, parcel HTTP workflow, `parcels.spec.ts`, real customer journey | COMPLETE |
+| ME-17 | Customer receipt ownership and privacy | Parcel/API | Merchant-scoped query by `customer_user_id`; another customer 404; no internal IDs in the PDF; `no-store` | `TestReceiptRowsDoNotLeakInternalIdentifiers`, `TestReceiptDataByTrackingChecksOwnership`, access matrix | COMPLETE |
+| ME-18 | Shared receipt design system | go-common/Parcel/Merchant | `receiptdesign` palette, geometry, status/date/money/contact formatting used by both receipts | `receiptdesign` tests, customer and merchant receipt tests | COMPLETE |

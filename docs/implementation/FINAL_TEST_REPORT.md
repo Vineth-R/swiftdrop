@@ -345,8 +345,9 @@ This is an additive enhancement, not a change to the accepted baseline.
 
 ### Not run
 
-- Full real-stack Compose/Playwright suite: this change is merchant-only and the
-  affected mocked/UI and merchant integration tests were run.
+- Full real-stack Compose/Playwright suite: the affected mocked/UI, customer and
+  merchant integration tests and the two affected real-stack journeys were run;
+  the complete suite is left to CI.
 - CI: the PR checks are the authority for the final full matrix.
 
 The combined `dashboards.spec.ts layouts.spec.ts` run produced two timeout

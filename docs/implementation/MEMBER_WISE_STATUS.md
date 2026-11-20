@@ -320,7 +320,7 @@ linking.
 Final `development`: `682205aa2856fd8f03721979d88a638e1313cd6a` (PR #181 merge).
 No member has an open mandatory implementation item.
 
-### Post-acceptance merchant enhancement (2026-11-20)
+### Post-acceptance merchant and receipt enhancement (2026-11-20)
 
 | Member | Additional verified state                                                                                                                             |
 | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |

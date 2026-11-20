@@ -2131,27 +2131,29 @@ Errors: 404.
 
 Access: CUSTOMER (owner), ADMIN.
 
+Purpose: Downloads a branded Parcel Delivery Receipt as a PDF. The path value may be the
 
+parcel UUID or the public SDK/SDN tracking number; ownership is checked in the same query.
 
-Purpose: Downloads the delivery receipt as a PDF.
+The receipt contains the SwiftDrop wordmark, tracking number, status, creation/update/
 
+delivery dates, sender and recipient names and addresses, parcel description, weight, size,
 
+the stored fee breakdown, the status timeline and the configured support address. It never
+
+claims a payment was made and never includes internal ownership identifiers.
 
 Response 200:
-
-
 
    Content-Type: application/pdf
 
    Content-Disposition: attachment; filename="receipt_SDK7M2Q9XP4.pdf"
 
+   Cache-Control: no-store
 
+Unknown, malformed or another customer's reference returns 404. ADMIN may read any parcel;
 
-
-
-The PDF contains the tracking number, sender and recipient names, cities, weight, size,
-
-the stored fee breakdown, status and dates. Errors: 404.
+DISPATCHER and COURIER are not allowed to download a customer receipt.
 
 
 
@@ -4829,7 +4831,7 @@ Section           Method              Path                                      
 
 
 
-  4.5               GET                  /parcels/{parcelId}/receipt                CUSTOMER
+  4.5               GET                  /parcels/{parcelId}/receipt                CUSTOMER/ADMIN
 
                                                                                     (owner), ADMIN
 

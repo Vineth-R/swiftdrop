@@ -264,7 +264,7 @@ tests and documentation.
 
 ---
 
-## 11. Post-acceptance merchant enhancement (2026-11-20)
+## 11. Post-acceptance merchant and receipt enhancement (2026-11-20)
 
 **Branch:** `feat/merchant-experience-enhancements`, based on
 `development` at `6686de2708776b725a40a91e8086bf68e2e03c77`.
@@ -276,6 +276,10 @@ Additive work, not part of the accepted baseline:
 - Branded merchant API guide HTML/PDF and `make merchant-api-pdf`.
 - Private `GET /merchant/orders/{trackingNumber}/receipt` PDF with merchant
   ownership, API-key/session authentication, `no-store` and a download button.
+- Branded customer parcel receipt at `GET /parcels/{reference}/receipt` with
+  UUID or tracking lookup, customer ownership, timeline, support footer and a
+  shared `receiptdesign` palette/formatting; the existing Unicode shaping engine
+  is retained behind the same design system.
 - `ownerUserId` removed from merchant self-service responses while the admin DTO
   keeps it.
 - `orderId` and all existing order routes preserved.
