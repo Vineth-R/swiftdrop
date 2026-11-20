@@ -14,6 +14,7 @@ type Store interface {
 	OrderByID(ctx context.Context, merchantID, orderID string) (Order, error)
 	CreateOrder(ctx context.Context, params CreateParams) (Order, error)
 	OrderDetail(ctx context.Context, merchantID, orderID string) (Detail, error)
+	OrderDetailByTracking(ctx context.Context, merchantID, trackingNumber string) (Detail, error)
 	ListOrders(ctx context.Context, filter ListFilter) ([]Order, int, error)
 	WithIdempotencyLock(ctx context.Context, merchantID, idempotencyKey string, fn func(context.Context) error) error
 	ReserveOrderAttempt(ctx context.Context, merchantID, idempotencyKey, requestHash string) (OrderReservation, error)
@@ -263,6 +264,16 @@ func (s *Service) Detail(ctx context.Context, merchantID, orderID string) (Detai
 		return Detail{}, ErrNotFound
 	}
 	return s.store.OrderDetail(ctx, merchantID, orderID)
+}
+
+// DetailByTracking returns one merchant-scoped order by tracking number. The
+// tracking number is a lookup key, not an authorization token: the repository
+// scopes the query by merchantID and another merchant's order is ErrNotFound.
+func (s *Service) DetailByTracking(ctx context.Context, merchantID, trackingNumber string) (Detail, error) {
+	if s == nil || s.store == nil {
+		return Detail{}, ErrNotFound
+	}
+	return s.store.OrderDetailByTracking(ctx, merchantID, trackingNumber)
 }
 
 // List returns one page of the merchant's own orders.

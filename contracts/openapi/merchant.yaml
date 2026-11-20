@@ -626,6 +626,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /merchant/orders/{trackingNumber}/receipt:
+    get:
+      operationId: merchantOrderReceipt
+      summary: Download a merchant order receipt (post-acceptance)
+      description: >-
+        Returns a private PDF receipt for the caller's own order. The path value
+        is the public SDN tracking number, not an authorization credential: the
+        query is scoped to the authenticated merchant and another merchant's
+        order returns 404. API-key and MERCHANT session credentials are both
+        accepted. The response is not cached.
+      tags: [Merchant orders]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+        - MerchantApiKey: []
+      parameters:
+        - name: trackingNumber
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9-]{4,40}$'
+            example: SDN4T8W2LC6
+      responses:
+        '200':
+          description: The receipt PDF.
+          headers:
+            Content-Disposition:
+              description: Attachment filename containing the tracking number.
+              schema: { type: string }
+            Cache-Control:
+              description: Private receipts are not cached.
+              schema: { type: string, example: no-store }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /admin/audit-logs/merchant:
     get:
       operationId: adminMerchantAuditLogs

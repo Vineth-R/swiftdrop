@@ -130,7 +130,7 @@ func run() error {
 		Orders:       orderService,
 		Notifier:     mail.Notifier,
 		AccessSecret: config.AccessSecret, CookieName: config.CookieName,
-		InternalToken: config.InternalToken, Logger: logger,
+		InternalToken: config.InternalToken, SupportEmail: config.SupportEmail, Logger: logger,
 	})
 	if merchantRepo != nil {
 		if err := registerWebhooks(router, merchantRepo, identityClient, config, logger); err != nil {

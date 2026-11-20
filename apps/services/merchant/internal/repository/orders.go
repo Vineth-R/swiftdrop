@@ -159,6 +159,17 @@ func mapOrderWriteError(err error) error {
 
 // OrderDetail returns one merchant-scoped order and its timeline in one query.
 func (r *Repository) OrderDetail(ctx context.Context, merchantID, orderID string) (orders.Detail, error) {
+	return r.orderDetail(ctx, "o.id = $1", merchantID, orderID)
+}
+
+// OrderDetailByTracking returns the merchant's own order by tracking number.
+// The tracking number is not an authorization credential: merchant_id is part
+// of the same predicate, so another merchant's order is ErrNotFound.
+func (r *Repository) OrderDetailByTracking(ctx context.Context, merchantID, trackingNumber string) (orders.Detail, error) {
+	return r.orderDetail(ctx, "o.tracking_number = $1", merchantID, trackingNumber)
+}
+
+func (r *Repository) orderDetail(ctx context.Context, match string, merchantID, value string) (orders.Detail, error) {
 	var detail orders.Detail
 	var weightCents, feeCents int64
 	var breakdown, timeline []byte
@@ -170,7 +181,7 @@ func (r *Repository) OrderDetail(ctx context.Context, merchantID, orderID string
 				WHERE e.order_id = o.id
 			), '[]'::jsonb)
 		FROM merchant.merchant_orders o
-		WHERE o.id = $1 AND o.merchant_id = $2`, orderID, merchantID,
+		WHERE `+match+` AND o.merchant_id = $2`, value, merchantID,
 	).Scan(
 		&detail.ID, &detail.MerchantID, &detail.ExternalOrderID, &detail.IdempotencyKey, &detail.RequestHash,
 		&detail.ParcelID, &detail.TrackingNumber,

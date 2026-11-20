@@ -116,6 +116,13 @@
     },
     {
       "method": "GET",
+      "path": "/merchant/orders/{orderId}/receipt",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
       "path": "/merchants/me",
       "classification": "public",
       "documented": true,

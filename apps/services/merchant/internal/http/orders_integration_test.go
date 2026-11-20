@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -240,7 +241,8 @@ func newOrderHTTPFixtureWith(t *testing.T, logger *slog.Logger, notifier *notify
 		Repository: repo, Identity: identity,
 		Orders:       orders.New(repo, parcelClient, staticZones{name: "Colombo"}),
 		Notifier:     notifier,
-		AccessSecret: testJWTSecret, CookieName: "sd_access", InternalToken: "internal-token", Logger: logger,
+		AccessSecret: testJWTSecret, CookieName: "sd_access", InternalToken: "internal-token",
+		SupportEmail: "support@swiftdrop.test", Logger: logger,
 	})
 	return ctx, repo, pool, router, parcel
 }
@@ -831,4 +833,85 @@ func urlUUID() string {
 	raw[6] = raw[6]&0x0f | 0x40
 	raw[8] = raw[8]&0x3f | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
+}
+
+func TestMerchantOrderReceiptPDFAndIsolation(t *testing.T) {
+	ctx, repo, _, router, _ := newOrderHTTPFixture(t)
+	merchantID, ownerID := createHTTPMerchant(t, ctx, repo)
+	approve(t, ctx, repo, merchantID)
+	key := newKey(t, ctx, repo, merchantID, "receipt")
+
+	status, body := requestJSON(t, router, http.MethodPost, "/merchant/orders", orderBody("SZ-RECEIPT"), map[string]string{"X-API-Key": key.full})
+	if status != http.StatusCreated {
+		t.Fatalf("create status = %d (%s)", status, body)
+	}
+	var created struct {
+		Data struct{ TrackingNumber string } `json:"data"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil || created.Data.TrackingNumber == "" {
+		t.Fatalf("decode create: %v (%s)", err, body)
+	}
+	if bytes.Contains(body, []byte("ownerUserId")) {
+		t.Fatalf("create response exposed ownerUserId: %s", body)
+	}
+
+	receiptPath := "/merchant/orders/" + created.Data.TrackingNumber + "/receipt"
+	request := httptest.NewRequest(http.MethodGet, receiptPath, nil)
+	request.Header.Set("X-API-Key", key.full)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("receipt status = %d (%s)", recorder.Code, recorder.Body)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/pdf" {
+		t.Fatalf("receipt content type = %q", got)
+	}
+	if got := recorder.Header().Get("Content-Disposition"); !strings.Contains(got, created.Data.TrackingNumber) {
+		t.Fatalf("receipt disposition = %q", got)
+	}
+	pdf := recorder.Body.Bytes()
+	if !bytes.HasPrefix(pdf, []byte("%PDF-")) {
+		t.Fatalf("receipt is not a PDF: %q", pdf[:min(8, len(pdf))])
+	}
+	if !bytes.Contains(pdf, []byte("SwiftDrop")) {
+		t.Fatal("receipt does not contain the SwiftDrop wordmark")
+	}
+
+	// A session token is an equally valid receipt credential.
+	manager, err := auth.NewTokenManager(testJWTSecret, time.Minute)
+	if err != nil {
+		t.Fatalf("NewTokenManager() error = %v", err)
+	}
+	token, _, err := manager.IssueWithSession(ownerID, auth.RoleMerchant, 1)
+	if err != nil {
+		t.Fatalf("IssueWithSession() error = %v", err)
+	}
+	status, body = requestJSON(t, router, http.MethodGet, receiptPath, nil, map[string]string{"Authorization": "Bearer " + token})
+	if status != http.StatusOK || !bytes.HasPrefix(body, []byte("%PDF-")) {
+		t.Fatalf("session receipt status = %d", status)
+	}
+
+	// Another merchant must not be able to download the receipt.
+	otherID, _ := createHTTPMerchant(t, ctx, repo)
+	approve(t, ctx, repo, otherID)
+	otherKey := newKey(t, ctx, repo, otherID, "other-receipt")
+	status, body = requestJSON(t, router, http.MethodGet, receiptPath, nil, map[string]string{"X-API-Key": otherKey.full})
+	if status != http.StatusNotFound || errorCode(body) != "NOT_FOUND" {
+		t.Fatalf("cross-merchant receipt status = %d (%s)", status, body)
+	}
+	if bytes.Contains(body, []byte(created.Data.TrackingNumber)) {
+		t.Fatalf("cross-merchant receipt leaked the tracking number: %s", body)
+	}
+
+	// Anonymous and malformed requests are safe 401/404 responses.
+	request = httptest.NewRequest(http.MethodGet, receiptPath, nil)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous receipt status = %d", recorder.Code)
+	}
+	status, body = requestJSON(t, router, http.MethodGet, "/merchant/orders/not-a-tracking/receipt", nil, map[string]string{"X-API-Key": key.full})
+	if status != http.StatusNotFound || errorCode(body) != "NOT_FOUND" {
+		t.Fatalf("malformed receipt status = %d (%s)", status, body)
+	}
 }

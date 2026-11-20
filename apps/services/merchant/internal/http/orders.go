@@ -3,6 +3,7 @@ package servicehttp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/receipt"
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/auth"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
@@ -39,6 +41,10 @@ func registerMerchantOrderRoutes(router *gin.Engine, h *merchantHandler, manager
 	)
 	group.GET("", h.orderAuth(manager), h.listOrders)
 	group.GET("/:orderId", h.orderAuth(manager), h.getOrder)
+	// The path value is the public tracking number for a receipt. It uses the
+	// same Gin parameter name as the detail route so the router tree does not
+	// conflict; the OpenAPI path names it {trackingNumber}.
+	group.GET("/:orderId/receipt", h.orderAuth(manager), h.orderReceipt)
 }
 
 // orderAuth accepts either an X-API-Key or a MERCHANT session. It avoids
@@ -158,6 +164,59 @@ func (h *merchantHandler) getOrder(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, orderDetailResponse(detail))
+}
+
+func (h *merchantHandler) orderReceipt(c *gin.Context) {
+	if h.orders == nil {
+		httpx.Error(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "merchant orders are not configured")
+		return
+	}
+	identity, merchant, ok := h.merchantIdentity(c)
+	if !ok || !h.requireApproved(c, merchant) {
+		return
+	}
+	tracking := strings.ToUpper(strings.TrimSpace(c.Param("orderId")))
+	if !validTrackingNumber(tracking) {
+		httpx.Error(c, http.StatusNotFound, "NOT_FOUND", "order not found")
+		return
+	}
+	detail, err := h.orders.DetailByTracking(c.Request.Context(), identity.MerchantID, tracking)
+	if err != nil {
+		h.orderError(c, err)
+		return
+	}
+	pdf, err := receipt.Render(receipt.Input{
+		Merchant: receipt.Merchant{
+			BusinessName:  merchant.BusinessName,
+			ContactEmail:  merchant.ContactEmail,
+			ContactPhone:  merchant.ContactPhone,
+			PickupAddress: merchant.PickupAddress,
+		},
+		Order:        detail,
+		SupportEmail: h.supportEmail,
+		GeneratedAt:  time.Now().UTC(),
+	})
+	if err != nil {
+		h.internalError(c, "merchant_order_receipt", "the receipt could not be generated", err)
+		return
+	}
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="SwiftDrop-order-%s.pdf"`, tracking))
+	c.Data(http.StatusOK, "application/pdf", pdf)
+}
+
+// validTrackingNumber accepts the characters generated tracking numbers use.
+// An invalid value is treated as a missing order, not as a validation leak.
+func validTrackingNumber(value string) bool {
+	if len(value) < 4 || len(value) > 40 {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *merchantHandler) orderError(c *gin.Context, err error) {
