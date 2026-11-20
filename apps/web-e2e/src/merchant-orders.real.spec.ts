@@ -191,15 +191,24 @@ test.describe('real stack merchant orders', () => {
       timeout: 20_000,
     });
     await expect(page.getByText(trackingNumber!)).toBeVisible();
-    await page.getByRole('link', { name: externalOrderID }).click();
+    await page.getByRole('link').filter({ hasText: externalOrderID }).click();
     await expect(
       page.getByRole('heading', { level: 1, name: 'Order details' }),
     ).toBeVisible();
     await expect(page.getByText('CREATED').first()).toBeVisible();
 
+    const receiptPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download receipt' }).click();
+    const receipt = await receiptPromise;
+    expect(receipt.suggestedFilename()).toBe(
+      `SwiftDrop-order-${trackingNumber}.pdf`,
+    );
+
     const me = await page.request.get('/api/v1/merchants/me');
     expect(me.ok()).toBeTruthy();
-    const merchant = (await me.json()) as { data?: { id?: string } };
+    const meText = await me.text();
+    expect(meText).not.toContain('ownerUserId');
+    const merchant = JSON.parse(meText) as { data?: { id?: string } };
     const merchantID = merchant.data?.id;
     expect(merchantID).toBeTruthy();
 

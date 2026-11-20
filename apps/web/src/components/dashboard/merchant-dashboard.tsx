@@ -168,42 +168,42 @@ export function MerchantDashboard({ name }: { name: string }) {
                     title="No orders yet"
                     icon={Boxes}
                     action={
-                      <ButtonLink href="/merchant/orders">
-                        Create via API
+                      <ButtonLink href="/merchant/integration">
+                        Open API integration
                       </ButtonLink>
                     }
                   >
                     Create an API key, then post an order from your store. The
-                    orders page has a request example you can copy.
+                    API integration page has a request example and the merchant
+                    API guide.
                   </EmptyState>
                 ) : (
                   <ul className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
                     {orders.state.data.recent.map((order) => (
-                      <li
-                        key={order.orderId}
-                        className="grid gap-3 p-5 md:grid-cols-[1.2fr_1fr_auto_auto] md:items-center"
-                      >
-                        <div className="min-w-0">
-                          <Link
-                            className="break-all text-label text-interactive underline underline-offset-4"
-                            href={`/merchant/orders/${encodeURIComponent(order.orderId)}`}
-                          >
-                            {order.externalOrderId}
-                          </Link>
-                          <p className="mt-1 break-all font-mono text-caption text-text-muted">
-                            {order.trackingNumber}
+                      <li key={order.orderId}>
+                        <Link
+                          className="grid gap-3 p-5 transition-colors duration-fast ease-out-sd hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive md:grid-cols-[1.2fr_1fr_auto_auto] md:items-center"
+                          href={`/merchant/orders/${encodeURIComponent(order.orderId)}`}
+                        >
+                          <div className="min-w-0">
+                            <span className="break-all text-label text-interactive">
+                              {order.externalOrderId}
+                            </span>
+                            <p className="mt-1 break-all font-mono text-caption text-text-muted">
+                              {order.trackingNumber}
+                            </p>
+                          </div>
+                          <p className="text-body-sm">
+                            {order.recipientName}
+                            <span className="block text-caption text-text-muted">
+                              {order.dropoffCity}
+                            </span>
                           </p>
-                        </div>
-                        <p className="text-body-sm">
-                          {order.recipientName}
-                          <span className="block text-caption text-text-muted">
-                            {order.dropoffCity}
-                          </span>
-                        </p>
-                        <StatusChip status={order.status} />
-                        <p className="font-mono text-body-sm tabular-nums md:text-right">
-                          {money(order.total, order.currency)}
-                        </p>
+                          <StatusChip status={order.status} />
+                          <p className="font-mono text-body-sm tabular-nums md:text-right">
+                            {money(order.total, order.currency)}
+                          </p>
+                        </Link>
                       </li>
                     ))}
                   </ul>

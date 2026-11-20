@@ -83,7 +83,7 @@ test.describe('merchant orders', () => {
     await expect(page.getByText('45 orders in this account.')).toBeVisible();
     await expect(page.getByText('SZ-100241')).toBeVisible();
     await expect(page.getByText('SDN4T8W2LC1')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'SZ-100241' })).toHaveAttribute(
+    await expect(page.getByRole('link', { name: /SZ-100241/ })).toHaveAttribute(
       'href',
       '/merchant/orders/order-1',
     );
@@ -140,7 +140,7 @@ test.describe('merchant orders', () => {
     ).toBeVisible();
   });
 
-  test('shows the Create via API panel without exposing a key', async ({
+  test('links to the dedicated API integration page without embedding it', async ({
     page,
   }) => {
     await signInAs(page, 'MERCHANT', {
@@ -149,6 +149,23 @@ test.describe('merchant orders', () => {
       'GET /merchant/orders': paged([], 0),
     });
     await page.goto('/merchant/orders');
+
+    await expect(
+      page.getByRole('heading', { name: 'Create orders from your system' }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('main').getByRole('link', { name: 'API integration' }),
+    ).toHaveAttribute('href', '/merchant/integration');
+  });
+
+  test('the dedicated API integration page keeps the onboarding panel', async ({
+    page,
+  }) => {
+    await signInAs(page, 'MERCHANT', {
+      'GET /merchants/me': ok(merchant),
+      'GET /merchants/me/keys': ok([]),
+    });
+    await page.goto('/merchant/integration');
 
     await expect(
       page.getByRole('heading', { name: 'Create orders from your system' }),
@@ -165,10 +182,50 @@ test.describe('merchant orders', () => {
       page.getByRole('link', { name: 'Manage API keys' }),
     ).toHaveAttribute('href', '/api-keys');
     await expect(
-      page.getByRole('link', { name: /API documentation/ }),
+      page.getByRole('link', { name: 'Merchant API guide (PDF)' }),
+    ).toHaveAttribute('href', '/merchant-api-guide.pdf');
+    await expect(
+      page.getByRole('link', { name: /Full API reference/ }),
     ).toHaveAttribute(
       'href',
       'https://github.com/Vineth-R/swiftdrop/blob/development/docs/API_Documentation_v1.1.md#816-post-merchantorders',
+    );
+  });
+
+  test('clicking an order row opens its detail page', async ({ page }) => {
+    await signInAs(page, 'MERCHANT', {
+      'GET /merchants/me': ok(merchant),
+      'GET /merchants/me/keys': ok([]),
+      'GET /merchant/orders': paged([order(1, 'IN_TRANSIT')], 1),
+      'GET /merchant/orders/order-1': ok(detail),
+    });
+    await page.goto('/merchant/orders');
+    await page.getByRole('link', { name: /SZ-100241/ }).click();
+    await expect(page).toHaveURL(/\/merchant\/orders\/order-1$/);
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Order details' }),
+    ).toBeVisible();
+  });
+
+  test('downloads a branded receipt PDF', async ({ page }) => {
+    await signInAs(page, 'MERCHANT', {
+      'GET /merchants/me': ok(merchant),
+      'GET /merchants/me/keys': ok([]),
+      'GET /merchant/orders/order-1': ok(detail),
+    });
+    await page.route('**/api/v1/merchant/orders/SDN4T8W2LC1/receipt', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/pdf',
+        body: '%PDF-1.4\nSwiftDrop receipt',
+      }),
+    );
+    await page.goto('/merchant/orders/order-1');
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download receipt' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(
+      'SwiftDrop-order-SDN4T8W2LC1.pdf',
     );
   });
 

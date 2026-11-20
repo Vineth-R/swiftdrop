@@ -16,7 +16,7 @@ const requestBody = `{
     "phone": "+94712345678",
     "address": "45 Lake Drive",
     "city": "Kandy",
-    "zoneId": "9b2f..."
+    "zoneId": "ff42248d-483c-4d0c-bc67-b97731c019c6"
   },
   "weightKg": 1.5,
   "sizeCategory": "SMALL",
@@ -25,7 +25,7 @@ const requestBody = `{
 
 const successBody = `{
   "data": {
-    "orderId": "o7c6...",
+    "orderId": "7f3a2c1e-4b5d-4e6f-8a90-b1c2d3e4f506",
     "externalOrderId": "SZ-100245",
     "trackingNumber": "SDN4T8W2LC6",
     "status": "CREATED",
@@ -155,11 +155,19 @@ export function CreateViaAPI() {
           </ButtonLink>
           <a
             className="inline-flex min-h-11 items-center gap-2 text-body-sm font-semibold text-interactive underline underline-offset-4"
+            href="/merchant-api-guide.pdf"
+            download
+          >
+            Merchant API guide (PDF)
+            <ExternalLink size={14} aria-hidden="true" />
+          </a>
+          <a
+            className="inline-flex min-h-11 items-center gap-2 text-body-sm font-semibold text-interactive underline underline-offset-4"
             href={API_DOCS_URL}
             target="_blank"
             rel="noreferrer"
           >
-            API documentation
+            Full API reference
             <ExternalLink size={14} aria-hidden="true" />
           </a>
         </div>
