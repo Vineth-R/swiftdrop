@@ -330,7 +330,7 @@ baseline and does not imply the baseline was defective.
 - Backend: Go format/build/vet/unit tests; receipt renderer tests; merchant
   ownership integration test for the receipt; race tests for the changed
   merchant packages.
-- Contracts: OpenAPI validation and the 32 contract/route tests pass; the route
+- Contracts: OpenAPI validation and the 34 contract/route tests pass; the route
   inventory includes the receipt route.
 - Frontend: unit/lint/build/typecheck pass; Playwright covers the dedicated
   integration page, clickable rows, the receipt download and the dashboard row.

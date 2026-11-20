@@ -322,11 +322,12 @@ No member has an open mandatory implementation item.
 
 ### Post-acceptance merchant and receipt enhancement (2026-11-20)
 
-| Member | Additional verified state                                                                                                                             |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M8     | Dedicated merchant integration page, clickable order rows, branded receipt PDF endpoint, `ownerUserId` removed from self-service; `orderId` preserved |
-| M9     | Merchant API guide documents webhook signing, retries, suppression and `eventId` deduplication                                                        |
-| M10    | New receipt/ownership unit+integration tests, contract/route tests, and Playwright coverage for the integration page, rows and download               |
+| Member | Additional verified state                                                                                                                                                                 |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M7     | Customer parcel receipt redesigned with shared SwiftDrop branding, sender/recipient/parcel/fee/timeline sections, tracking-number lookup, customer ownership and Unicode shaping retained |
+| M8     | Dedicated merchant integration page, clickable order rows, branded receipt PDF endpoint, `ownerUserId` removed from self-service; `orderId` preserved                                     |
+| M9     | Merchant API guide documents webhook signing, retries, suppression and `eventId` deduplication                                                                                            |
+| M10    | New receipt/ownership unit+integration tests, contract/route tests, and Playwright coverage for the integration page, rows and download                                                   |
 
 This is additive to the accepted baseline and does not change any member's
 baseline acceptance.
