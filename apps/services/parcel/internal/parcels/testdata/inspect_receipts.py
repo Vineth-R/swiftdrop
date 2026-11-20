@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 import pymupdf as fitz
@@ -16,7 +16,7 @@ for index,(name,value) in enumerate(cases.items()):
     parsed=PdfReader(str(path),strict=True)
     extracted='\n'.join(p.extract_text() or '' for p in parsed.pages)
     assert value in extracted,(name,repr(extracted))
-    assert 'Total fee: 550.00' in extracted
+    assert 'LKR 550.00' in extracted
     doc=fitz.open(str(path));p=doc[0]
     assert value in p.get_text(), (name, repr(p.get_text()))
     pix=p.get_pixmap(matrix=fitz.Matrix(2,2),alpha=False)
