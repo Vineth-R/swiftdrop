@@ -1,27 +1,29 @@
 # SwiftDrop — Final Acceptance Report
 
 **Date:** 2026-11-20
-**Baseline:** `development` at `eec4038` (PR #179 merged) plus the
-`feat/non-deployment-finalization` branch.
+**Baseline:** `development` at `831455b952e32cbb63623799750720635ddd185b`
+(the PR #180 merge, which already contains PR #179).
+**Verification branch:** `docs/final-remediation-verification` (verification and
+documentation only; no product-code changes in this pass).
 **Scope:** approved non-deployment functionality, security, reliability,
 integration and documentation.
 
 ## 1. Decision
 
-| Dimension                           | Decision                                                            |
-| ----------------------------------- | ------------------------------------------------------------------- |
-| Core application functionality      | **COMPLETE**                                                        |
-| Authentication/authorization        | **COMPLETE**                                                        |
-| Database integrity and transactions | **COMPLETE**                                                        |
-| Event-driven processing             | **COMPLETE**                                                        |
-| Notifications and webhooks          | **COMPLETE**                                                        |
-| Realtime                            | **COMPLETE for the supported single-instance architecture**         |
-| AI assistant                        | **COMPLETE**; live Gemini smoke passed; live Google consent blocked |
-| Admin audit visibility              | **COMPLETE** (new in this phase)                                    |
-| Security review                     | **COMPLETE**; no open critical/high defect                          |
-| Documentation/API consistency       | **COMPLETE**                                                        |
-| Production deployment               | **OUT OF SCOPE** for this phase                                     |
-| Overall non-deployment acceptance   | **COMPLETE except one blocked external-provider consent check**     |
+| Dimension                           | Decision                                                               |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| Core application functionality      | **COMPLETE**                                                           |
+| Authentication/authorization        | **COMPLETE**                                                           |
+| Database integrity and transactions | **COMPLETE**                                                           |
+| Event-driven processing             | **COMPLETE**                                                           |
+| Notifications and webhooks          | **COMPLETE**                                                           |
+| Realtime                            | **COMPLETE for the supported single-instance architecture**            |
+| AI assistant                        | **COMPLETE**; live Gemini smoke passed; live Google consent blocked    |
+| Admin audit visibility              | **COMPLETE** (new in this phase)                                       |
+| Security review                     | **COMPLETE**; no open critical/high defect                             |
+| Documentation/API consistency       | **COMPLETE**                                                           |
+| Production deployment               | **OUT OF SCOPE** for this phase                                        |
+| Overall non-deployment acceptance   | **COMPLETE except one blocked external-provider account-consent step** |
 
 The project is **not claimed as 100% end-to-end complete** because live Google
 OAuth consent/account-linking could not be performed in this environment and
@@ -57,6 +59,9 @@ non-deployment scope has implementation and executed evidence.
 - Bounded batching (`BATCH_SIZE`, `MAX_BATCHES`) so a run is resumable and does
   not hold one long transaction.
 - Local dry run executed against the Compose database.
+- New regression tests prove the dry run is read-only, apply deletes only the
+  four owned tables, batching bounds reach the SQL, and windows below 30 days or
+  non-positive/non-numeric limits are refused.
 
 ### Proof lifecycle
 
@@ -72,6 +77,32 @@ non-deployment scope has implementation and executed evidence.
 - Audit detail redaction.
 - S3 integration helper now creates buckets correctly outside `us-east-1`.
 - No security check was weakened to pass a test.
+
+### Notification flow
+
+- The dedicated `notificationflow` Compose profile was re-run locally against a
+  disposable project (`swiftdrop-notificationflow`) with Mailpit as SMTP.
+- All 18 tests/subtests passed, including customer parcel-created and
+  status-changed email, duplicate suppression, merchant-owned approved/suspended
+  contacts, invalid/foreign-producer dead-lettering, identity-unavailable
+  dead-lettering, SMTP failure recovery, legacy delivery and deduplication.
+- Correct local runs require `SMTP_HOST=mailpit`, an empty `SMTP_USER`/
+  `SMTP_PASSWORD`, and `RABBITMQ_RETRY_DELAY`/`RABBITMQ_MAX_RETRIES` exported
+  before `docker compose up` so the worker container receives them. This is a
+  harness prerequisite, not a product defect; CI already sets them.
+- The exact reproduction command is in `docs/implementation/DEMO_READINESS.md`
+  and `tests/integration/notificationflow/README.md`.
+
+### Google OAuth
+
+- 32 automated tests pass: 25 service-level tests (state, PKCE, browser binding,
+  single-use state, callback, account creation/linking, disabled accounts,
+  merchant approval, store failures) plus 7 provider-helper tests.
+- `GET /api/v1/auth/google/login` returns a `302` with PKCE `S256`, a random
+  state and the configured callback; loading that URL in a real browser reached
+  Google's sign-in page for the configured client ID and redirect URI.
+- Completing consent and account linking needs an authorized Google test
+  account. It is not claimed as passed and is recorded as blocked below.
 
 ### Reliability/verification
 
@@ -89,12 +120,11 @@ non-deployment scope has implementation and executed evidence.
 
 ## 3. Implemented but not fully verified
 
-| Item                                                 | Why                                                                                |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Google OAuth full consent/account-link journey       | Requires an interactive Google account/browser consent; provider redirect verified |
-| Dedicated notification-flow Compose override locally | Covered by CI `Notification worker E2E`; not re-run separately in this local pass  |
-| Multi-replica realtime/AI/rate-limit behaviour       | Not implemented; documented single-instance constraint                             |
-| Automatic audit/webhook retention scheduling         | Operator command implemented; no background service scheduler                      |
+| Item                                           | Why                                                                                                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Google OAuth full consent/account-link journey | Google accepted the configured client ID/redirect URI and served the real sign-in page; completing consent needs an interactive Google account, which is unavailable here |
+| Multi-replica realtime/AI/rate-limit behaviour | Not implemented; documented single-instance constraint                                                                                                                    |
+| Automatic audit/webhook retention scheduling   | Operator command implemented; no background service scheduler                                                                                                             |
 
 ## 4. Not implemented (optional/future)
 
@@ -114,10 +144,10 @@ as complete.
 
 ## 5. Blocked
 
-| Item                                | Dependency                                       | Manual procedure                                                                                    |
-| ----------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| Live Google consent/account linking | Interactive Google account + configured callback | Use `GET /api/v1/auth/google/login`, complete consent in a browser, verify callback/session/linking |
-| Production deployment verification  | Production hosting/TLS/migration window          | Separate deployment phase                                                                           |
+| Item                                | Dependency                              | Manual procedure                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live Google consent/account linking | Interactive Google account credentials  | `GET /api/v1/auth/google/login` returns a 302 to Google with PKCE/state; Google accepts the client ID and redirect URI and serves its sign-in page. Sign in with an authorized test account, approve consent, and verify the callback creates/links the account and issues a session. Automated tests cover state, PKCE, binding, callback, linking and error paths. |
+| Production deployment verification  | Production hosting/TLS/migration window | Separate deployment phase                                                                                                                                                                                                                                                                                                                                            |
 
 ## 6. Out of scope
 
@@ -128,28 +158,29 @@ as complete.
 
 ## 7. Evidence summary
 
-| Evidence                                              | Result                        |
-| ----------------------------------------------------- | ----------------------------- |
-| `gofmt`, `go build`, `go vet`, `go test ./...`        | PASS                          |
-| Race tests (identity, merchant, pricing, objectstore) | PASS                          |
-| Contract/OpenAPI/route tests (32)                     | PASS                          |
-| Frontend unit/lint/build/e2e typecheck                | PASS                          |
-| Compose config                                        | PASS                          |
-| 66-route access matrix                                | PASS                          |
-| Mocked audit UI                                       | PASS                          |
-| Real-stack audit UI                                   | PASS                          |
-| Real-stack core journeys (previous pass)              | PASS                          |
-| Webhook reliability (3 real-stack tests)              | PASS                          |
-| Event-flow PostgreSQL + RabbitMQ                      | PASS                          |
-| Identity repository integration                       | PASS                          |
-| Merchant order/API-key integration                    | PASS                          |
-| Migration up/down/reapply                             | PASS                          |
-| Backup/restore rehearsal                              | PASS                          |
-| S3-compatible storage lifecycle/presign               | PASS                          |
-| k6 public/tracking/pricing (5 VU, 10s)                | PASS — 0 failures, p95 ~11 ms |
-| k6 WebSocket (3 VU, 8s)                               | PASS                          |
-| Live Gemini smoke                                     | PASS — HTTP 200               |
-| Google PKCE redirect                                  | PASS; consent BLOCKED         |
+| Evidence                                              | Result                         |
+| ----------------------------------------------------- | ------------------------------ |
+| `gofmt`, `go build`, `go vet`, `go test ./...`        | PASS                           |
+| Race tests (identity, merchant, pricing, objectstore) | PASS                           |
+| Contract/OpenAPI/route tests (32)                     | PASS                           |
+| Frontend unit/lint/build/e2e typecheck                | PASS                           |
+| Compose config                                        | PASS                           |
+| 66-route access matrix                                | PASS                           |
+| Mocked audit UI                                       | PASS                           |
+| Real-stack audit UI                                   | PASS                           |
+| Real-stack core journeys (previous pass)              | PASS                           |
+| Dedicated notification-flow suite (18 tests)          | PASS — local Compose + Mailpit |
+| Webhook reliability (3 real-stack tests)              | PASS                           |
+| Event-flow PostgreSQL + RabbitMQ                      | PASS                           |
+| Identity repository integration                       | PASS                           |
+| Merchant order/API-key integration                    | PASS                           |
+| Migration up/down/reapply                             | PASS                           |
+| Backup/restore rehearsal                              | PASS                           |
+| S3-compatible storage lifecycle/presign               | PASS                           |
+| k6 public/tracking/pricing (5 VU, 10s)                | PASS — 0 failures, p95 ~11 ms  |
+| k6 WebSocket (3 VU, 8s)                               | PASS                           |
+| Live Gemini smoke                                     | PASS — HTTP 200                |
+| Google PKCE redirect + provider sign-in page          | PASS; account consent BLOCKED  |
 
 ## 8. Risk statement
 

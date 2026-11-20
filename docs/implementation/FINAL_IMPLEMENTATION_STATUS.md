@@ -214,8 +214,9 @@ Acceptance documentation:
 
 ## 10. Non-deployment finalization update (2026-11-20)
 
-**Branch:** `feat/non-deployment-finalization`
-**Base:** `development` at `eec4038`
+**Merged baseline:** `development` at
+`831455b952e32cbb63623799750720635ddd185b` (PR #180; contains PR #179).
+**Verification branch:** `docs/final-remediation-verification`.
 
 ### Added or completed
 
@@ -238,11 +239,21 @@ Acceptance documentation:
 - k6 public/tracking/pricing and WebSocket scenarios passed.
 - Live Gemini smoke passed; Google OAuth redirect verified.
 
+### Post-merge verification pass (2026-11-20)
+
+- Dedicated notification-flow profile re-run locally: **18/18 pass** against a
+  disposable Compose project with Mailpit. This closes the previous local gap;
+  CI `Notification worker E2E` also passes.
+- Google accepted the configured client ID and redirect URI and served the real
+  sign-in page. Completing account consent/account-linking still requires an
+  interactive Google test account and remains **BLOCKED**.
+- Retention dry run, proof/objectstore tests, full Go build/vet/test, contract
+  tests, route inventories, Compose config and frontend unit/lint/build passed on
+  the merged baseline.
+
 ### Remaining after this update
 
 - Live Google consent/account-link remains **BLOCKED** (manual interactive
   provider check).
-- Dedicated notification-flow Compose override was not re-run locally; CI passed
-  the notification-worker E2E.
 - Audit/webhook retention is an operator command, not a background scheduler.
 - Production deployment remains out of scope.
