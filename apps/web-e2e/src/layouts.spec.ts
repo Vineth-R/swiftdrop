@@ -32,6 +32,11 @@ const screens: Screen[] = [
   { name: 'customer profile', path: '/profile', as: 'CUSTOMER' },
   { name: 'customer security', path: '/profile/security', as: 'CUSTOMER' },
   { name: 'merchant dashboard', path: '/dashboard', as: 'MERCHANT' },
+  {
+    name: 'merchant API integration',
+    path: '/merchant/integration',
+    as: 'MERCHANT',
+  },
   { name: 'dispatcher dashboard', path: '/dashboard', as: 'DISPATCHER' },
   { name: 'admin dashboard', path: '/dashboard', as: 'ADMIN' },
   {

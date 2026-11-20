@@ -23,6 +23,7 @@ type Options struct {
 	AccessSecret  string
 	CookieName    string
 	InternalToken string
+	SupportEmail  string
 	Logger        *slog.Logger
 }
 

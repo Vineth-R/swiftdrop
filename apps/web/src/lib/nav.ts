@@ -1,6 +1,7 @@
 import {
   ChartColumn,
   CircleDollarSign,
+  Code2,
   FileClock,
   FileText,
   History,
@@ -89,6 +90,11 @@ export const navByRole: Record<Role, NavGroup[]> = {
       items: [
         { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
         { label: 'Orders', href: '/merchant/orders', icon: Package },
+        {
+          label: 'API integration',
+          href: '/merchant/integration',
+          icon: Code2,
+        },
         { label: 'API keys', href: '/api-keys', icon: KeyRound },
         { label: 'Webhook', href: '/webhook', icon: Webhook },
         { label: 'Business', href: '/merchant/profile', icon: Store },

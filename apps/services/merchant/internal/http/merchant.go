@@ -54,6 +54,7 @@ type merchantHandler struct {
 	notifier           *notify.Notifier
 	internalTokenValue string
 	cookieName         string
+	supportEmail       string
 	logger             *slog.Logger
 }
 
@@ -66,7 +67,7 @@ func registerMerchantRoutes(router *gin.Engine, options Options) {
 	h := &merchantHandler{
 		repository: repo, onboarding: options.Onboarding, identity: options.Identity,
 		orders: options.Orders, notifier: options.Notifier,
-		internalTokenValue: options.InternalToken, cookieName: cookie, logger: options.Logger,
+		internalTokenValue: options.InternalToken, cookieName: cookie, supportEmail: options.SupportEmail, logger: options.Logger,
 	}
 
 	limiter := httpx.NewRateLimiter(10, time.Minute)
@@ -224,7 +225,7 @@ func (h *merchantHandler) profile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	httpx.Success(c, http.StatusOK, merchantResponse(merchant))
+	httpx.Success(c, http.StatusOK, merchantSelfResponse(merchant))
 }
 
 type profileRequest struct {
@@ -265,7 +266,7 @@ func (h *merchantHandler) updateProfile(c *gin.Context) {
 		h.handleRepositoryError(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, merchantResponse(updated))
+	httpx.Success(c, http.StatusOK, merchantSelfResponse(updated))
 }
 
 func (h *merchantHandler) listKeys(c *gin.Context) {
@@ -691,7 +692,7 @@ func errorClass(err error) string {
 
 type merchantDTO struct {
 	ID                 string                    `json:"id"`
-	OwnerUserID        string                    `json:"ownerUserId"`
+	OwnerUserID        string                    `json:"ownerUserId,omitempty"`
 	BusinessName       string                    `json:"businessName"`
 	RegistrationNumber *string                   `json:"registrationNumber,omitempty"`
 	BusinessAddress    *string                   `json:"businessAddress,omitempty"`
@@ -719,6 +720,15 @@ func adminMerchantResponse(merchant repository.Merchant, pendingSync map[string]
 	if pendingSync[merchant.ID] {
 		dto.IdentitySync = "PENDING"
 	}
+	return dto
+}
+
+// merchantSelfResponse is the merchant's own profile. The owner's identity is
+// an internal account link, so it is never sent to the merchant. Administrators
+// still receive it through merchantResponse/adminMerchantResponse.
+func merchantSelfResponse(merchant repository.Merchant) merchantDTO {
+	dto := merchantResponse(merchant)
+	dto.OwnerUserID = ""
 	return dto
 }
 

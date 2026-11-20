@@ -105,7 +105,7 @@ test('a customer creates, finds and opens a parcel through the real UI', async (
   await expect(history.getByRole('listitem').first()).toContainText('CREATED');
 
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download PDF receipt' }).click();
+  await page.getByRole('button', { name: 'Download receipt' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe(`receipt_${trackingNumber}.pdf`);
   const path = await download.path();

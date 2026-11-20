@@ -68,7 +68,7 @@ function ParcelDetail({ id }: { id: string }) {
     setIsDownloading(true);
     setReceiptError(null);
     try {
-      const blob = await getParcelReceipt(id);
+      const blob = await getParcelReceipt(state.parcel.trackingNumber);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -212,9 +212,7 @@ function ParcelDetail({ id }: { id: string }) {
                       onClick={() => void download()}
                       isLoading={isDownloading}
                     >
-                      {isDownloading
-                        ? 'Preparing receipt'
-                        : 'Download PDF receipt'}
+                      {isDownloading ? 'Preparing receipt' : 'Download receipt'}
                     </Button>
                   </div>
                 )}

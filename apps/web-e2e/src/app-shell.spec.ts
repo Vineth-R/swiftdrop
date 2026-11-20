@@ -13,6 +13,7 @@ test.describe('navigation by role', () => {
     MERCHANT: [
       'Dashboard',
       'Orders',
+      'API integration',
       'API keys',
       'Webhook',
       'Business',

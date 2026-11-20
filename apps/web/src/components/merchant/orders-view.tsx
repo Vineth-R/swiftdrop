@@ -12,12 +12,11 @@ import {
 import { PageHeader } from '../layout/page-header';
 import { Section } from '../layout/section';
 import { Alert } from '../ui/alert';
-import { Button } from '../ui/button';
+import { Button, ButtonLink } from '../ui/button';
 import { EmptyState } from '../ui/empty-state';
 import { TextField } from '../ui/field';
 import { Select } from '../ui/select';
 import { StatusChip } from '../ui/status-chip';
-import { CreateViaAPI } from './create-via-api';
 import {
   ApprovalNotice,
   LoadState,
@@ -107,6 +106,11 @@ export function MerchantOrdersView() {
       <PageHeader
         title="Orders"
         description="Track delivery orders sent from your store."
+        actions={
+          <ButtonLink href="/merchant/integration" variant="secondary">
+            API integration
+          </ButtonLink>
+        }
       />
       <LoadState {...profile} />
       {profile.merchant && !profile.loading && !profile.error ? (
@@ -178,38 +182,37 @@ export function MerchantOrdersView() {
                 <>
                   <ul className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
                     {orders.map((order) => (
-                      <li
-                        key={order.orderId}
-                        className="grid gap-4 p-5 md:grid-cols-[1.4fr_1fr_1fr_auto] md:items-center"
-                      >
-                        <div className="min-w-0">
-                          <Link
-                            className="break-all text-label text-interactive underline underline-offset-4"
-                            href={`/merchant/orders/${encodeURIComponent(order.orderId)}`}
-                          >
-                            {order.externalOrderId}
-                          </Link>
-                          <p className="mt-1 break-all font-mono text-caption text-text-muted">
-                            {order.trackingNumber}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="break-words text-body-sm">
-                            {order.recipientName}
-                          </p>
-                          <p className="text-caption text-text-muted">
-                            {order.dropoffCity}
-                          </p>
-                        </div>
-                        <StatusChip status={order.status} />
-                        <div className="md:text-right">
-                          <p className="font-mono text-body-sm tabular-nums">
-                            {money(order.total, order.currency)}
-                          </p>
-                          <p className="mt-1 text-caption text-text-muted">
-                            {displayDate(order.createdAt)}
-                          </p>
-                        </div>
+                      <li key={order.orderId}>
+                        <Link
+                          className="grid gap-4 p-5 transition-colors duration-fast ease-out-sd hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive md:grid-cols-[1.4fr_1fr_1fr_auto] md:items-center"
+                          href={`/merchant/orders/${encodeURIComponent(order.orderId)}`}
+                        >
+                          <div className="min-w-0">
+                            <span className="break-all text-label text-interactive">
+                              {order.externalOrderId}
+                            </span>
+                            <p className="mt-1 break-all font-mono text-caption text-text-muted">
+                              {order.trackingNumber}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="break-words text-body-sm">
+                              {order.recipientName}
+                            </p>
+                            <p className="text-caption text-text-muted">
+                              {order.dropoffCity}
+                            </p>
+                          </div>
+                          <StatusChip status={order.status} />
+                          <div className="md:text-right">
+                            <p className="font-mono text-body-sm tabular-nums">
+                              {money(order.total, order.currency)}
+                            </p>
+                            <p className="mt-1 text-caption text-text-muted">
+                              {displayDate(order.createdAt)}
+                            </p>
+                          </div>
+                        </Link>
                       </li>
                     ))}
                   </ul>
@@ -251,8 +254,6 @@ export function MerchantOrdersView() {
               )
             ) : null}
           </Section>
-
-          <CreateViaAPI />
         </>
       ) : null}
     </>

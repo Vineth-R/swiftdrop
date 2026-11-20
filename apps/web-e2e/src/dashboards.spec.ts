@@ -182,6 +182,10 @@ test.describe('merchant dashboard', () => {
     await expect(page.getByText('Total orders')).toBeVisible();
     await expect(page.getByText('In progress', { exact: true })).toBeVisible();
     await expect(page.getByText('SZ-100241')).toBeVisible();
+    await expect(page.getByRole('link', { name: /SZ-100241/ })).toHaveAttribute(
+      'href',
+      '/merchant/orders/order-1',
+    );
     await expect(
       page.getByRole('link', { name: 'Manage API keys' }),
     ).toHaveAttribute('href', '/api-keys');

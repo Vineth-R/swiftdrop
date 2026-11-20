@@ -11,7 +11,7 @@ MIGRATE_RUN = docker run --rm \
 	-e DATABASE_URL -e DATABASE_URL_DIRECT -e APP_ENV -e ALLOW_PRODUCTION_ROLLBACK -e MIGRATE_SERVICES \
 	$(MIGRATE_IMAGE)
 
-.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify prune-retention prune-retention-apply outbox-failed outbox-replay outbox-expire db-reset seed seed-parcels seed-demo check-routes check-openapi test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview seed-merchant
+.PHONY: help build up up-build down logs preflight project-name require-images ensure-postgres bootstrap-db migrate migrate-remote migrate-down migrate-status migrate-create storage-up storage-down db-audit db-backup db-backup-remote db-restore proof-transfer proof-transfer-apply proof-reconcile db-verify prune-retention prune-retention-apply outbox-failed outbox-replay outbox-expire merchant-api-pdf db-reset seed seed-parcels seed-demo check-routes check-openapi test test-db test-storage test-pooled test-access coverage coverage-merchant email-preview email-send-preview seed-merchant
 
 help:
 	@echo "Targets:"
@@ -38,6 +38,7 @@ help:
 	@echo "  make seed-merchant  create and approve the deterministic merchant demo account"
 	@echo "  make seed-parcels   create one demo parcel per canonical status"
 	@echo "  make seed-demo      seed users, merchant, API key and parcels in Compose"
+	@echo "  make merchant-api-pdf regenerate the merchant API guide HTML-to-PDF and public copy"
 	@echo "  make migrate-down   roll back one migration per service (destructive)"
 	@echo "  make check-routes   verify gateway routing against the running stack"
 	@echo "  make project-name   print the resolved Compose project name"
@@ -303,6 +304,9 @@ coverage-merchant:
 		echo "error: merchant coverage $$percent% is below the required 60%." >&2; \
 		exit 1; \
 	 }
+
+merchant-api-pdf:
+	node scripts/merchant-api-pdf.mjs
 
 email-preview:
 	go run ./packages/go-common/emails/cmd/preview -out tmp/email-preview

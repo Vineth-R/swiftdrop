@@ -106,8 +106,11 @@ type receiptText struct {
 	shaper shaping.HarfbuzzShaper
 }
 type receiptRow struct {
-	text string
-	runs shaping.Line
+	text   string
+	runs   shaping.Line
+	kind   rowKind
+	right  string
+	height float64
 }
 
 func newReceiptText() (*receiptText, error) {
@@ -137,6 +140,10 @@ func asciiReceipt(s string) bool {
 // layout lets the shaper choose cluster-safe breaks and the Unicode bidi order.
 // A separate wrapper per paragraph keeps its returned glyph slices immutable.
 func (t *receiptText) layout(s string) []receiptRow {
+	return t.layoutWidth(s, 450)
+}
+
+func (t *receiptText) layoutWidth(s string, width float64) []receiptRow {
 	runes := []rune(s)
 	var segmenter shaping.Segmenter
 	input := shaping.Input{Text: runes, RunEnd: len(runes), Direction: di.DirectionLTR, Size: fixed.I(12)}
@@ -146,7 +153,7 @@ func (t *receiptText) layout(s string) []receiptRow {
 		runs = append(runs, t.shaper.Shape(in))
 	}
 	var wrapper shaping.LineWrapper
-	lines, _ := wrapper.WrapParagraph(shaping.WrapConfig{Direction: di.DirectionLTR}, 450, runes, shaping.NewSliceIterator(runs))
+	lines, _ := wrapper.WrapParagraph(shaping.WrapConfig{Direction: di.DirectionLTR}, int(width), runes, shaping.NewSliceIterator(runs))
 	rows := make([]receiptRow, 0, len(lines))
 	for _, line := range lines {
 		start, end := len(runes), 0

@@ -176,8 +176,19 @@ func TestParcelHTTPWorkflowAgainstPostgres(t *testing.T) {
 		t.Fatalf("creation replay after price change: %d %s", replay.Code, replay.Body.String())
 	}
 	receipt := httpWorkflowRequest(t, router, http.MethodGet, "/parcels/"+created.ID+"/receipt", token, "", "", nil)
-	if receipt.Code != 200 || receipt.Header().Get("Content-Type") != "application/pdf" || receipt.Header().Get("Content-Disposition") != `attachment; filename="receipt_`+created.TrackingNumber+`.pdf"` || !strings.Contains(receipt.Body.String(), "Total fee: 550.00") {
+	if receipt.Code != 200 || receipt.Header().Get("Content-Type") != "application/pdf" || receipt.Header().Get("Content-Disposition") != `attachment; filename="receipt_`+created.TrackingNumber+`.pdf"` || !strings.Contains(receipt.Body.String(), "DELIVERY FEE") || !strings.Contains(receipt.Body.String(), "LKR 550.00") {
 		t.Fatalf("receipt headers or stored price are wrong: %d %v", receipt.Code, receipt.Header())
+	}
+	for _, caller := range []struct {
+		name, token string
+		want        int
+	}{{"owner", token, 200}, {"other customer", otherToken, 404}, {"no auth", "", 401}, {"admin", adminToken, 200}} {
+		t.Run("tracking receipt "+caller.name, func(t *testing.T) {
+			response := httpWorkflowRequest(t, router, http.MethodGet, "/parcels/"+created.TrackingNumber+"/receipt", caller.token, "", "", nil)
+			if response.Code != caller.want {
+				t.Fatalf("HTTP %d, want %d: %s", response.Code, caller.want, response.Body.String())
+			}
+		})
 	}
 	for _, route := range []string{"/parcels/" + parceltest.UUID(t), "/parcels/" + parceltest.UUID(t) + "/history", "/parcels/" + parceltest.UUID(t) + "/receipt"} {
 		if response := httpWorkflowRequest(t, router, http.MethodGet, route, token, "", "", nil); response.Code != 404 {

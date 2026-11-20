@@ -67,6 +67,8 @@ var matrix = []accesskit.Case{
 	{Name: "GET /merchants/me/webhook/deliveries", Method: http.MethodGet, Path: "/api/v1/merchants/me/webhook/deliveries", Allowed: []auth.Role{auth.RoleMerchant}},
 	{Name: "GET /merchant/orders", Method: http.MethodGet, Path: "/api/v1/merchant/orders", Allowed: []auth.Role{auth.RoleMerchant}},
 	{Name: "GET /merchant/orders/{id}", Method: http.MethodGet, Path: "/api/v1/merchant/orders/" + anyID, Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "GET /merchant/orders/{trackingNumber}/receipt", Method: http.MethodGet, Path: "/api/v1/merchant/orders/SDNACCESS01/receipt", Allowed: []auth.Role{auth.RoleMerchant}},
+	{Name: "GET /parcels/{trackingNumber}/receipt", Method: http.MethodGet, Path: "/api/v1/parcels/SDKACCESS01/receipt", Allowed: []auth.Role{auth.RoleCustomer, auth.RoleAdmin}},
 	{Name: "GET /admin/merchants", Method: http.MethodGet, Path: "/api/v1/admin/merchants", Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "GET /admin/merchants/{id}", Method: http.MethodGet, Path: "/api/v1/admin/merchants/" + anyID, Allowed: []auth.Role{auth.RoleAdmin}},
 	{Name: "POST /admin/merchants/{id}/approve", Method: http.MethodPost, Path: "/api/v1/admin/merchants/" + anyID + "/approve", Body: `{}`, Allowed: []auth.Role{auth.RoleAdmin}},

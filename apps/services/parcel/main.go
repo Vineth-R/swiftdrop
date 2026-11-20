@@ -110,6 +110,7 @@ func run() error {
 		AccessSecret:   config.AccessSecret,
 		CookieName:     config.CookieName,
 		InternalToken:  config.InternalToken,
+		SupportEmail:   config.SupportEmail,
 	}
 	if config.AccessSecret == "" {
 		logger.Warn("JWT_ACCESS_SECRET is not set; authenticated APIs, reports and courier delivery APIs will return 503")

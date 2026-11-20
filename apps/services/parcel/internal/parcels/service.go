@@ -16,6 +16,7 @@ type Store interface {
 	ReplayMerchant(context.Context, string, string) (repository.Parcel, error)
 	Create(context.Context, repository.CreateParcelParams, string) (repository.Parcel, error)
 	Owned(context.Context, string, string, bool) (repository.Parcel, error)
+	ParcelByTrackingViewer(context.Context, string, string, bool) (repository.Parcel, error)
 	List(context.Context, string, Filter) ([]repository.Parcel, int, error)
 	History(context.Context, string) ([]repository.StatusHistory, error)
 	ParcelAssignments(context.Context, string) ([]repository.ParcelAssignment, error)
@@ -225,12 +226,47 @@ func (s *Service) Detail(ctx context.Context, id, user string, staff bool) (Deta
 	}
 	return d, nil
 }
-func (s *Service) ReceiptData(ctx context.Context, id, user string, staff bool) (Detail, error) {
-	p, err := s.authorized(ctx, id, user, staff)
+func (s *Service) ReceiptData(ctx context.Context, reference, user string, staff bool) (Detail, error) {
+	reference = strings.TrimSpace(reference)
+	var p repository.Parcel
+	var err error
+	if validation.UUID(strings.ToLower(reference)) {
+		p, err = s.authorized(ctx, reference, user, staff)
+	} else {
+		tracking := strings.ToUpper(reference)
+		if !validReceiptTracking(tracking) {
+			return Detail{}, ErrNotFound
+		}
+		if s.store == nil {
+			return Detail{}, ErrUnavailable
+		}
+		p, err = s.store.ParcelByTrackingViewer(ctx, tracking, strings.ToLower(user), staff)
+		if errors.Is(err, repository.ErrNotFound) {
+			return Detail{}, ErrNotFound
+		}
+	}
 	if err != nil {
 		return Detail{}, err
 	}
 	return detail(p)
+}
+
+// validReceiptTracking accepts the customer (SDK) and merchant (SDN) tracking
+// shapes. An invalid value is a not-found receipt, not a validation leak.
+func validReceiptTracking(value string) bool {
+	if len(value) != 11 || !strings.HasPrefix(value, "SD") {
+		return false
+	}
+	if value[2] != 'K' && value[2] != 'N' {
+		return false
+	}
+	for _, r := range value[3:] {
+		if (r >= 'A' && r <= 'H') || (r >= 'J' && r <= 'N') || (r >= 'P' && r <= 'Z') || (r >= '2' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 func (s *Service) authorized(ctx context.Context, id, user string, staff bool) (repository.Parcel, error) {
 	id = strings.ToLower(id)

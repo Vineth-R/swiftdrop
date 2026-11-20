@@ -266,12 +266,12 @@ func TestParcelWorkflowStoredPriceAndApplicationRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	receipt := string(rawReceipt)
-	for _, text := range []string{"%PDF-1.4", stored.TrackingNumber, stored.Sender.Name, stored.Recipient.Name, "Base fee: 450.00", "Weight charge: 100.00", "Size surcharge: 0.00", "Total fee: 550.00", "Currency: LKR", "%%EOF"} {
+	for _, text := range []string{"%PDF-1.4", stored.TrackingNumber, stored.Sender.Name, stored.Recipient.Name, "DELIVERY FEE", "Base fee", "LKR 450.00", "Weight charge", "LKR 100.00", "Size surcharge", "LKR 0.00", "Total", "LKR 550.00", "%%EOF"} {
 		if !strings.Contains(receipt, text) {
 			t.Fatalf("receipt omitted stored parcel information %q", text)
 		}
 	}
-	if strings.Contains(receipt, "Total fee: 600.00") {
+	if strings.Contains(receipt, "LKR 600.00") {
 		t.Fatal("receipt used changed pricing instead of stored fee")
 	}
 }

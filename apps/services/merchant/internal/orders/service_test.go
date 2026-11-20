@@ -165,6 +165,15 @@ func (s *fakeStore) OrderDetail(context.Context, string, string) (Detail, error)
 	return Detail{}, ErrNotFound
 }
 
+func (s *fakeStore) OrderDetailByTracking(_ context.Context, merchantID, trackingNumber string) (Detail, error) {
+	for _, order := range s.byExternal {
+		if order.MerchantID == merchantID && order.TrackingNumber == trackingNumber {
+			return Detail{Order: order}, nil
+		}
+	}
+	return Detail{}, ErrNotFound
+}
+
 func (s *fakeStore) ListOrders(context.Context, ListFilter) ([]Order, int, error) {
 	return nil, 0, nil
 }

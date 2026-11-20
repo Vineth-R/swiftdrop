@@ -1,9 +1,12 @@
 package servicehttp
 
 import (
+	"bytes"
+	"encoding/json"
 	"reflect"
 	"testing"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
@@ -63,5 +66,23 @@ func TestValidateProfileRequestPreservesWhitespaceRequiredSemantics(t *testing.T
 				t.Fatalf("validateProfileRequest() = %+v, want %+v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestMerchantSelfResponseOmitsOwnerUserID(t *testing.T) {
+	merchant := repository.Merchant{ID: "merchant-1", OwnerUserID: "owner-1", BusinessName: "Demo"}
+	self, err := json.Marshal(merchantSelfResponse(merchant))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(self, []byte("ownerUserId")) {
+		t.Fatalf("self response exposed ownerUserId: %s", self)
+	}
+	admin, err := json.Marshal(merchantResponse(merchant))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(admin, []byte(`"ownerUserId":"owner-1"`)) {
+		t.Fatalf("admin response lost ownerUserId: %s", admin)
 	}
 }

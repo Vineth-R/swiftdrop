@@ -40,6 +40,7 @@ type Config struct {
 	PricingTimeout       time.Duration
 	IdentityBaseURL      string
 	IdentityTimeout      time.Duration
+	SupportEmail         string
 	RabbitMQURL          string
 	RabbitMQExchange     string
 }

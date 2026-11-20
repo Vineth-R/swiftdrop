@@ -318,3 +318,41 @@ project owner's manual consent/account-linking run.
 
 Production deployment, TLS/hosting, monitoring rollout and multi-replica state
 remain out of scope and are not claimed.
+
+---
+
+## 12. Post-acceptance merchant and receipt enhancement results
+
+**Branch:** `feat/merchant-experience-enhancements`, based on
+`development` at `6686de2708776b725a40a91e8086bf68e2e03c77`.
+This is an additive enhancement, not a change to the accepted baseline.
+
+| Check                                  | Command                                                                                                                    | Actual result                                                                                                             |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Go format / build / vet / unit         | `gofmt`, `go build ./...`, `go vet ./...`, `go test ./...`                                                                 | PASS                                                                                                                      |
+| Merchant receipt renderer              | `go test ./apps/services/merchant/internal/receipt/...`                                                                    | PASS — 4 tests, PDF signature/content, Unicode name and long-field page bound                                             |
+| Customer receipt renderer/design       | `go test ./apps/services/parcel/internal/parcels/...`                                                                      | PASS — design, timeline/support, Unicode shaping, ownership by tracking, no internal IDs and long-field page bound        |
+| Shared receipt design                  | `go test ./packages/go-common/receiptdesign/...`                                                                           | PASS — money/decimal grouping, dates, labels and contacts                                                                 |
+| Merchant receipt ownership integration | `go test -tags=integration -run TestMerchantOrderReceiptPDFAndIsolation ./apps/services/merchant/internal/http/...`        | PASS — own API key/session 200 PDF; other merchant 404; anonymous 401                                                     |
+| Customer parcel PostgreSQL workflow    | `go test -tags=integration,postgres -run TestParcelHTTPWorkflowAgainstPostgres ./apps/services/parcel/internal/http/...`   | PASS — own UUID/tracking 200 PDF; other customer 404; anonymous 401                                                       |
+| Contract/OpenAPI/route tests           | `make check-openapi`; `node --test "tests/contracts/*.test.mjs"`                                                           | PASS — 34                                                                                                                 |
+| Route inventories                      | `UPDATE_ROUTES=1` and normal `TestRouteInventory` runs                                                                     | PASS                                                                                                                      |
+| Access matrix                          | `make test-access`; `TestRoleMatrix`                                                                                       | PASS — 68 endpoints                                                                                                       |
+| Web typecheck/lint/build               | `nx typecheck`, `nx lint`, `nx build` `@org/web`                                                                           | PASS                                                                                                                      |
+| E2E typecheck/lint                     | `nx typecheck`, `nx lint` `@org/web-e2e`                                                                                   | PASS                                                                                                                      |
+| Merchant orders E2E                    | `merchant-orders.spec.ts`                                                                                                  | PASS — 9 tests                                                                                                            |
+| Customer parcels E2E                   | `parcels.spec.ts`                                                                                                          | PASS — 18 tests, including receipt loading/error                                                                          |
+| App shell E2E                          | `app-shell.spec.ts`                                                                                                        | PASS — 25 tests                                                                                                           |
+| Dashboards E2E                         | `dashboards.spec.ts`                                                                                                       | PASS — 16 tests                                                                                                           |
+| Layouts E2E                            | `layouts.spec.ts`                                                                                                          | PASS — 40 tests, including `/merchant/integration`                                                                        |
+| Real-stack merchant journey            | `merchant-orders.real.spec.ts`                                                                                             | PASS — 1 test, live receipt download                                                                                      |
+| Real-stack customer journey            | `customer-parcel-journey.real.spec.ts`                                                                                     | PASS — 1 test, live receipt download                                                                                      |
+| Merchant API guide PDF                 | `make merchant-api-pdf`                                                                                                    | PASS — 19-page A4 PDF, cover and content pages inspected                                                                  |
+| Edge-case PDF inspection               | Long names/addresses/descriptions, large amounts, missing optional fields, 30-event histories, Sinhala/Tamil/Arabic/Hebrew | PASS — no clipping/overlap; merchant long case 2 pages, customer long case 3 pages; grouped amounts; page numbers present |
+| Live receipt smokes                    | Customer and merchant endpoints through the gateway                                                                        | PASS — 200 PDF, `no-store`, correct filenames                                                                             |
+
+### Not run
+
+- The entire real-stack Compose/Playwright suite: the affected customer and
+  merchant real-stack journeys were run; the complete suite is CI's authority.
+- CI: the PR checks are the authority for the final full matrix.

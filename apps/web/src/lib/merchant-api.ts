@@ -1,10 +1,14 @@
-import { api, apiWithMeta } from './api';
+import { api, apiBlob, apiWithMeta } from './api';
 import type { MerchantStatus } from '../components/ui/status-chip';
 import type { ParcelStatus } from './tokens';
 
 export type Merchant = {
   id: string;
-  ownerUserId: string;
+  /**
+   * Present only in administrator responses. Merchant self-service never
+   * exposes the owner's identity account link.
+   */
+  ownerUserId?: string;
   businessName: string;
   registrationNumber?: string;
   businessAddress?: string;
@@ -249,4 +253,11 @@ export function getMerchantOrder(id: string, signal?: AbortSignal) {
     `/merchant/orders/${encodeURIComponent(id)}`,
     { signal },
   );
+}
+
+/** Downloads the merchant-scoped receipt for one order (post-acceptance). */
+export function getMerchantOrderReceipt(id: string, signal?: AbortSignal) {
+  return apiBlob(`/merchant/orders/${encodeURIComponent(id)}/receipt`, {
+    signal,
+  });
 }

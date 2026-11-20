@@ -478,12 +478,14 @@ for (const width of [360, 1280]) {
         },
       ]),
     });
-    await page.route(`**/api/v1/parcels/${id}/receipt`, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/pdf',
-        body: '%PDF-1.4\nreceipt',
-      }),
+    await page.route(
+      `**/api/v1/parcels/${parcel.trackingNumber}/receipt`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/pdf',
+          body: '%PDF-1.4\nreceipt',
+        }),
     );
     await page.goto(`/parcels/${id}`);
     await expect(
@@ -497,7 +499,7 @@ for (const width of [360, 1280]) {
       'PICKED UP',
     );
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Download PDF receipt' }).click();
+    await page.getByRole('button', { name: 'Download receipt' }).click();
     expect((await download).suggestedFilename()).toBe(
       'receipt_SDK7M2Q9XP4.pdf',
     );
@@ -586,4 +588,40 @@ test('customer opens the private proof photo for a delivered parcel', async ({
   await page.getByRole('button', { name: 'View proof photo' }).click();
   const popup = await popupPromise;
   await popup.waitForURL('https://storage.example/proof.png');
+});
+
+test('the receipt download shows loading and a safe error', async ({
+  page,
+}) => {
+  await signInAs(page, 'CUSTOMER', {
+    [`GET /parcels/${id}`]: ok(parcel),
+    [`GET /parcels/${id}/history`]: ok([]),
+  });
+  await page.route(
+    `**/api/v1/parcels/${parcel.trackingNumber}/receipt`,
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: { code: 'NOT_FOUND', message: 'not found' },
+          meta: { requestId: 'req-receipt' },
+        }),
+      });
+    },
+  );
+  await page.goto(`/parcels/${id}`);
+  await page.getByRole('button', { name: 'Download receipt' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Preparing receipt' }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      'This parcel is not available. Check the link or return to My parcels.',
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Download receipt' }),
+  ).toBeVisible();
 });

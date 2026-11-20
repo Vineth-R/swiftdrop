@@ -1,12 +1,18 @@
 'use client';
 
+import { Download } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { ApiError } from '@/lib/api';
-import { getMerchantOrder, type MerchantOrderDetail } from '@/lib/merchant-api';
+import {
+  getMerchantOrder,
+  getMerchantOrderReceipt,
+  type MerchantOrderDetail,
+} from '@/lib/merchant-api';
 import { PageHeader } from '../layout/page-header';
 import { Section } from '../layout/section';
-import { ButtonLink } from '../ui/button';
+import { Alert } from '../ui/alert';
+import { Button, ButtonLink } from '../ui/button';
 import { StatusChip } from '../ui/status-chip';
 import {
   ApprovalNotice,
@@ -26,6 +32,8 @@ export function MerchantOrderDetailView({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<MerchantOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
@@ -56,17 +64,58 @@ export function MerchantOrderDetailView({ orderId }: { orderId: string }) {
     return () => controller.abort();
   }, [orderId, revision, approved]);
 
+  async function downloadReceipt() {
+    if (!order || receiptLoading) return;
+    setReceiptLoading(true);
+    setReceiptError('');
+    try {
+      const blob = await getMerchantOrderReceipt(order.trackingNumber);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `SwiftDrop-order-${order.trackingNumber}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setReceiptError(
+        err instanceof ApiError && err.status === 404
+          ? 'This receipt could not be found in your merchant account.'
+          : merchantError(err),
+      );
+    } finally {
+      setReceiptLoading(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
         title="Order details"
         description="Delivery information, charges and status history."
         actions={
-          <ButtonLink href="/merchant/orders" variant="secondary">
-            Back to orders
-          </ButtonLink>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="secondary"
+              iconLeading={<Download size={16} aria-hidden="true" />}
+              isLoading={receiptLoading}
+              onClick={downloadReceipt}
+              isDisabled={!order}
+            >
+              {receiptLoading ? 'Preparing receipt' : 'Download receipt'}
+            </Button>
+            <ButtonLink href="/merchant/orders" variant="secondary">
+              Back to orders
+            </ButtonLink>
+          </div>
         }
       />
+      {receiptError ? (
+        <Alert tone="danger" title="Could not download the receipt">
+          {receiptError}
+        </Alert>
+      ) : null}
       <LoadState {...profile} />
       {profile.merchant && !profile.loading && !profile.error ? (
         <ApprovalNotice merchant={profile.merchant} />

@@ -12,6 +12,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-jose/go-jose/v4 v4.1.8
+	github.com/go-pdf/fpdf v0.9.0
 	github.com/go-text/typesetting v0.3.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
