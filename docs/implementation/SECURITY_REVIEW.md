@@ -88,8 +88,9 @@ silently ignored.
 | Rate/concurrency              | PASS for one instance; process-local                                                 |
 | Cross-user tests              | PASS — guard and tool tests cover another customer's data                            |
 
-Live Gemini smoke passed (HTTP 200, deterministic reply). Live Google consent
-remains a manual provider check.
+Live Gemini smoke passed (HTTP 200, deterministic reply). Google OAuth automated
+tests pass, and the project owner completed manual consent and account linking;
+no provider token or authorization code was logged.
 
 ## 7. Webhooks
 
@@ -142,7 +143,8 @@ bounded and recorded; they are not presented as solved.
 
 ## 11. Post-merge re-verification (2026-11-20)
 
-Re-checked on the merged baseline `831455b` without changing any control:
+Re-checked on the merged baseline `831455b` and the final `682205a` tree without
+changing any control:
 
 - ADMIN audit reads returned `200` for ADMIN, `403` for CUSTOMER and `401` for
   anonymous on Identity, Merchant and Pricing.

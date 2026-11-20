@@ -13,18 +13,18 @@ Status terms:
 
 ## Summary
 
-| Member | Area                          | Status                                                       | Main evidence                                                                               |
-| ------ | ----------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| M1     | Notifications and platform    | COMPLETE                                                     | `notification-worker`, `packages/go-common/emails`, `mailer`, internal contacts, demo seeds |
-| M2     | Authentication and frontend   | COMPLETE                                                     | Identity service, auth screens, session gate, role nav, API client                          |
-| M3     | OAuth, reset and admin        | COMPLETE (live provider manual)                              | Google PKCE/state/binding, reset flow, admin user/merchant screens                          |
-| M4     | Pricing and tracking          | COMPLETE                                                     | Pricing service, exact decimals, public/auth tracking, live tracking hook                   |
-| M5     | Parcel operations             | COMPLETE                                                     | Parcel service, atomic create, idempotency, receipts, internal merchant create              |
-| M6     | Dispatch                      | COMPLETE                                                     | Dispatch service/repository, eligibility, assignment transactions, outbox                   |
-| M7     | Courier and proofs            | COMPLETE                                                     | Courier state machine, pickup/delivery transactions, proof storage/auth                     |
-| M8     | Merchant                      | COMPLETE                                                     | Onboarding, API keys, orders, sync, webhook UI, internal APIs                               |
-| M9     | Webhooks                      | COMPLETE                                                     | Signed delivery, retries, attempts, suppression, dead letters                               |
-| M10    | Realtime, reports and testing | COMPLETE for one replica; integration execution BLOCKED here | WebSocket, consumers, reports, Playwright/CI suites                                         |
+| Member | Area                          | Status                                  | Main evidence                                                                               |
+| ------ | ----------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| M1     | Notifications and platform    | COMPLETE                                | `notification-worker`, `packages/go-common/emails`, `mailer`, internal contacts, demo seeds |
+| M2     | Authentication and frontend   | COMPLETE                                | Identity service, auth screens, session gate, role nav, API client                          |
+| M3     | OAuth, reset and admin        | COMPLETE (live provider manual)         | Google PKCE/state/binding, reset flow, admin user/merchant screens                          |
+| M4     | Pricing and tracking          | COMPLETE                                | Pricing service, exact decimals, public/auth tracking, live tracking hook                   |
+| M5     | Parcel operations             | COMPLETE                                | Parcel service, atomic create, idempotency, receipts, internal merchant create              |
+| M6     | Dispatch                      | COMPLETE                                | Dispatch service/repository, eligibility, assignment transactions, outbox                   |
+| M7     | Courier and proofs            | COMPLETE                                | Courier state machine, pickup/delivery transactions, proof storage/auth                     |
+| M8     | Merchant                      | COMPLETE                                | Onboarding, API keys, orders, sync, webhook UI, internal APIs                               |
+| M9     | Webhooks                      | COMPLETE                                | Signed delivery, retries, attempts, suppression, dead letters                               |
+| M10    | Realtime, reports and testing | COMPLETE (single-instance architecture) | WebSocket, consumers, reports, access/real-stack/integration/notification suites            |
 
 ---
 
@@ -86,7 +86,8 @@ matrix and the logout session test passed against the Compose gateway.
 
 | Item                                       | Status   | Evidence                                                            |
 | ------------------------------------------ | -------- | ------------------------------------------------------------------- |
-| Google OAuth PKCE                          | COMPLETE | `internal/google`, `service/google.go`                              |
+| Google OAuth PKCE                          | COMPLETE | `internal/google`, `service/google.go`; 32 automated tests          |
+| Google OAuth manual consent/account link   | COMPLETE | Project owner completed consent and linking; date not recorded      |
 | Browser-bound state                        | COMPLETE | `sd_oauth_binding_<state prefix>` cookie, single-use state          |
 | Verified-email linking                     | COMPLETE | `linkExisting`, password cleared and sessions revoked when needed   |
 | Password reset email/browser flow          | COMPLETE | `forgot-password`, `reset-password`, Mailpit real-stack spec        |
@@ -96,9 +97,9 @@ matrix and the logout session test passed against the Compose gateway.
 | Merchant approval UI                       | COMPLETE | `/admin/merchants`; backend transitions                             |
 | Backend authorization for admin operations | COMPLETE | `auth.RequireRoles(ADMIN)`, `requireCurrentAccess`, self-protection |
 
-**Remaining / dependency:** Live Google verification requires real Google
-credentials and is not a CI gate. Reset UI is covered by
-`auth-reset.real.spec.ts` when Compose is running.
+**Remaining / dependency:** Live Google verification is not a CI gate, but the
+project owner completed it manually (consent and account linking). Reset UI is
+covered by `auth-reset.real.spec.ts` when Compose is running.
 
 **Acceptance criteria:** Reset works from email to browser; a used/expired token
 fails; an ADMIN cannot deactivate or demote themselves into a lockout; every
@@ -238,15 +239,15 @@ retry exhaustion dead-letters.
 
 ## M10 — Realtime, Reports and Testing
 
-| Item                                      | Status           | Evidence                                                                                  |
-| ----------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------- |
-| Realtime hooks in tracking/dispatch       | COMPLETE         | `useLiveUpdates` consumers                                                                |
-| Reconnect with backoff                    | COMPLETE         | `live-connection.ts`; state machine                                                       |
-| REST refetch after reconnect              | COMPLETE         | `onSync` callback                                                                         |
-| WebSocket auth/subscription authorization | COMPLETE         | cookie/`?token=`, session revalidation, `scope: all` role gate                            |
-| Reports integration                       | COMPLETE         | `/reports`; daily/outcomes; empty and non-empty states                                    |
-| Full-stack integration testing            | **BLOCKED here** | Suites exist; Compose/PostgreSQL/RabbitMQ/browser not started in this session             |
-| Consolidated coverage evidence            | PARTIAL          | Go/contract/frontend evidence recorded; integration/E2E evidence pending a full-stack run |
+| Item                                      | Status   | Evidence                                                             |
+| ----------------------------------------- | -------- | -------------------------------------------------------------------- |
+| Realtime hooks in tracking/dispatch       | COMPLETE | `useLiveUpdates` consumers                                           |
+| Reconnect with backoff                    | COMPLETE | `live-connection.ts`; state machine                                  |
+| REST refetch after reconnect              | COMPLETE | `onSync` callback                                                    |
+| WebSocket auth/subscription authorization | COMPLETE | cookie/`?token=`, session revalidation, `scope: all` role gate       |
+| Reports integration                       | COMPLETE | `/reports`; daily/outcomes; empty and non-empty states               |
+| Full-stack integration testing            | COMPLETE | Access, real-stack, event-flow and notification-flow suites executed |
+| Consolidated coverage evidence            | COMPLETE | Go/contract/frontend/integration/E2E evidence recorded               |
 
 **Remaining:** Multi-replica fan-out, replay, SSE, tracing, shared rate limits.
 
@@ -288,26 +289,33 @@ verified the live socket and the authoritative REST state after completion.
 | M10    | Audit UI tests; k6, migration cycle, backup/restore, S3, Gemini smoke       |
 
 **Member conclusion:** all M1–M10 mandatory non-deployment responsibilities have
-implementation and executed evidence. The only external-provider gap is live
-Google consent, which is recorded as blocked/manual.
+implementation and executed evidence. Live Google consent/account linking was
+completed manually by the project owner.
 
 ### Post-merge verification pass (2026-11-20)
 
-Baseline: `development` at `831455b`. Branch: `docs/final-remediation-verification`.
+Verification baseline: `development` at `831455b`. Branch:
+`docs/final-remediation-verification` (merged as PR #181).
 
 | Member | Verified state on the merged baseline                                                                                                                        |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | M1     | Dedicated notification flow re-run locally: 18/18 tests pass (customer and merchant email, dedupe, dead-lettering, retry recovery); retention dry run passes |
 | M2     | Session/logout and authorization evidence unchanged; E2E lint/typecheck pass                                                                                 |
-| M3     | Google OAuth initiation reachability confirmed; account consent remains blocked/manual                                                                       |
+| M3     | Google OAuth automated tests pass; provider sign-in page verified; manual consent/account linking completed by the project owner                             |
 | M4     | Pricing audit read API live smoke returns 200 for ADMIN and 403 for CUSTOMER                                                                                 |
 | M5     | Full Go build/vet/test pass; no regression in parcel/outbox code                                                                                             |
 | M6     | Route inventories and contracts pass                                                                                                                         |
 | M7     | Proof and object-storage tests pass; lifecycle documentation confirmed                                                                                       |
 | M8     | Merchant audit read API live smoke passes                                                                                                                    |
 | M9     | Webhook reliability evidence unchanged (post-merge CI green)                                                                                                 |
-| M10    | Notification-flow, contract, frontend and Compose checks pass; documentation reconciled to `831455b`                                                         |
+| M10    | Notification-flow, contract, frontend and Compose checks pass; documentation reconciled to the merged baseline                                               |
 
 **Member conclusion unchanged:** all M1–M10 mandatory non-deployment
-responsibilities have implementation and executed evidence. Live Google account
-consent remains the only blocked external-provider check.
+responsibilities have implementation and executed evidence. Google OAuth is
+verified by automated tests and the project owner's manual consent/account
+linking.
+
+### Final closure baseline (2026-11-20)
+
+Final `development`: `682205aa2856fd8f03721979d88a638e1313cd6a` (PR #181 merge).
+No member has an open mandatory implementation item.
