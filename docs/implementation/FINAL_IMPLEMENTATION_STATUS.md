@@ -102,9 +102,9 @@ These are separate measurements. They are deliberately not combined into one inf
    the dedicated notification-flow override (18/18), backup/restore rehearsal,
    the S3-compatible storage suite, k6 and the mocked/real-stack UI suites have
    executed evidence. See section 10 and `FINAL_TEST_REPORT.md` section 10.
-10. Gemini live smoke passed. Google OAuth initiation and provider reachability
-    are verified; completing account consent/linking still needs an interactive
-    Google account and remains blocked.
+10. Gemini live smoke passed. Google OAuth automated tests pass, the provider
+    served the real sign-in page, and the project owner completed manual consent
+    and account linking successfully.
 11. Optional product scope: parcel edit/cancel, dispatcher-initiated status
     writes, SMS, in-app notification inbox, customer account deletion, email
     change, session/device management.
@@ -136,7 +136,7 @@ Full per-member traceability is in `MEMBER_WISE_STATUS.md`. The condensed view:
 | ----------------------------------------------------------- | --------------------------------------------------------- |
 | Customer registration, verification, login, refresh, logout | COMPLETE (logout defect fixed)                            |
 | Password reset and administrative reset                     | COMPLETE                                                  |
-| Google OAuth PKCE/state/browser binding                     | COMPLETE; live provider BLOCKED in CI by credentials      |
+| Google OAuth PKCE/state/browser binding                     | COMPLETE; automated 32 tests and manual consent/linking   |
 | Profiles, password change, session revocation               | COMPLETE                                                  |
 | Pricing, zones, admin configuration                         | COMPLETE                                                  |
 | Parcel creation, ownership, idempotency, receipt            | COMPLETE                                                  |
@@ -216,8 +216,10 @@ Acceptance documentation:
 ## 10. Non-deployment finalization update (2026-11-20)
 
 **Merged baseline:** `development` at
-`831455b952e32cbb63623799750720635ddd185b` (PR #180; contains PR #179).
-**Verification branch:** `docs/final-remediation-verification`.
+`682205aa2856fd8f03721979d88a638e1313cd6a` (PR #181; contains PR #180 and
+PR #179). Product verification was performed on `831455b`; PR #181 added only
+tests and documentation.
+**Final closure branch:** `docs/final-closure-signoff`.
 
 ### Added or completed
 
@@ -246,15 +248,16 @@ Acceptance documentation:
   disposable Compose project with Mailpit. This closes the previous local gap;
   CI `Notification worker E2E` also passes.
 - Google accepted the configured client ID and redirect URI and served the real
-  sign-in page. Completing account consent/account-linking still requires an
-  interactive Google test account and remains **BLOCKED**.
+  sign-in page. The project owner then completed interactive consent and
+  account linking; Google OAuth is **PASS** for automated and manual
+  verification.
 - Retention dry run, proof/objectstore tests, full Go build/vet/test, contract
   tests, route inventories, Compose config and frontend unit/lint/build passed on
   the merged baseline.
 
 ### Remaining after this update
 
-- Live Google consent/account-link remains **BLOCKED** (manual interactive
-  provider check).
+- Google OAuth manual consent/account linking passed (owner-reported; exact date
+  not recorded).
 - Audit/webhook retention is an operator command, not a background scheduler.
 - Production deployment remains out of scope.

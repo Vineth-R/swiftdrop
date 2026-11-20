@@ -507,7 +507,9 @@ the Compose network: the identity repository suite, the event-flow suite
 passed. These checks were later executed in the post-merge verification pass:
 the full migration-cycle, dedicated notification-flow (18/18), k6,
 backup/restore rehearsal, S3-compatible storage and live Gemini. Only live
-Google account consent remains blocked. See `FINAL_TEST_REPORT.md` section 10.
+Google OAuth automated tests pass, the provider served the real sign-in page,
+and the project owner completed manual consent and account linking. See
+`FINAL_TEST_REPORT.md` section 11.
 
 ---
 

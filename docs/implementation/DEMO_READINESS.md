@@ -322,15 +322,20 @@ AI_LIVE_SMOKE=1 BASE_URL=http://localhost:8080 node scripts/ai-live-smoke.mjs
 
 ### Google OAuth
 
-A full consent/link check requires an interactive browser and a real Google
-account. Verify the redirect locally:
+**Status: PASS** — automated tests pass, Google accepted the configured client ID
+and redirect URI, and the project owner completed interactive consent and
+account linking. The exact manual verification date was not recorded. This
+remains a manual, non-CI check.
+
+To re-verify after a configuration change, inspect the redirect locally:
 
 ```sh
 curl -s -o /dev/null -D - http://localhost:8080/api/v1/auth/google/login
 ```
 
-Then complete consent in a browser and confirm the callback creates/links the
-account and issues a session. This is **BLOCKED** for automated local acceptance.
+Then open the returned URL, complete consent with an authorized Google account,
+and confirm the callback creates/links the account and issues a session. Never
+log the authorization code, tokens or client secret.
 
 ### Dedicated notification-flow suite
 

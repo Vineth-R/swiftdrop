@@ -164,7 +164,7 @@ The corrected guidance is in `DEMO_READINESS.md`.
 | Backup/restore rehearsal                                 | Needs disposable source/target URLs                                                                                                                         | `REHEARSAL_DATABASE_URL=... make db-rehearse-restore`                                                     |
 | S3-compatible storage tests                              | VersityGW profile not started                                                                                                                               | `make storage-up && make test-storage`                                                                    |
 | Live Gemini smoke                                        | No provider call was made                                                                                                                                   | `docs/ai-assistant.md` procedure                                                                          |
-| Live Google OAuth                                        | No real Google consent flow was performed                                                                                                                   | Manual provider verification                                                                              |
+| Live Google OAuth                                        | No real consent flow was performed in this earlier session; the project owner completed it later (section 11)                                               | Manual provider verification                                                                              |
 | Retention prune `APPLY=1`                                | Destructive; only the dry-run script was syntax-checked                                                                                                     | `make prune-retention` first                                                                              |
 | GitHub Actions execution                                 | Workflows cannot run locally                                                                                                                                | Next pushed PR/tag                                                                                        |
 
@@ -196,7 +196,7 @@ tests plus integration tests for refresh/logout concurrency and outbox recovery.
 - The dedicated notification-flow Compose override in this earlier session (closed in section 10: 18/18 pass).
 - k6 performance/SLO behaviour.
 - Backup/restore and storage-provider integration.
-- Live Google or Gemini provider behaviour.
+- Live Google or Gemini provider behaviour in this earlier session (both later passed; section 11).
 - Production deployment, TLS, multi-replica realtime or shared rate limiting.
 - The edited GitHub Actions workflow on a GitHub runner.
 
@@ -215,40 +215,43 @@ are listed explicitly rather than counted as verified.
 
 ## 9. Non-deployment finalization results (2026-11-20)
 
-| Check                              | Command                                                    | Result                                      |
-| ---------------------------------- | ---------------------------------------------------------- | ------------------------------------------- |
-| Go format/build/vet/unit           | `gofmt`, `go build ./...`, `go vet ./...`, `go test ./...` | PASS                                        |
-| Race tests                         | identity, merchant HTTP, pricing HTTP, objectstore         | PASS                                        |
-| Contract/OpenAPI/route tests       | `node --test tests/contracts/*.test.mjs`                   | PASS — 32                                   |
-| Frontend unit/lint/build/typecheck | Nx targets                                                 | PASS                                        |
-| Audit mocked UI                    | `admin-audit-logs.spec.ts`                                 | PASS — 2                                    |
-| Audit real-stack UI                | `admin-audit-logs.real.spec.ts`                            | PASS                                        |
-| Authorization matrix               | `make test-access`                                         | PASS — 66 endpoints                         |
-| Audit API live smoke               | ADMIN vs CUSTOMER vs anonymous via gateway                 | PASS — 200/403/401                          |
-| Webhook reliability                | `webhook-reliability.real.spec.ts`                         | PASS — 3 (retry, exhaustion, rotation)      |
-| S3-compatible storage              | `make test-storage` with VersityGW `us-east-2`             | PASS                                        |
-| Migration cycle                    | `TestAllServiceMigrationCycles` against PostgreSQL 16      | PASS                                        |
-| Backup/restore rehearsal           | `scripts/rehearse-restore.sh` against PostgreSQL 16        | PASS                                        |
-| Retention dry run                  | `make prune-retention`                                     | PASS                                        |
-| Failed-outbox concurrency          | integration test, 20 rows / 4 workers                      | PASS                                        |
-| k6 public/tracking/pricing         | 5 VU / 10s                                                 | PASS — 0 failed, p95 ≈ 11 ms                |
-| k6 WebSocket                       | 3 VU / 8s                                                  | PASS                                        |
-| Live Gemini                        | `AI_LIVE_SMOKE=1 node scripts/ai-live-smoke.mjs`           | PASS — HTTP 200                             |
-| Google OAuth redirect              | `GET /auth/google/login`                                   | PASS — 302 with PKCE/state; consent BLOCKED |
-| Compose config                     | `docker compose config`                                    | PASS                                        |
-| Prettier/diff check                | changed docs and `git diff --check`                        | PASS                                        |
+| Check                              | Command                                                    | Result                                                |
+| ---------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------- |
+| Go format/build/vet/unit           | `gofmt`, `go build ./...`, `go vet ./...`, `go test ./...` | PASS                                                  |
+| Race tests                         | identity, merchant HTTP, pricing HTTP, objectstore         | PASS                                                  |
+| Contract/OpenAPI/route tests       | `node --test tests/contracts/*.test.mjs`                   | PASS — 32                                             |
+| Frontend unit/lint/build/typecheck | Nx targets                                                 | PASS                                                  |
+| Audit mocked UI                    | `admin-audit-logs.spec.ts`                                 | PASS — 2                                              |
+| Audit real-stack UI                | `admin-audit-logs.real.spec.ts`                            | PASS                                                  |
+| Authorization matrix               | `make test-access`                                         | PASS — 66 endpoints                                   |
+| Audit API live smoke               | ADMIN vs CUSTOMER vs anonymous via gateway                 | PASS — 200/403/401                                    |
+| Webhook reliability                | `webhook-reliability.real.spec.ts`                         | PASS — 3 (retry, exhaustion, rotation)                |
+| S3-compatible storage              | `make test-storage` with VersityGW `us-east-2`             | PASS                                                  |
+| Migration cycle                    | `TestAllServiceMigrationCycles` against PostgreSQL 16      | PASS                                                  |
+| Backup/restore rehearsal           | `scripts/rehearse-restore.sh` against PostgreSQL 16        | PASS                                                  |
+| Retention dry run                  | `make prune-retention`                                     | PASS                                                  |
+| Failed-outbox concurrency          | integration test, 20 rows / 4 workers                      | PASS                                                  |
+| k6 public/tracking/pricing         | 5 VU / 10s                                                 | PASS — 0 failed, p95 ≈ 11 ms                          |
+| k6 WebSocket                       | 3 VU / 8s                                                  | PASS                                                  |
+| Live Gemini                        | `AI_LIVE_SMOKE=1 node scripts/ai-live-smoke.mjs`           | PASS — HTTP 200                                       |
+| Google OAuth redirect              | `GET /auth/google/login`                                   | PASS — 302 with PKCE/state; manual consent later PASS |
+| Compose config                     | `docker compose config`                                    | PASS                                                  |
+| Prettier/diff check                | changed docs and `git diff --check`                        | PASS                                                  |
 
-**Not executed in this session:** live Google consent/account-link (blocked),
-full real-stack suite after the audit changes (audit real-stack spec passed; CI
-runs the full suite on the PR). The dedicated notification-flow override was
-later run successfully in section 10 (18/18).
+**Not executed in this session:** full real-stack suite after the audit changes
+(audit real-stack spec passed; CI runs the full suite on the PR). The dedicated
+notification-flow override was later run successfully in section 10 (18/18), and
+the project owner later completed live Google consent/account linking (section
+11).
 
 ---
 
 ## 10. Post-merge remediation verification (2026-11-20)
 
-**Baseline:** `development` at `831455b952e32cbb63623799750720635ddd185b`.
-**Branch:** `docs/final-remediation-verification` (verification/documentation).
+**Verification baseline:** `development` at
+`831455b952e32cbb63623799750720635ddd185b` (PR #180).
+**Branch:** `docs/final-remediation-verification` (verification/documentation,
+merged as PR #181 at `682205a`).
 
 | Check                            | Command                                                                                                         | Result                                                                              |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -264,7 +267,7 @@ later run successfully in section 10 (18/18).
 | Dedicated notification flow      | `go test -race -tags=notificationflow` against disposable Compose + Mailpit                                     | PASS — 18/18                                                                        |
 | Notification local prerequisites | `SMTP_HOST=mailpit`, empty SMTP user/password, worker-level `RABBITMQ_RETRY_DELAY=5s`, `RABBITMQ_MAX_RETRIES=2` | Documented in `tests/integration/notificationflow/README.md`                        |
 | Google provider reachability     | Loaded the generated `/auth/google/login` URL in a real browser                                                 | PASS — Google served its sign-in page for the configured client ID and redirect URI |
-| Google account consent/linking   | Requires interactive Google test-account credentials                                                            | **BLOCKED** — not claimed as passed                                                 |
+| Google account consent/linking   | Completed by the project owner with an authorized Google account; exact date not recorded                       | **PASS** — manual consent and account linking verified                              |
 | Post-merge CI (PR #180)          | GitHub Actions CI + Identity database                                                                           | PASS — 22m37s and 3m04s                                                             |
 
 ### Notification-flow detail
@@ -283,4 +286,35 @@ at job level; no product code changed.
 - The 66-route access matrix was not re-run locally in this pass; it passed on
   PR #180 and its post-merge CI is green. A live ADMIN/CUSTOMER/anonymous smoke
   of the audit APIs was re-run and passed.
-- Live Google account consent remains blocked as described above.
+- Live Google account consent was completed manually by the project owner; see
+  section 11.
+
+---
+
+## 11. Final closure verification (2026-11-20)
+
+**Final baseline:** `development` at
+`682205aa2856fd8f03721979d88a638e1313cd6a` (PR #181 merge; contains PR #180 and
+PR #179).
+
+| Check                                         | Result                                                                              |
+| --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| PR #181 required checks                       | PASS                                                                                |
+| Post-merge CI (PR #181)                       | PASS — CI 5m01s; Identity database 2m39s                                            |
+| Final `development` working tree              | Clean                                                                               |
+| Retention safety regression (`tests/scripts`) | PASS — dry run read-only, four owned tables, bounded batches, unsafe limits refused |
+| Contract tests on final tree                  | PASS — 32                                                                           |
+| Dedicated notification flow                   | PASS — 18/18                                                                        |
+| Google OAuth automated tests                  | PASS — 32                                                                           |
+| Google OAuth manual consent/account linking   | PASS — completed by the project owner; exact date not recorded                      |
+| Live audit authorization                      | PASS — ADMIN 200, CUSTOMER 403, anonymous 401                                       |
+
+### Final verification statement
+
+All mandatory approved non-deployment requirements have implementation and
+executed evidence. The final repository state contains no unresolved mandatory
+implementation defect. Google OAuth is verified by both automated tests and the
+project owner's manual consent/account-linking run.
+
+Production deployment, TLS/hosting, monitoring rollout and multi-replica state
+remain out of scope and are not claimed.
