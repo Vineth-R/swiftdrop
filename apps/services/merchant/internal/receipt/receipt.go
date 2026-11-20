@@ -7,12 +7,12 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/go-pdf/fpdf"
 
 	"github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/orders"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/receiptdesign"
 )
 
 //go:embed fonts/NotoSans-Regular.ttf
@@ -23,27 +23,6 @@ var notoSinhala []byte
 
 //go:embed fonts/NotoSansTamil-Regular.ttf
 var notoTamil []byte
-
-const (
-	brandNavy  = 15
-	brandDark  = 23
-	brandLight = 42
-	limeR      = 198
-	limeG      = 241
-	limeB      = 53
-	inkR       = 30
-	inkG       = 41
-	inkB       = 59
-	mutedR     = 100
-	mutedG     = 116
-	mutedB     = 139
-	lineR      = 226
-	lineG      = 232
-	lineB      = 240
-	surfaceR   = 247
-	surfaceG   = 249
-	surfaceB   = 252
-)
 
 // Merchant is the business information printed on the receipt.
 type Merchant struct {
@@ -90,12 +69,12 @@ func Render(in Input) ([]byte, error) {
 }
 
 func header(pdf *fpdf.Fpdf, in Input) {
-	pdf.SetFillColor(brandNavy, brandDark, brandLight)
+	pdf.SetFillColor(receiptdesign.Navy.R, receiptdesign.Navy.G, receiptdesign.Navy.B)
 	pdf.Rect(0, 0, 210, 42, "F")
 
-	pdf.SetFillColor(limeR, limeG, limeB)
+	pdf.SetFillColor(receiptdesign.Lime.R, receiptdesign.Lime.G, receiptdesign.Lime.B)
 	pdf.RoundedRect(14, 13, 14, 14, 4, "1234", "F")
-	pdf.SetTextColor(brandNavy, brandDark, brandLight)
+	pdf.SetTextColor(receiptdesign.Navy.R, receiptdesign.Navy.G, receiptdesign.Navy.B)
 	pdf.SetFont("Helvetica", "B", 15)
 	pdf.SetXY(14, 15.5)
 	pdf.CellFormat(14, 8, "S", "", 0, "C", false, 0, "")
@@ -130,13 +109,13 @@ func body(pdf *fpdf.Fpdf, in Input) {
 	order := in.Order
 
 	// Identity and status row.
-	pdf.SetTextColor(inkR, inkG, inkB)
+	pdf.SetTextColor(receiptdesign.Ink.R, receiptdesign.Ink.G, receiptdesign.Ink.B)
 	pdf.SetFont("Helvetica", "B", 7)
 	pdf.SetXY(14, 50)
 	pdf.CellFormat(40, 4, "EXTERNAL ORDER ID", "", 0, "L", false, 0, "")
 	pdf.SetXY(14, 55)
 	pdf.SetFont("noto", "", 11)
-	pdf.MultiCell(70, 5, fallback(order.ExternalOrderID, "—"), "", "L", false)
+	pdf.MultiCell(70, 5, receiptdesign.Fallback(order.ExternalOrderID, "—"), "", "L", false)
 
 	pdf.SetFont("Helvetica", "B", 7)
 	pdf.SetXY(88, 50)
@@ -145,19 +124,19 @@ func body(pdf *fpdf.Fpdf, in Input) {
 	pdf.SetFont("noto", "", 11)
 	pdf.MultiCell(55, 5, order.CreatedAt.UTC().Format("02 Jan 2006 15:04 UTC"), "", "L", false)
 
-	status(pdf, 150, 50, order.Status)
+	status(pdf, 150, 50, receiptdesign.StatusLabel(order.Status))
 
 	// Merchant and recipient cards.
 	cardTop := 70.0
-	pdf.SetFillColor(surfaceR, surfaceG, surfaceB)
+	pdf.SetFillColor(receiptdesign.Surface.R, receiptdesign.Surface.G, receiptdesign.Surface.B)
 	pdf.RoundedRect(14, cardTop, 88, 52, 3, "1234", "F")
 	pdf.RoundedRect(108, cardTop, 88, 52, 3, "1234", "F")
 
 	cardHeading(pdf, 19, cardTop+5, "MERCHANT")
 	cardLine(pdf, 19, cardTop+12, "Business", in.Merchant.BusinessName)
-	cardLine(pdf, 19, cardTop+20, "Contact", joinContact(in.Merchant.ContactEmail, in.Merchant.ContactPhone))
-	cardLine(pdf, 19, cardTop+28, "Pickup", joinContact(in.Merchant.PickupAddress, order.Pickup.City))
-	cardLine(pdf, 19, cardTop+36, "Pickup contact", joinContact(order.Pickup.Name, order.Pickup.Phone))
+	cardLine(pdf, 19, cardTop+20, "Contact", receiptdesign.JoinContact(in.Merchant.ContactEmail, in.Merchant.ContactPhone))
+	cardLine(pdf, 19, cardTop+28, "Pickup", receiptdesign.JoinContact(in.Merchant.PickupAddress, order.Pickup.City))
+	cardLine(pdf, 19, cardTop+36, "Pickup contact", receiptdesign.JoinContact(order.Pickup.Name, order.Pickup.Phone))
 
 	cardHeading(pdf, 113, cardTop+5, "RECIPIENT")
 	cardLine(pdf, 113, cardTop+12, "Name", order.Recipient.Name)
@@ -169,15 +148,15 @@ func body(pdf *fpdf.Fpdf, in Input) {
 	y := 130.0
 	sectionHeading(pdf, 14, y, "PARCEL")
 	y += 7
-	pdf.SetDrawColor(lineR, lineG, lineB)
+	pdf.SetDrawColor(receiptdesign.Line.R, receiptdesign.Line.G, receiptdesign.Line.B)
 	pdf.Line(14, y, 196, y)
 	y += 2
 	details := [][2]string{
-		{"Description", fallback(deref(order.Description), "No description provided")},
-		{"Weight", order.WeightKG.String() + " kg"},
+		{"Description", receiptdesign.Fallback(deref(order.Description), "No description provided")},
+		{"Weight", receiptdesign.Decimal(int64(order.WeightKG)) + " kg"},
 		{"Size", order.SizeCategory},
-		{"Current status", order.Status},
-		{"Delivery fee", money(order.Fee.Total, order.Fee.Currency)},
+		{"Current status", receiptdesign.StatusLabel(order.Status)},
+		{"Delivery fee", receiptdesign.Money(int64(order.Fee.Total), order.Fee.Currency)},
 	}
 	y = keyValues(pdf, 14, y, 182, details)
 
@@ -185,7 +164,7 @@ func body(pdf *fpdf.Fpdf, in Input) {
 	y = 178.0
 	sectionHeading(pdf, 14, y, "DELIVERY FEE")
 	y += 6
-	pdf.SetFillColor(brandNavy, brandDark, brandLight)
+	pdf.SetFillColor(receiptdesign.Navy.R, receiptdesign.Navy.G, receiptdesign.Navy.B)
 	pdf.SetTextColor(255, 255, 255)
 	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(14, y)
@@ -199,7 +178,7 @@ func body(pdf *fpdf.Fpdf, in Input) {
 		{"Size surcharge", order.Fee.SizeSurcharge.String()},
 	}
 	for _, row := range feeRows {
-		pdf.SetTextColor(inkR, inkG, inkB)
+		pdf.SetTextColor(receiptdesign.Ink.R, receiptdesign.Ink.G, receiptdesign.Ink.B)
 		pdf.SetFont("noto", "", 9)
 		pdf.SetXY(14, y)
 		pdf.CellFormat(120, 7, row[0], "B", 0, "L", false, 0, "")
@@ -207,16 +186,16 @@ func body(pdf *fpdf.Fpdf, in Input) {
 		pdf.CellFormat(62, 7, row[1], "B", 0, "R", false, 0, "")
 		y += 7
 	}
-	pdf.SetFillColor(limeR, limeG, limeB)
-	pdf.SetTextColor(brandNavy, brandDark, brandLight)
+	pdf.SetFillColor(receiptdesign.Lime.R, receiptdesign.Lime.G, receiptdesign.Lime.B)
+	pdf.SetTextColor(receiptdesign.Navy.R, receiptdesign.Navy.G, receiptdesign.Navy.B)
 	pdf.SetFont("Helvetica", "B", 10)
 	pdf.SetXY(14, y)
 	pdf.CellFormat(120, 9, "TOTAL", "", 0, "L", true, 0, "")
 	pdf.SetXY(134, y)
-	pdf.CellFormat(62, 9, money(order.Fee.Total, order.Fee.Currency), "", 0, "R", true, 0, "")
+	pdf.CellFormat(62, 9, receiptdesign.Money(int64(order.Fee.Total), order.Fee.Currency), "", 0, "R", true, 0, "")
 	y += 12
 
-	pdf.SetTextColor(mutedR, mutedG, mutedB)
+	pdf.SetTextColor(receiptdesign.Muted.R, receiptdesign.Muted.G, receiptdesign.Muted.B)
 	pdf.SetFont("noto", "", 8)
 	pdf.SetXY(14, y)
 	pdf.MultiCell(182, 4, "This is a delivery fee snapshot for the order shown above, not a payment or settlement receipt. The fee was calculated when the order was created.", "", "L", false)
@@ -230,7 +209,7 @@ func body(pdf *fpdf.Fpdf, in Input) {
 	sectionHeading(pdf, 14, y, "STATUS TIMELINE")
 	y += 7
 	if len(order.Timeline) == 0 {
-		pdf.SetTextColor(mutedR, mutedG, mutedB)
+		pdf.SetTextColor(receiptdesign.Muted.R, receiptdesign.Muted.G, receiptdesign.Muted.B)
 		pdf.SetFont("noto", "", 9)
 		pdf.SetXY(14, y)
 		pdf.CellFormat(182, 6, "No status events recorded yet.", "", 0, "L", false, 0, "")
@@ -241,7 +220,7 @@ func body(pdf *fpdf.Fpdf, in Input) {
 		start = len(order.Timeline) - 10
 	}
 	for _, event := range order.Timeline[start:] {
-		pdf.SetTextColor(inkR, inkG, inkB)
+		pdf.SetTextColor(receiptdesign.Ink.R, receiptdesign.Ink.G, receiptdesign.Ink.B)
 		pdf.SetFont("Helvetica", "B", 8)
 		pdf.SetXY(14, y)
 		pdf.CellFormat(70, 6, event.Status, "B", 0, "L", false, 0, "")
@@ -258,48 +237,48 @@ func status(pdf *fpdf.Fpdf, x, y float64, value string) {
 	if width < 26 {
 		width = 26
 	}
-	pdf.SetFillColor(limeR, limeG, limeB)
+	pdf.SetFillColor(receiptdesign.Lime.R, receiptdesign.Lime.G, receiptdesign.Lime.B)
 	pdf.RoundedRect(x, y, width, 9, 4, "1234", "F")
-	pdf.SetTextColor(brandNavy, brandDark, brandLight)
+	pdf.SetTextColor(receiptdesign.Navy.R, receiptdesign.Navy.G, receiptdesign.Navy.B)
 	pdf.SetXY(x, y+2)
 	pdf.CellFormat(width, 5, value, "", 0, "C", false, 0, "")
 }
 
 func sectionHeading(pdf *fpdf.Fpdf, x, y float64, text string) {
-	pdf.SetTextColor(inkR, inkG, inkB)
+	pdf.SetTextColor(receiptdesign.Ink.R, receiptdesign.Ink.G, receiptdesign.Ink.B)
 	pdf.SetFont("Helvetica", "B", 9)
 	pdf.SetXY(x, y)
 	pdf.CellFormat(182, 5, text, "", 0, "L", false, 0, "")
 }
 
 func cardHeading(pdf *fpdf.Fpdf, x, y float64, text string) {
-	pdf.SetTextColor(mutedR, mutedG, mutedB)
+	pdf.SetTextColor(receiptdesign.Muted.R, receiptdesign.Muted.G, receiptdesign.Muted.B)
 	pdf.SetFont("Helvetica", "B", 7)
 	pdf.SetXY(x, y)
 	pdf.CellFormat(78, 4, text, "", 0, "L", false, 0, "")
 }
 
 func cardLine(pdf *fpdf.Fpdf, x, y float64, label, value string) {
-	pdf.SetTextColor(mutedR, mutedG, mutedB)
+	pdf.SetTextColor(receiptdesign.Muted.R, receiptdesign.Muted.G, receiptdesign.Muted.B)
 	pdf.SetFont("Helvetica", "B", 7)
 	pdf.SetXY(x, y)
 	pdf.CellFormat(22, 4, label, "", 0, "L", false, 0, "")
-	pdf.SetTextColor(inkR, inkG, inkB)
+	pdf.SetTextColor(receiptdesign.Ink.R, receiptdesign.Ink.G, receiptdesign.Ink.B)
 	setNotoFor(pdf, value, 8)
 	pdf.SetXY(x+22, y)
-	pdf.MultiCell(61, 4, fallback(value, "—"), "", "L", false)
+	pdf.MultiCell(61, 4, receiptdesign.Fallback(value, "—"), "", "L", false)
 }
 
 func keyValues(pdf *fpdf.Fpdf, x, y, width float64, rows [][2]string) float64 {
 	for _, row := range rows {
-		pdf.SetTextColor(mutedR, mutedG, mutedB)
+		pdf.SetTextColor(receiptdesign.Muted.R, receiptdesign.Muted.G, receiptdesign.Muted.B)
 		pdf.SetFont("Helvetica", "B", 7)
 		pdf.SetXY(x, y)
 		pdf.CellFormat(38, 7, row[0], "", 0, "L", false, 0, "")
-		pdf.SetTextColor(inkR, inkG, inkB)
+		pdf.SetTextColor(receiptdesign.Ink.R, receiptdesign.Ink.G, receiptdesign.Ink.B)
 		setNotoFor(pdf, row[1], 9)
 		pdf.SetXY(x+38, y)
-		pdf.MultiCell(width-38, 5, fallback(row[1], "—"), "", "L", false)
+		pdf.MultiCell(width-38, 5, receiptdesign.Fallback(row[1], "—"), "", "L", false)
 		y += 7
 	}
 	return y
@@ -308,10 +287,10 @@ func keyValues(pdf *fpdf.Fpdf, x, y, width float64, rows [][2]string) float64 {
 func footer(pdf *fpdf.Fpdf, supportEmail string) {
 	pdf.SetFooterFunc(func() {
 		pdf.SetY(-16)
-		pdf.SetDrawColor(lineR, lineG, lineB)
+		pdf.SetDrawColor(receiptdesign.Line.R, receiptdesign.Line.G, receiptdesign.Line.B)
 		pdf.Line(14, pdf.GetY(), 196, pdf.GetY())
 		pdf.SetY(-13)
-		pdf.SetTextColor(mutedR, mutedG, mutedB)
+		pdf.SetTextColor(receiptdesign.Muted.R, receiptdesign.Muted.G, receiptdesign.Muted.B)
 		pdf.SetFont("Helvetica", "", 7)
 		left := "SwiftDrop | merchant order receipt"
 		if supportEmail != "" {
@@ -339,33 +318,6 @@ func setNotoFor(pdf *fpdf.Fpdf, value string, size float64) {
 		}
 	}
 	pdf.SetFont("noto", style, size)
-}
-
-func money(value orders.Decimal, currency string) string {
-	if currency == "" {
-		return value.String()
-	}
-	return currency + " " + value.String()
-}
-
-func joinContact(first, second string) string {
-	parts := make([]string, 0, 2)
-	for _, part := range []string{first, second} {
-		if strings.TrimSpace(part) != "" {
-			parts = append(parts, strings.TrimSpace(part))
-		}
-	}
-	if len(parts) == 0 {
-		return "—"
-	}
-	return strings.Join(parts, " · ")
-}
-
-func fallback(value, fallbackValue string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallbackValue
-	}
-	return value
 }
 
 func deref(value *string) string {

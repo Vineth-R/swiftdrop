@@ -132,6 +132,17 @@ func (s *PostgresStore) Owned(ctx context.Context, id, user string, staff bool) 
 	}
 	return r.ParcelByViewer(ctx, id, user, staff)
 }
+func (s *PostgresStore) ParcelByTrackingViewer(ctx context.Context, tracking, user string, staff bool) (repository.Parcel, error) {
+	if s.db == nil {
+		return repository.Parcel{}, ErrUnavailable
+	}
+	r, err := repository.New(s.db)
+	if err != nil {
+		return repository.Parcel{}, err
+	}
+	return r.ParcelByTrackingViewer(ctx, tracking, user, staff)
+}
+
 func (s *PostgresStore) History(ctx context.Context, id string) ([]repository.StatusHistory, error) {
 	if s.db == nil {
 		return nil, ErrUnavailable

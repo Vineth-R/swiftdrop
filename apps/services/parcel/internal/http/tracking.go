@@ -35,6 +35,7 @@ type Options struct {
 	AccessSecret      string
 	CookieName        string
 	SessionCheck      sessioncheck.Guard
+	SupportEmail      string
 }
 
 func registerTracking(router *gin.Engine, logger *slog.Logger, options Options) {

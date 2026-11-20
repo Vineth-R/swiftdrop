@@ -19,9 +19,10 @@ import (
 )
 
 type parcelHandlers struct {
-	service    *parcels.Service
-	logger     *slog.Logger
-	photoStore ProofPhotoStore
+	service      *parcels.Service
+	logger       *slog.Logger
+	photoStore   ProofPhotoStore
+	supportEmail string
 }
 
 func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) error {
@@ -29,7 +30,10 @@ func registerParcels(router *gin.Engine, logger *slog.Logger, options Options) e
 	if service == nil {
 		service = parcels.NewService(nil, nil)
 	}
-	h := &parcelHandlers{service, logger, options.CourierProofPhoto}
+	h := &parcelHandlers{
+		service: service, logger: logger,
+		photoStore: options.CourierProofPhoto, supportEmail: options.SupportEmail,
+	}
 	group := router.Group("/parcels", noStore())
 	if options.AccessSecret == "" {
 		group.Use(func(c *gin.Context) { httpx.Error(c, 503, "SERVICE_UNAVAILABLE", "authentication is not configured") })
@@ -182,7 +186,11 @@ func (h *parcelHandlers) receipt(c *gin.Context) {
 	if h.failure(c, err) {
 		return
 	}
-	pdf, err := parcels.Receipt(result)
+	history, err := h.service.History(c.Request.Context(), result.ID, user, staff)
+	if h.failure(c, err) {
+		return
+	}
+	pdf, err := parcels.ReceiptWithHistory(result, history, h.supportEmail)
 	if err != nil {
 		h.logger.ErrorContext(c.Request.Context(), "parcel receipt generation failed", "request_id", requestid.FromGin(c), "parcel_id", result.ID, "error", err)
 		httpx.Error(c, 500, "INTERNAL_ERROR", "the receipt could not be generated")

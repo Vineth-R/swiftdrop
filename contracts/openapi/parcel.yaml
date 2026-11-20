@@ -615,17 +615,24 @@ paths:
         '503': { $ref: '#/components/responses/ParcelUnavailable' }
   '/parcels/{parcelId}/receipt':
     parameters:
-      - $ref: '#/components/parameters/ParcelID'
+      - name: parcelId
+        in: path
+        required: true
+        description: Parcel UUID or the public SDK/SDN tracking number.
+        schema: { type: string }
     get:
       operationId: downloadParcelReceipt
-      summary: Download a PDF receipt using the original stored price
+      summary: Download a branded PDF receipt using the original stored price
       tags: [Customer parcels]
       security:
         - AccessCookie: []
         - BearerAuth: []
       description:
-        CUSTOMER owner or ADMIN. Contains tracking number, names, cities, weight, size, stored
-        fee components, status and dates. No repricing occurs.
+        CUSTOMER owner or ADMIN. The path value may be the parcel UUID or its public tracking
+        number; ownership is checked by the same query. The receipt contains tracking number,
+        sender/recipient names and addresses, description, weight, size, the stored fee
+        components, current status, status timeline, dates and the configured support address.
+        No repricing or payment claim occurs.
       responses:
         '200':
           description: PDF receipt. Authenticated parcel responses use Cache-Control no-store.
@@ -633,6 +640,8 @@ paths:
             Content-Disposition:
               schema: { type: string }
               example: attachment; filename="receipt_SDK7M2Q9XP4.pdf"
+            Cache-Control:
+              schema: { type: string, example: no-store }
           content:
             application/pdf:
               schema: { type: string, format: binary }

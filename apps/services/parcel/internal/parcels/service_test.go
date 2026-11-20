@@ -60,6 +60,12 @@ func (m *memoryStore) Owned(_ context.Context, id, user string, staff bool) (rep
 	}
 	return repository.Parcel{}, repository.ErrNotFound
 }
+func (m *memoryStore) ParcelByTrackingViewer(_ context.Context, tracking, user string, staff bool) (repository.Parcel, error) {
+	if m.exists && m.p.TrackingNumber == tracking && (staff || m.p.CustomerUserID != nil && *m.p.CustomerUserID == user) {
+		return m.p, nil
+	}
+	return repository.Parcel{}, repository.ErrNotFound
+}
 func (m *memoryStore) List(_ context.Context, user string, f Filter) ([]repository.Parcel, int, error) {
 	if m.exists {
 		return []repository.Parcel{m.p}, 1, nil
@@ -217,7 +223,7 @@ func TestTrackingRandomnessAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	pdf := string(raw)
-	for _, part := range []string{"%PDF-1.4", p.TrackingNumber, "Total fee: 550.00", "Base fee: 450.00", "Weight charge: 100.00", "%%EOF", "/ActualText", "Nimal \\(test\\)"} {
+	for _, part := range []string{"%PDF-1.4", p.TrackingNumber, "DELIVERY FEE", "LKR 550.00", "LKR 450.00", "LKR 100.00", "%%EOF", "Nimal \\(test\\)"} {
 		if !strings.Contains(pdf, part) {
 			t.Errorf("receipt missing %q", part)
 		}
@@ -254,7 +260,7 @@ func TestReceiptWrapsAndPaginatesLongFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	pdf := string(raw)
-	if !strings.Contains(pdf, "/Count 2") || !strings.Contains(pdf, "Delivered:") {
+	if !strings.Contains(pdf, "/Count 2") || !strings.Contains(pdf, "DELIVERED") {
 		t.Fatal("long receipt was not paginated or lost delivered date")
 	}
 }

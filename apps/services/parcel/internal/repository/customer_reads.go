@@ -17,6 +17,17 @@ func (r *Repository) ParcelByViewer(ctx context.Context, id, user string, staff 
 	return p, nil
 }
 
+// ParcelByTrackingViewer is the tracking-number form of ParcelByViewer. The
+// tracking number is a lookup key, not an authorization credential: merchant
+// ownership is checked in the same query.
+func (r *Repository) ParcelByTrackingViewer(ctx context.Context, tracking, user string, staff bool) (Parcel, error) {
+	p, err := scanParcel(r.db.QueryRow(ctx, `SELECT `+parcelColumns+` FROM parcel.parcels WHERE tracking_number=$1 AND ($3 OR customer_user_id::text=$2)`, tracking, user, staff))
+	if err != nil {
+		return Parcel{}, fmt.Errorf("querying authorized parcel by tracking: %w", databaseError(err))
+	}
+	return p, nil
+}
+
 type countedRow struct {
 	row   pgx.Row
 	total *int
