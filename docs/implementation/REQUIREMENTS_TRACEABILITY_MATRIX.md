@@ -115,3 +115,22 @@ marked PARTIAL are accepted, documented limitations (single-instance process
 state, operator-driven retention and the shared internal-token trust boundary),
 not missing implementation. Google OAuth (ID-06) is COMPLETE with 32 automated
 tests and the project owner's manual consent/account-linking verification.
+
+## Post-acceptance merchant enhancement (2026-11-20)
+
+These rows are additive to the accepted baseline. They do not change the
+baseline status of any requirement above.
+
+| ID    | Requirement                                          | Component        | Implementation                                                                                    | Test evidence                                                                         | Result   |
+| ----- | ---------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------- |
+| ME-09 | Preserve `orderId` in API v1.1                       | Merchant/API     | Create/list/detail DTOs and `GET /merchant/orders/{orderId}` unchanged                            | Existing merchant order integration tests plus the new receipt test                   | COMPLETE |
+| ME-10 | Do not expose `ownerUserId` in merchant self-service | Merchant/API     | `merchantSelfResponse` omits it; admin DTO keeps it                                               | `TestMerchantSelfResponseOmitsOwnerUserID`                                            | COMPLETE |
+| ME-11 | Clickable merchant order rows                        | Web              | Full-row Link on Orders and dashboard recent orders                                               | `merchant-orders.spec.ts`, `dashboards.spec.ts`                                       | COMPLETE |
+| ME-12 | Dedicated API integration page                       | Web              | `/merchant/integration`, sidebar entry, Orders link, onboarding panel moved                       | `merchant-orders.spec.ts`, `app-shell.spec.ts`, `layouts.spec.ts`                     | COMPLETE |
+| ME-13 | Merchant API guide HTML + PDF                        | Docs/Web         | `docs/merchant-api-guide.html`, generated PDF, `make merchant-api-pdf`, download link             | PDF generated and inspected; Playwright download-link test                            | COMPLETE |
+| ME-14 | Branded order receipt PDF                            | Merchant/API/Web | `GET /merchant/orders/{trackingNumber}/receipt`, `internal/receipt`, order-detail download button | Receipt renderer tests, merchant ownership integration test, Playwright download test | COMPLETE |
+| ME-15 | Receipt authorization and privacy                    | Merchant/API     | Merchant-scoped repository query, session/API-key auth, `no-store`, 404 for another merchant      | `TestMerchantOrderReceiptPDFAndIsolation`                                             | COMPLETE |
+
+**Post-acceptance conclusion:** the enhancement is implemented and verified
+without changing the accepted baseline contract for `orderId` or existing
+routes.

@@ -706,6 +706,7 @@ Do not create a nested `go.mod` or `go.work`. Do not give services a shared busi
 - [`docs/data-retention.md`](docs/data-retention.md): approved retention for notification logs, merchant reservations, processed events and identity tokens.
 - [`docs/db.sql`](docs/db.sql): canonical 26-table baseline (five schemas, triggers, seeds); additive migrations bring the current chain to 31 tables.
 - [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md) and [`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md): product API and database design sources.
+- [`docs/merchant-api-guide.html`](docs/merchant-api-guide.html) and [`docs/merchant-api-guide.pdf`](docs/merchant-api-guide.pdf): merchant-facing integration guide (zones, orders, receipt, webhooks); regenerate the PDF with `make merchant-api-pdf`.
 - [`docs/how-to-error-logging.md`](docs/how-to-error-logging.md): adopting the shared error envelope and safe logging.
 - [`docs/security-scanning.md`](docs/security-scanning.md): automated security scanners, thresholds, SBOMs, exceptions, and gate troubleshooting.
 - [`docs/follow-ups/merchant-database-integration.md`](docs/follow-ups/merchant-database-integration.md): merchant-owner database integration review.

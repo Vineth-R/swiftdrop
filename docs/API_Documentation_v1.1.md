@@ -991,7 +991,7 @@ Request body:
 
        "courierProfile": { "vehicleType": "BIKE", "vehicleNumber": "BCD-4521",
 
-   "homeZoneId": "7a1e..." }
+   "homeZoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6" }
 
    }
 
@@ -1096,7 +1096,7 @@ Response 200:
 
            { "id": "c1d2...", "fullName": "Kasun Silva", "phone": "+94712223344",
 
-   "vehicleType": "BIKE", "homeZoneId": "7a1e...", "isAvailable": true }
+   "vehicleType": "BIKE", "homeZoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6", "isAvailable": true }
 
        ],
 
@@ -1444,9 +1444,9 @@ Response 200:
 
        "data": {
 
-         "originZoneId": "7a1e...",
+         "originZoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6",
 
-           "destinationZoneId": "9b2f...",
+           "destinationZoneId": "9b2f1d21-3c4e-4d6f-9a01-b2c3d4e5f607",
 
            "weightKg": 2.0,
 
@@ -1500,11 +1500,11 @@ Response 200:
 
        "data": [
 
-         { "id": "7a1e...", "code": "CMB", "name": "Colombo", "districts":
+         { "id": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6", "code": "CMB", "name": "Colombo", "districts":
 
    ["Colombo"] },
 
-       { "id": "9b2f...", "code": "KDY", "name": "Kandy", "districts": ["Kandy",
+       { "id": "9b2f1d21-3c4e-4d6f-9a01-b2c3d4e5f607", "code": "KDY", "name": "Kandy", "districts": ["Kandy",
 
    "Matale"] }
 
@@ -1581,9 +1581,9 @@ Response 200:
 
        "data": [
 
-       { "id": "r1...", "originZoneId": "7a1e...", "destinationZoneId":
+       { "id": "r1...", "originZoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6", "destinationZoneId":
 
-   "9b2f...", "baseFee": 450.00, "currency": "LKR", "isActive": true,
+   "9b2f1d21-3c4e-4d6f-9a01-b2c3d4e5f607", "baseFee": 450.00, "currency": "LKR", "isActive": true,
 
    "updatedAt": "2026-10-20T08:00:00Z" }
 
@@ -1613,7 +1613,7 @@ Purpose: Creates a base-fee rule for a zone pair.
 
 
 
-Request body: { "originZoneId": "7a1e...", "destinationZoneId": "9b2f...",
+Request body: { "originZoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6", "destinationZoneId": "9b2f1d21-3c4e-4d6f-9a01-b2c3d4e5f607",
 
 "baseFee": 450.00 }
 
@@ -1767,7 +1767,7 @@ accepted and return 422. createdAt and updatedAt are sort keys only and are not
 
 returned in the response.
 
-Response 200: { "data": [ { "id": "7a1e...", "code": "CMB", "name": "Colombo",
+Response 200: { "data": [ { "id": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6", "code": "CMB", "name": "Colombo",
 
 "districts": ["Colombo"], "isActive": true } ], "meta": { "requestId": "req_15",
 
@@ -2024,11 +2024,11 @@ Response 200:
 
        "sender": { "name": "Nimal Perera", "phone": "+94771234567", "address":
 
-   "12 Temple Road, Nugegoda", "city": "Colombo", "zoneId": "7a1e..." },
+   "12 Temple Road, Nugegoda", "city": "Colombo", "zoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6" },
 
            "recipient": { "name": "Amali Fernando", "phone": "+94712345678",
 
-   "address": "45 Lake Drive", "city": "Kandy", "zoneId": "9b2f..." },
+   "address": "45 Lake Drive", "city": "Kandy", "zoneId": "9b2f1d21-3c4e-4d6f-9a01-b2c3d4e5f607" },
 
        "weightKg": 2.0,
 
@@ -2274,7 +2274,7 @@ Response 200:
 
                "pickupCity": "Colombo",
 
-               "pickupZoneId": "7a1e...",
+               "pickupZoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6",
 
                "dropoffAddress": "45 Lake Drive",
 
@@ -2283,7 +2283,7 @@ Response 200:
 
 <!-- PDF page 24 -->
 
-"dropoffZoneId": "9b2f...",
+"dropoffZoneId": "9b2f1d21-3c4e-4d6f-9a01-b2c3d4e5f607",
 
                "weightKg": 2.0,
 
@@ -3086,7 +3086,7 @@ Request body:
 
             "pickupAddress": "88 Galle Road, Colombo 03",
 
-            "pickupZoneId": "7a1e..."
+            "pickupZoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6"
 
         }
 
@@ -3151,7 +3151,7 @@ Response 200:
 
            "pickupAddress": "88 Galle Road, Colombo 03",
 
-           "pickupZoneId": "7a1e...",
+           "pickupZoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6",
 
            "status": "APPROVED",
 
@@ -3655,11 +3655,11 @@ Request body:
 
    "address": "88 Galle Road, Colombo 03", "city": "Colombo", "zoneId":
 
-   "7a1e..." },
+   "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6" },
 
      "recipient": { "name": "Amali Fernando", "phone": "+94712345678",
 
-   "address": "45 Lake Drive", "city": "Kandy", "zoneId": "9b2f..." },
+   "address": "45 Lake Drive", "city": "Kandy", "zoneId": "9b2f1d21-3c4e-4d6f-9a01-b2c3d4e5f607" },
 
        "weightKg": 1.5,
 
@@ -3817,6 +3817,44 @@ and a failure is reported instead of shown as success. The endpoint is rate limi
  { "data": { "message": "Email sent." } } . Errors: 404, 422, 429, 500 when the mail
 
 server rejects the message, 503 when merchant email is not configured.
+
+8.20 GET /merchant/orders/{trackingNumber}/receipt (additive, post-acceptance)
+
+Access: MERCHANT session or Merchant API key, own orders only.
+
+
+
+Purpose: Downloads a private, branded PDF receipt for one merchant order. The path
+
+value is the public SDN tracking number. The tracking number is a lookup key, not an
+
+authorization credential: the order must belong to the authenticated merchant, and a
+
+missing or another merchant's order returns the same 404 response.
+
+
+
+Response 200: Content-Type: application/pdf, Content-Disposition:
+
+ attachment; filename="SwiftDrop-order-{trackingNumber}.pdf", and Cache-Control:
+
+ no-store. The PDF contains the SwiftDrop wordmark, order and tracking references,
+
+ merchant and pickup details, recipient details, parcel description, weight and size,
+
+ the immutable fee snapshot, the current status and the recorded status timeline. The
+
+ fee is a delivery charge snapshot, not a payment or settlement receipt.
+
+
+
+Errors: 401 when the credential is missing or invalid, 403 MERCHANT_NOT_APPROVED when
+
+the merchant cannot use the API, 404 for an unknown, malformed or another merchant's
+
+order, and 503 when the order service is unavailable. PDF generation failures return a
+
+generic 500 without internal details.
 
 ## 9. Real-Time Tracking (WebSocket)
 
@@ -4532,11 +4570,11 @@ merchant owner's user ID; Parcel never derives it from the merchant ID.
 
      "pickup": { "name": "ShopZone Warehouse", "phone": "+94112223344",
 
-   "address": "88 Galle Road", "city": "Colombo", "zoneId": "7a1e..." },
+   "address": "88 Galle Road", "city": "Colombo", "zoneId": "7a1e0c10-2b3d-4c5e-8f90-a1b2c3d4e5f6" },
 
      "recipient": { "name": "Amali Fernando", "phone": "+94712345678",
 
-   "address": "45 Lake Drive", "city": "Kandy", "zoneId": "9b2f..." },
+   "address": "45 Lake Drive", "city": "Kandy", "zoneId": "9b2f1d21-3c4e-4d6f-9a01-b2c3d4e5f607" },
 
      "weightKg": 1.5,
 
@@ -4963,6 +5001,12 @@ Section           Method              Path                                     A
   8.18              GET                  /merchant/orders/{orderId}              MERCHANT (JWT)
 
                                                                                  or API key
+
+
+
+  8.20              GET                  /merchant/orders/{trackingNumber}/      MERCHANT (JWT)
+
+                                          receipt                                or API key
 
 
 

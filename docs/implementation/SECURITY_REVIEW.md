@@ -155,3 +155,21 @@ changing any control:
   Compose checks passed; no test or security control was weakened.
 
 Findings and accepted residual risks in sections 1–10 are unchanged.
+
+## 12. Post-acceptance receipt and identity review (2026-11-20)
+
+- `GET /merchant/orders/{trackingNumber}/receipt` requires a MERCHANT session or
+  API key, checks merchant approval, and queries by both `merchant_id` and
+  `tracking_number`. Another merchant's tracking number returns the existing
+  safe 404; anonymous access returns 401.
+- The receipt is `application/pdf`, `Content-Disposition: attachment` and
+  `Cache-Control: no-store` (the route group already applies `noStore`). It is
+  built only from persisted merchant order data and is never served from a
+  public object URL.
+- `ownerUserId` is no longer returned by `GET`/`PATCH /merchants/me`; the admin
+  merchant DTO still carries it for authorised review.
+- `orderId` remains the API v1.1 identifier; the change neither relies on UUID
+  unpredictability nor weakens the merchant-scoped authorization checks.
+- PDF generation uses `github.com/go-pdf/fpdf` v0.9.0 (MIT) with embedded Noto
+  fonts. The handler converts generation failures into a generic 500 and logs
+  them server-side; no internal error or secret is returned.
