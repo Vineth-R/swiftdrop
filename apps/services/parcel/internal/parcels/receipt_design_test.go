@@ -140,3 +140,27 @@ func TestReceiptRowsDoNotLeakInternalIdentifiers(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomerReceiptLongFieldsStayBounded(t *testing.T) {
+	parcel := designParcel()
+	parcel.Sender.Name = strings.Repeat("Long Sender Name ", 12)
+	parcel.Sender.Address = strings.Repeat("123 Long Pickup Road ", 14)
+	parcel.Recipient.Name = strings.Repeat("Long Recipient Name ", 12)
+	parcel.Recipient.Address = strings.Repeat("987 Long Delivery Road ", 14)
+	description := strings.Repeat("A very long parcel description with careful wrapping. ", 12)
+	parcel.Description = &description
+	history := make([]HistoryItem, 0, 30)
+	for i := 0; i < 30; i++ {
+		history = append(history, HistoryItem{Status: "IN_TRANSIT", ChangedAt: parcel.CreatedAt.Add(time.Duration(i) * time.Hour)})
+	}
+	raw, err := ReceiptWithHistory(parcel, history, "support@swiftdrop.test")
+	if err != nil {
+		t.Fatalf("ReceiptWithHistory returned error for long fields: %v", err)
+	}
+	if !bytes.HasPrefix(raw, []byte("%PDF-")) || !bytes.Contains(raw, []byte("%%EOF")) {
+		t.Fatal("long customer receipt is not a complete PDF")
+	}
+	if pages := bytes.Count(raw, []byte("/Type /Page ")); pages > 4 {
+		t.Fatalf("long customer receipt used %d pages, want at most 4", pages)
+	}
+}

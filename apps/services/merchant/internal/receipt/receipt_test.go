@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,4 +108,28 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func TestLongFieldsStayWithinReasonablePageCount(t *testing.T) {
+	input := testInput()
+	input.Merchant.BusinessName = strings.Repeat("Long Merchant Business Name ", 10)
+	input.Merchant.PickupAddress = strings.Repeat("123 Long Pickup Road ", 14)
+	input.Order.ExternalOrderID = strings.Repeat("EXT-", 20)
+	input.Order.Recipient.Name = strings.Repeat("Long Recipient Name ", 12)
+	input.Order.Recipient.Address = strings.Repeat("987 Long Delivery Road ", 14)
+	description := strings.Repeat("A long parcel description. ", 20)
+	input.Order.Description = &description
+	for i := 0; i < 30; i++ {
+		input.Order.Timeline = append(input.Order.Timeline, orders.TimelineEvent{Status: "IN_TRANSIT", At: input.Order.CreatedAt.Add(time.Duration(i) * time.Hour)})
+	}
+	raw, err := Render(input)
+	if err != nil {
+		t.Fatalf("Render returned error for long fields: %v", err)
+	}
+	if !bytes.HasPrefix(raw, []byte("%PDF-")) || !bytes.Contains(raw, []byte("%%EOF")) {
+		t.Fatal("long merchant receipt is not a complete PDF")
+	}
+	if pages := bytes.Count(raw, []byte("/Type /Page ")); pages > 3 {
+		t.Fatalf("long merchant receipt used %d pages, want at most 3", pages)
+	}
 }

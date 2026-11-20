@@ -12,6 +12,7 @@ func TestMoneyAndDecimal(t *testing.T) {
 		want     string
 	}{
 		{55000, "LKR", "LKR 550.00"},
+		{222322221, "LKR", "LKR 2,223,222.21"},
 		{5, "LKR", "LKR 0.05"},
 		{-125, "LKR", "LKR -1.25"},
 		{100, "", "1.00"},

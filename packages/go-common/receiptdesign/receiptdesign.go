@@ -39,14 +39,10 @@ var (
 	Pale    = RGB{190, 200, 215}
 )
 
-// Money formats an integer cent amount with the ISO currency code.
+// Money formats an integer cent amount with the ISO currency code and grouped
+// thousands, for example LKR 1,234.50.
 func Money(cents int64, currency string) string {
-	sign := ""
-	if cents < 0 {
-		sign = "-"
-		cents = -cents
-	}
-	value := fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
+	value := Decimal(cents)
 	if strings.TrimSpace(currency) == "" {
 		return value
 	}
@@ -54,14 +50,32 @@ func Money(cents int64, currency string) string {
 }
 
 // Decimal formats an integer hundredths value without a currency, for weights
-// and other measured quantities.
+// and other measured quantities. The integer part is grouped with commas.
 func Decimal(cents int64) string {
 	sign := ""
 	if cents < 0 {
 		sign = "-"
 		cents = -cents
 	}
-	return fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
+	return fmt.Sprintf("%s%s.%02d", sign, groupThousands(cents/100), cents%100)
+}
+
+func groupThousands(value int64) string {
+	digits := fmt.Sprintf("%d", value)
+	if len(digits) <= 3 {
+		return digits
+	}
+	var out strings.Builder
+	first := len(digits) % 3
+	if first == 0 {
+		first = 3
+	}
+	out.WriteString(digits[:first])
+	for i := first; i < len(digits); i += 3 {
+		out.WriteByte(',')
+		out.WriteString(digits[i : i+3])
+	}
+	return out.String()
 }
 
 // Date is the short date used in receipt tables.
