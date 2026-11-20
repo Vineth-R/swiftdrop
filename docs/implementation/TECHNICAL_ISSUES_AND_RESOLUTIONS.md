@@ -504,9 +504,10 @@ pnpm exec nx build @org/web
 Integration tests were executed against real PostgreSQL 16 and RabbitMQ 4.1 in
 the Compose network: the identity repository suite, the event-flow suite
 (including outbox replay/expiry), and the merchant order/API-key suite all
-passed. The full migration-cycle, dedicated notification-flow, k6, restore,
-storage and live-provider checks were not executed; see
-`FINAL_TEST_REPORT.md` for the exact list.
+passed. These checks were later executed in the post-merge verification pass:
+the full migration-cycle, dedicated notification-flow (18/18), k6,
+backup/restore rehearsal, S3-compatible storage and live Gemini. Only live
+Google account consent remains blocked. See `FINAL_TEST_REPORT.md` section 10.
 
 ---
 

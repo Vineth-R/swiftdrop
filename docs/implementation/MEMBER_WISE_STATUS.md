@@ -290,3 +290,24 @@ verified the live socket and the authoritative REST state after completion.
 **Member conclusion:** all M1–M10 mandatory non-deployment responsibilities have
 implementation and executed evidence. The only external-provider gap is live
 Google consent, which is recorded as blocked/manual.
+
+### Post-merge verification pass (2026-11-20)
+
+Baseline: `development` at `831455b`. Branch: `docs/final-remediation-verification`.
+
+| Member | Verified state on the merged baseline                                                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| M1     | Dedicated notification flow re-run locally: 18/18 tests pass (customer and merchant email, dedupe, dead-lettering, retry recovery); retention dry run passes |
+| M2     | Session/logout and authorization evidence unchanged; E2E lint/typecheck pass                                                                                 |
+| M3     | Google OAuth initiation reachability confirmed; account consent remains blocked/manual                                                                       |
+| M4     | Pricing audit read API live smoke returns 200 for ADMIN and 403 for CUSTOMER                                                                                 |
+| M5     | Full Go build/vet/test pass; no regression in parcel/outbox code                                                                                             |
+| M6     | Route inventories and contracts pass                                                                                                                         |
+| M7     | Proof and object-storage tests pass; lifecycle documentation confirmed                                                                                       |
+| M8     | Merchant audit read API live smoke passes                                                                                                                    |
+| M9     | Webhook reliability evidence unchanged (post-merge CI green)                                                                                                 |
+| M10    | Notification-flow, contract, frontend and Compose checks pass; documentation reconciled to `831455b`                                                         |
+
+**Member conclusion unchanged:** all M1–M10 mandatory non-deployment
+responsibilities have implementation and executed evidence. Live Google account
+consent remains the only blocked external-provider check.

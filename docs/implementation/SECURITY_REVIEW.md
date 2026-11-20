@@ -139,3 +139,17 @@ Residual: delivery is at-least-once; receivers must dedupe on `eventId`.
 **Conclusion:** no unresolved critical or high-severity application defect was
 found in the approved non-deployment scope. Residual risks are explicit,
 bounded and recorded; they are not presented as solved.
+
+## 11. Post-merge re-verification (2026-11-20)
+
+Re-checked on the merged baseline `831455b` without changing any control:
+
+- ADMIN audit reads returned `200` for ADMIN, `403` for CUSTOMER and `401` for
+  anonymous on Identity, Merchant and Pricing.
+- The notification flow re-ran all 18 tests, including suppressed merchant
+  deliveries, invalid/foreign events, identity-unavailable dead-lettering, and
+  SMTP-failure recovery; no secret or recipient value appeared in logs.
+- Authentication, authorization, contract, proof/object-storage, frontend and
+  Compose checks passed; no test or security control was weakened.
+
+Findings and accepted residual risks in sections 1–10 are unchanged.

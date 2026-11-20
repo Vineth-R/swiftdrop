@@ -98,12 +98,13 @@ These are separate measurements. They are deliberately not combined into one inf
 
 ### P2 — product and evidence follow-ups
 
-9. Run the remaining Compose-backed evidence that was not part of this pass:
-   the full migration-cycle test, the dedicated notification-flow override,
-   the full mocked Playwright suite, k6, backup/restore rehearsal and the
-   S3-compatible storage suite.
-10. Run the live Gemini and Google OAuth smoke procedures with real credentials;
-    neither is part of CI.
+9. Closed in the post-merge verification pass: the full migration-cycle test,
+   the dedicated notification-flow override (18/18), backup/restore rehearsal,
+   the S3-compatible storage suite, k6 and the mocked/real-stack UI suites have
+   executed evidence. See section 10 and `FINAL_TEST_REPORT.md` section 10.
+10. Gemini live smoke passed. Google OAuth initiation and provider reachability
+    are verified; completing account consent/linking still needs an interactive
+    Google account and remains blocked.
 11. Optional product scope: parcel edit/cancel, dispatcher-initiated status
     writes, SMS, in-app notification inbox, customer account deletion, email
     change, session/device management.
@@ -214,8 +215,9 @@ Acceptance documentation:
 
 ## 10. Non-deployment finalization update (2026-11-20)
 
-**Branch:** `feat/non-deployment-finalization`
-**Base:** `development` at `eec4038`
+**Merged baseline:** `development` at
+`831455b952e32cbb63623799750720635ddd185b` (PR #180; contains PR #179).
+**Verification branch:** `docs/final-remediation-verification`.
 
 ### Added or completed
 
@@ -238,11 +240,21 @@ Acceptance documentation:
 - k6 public/tracking/pricing and WebSocket scenarios passed.
 - Live Gemini smoke passed; Google OAuth redirect verified.
 
+### Post-merge verification pass (2026-11-20)
+
+- Dedicated notification-flow profile re-run locally: **18/18 pass** against a
+  disposable Compose project with Mailpit. This closes the previous local gap;
+  CI `Notification worker E2E` also passes.
+- Google accepted the configured client ID and redirect URI and served the real
+  sign-in page. Completing account consent/account-linking still requires an
+  interactive Google test account and remains **BLOCKED**.
+- Retention dry run, proof/objectstore tests, full Go build/vet/test, contract
+  tests, route inventories, Compose config and frontend unit/lint/build passed on
+  the merged baseline.
+
 ### Remaining after this update
 
 - Live Google consent/account-link remains **BLOCKED** (manual interactive
   provider check).
-- Dedicated notification-flow Compose override was not re-run locally; CI passed
-  the notification-worker E2E.
 - Audit/webhook retention is an operator command, not a background scheduler.
 - Production deployment remains out of scope.

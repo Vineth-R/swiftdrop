@@ -331,3 +331,37 @@ curl -s -o /dev/null -D - http://localhost:8080/api/v1/auth/google/login
 
 Then complete consent in a browser and confirm the callback creates/links the
 account and issues a session. This is **BLOCKED** for automated local acceptance.
+
+### Dedicated notification-flow suite
+
+The suite starts its own disposable Compose project and uses Mailpit, so it must
+not reuse the developer stack's `.env` SMTP settings.
+
+```sh
+export COMPOSE_PROJECT_NAME=swiftdrop-notificationflow
+export COMPOSE_FILE='docker-compose.yml:tests/integration/notificationflow/docker-compose.identity.yml'
+export RABBITMQ_PORT=25672 RABBITMQ_MANAGEMENT_PORT=25673
+export MAILPIT_SMTP_PORT=21025 MAILPIT_UI_PORT=28025 NGINX_PORT=18080
+export SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_USER= SMTP_PASSWORD= SMTP_SECURE=auto
+export RABBITMQ_RETRY_DELAY=5s RABBITMQ_MAX_RETRIES=2
+
+docker compose down -v
+docker compose up -d --wait --wait-timeout 300 \
+  postgres rabbitmq mailpit identity merchant notification-worker
+make migrate
+NOTIFICATIONFLOW_IDENTITY_URL=http://127.0.0.1:18081 \
+NOTIFICATIONFLOW_MERCHANT_URL=http://127.0.0.1:18084 \
+NOTIFICATIONFLOW_RABBITMQ_URL='amqp://swiftdrop:swiftdrop@127.0.0.1:25672/' \
+NOTIFICATIONFLOW_RABBITMQ_MANAGEMENT_URL='http://127.0.0.1:25673' \
+NOTIFICATIONFLOW_MAILPIT_URL='http://127.0.0.1:28025' \
+RABBITMQ_RETRY_DELAY=5s RABBITMQ_MAX_RETRIES=2 NOTIFICATIONFLOW_RETRY_WAIT=90s \
+go test -race -tags=notificationflow -count=1 -v ./tests/integration/notificationflow/...
+
+docker compose down -v
+```
+
+`RABBITMQ_RETRY_DELAY` and `RABBITMQ_MAX_RETRIES` must be exported before
+`docker compose up`: the worker container reads them, not the test process. With
+the default 30s/3-retry worker settings, the identity-unavailable dead-letter
+test's 60s wait expires. CI sets them at job level. Full details are in
+`tests/integration/notificationflow/README.md`.
