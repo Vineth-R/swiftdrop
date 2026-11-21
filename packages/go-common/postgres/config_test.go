@@ -118,6 +118,26 @@ func TestLoadConfigReadsPoolSettings(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsPoolSizesAboveInt32(t *testing.T) {
+	cases := map[string]map[string]string{
+		"max open": {
+			"DB_MAX_OPEN_CONNS": "2147483648",
+		},
+		"max idle": {
+			"DB_MAX_OPEN_CONNS": "2147483647",
+			"DB_MAX_IDLE_CONNS": "2147483648",
+		},
+	}
+	for name, values := range cases {
+		t.Run(name, func(t *testing.T) {
+			values["DATABASE_URL"] = "postgres://user:secret@db:5432/swiftdrop?sslmode=disable"
+			if _, err := LoadConfig(loader(values)); err == nil {
+				t.Fatal("expected an error for a pool size above int32")
+			}
+		})
+	}
+}
+
 func TestLoadConfigKeepsLegacyPoolAliases(t *testing.T) {
 	config, err := LoadConfig(loader(map[string]string{
 		"DATABASE_URL":       "postgres://user:secret@db:5432/swiftdrop?sslmode=disable",

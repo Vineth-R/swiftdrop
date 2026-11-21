@@ -209,12 +209,21 @@ jobs:
           fi
           git cat-file -e "${PR_BASE_SHA}^{commit}"
           git cat-file -e "${PR_HEAD_SHA}^{commit}"
-          if ! git cat-file -e "${PR_BASE_SHA}:.gitleaks.toml"; then
-            echo "::error::The PR base has no .gitleaks.toml; refusing to scan"
-            exit 1
+          if git cat-file -e "${PR_BASE_SHA}:.gitleaks.toml"; then
+            git show "${PR_BASE_SHA}:.gitleaks.toml" > "${PR_CONFIG}"
+            echo "Scanning PR commit range ${PR_BASE_SHA}..${PR_HEAD_SHA} with the trusted base config (merge diffs included)"
+          else
+            # First release into a base branch that predates the secret-scanning
+            # configuration. Use the reviewed head config for this PR only; once
+            # the base contains .gitleaks.toml every later PR uses the base copy.
+            if ! git cat-file -e "${PR_HEAD_SHA}:.gitleaks.toml"; then
+              echo "::error::Neither the PR base nor the PR head has .gitleaks.toml; refusing to scan"
+              exit 1
+            fi
+            git show "${PR_HEAD_SHA}:.gitleaks.toml" > "${PR_CONFIG}"
+            echo "::warning::The PR base has no .gitleaks.toml; scanning this first release with the reviewed head config"
+            echo "Scanning PR commit range ${PR_BASE_SHA}..${PR_HEAD_SHA} with the bootstrap head config (merge diffs included)"
           fi
-          git show "${PR_BASE_SHA}:.gitleaks.toml" > "${PR_CONFIG}"
-          echo "Scanning PR commit range ${PR_BASE_SHA}..${PR_HEAD_SHA} with the trusted base config (merge diffs included)"
           gitleaks git \
             --config "${PR_CONFIG}" \
             --redact \
