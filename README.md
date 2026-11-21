@@ -119,8 +119,10 @@ not presented as implemented.
 
 - Public floating chat widget on every page, backed by Gemini.
 - Server-side guest sessions and optional verified JWT identity.
-- Exactly four read-only tools: fee estimate, ownership-scoped parcel status, owned
-  parcel history and owned active deliveries.
+- Exactly twelve role-aware read-only tools: fee estimate, public/ownership-scoped
+  parcel status, parcel history and detail, customer and operational parcel lists,
+  operational search, unassigned parcels, courier workload, the courier's own
+  deliveries, and the merchant's own orders and webhook attempts.
 - Deterministic extraction/permission guard, approved embedded knowledge, safe
   Markdown rendering, privileged-lookup auditing and safe fallbacks.
 - `AI_PROVIDER=mock` for deterministic development and tests.
@@ -230,7 +232,7 @@ flowchart LR
 | `merchant`            | Merchant accounts, API keys, orders, webhooks, status sync, internal lookups     | 8084          |
 | `realtime`            | WebSocket `/ws` and status/assignment consumers                                  | 8085          |
 | `notification-worker` | Email delivery, notification log, ADMIN notification-log read API                | 8086          |
-| `ai-assistant`        | Gemini-backed Delivery Assistant and its four read-only tools                    | 8087          |
+| `ai-assistant`        | Gemini-backed Delivery Assistant and its twelve role-aware read-only tools       | 8087          |
 | `webhook-worker`      | Signed merchant webhook delivery and business retries                            | 8088          |
 | `web`                 | Next.js frontend                                                                 | 3000          |
 | `nginx`               | Public gateway                                                                   | 8080 (host)   |
@@ -723,19 +725,26 @@ gateway: the assistant returns `503 AI_UNAVAILABLE` with a safe message.
 
 ### Permissions and tools
 
-| Caller                | Tool access                                                                   |
-| --------------------- | ----------------------------------------------------------------------------- |
-| Guest                 | No private tools; approved knowledge only; HttpOnly `sd_ai_guest` session     |
-| `CUSTOMER`            | Own parcel status/history/active deliveries, including tracking-number lookup |
-| `DISPATCHER`, `ADMIN` | Operational parcel access                                                     |
-| `MERCHANT`, `COURIER` | No parcel tools                                                               |
+| Caller                | Tool access                                                                      |
+| --------------------- | -------------------------------------------------------------------------------- |
+| Guest                 | Fee estimate and the anonymous public tracking projection; `sd_ai_guest` session |
+| `CUSTOMER`            | Own parcel status, history, detail and parcel list                               |
+| `COURIER`             | Only the signed-in courier's own deliveries                                      |
+| `MERCHANT`            | Only the signed-in merchant's own orders and webhook attempts                    |
+| `DISPATCHER`, `ADMIN` | Operational parcel search/detail, unassigned parcels and courier workload        |
 
-Exactly four read-only tools exist: `calculate_delivery_fee`,
-`get_public_parcel_status` (ownership-scoped; despite the name it never uses the
-anonymous public endpoint), `get_my_parcel_history` and `get_my_active_deliveries`.
-The assistant never accepts identity or role from the model, never accesses the
-database, exposes no write tools, and treats a tracking number as data — not as an
-authentication credential.
+Exactly twelve read-only tools exist: `calculate_delivery_fee`,
+`get_public_parcel_status` (guest: anonymous projection; signed-in: ownership-scoped),
+`get_parcel_history`, `get_active_parcels`, `get_parcel_details`, `search_parcels`,
+`list_unassigned_parcels`, `get_courier_workload`, `get_my_courier_deliveries`,
+`get_my_courier_delivery`, `get_my_merchant_orders` and
+`get_my_webhook_deliveries`. The registry hides tools a role cannot use, and every
+execution re-checks the verified role before any upstream call. The assistant never
+accepts identity or role from the model, never accesses the database, exposes no
+write tools, and treats a tracking number as data — not as an authentication
+credential. Merchant tracking-number matching is exact and limited to the most
+recent 100 orders. Delivery reports, courier search, merchant search and merchant
+order timeline detail are deferred.
 
 Conversation history, rate limiting (15/minute) and concurrency limits are
 process-local and non-durable. Multi-replica coordination is future work. See

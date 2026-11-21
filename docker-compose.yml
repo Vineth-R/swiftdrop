@@ -288,6 +288,8 @@ services:
       PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
       PARCEL_BASE_URL: http://parcel:8082
       PARCEL_TIMEOUT: ${PARCEL_TIMEOUT:-3s}
+      MERCHANT_BASE_URL: http://merchant:8084
+      MERCHANT_TIMEOUT: ${MERCHANT_TIMEOUT:-3s}
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8087/health']
       interval: 10s

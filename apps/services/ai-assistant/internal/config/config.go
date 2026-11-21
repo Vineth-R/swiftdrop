@@ -52,10 +52,12 @@ type Config struct {
 	RateLimit  int
 	RateWindow time.Duration
 
-	PricingBaseURL string
-	PricingTimeout time.Duration
-	ParcelBaseURL  string
-	ParcelTimeout  time.Duration
+	PricingBaseURL  string
+	PricingTimeout  time.Duration
+	ParcelBaseURL   string
+	ParcelTimeout   time.Duration
+	MerchantBaseURL string
+	MerchantTimeout time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -245,6 +247,15 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		return Config{}, err
 	}
 
+	merchantURL, err := serviceOrigin(loader.String("MERCHANT_BASE_URL", "http://merchant:8084"), "MERCHANT_BASE_URL")
+	if err != nil {
+		return Config{}, err
+	}
+	merchantTimeout, err := loader.Duration("MERCHANT_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+
 	apiKey := loader.String("GEMINI_API_KEY", "")
 
 	return Config{
@@ -278,6 +289,8 @@ func LoadFrom(loader sharedconfig.Loader) (Config, error) {
 		PricingTimeout:          pricingTimeout,
 		ParcelBaseURL:           parcelURL,
 		ParcelTimeout:           parcelTimeout,
+		MerchantBaseURL:         merchantURL,
+		MerchantTimeout:         merchantTimeout,
 	}, nil
 }
 

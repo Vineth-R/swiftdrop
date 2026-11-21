@@ -185,7 +185,7 @@ func (o *Orchestrator) Chat(ctx context.Context, input ChatInput) (ChatOutput, e
 	if o.knowledge != nil {
 		retrieved = o.knowledge.Retrieve(message, RetrievalLimit)
 	}
-	systemInstruction := buildSystemInstruction(knowledge.Format(retrieved), input.Caller.Authenticated, now)
+	systemInstruction := buildSystemInstruction(knowledge.Format(retrieved), input.Caller, now)
 
 	contents := buildContents(item.Messages, message, o.maxHistory)
 	output := ChatOutput{ConversationID: item.ID, ToolCalls: []ToolCallSummary{}}
@@ -200,7 +200,7 @@ func (o *Orchestrator) Chat(ctx context.Context, input ChatInput) (ChatOutput, e
 	duplicateStreak := 0
 
 	for round := 0; ; round++ {
-		response, err := o.generate(ctx, systemInstruction, contents)
+		response, err := o.generate(ctx, input.Caller, systemInstruction, contents)
 		if err != nil {
 			o.logError(ctx, "provider generate failed", item.ID, err)
 			return ChatOutput{}, classifyProviderError(ctx, err)
@@ -335,7 +335,7 @@ func sameGuestSession(stored, presented string) bool {
 	return subtle.ConstantTimeCompare([]byte(stored), []byte(presented)) == 1
 }
 
-func (o *Orchestrator) generate(ctx context.Context, systemInstruction string, contents []contract.Content) (contract.GenerateResponse, error) {
+func (o *Orchestrator) generate(ctx context.Context, caller contract.CallerContext, systemInstruction string, contents []contract.Content) (contract.GenerateResponse, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, o.requestTimeout)
 	defer cancel()
 
@@ -343,7 +343,7 @@ func (o *Orchestrator) generate(ctx context.Context, systemInstruction string, c
 	response, err := o.provider.Generate(requestCtx, contract.GenerateRequest{
 		SystemInstruction: systemInstruction,
 		Contents:          contents,
-		Tools:             o.tools.List(),
+		Tools:             o.tools.List(caller),
 		Temperature:       o.temperature,
 		MaxOutputTokens:   o.maxOutputTokens,
 	})
@@ -524,5 +524,16 @@ func isPrivilegedParcelLookup(tool, role string) bool {
 	if role != string(auth.RoleDispatcher) && role != string(auth.RoleAdmin) {
 		return false
 	}
-	return tool == "get_public_parcel_status" || tool == "get_my_parcel_history" || tool == "get_my_active_deliveries"
+	switch tool {
+	case "get_public_parcel_status",
+		"get_parcel_history",
+		"get_active_parcels",
+		"get_parcel_details",
+		"search_parcels",
+		"list_unassigned_parcels",
+		"get_courier_workload":
+		return true
+	default:
+		return false
+	}
 }

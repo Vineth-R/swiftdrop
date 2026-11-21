@@ -3,8 +3,10 @@ package tools
 import (
 	"encoding/json"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -13,6 +15,7 @@ type argKind int
 const (
 	argString argKind = iota
 	argNumber
+	argBool
 )
 
 // argSpec describes one accepted tool argument. It mirrors the provider-facing
@@ -23,6 +26,9 @@ type argSpec struct {
 	required bool
 	maxLen   int
 	enum     []string
+	pattern  *regexp.Regexp
+	// date requires a real calendar date in YYYY-MM-DD form.
+	date bool
 }
 
 // validateArguments performs strict validation and returns a normalized copy.
@@ -71,7 +77,19 @@ func validateArguments(args map[string]any, specs []argSpec) (map[string]any, st
 			if len(spec.enum) > 0 && !containsString(spec.enum, text) {
 				return nil, spec.name + " must be one of " + strings.Join(spec.enum, ", ")
 			}
+			if spec.date && !validCalendarDate(text) {
+				return nil, spec.name + " must be a valid YYYY-MM-DD date"
+			}
+			if spec.pattern != nil && !spec.pattern.MatchString(text) {
+				return nil, spec.name + " format is not valid"
+			}
 			values[spec.name] = text
+		case argBool:
+			boolean, ok := raw.(bool)
+			if !ok {
+				return nil, spec.name + " must be true or false"
+			}
+			values[spec.name] = boolean
 		case argNumber:
 			number, ok := canonicalNumber(raw)
 			if !ok {
@@ -148,4 +166,10 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// validCalendarDate accepts only a real YYYY-MM-DD calendar date.
+func validCalendarDate(value string) bool {
+	parsed, err := time.Parse("2006-01-02", value)
+	return err == nil && parsed.Format("2006-01-02") == value
 }

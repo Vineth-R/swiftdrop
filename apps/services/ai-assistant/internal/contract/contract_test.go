@@ -15,8 +15,8 @@ func TestCanonicalToolKeyIsOrderIndependent(t *testing.T) {
 }
 
 func TestCanonicalToolKeyDistinguishesDelimiters(t *testing.T) {
-	first := CanonicalToolKey("get_my_parcel_history", map[string]any{"parcelId": "a;b=c"})
-	second := CanonicalToolKey("get_my_parcel_history", map[string]any{"parcelId": "a", "b": "c"})
+	first := CanonicalToolKey("get_parcel_history", map[string]any{"parcelId": "a;b=c"})
+	second := CanonicalToolKey("get_parcel_history", map[string]any{"parcelId": "a", "b": "c"})
 	if first == second {
 		t.Fatalf("distinct arguments collided: %s", first)
 	}

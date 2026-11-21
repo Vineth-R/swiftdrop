@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/ai-assistant/internal/client"
 	"github.com/Vineth-R/swiftdrop/apps/services/ai-assistant/internal/contract"
 )
 
 const (
-	toolNameMyActiveDeliveries = "get_my_active_deliveries"
-	maxDeliveries              = 20
+	toolNameActiveParcels = "get_active_parcels"
+	maxDeliveries         = 20
 )
 
 var parcelStatuses = []string{
@@ -27,7 +28,7 @@ type deliveriesTool struct {
 
 func (t *deliveriesTool) Definition() contract.ToolDeclaration {
 	return contract.ToolDeclaration{
-		Name: toolNameMyActiveDeliveries,
+		Name: toolNameActiveParcels,
 		Description: "List recent parcels. Signed-in customers receive their own deliveries; dispatchers and administrators receive " +
 			"operational parcels across customers. Requires a customer, dispatcher or administrator session. " +
 			"Never invent or accept a user ID, customer ID, merchant ID or owner ID; identity and authorization come from the verified session. " +
@@ -68,6 +69,12 @@ type deliveriesResult struct {
 	TotalItems  int             `json:"totalItems"`
 }
 
+// AvailableTo exposes this tool to customers and staff only.
+func (t *deliveriesTool) AvailableTo(caller contract.CallerContext) bool {
+	return hasVerifiedIdentity(caller) &&
+		(isCustomerRole(caller.Role) || isStaffRole(caller.Role))
+}
+
 func (t *deliveriesTool) Execute(ctx context.Context, args map[string]any, caller contract.CallerContext) (contract.ToolResult, error) {
 	if denial, ok := requireParcelAccess(caller, "Please sign in to view your deliveries."); !ok {
 		return denial, nil
@@ -86,7 +93,7 @@ func (t *deliveriesTool) Execute(ctx context.Context, args map[string]any, calle
 	}
 
 	if isPrivilegedParcelRole(caller.Role) {
-		list, err := t.parcel.AdminParcels(ctx, status, caller.AccessToken)
+		list, err := t.parcel.AdminParcels(ctx, client.AdminParcelFilter{Status: status}, caller.AccessToken)
 		if err != nil {
 			return privateFailure(err), nil
 		}
