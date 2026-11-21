@@ -69,13 +69,12 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
       panel(page)
         .getByRole('list', { name: 'Suggested questions' })
         .getByRole('listitem'),
-    ).toHaveCount(5);
+    ).toHaveCount(4);
     for (const question of [
-      'What is SwiftDrop?',
-      'How does delivery pricing work?',
-      'Track my parcel.',
-      'Show my active deliveries.',
-      'What are your terms and conditions?',
+      'Track a parcel.',
+      'Estimate a delivery fee.',
+      'How does SwiftDrop work?',
+      'What does IN_TRANSIT mean?',
     ]) {
       await expect(
         panel(page).getByRole('button', { name: question }),
@@ -340,16 +339,14 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
     await page.goto('/track');
     await openAssistant(page);
 
-    await panel(page)
-      .getByRole('button', { name: 'What is SwiftDrop?' })
-      .click();
+    await panel(page).getByRole('button', { name: 'Track a parcel.' }).click();
 
     await expect(
       panel(page).getByText('SwiftDrop is a parcel delivery platform.'),
     ).toBeVisible();
     expect(calls.filter((call) => call.key === CHAT)).toEqual([
       expect.objectContaining({
-        body: { message: 'What is SwiftDrop?', conversationId: null },
+        body: { message: 'Track a parcel.', conversationId: null },
       }),
     ]);
   });
@@ -658,7 +655,7 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
       [CHAT]: reply(
         'Please sign in to see your own parcel history.',
         CONVERSATION_A,
-        [{ name: 'get_my_parcel_history', status: 'DENIED' }],
+        [{ name: 'get_parcel_history', status: 'DENIED' }],
       ),
     });
     await page.goto('/track');
@@ -671,8 +668,74 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
       'Please sign in to see your own parcel history.',
     );
     await expect(panel(page)).toContainText(
-      'Sign in or use a customer account to use your parcel history.',
+      'That information is not available with your current access (parcel history).',
     );
+  });
+
+  test('suggested questions follow the verified role', async ({ page }) => {
+    const cases = [
+      {
+        role: 'CUSTOMER' as const,
+        questions: [
+          'Track my parcel.',
+          'Show my active parcels.',
+          'View my parcel history.',
+          'How much would a delivery cost?',
+        ],
+      },
+      {
+        role: 'COURIER' as const,
+        questions: [
+          'Show my active deliveries.',
+          'Show my completed deliveries.',
+          'Do I have any failed deliveries?',
+          'Find a delivery by parcel ID.',
+        ],
+      },
+      {
+        role: 'MERCHANT' as const,
+        questions: [
+          'Show my recent orders.',
+          'Track an order.',
+          'Show my webhook delivery failures.',
+          'Which of my orders are still pending?',
+        ],
+      },
+      {
+        role: 'DISPATCHER' as const,
+        questions: [
+          'Show unassigned parcels.',
+          'Check courier workloads.',
+          'Search for a parcel.',
+          'Show failed deliveries.',
+        ],
+      },
+      {
+        role: 'ADMIN' as const,
+        questions: [
+          'Show unassigned parcels.',
+          'Search parcels.',
+          'Check courier workloads.',
+          'View parcel details.',
+        ],
+      },
+    ];
+
+    for (const testCase of cases) {
+      await signInAs(page, testCase.role, {});
+      await page.goto('/dashboard');
+      await openAssistant(page);
+      const list = panel(page).getByRole('list', {
+        name: 'Suggested questions',
+      });
+      await expect(list.getByRole('listitem')).toHaveCount(4);
+      for (const question of testCase.questions) {
+        await expect(
+          list.getByRole('button', { name: question }),
+        ).toBeVisible();
+      }
+      await page.getByRole('button', { name: 'Close the assistant' }).click();
+    }
   });
 
   test('a signed-in customer can ask for their active deliveries', async ({
@@ -682,7 +745,7 @@ test.describe('SwiftDrop Delivery Assistant widget', () => {
       [CHAT]: reply(
         'You have one active delivery, SDK7M2Q9XP4, in transit to Kandy.',
         CONVERSATION_A,
-        [{ name: 'get_my_active_deliveries', status: 'OK' }],
+        [{ name: 'get_active_parcels', status: 'OK' }],
       ),
     });
     await page.goto('/dashboard');

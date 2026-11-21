@@ -59,7 +59,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     getMe()
       .then((user) => {
         if (controller.signal.aborted) return;
-        emitSessionIdentity(user.id);
+        emitSessionIdentity(user.id, user.role);
         setSession({ status: 'authenticated', user });
       })
       .catch((error: unknown) => {
@@ -91,7 +91,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     const user = await login(email, password);
-    emitSessionIdentity(user.id);
+    emitSessionIdentity(user.id, user.role);
     setIsExpired(false);
     setSession({ status: 'authenticated', user });
     return user;
@@ -106,12 +106,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       await logout();
     } finally {
-      emitSessionIdentity(null);
+      emitSessionIdentity(null, null);
     }
   }, []);
 
   const setUser = useCallback((user: User) => {
-    emitSessionIdentity(user.id);
+    emitSessionIdentity(user.id, user.role);
     setIsExpired(false);
     setSession({ status: 'authenticated', user });
   }, []);

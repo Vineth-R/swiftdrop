@@ -40,26 +40,53 @@ func (f *fakePricing) Estimate(_ context.Context, input client.EstimateInput) (c
 }
 
 type fakeParcel struct {
-	tracking          client.Tracking
-	trackingErr       error
-	trackingCalls     int
-	lastTracking      string
-	lastTrackingToken string
-	history           []client.HistoryItem
-	historyErr        error
-	historyCalls      int
-	lastParcelID      string
-	lastHistoryToken  string
-	list              client.ParcelList
-	listErr           error
-	listCalls         int
-	lastStatus        string
-	lastListToken     string
-	adminList         client.AdminParcelList
-	adminErr          error
-	adminCalls        int
-	lastAdminStatus   string
-	lastAdminToken    string
+	tracking               client.Tracking
+	trackingErr            error
+	trackingCalls          int
+	lastTracking           string
+	lastTrackingToken      string
+	history                []client.HistoryItem
+	historyErr             error
+	historyCalls           int
+	lastParcelID           string
+	lastHistoryToken       string
+	list                   client.ParcelList
+	listErr                error
+	listCalls              int
+	lastStatus             string
+	lastListToken          string
+	adminList              client.AdminParcelList
+	adminErr               error
+	adminCalls             int
+	lastAdminFilter        client.AdminParcelFilter
+	lastAdminToken         string
+	publicTracking         client.Tracking
+	publicErr              error
+	publicCalls            int
+	detail                 client.ParcelDetail
+	detailErr              error
+	detailCalls            int
+	lastDetailID           string
+	lastDetailToken        string
+	unassigned             client.UnassignedList
+	unassignedErr          error
+	unassignedCalls        int
+	lastUnassignedTok      string
+	workload               []client.CourierWorkload
+	workloadErr            error
+	workloadCalls          int
+	lastWorkloadTok        string
+	courierList            client.CourierDeliveryList
+	courierListErr         error
+	courierListCalls       int
+	lastCourierStatus      string
+	lastCourierDate        string
+	lastCourierToken       string
+	courierDetail          client.CourierDeliveryDetail
+	courierDetailErr       error
+	courierDetailCalls     int
+	lastCourierID          string
+	lastCourierDetailToken string
 }
 
 func (f *fakeParcel) Tracking(_ context.Context, trackingNumber, accessToken string) (client.Tracking, error) {
@@ -83,16 +110,88 @@ func (f *fakeParcel) List(_ context.Context, status, accessToken string) (client
 	return f.list, f.listErr
 }
 
-func (f *fakeParcel) AdminParcels(_ context.Context, status, accessToken string) (client.AdminParcelList, error) {
+func (f *fakeParcel) AdminParcels(_ context.Context, filter client.AdminParcelFilter, accessToken string) (client.AdminParcelList, error) {
 	f.adminCalls++
-	f.lastAdminStatus = status
+	f.lastAdminFilter = filter
 	f.lastAdminToken = accessToken
 	return f.adminList, f.adminErr
 }
 
+func (f *fakeParcel) PublicTracking(_ context.Context, trackingNumber string) (client.Tracking, error) {
+	f.publicCalls++
+	f.lastTracking = trackingNumber
+	return f.publicTracking, f.publicErr
+}
+
+func (f *fakeParcel) Detail(_ context.Context, parcelID, accessToken string) (client.ParcelDetail, error) {
+	f.detailCalls++
+	f.lastDetailID = parcelID
+	f.lastDetailToken = accessToken
+	return f.detail, f.detailErr
+}
+
+func (f *fakeParcel) Unassigned(_ context.Context, accessToken string) (client.UnassignedList, error) {
+	f.unassignedCalls++
+	f.lastUnassignedTok = accessToken
+	return f.unassigned, f.unassignedErr
+}
+
+func (f *fakeParcel) Workload(_ context.Context, accessToken string) ([]client.CourierWorkload, error) {
+	f.workloadCalls++
+	f.lastWorkloadTok = accessToken
+	return f.workload, f.workloadErr
+}
+
+func (f *fakeParcel) CourierDeliveries(_ context.Context, status, date, accessToken string) (client.CourierDeliveryList, error) {
+	f.courierListCalls++
+	f.lastCourierStatus = status
+	f.lastCourierDate = date
+	f.lastCourierToken = accessToken
+	return f.courierList, f.courierListErr
+}
+
+func (f *fakeParcel) CourierDelivery(_ context.Context, parcelID, accessToken string) (client.CourierDeliveryDetail, error) {
+	f.courierDetailCalls++
+	f.lastCourierID = parcelID
+	f.lastCourierDetailToken = accessToken
+	return f.courierDetail, f.courierDetailErr
+}
+
+type fakeMerchant struct {
+	orders            client.MerchantOrderList
+	ordersErr         error
+	ordersCalls       int
+	lastOrderFilter   client.MerchantOrderFilter
+	lastOrderToken    string
+	webhook           client.WebhookDeliveryList
+	webhookErr        error
+	webhookCalls      int
+	lastWebhookFilter *bool
+	lastWebhookToken  string
+}
+
+func (f *fakeMerchant) Orders(_ context.Context, filter client.MerchantOrderFilter, accessToken string) (client.MerchantOrderList, error) {
+	f.ordersCalls++
+	f.lastOrderFilter = filter
+	f.lastOrderToken = accessToken
+	return f.orders, f.ordersErr
+}
+
+func (f *fakeMerchant) WebhookDeliveries(_ context.Context, success *bool, accessToken string) (client.WebhookDeliveryList, error) {
+	f.webhookCalls++
+	f.lastWebhookFilter = success
+	f.lastWebhookToken = accessToken
+	return f.webhook, f.webhookErr
+}
+
 func newRegistry(t *testing.T, pricing tools.PricingClient, parcel tools.ParcelClient) *tools.Registry {
 	t.Helper()
-	registry, err := tools.NewRegistry(pricing, parcel)
+	return newRegistryWithMerchant(t, pricing, parcel, &fakeMerchant{})
+}
+
+func newRegistryWithMerchant(t *testing.T, pricing tools.PricingClient, parcel tools.ParcelClient, merchant tools.MerchantClient) *tools.Registry {
+	t.Helper()
+	registry, err := tools.NewRegistry(pricing, parcel, merchant)
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
@@ -135,42 +234,77 @@ func authenticated() contract.CallerContext {
 	}
 }
 
-func TestRegistryHasExactlyFourTools(t *testing.T) {
+func TestRegistryHasExactlyTwelveTools(t *testing.T) {
 	registry := newRegistry(t, &fakePricing{}, &fakeParcel{})
 
-	definitions := registry.List()
-	if len(definitions) != 4 {
-		t.Fatalf("expected 4 tools, got %d: %+v", len(definitions), definitions)
+	want := map[string]bool{}
+	for _, name := range tools.ToolNames {
+		want[name] = false
 	}
-
-	want := map[string]bool{
-		"calculate_delivery_fee":   false,
-		"get_public_parcel_status": false,
-		"get_my_parcel_history":    false,
-		"get_my_active_deliveries": false,
+	for _, role := range []string{"", "CUSTOMER", "COURIER", "MERCHANT", "DISPATCHER", "ADMIN"} {
+		caller := callerWithRole(role)
+		if role == "" {
+			caller = contract.CallerContext{}
+		}
+		for _, definition := range registry.List(caller) {
+			if _, ok := want[definition.Name]; !ok {
+				t.Fatalf("unexpected tool %q", definition.Name)
+			}
+			want[definition.Name] = true
+			if _, ok := registry.Get(definition.Name); !ok {
+				t.Fatalf("Get(%q) failed", definition.Name)
+			}
+		}
 	}
-	for _, definition := range definitions {
-		if _, ok := want[definition.Name]; !ok {
-			t.Fatalf("unexpected tool %q", definition.Name)
-		}
-		want[definition.Name] = true
-		if _, ok := registry.Get(definition.Name); !ok {
-			t.Fatalf("Get(%q) failed", definition.Name)
-		}
+	if len(want) != 12 {
+		t.Fatalf("expected 12 approved tools, got %d", len(want))
 	}
 	for name, found := range want {
 		if !found {
-			t.Fatalf("missing tool %q", name)
+			t.Fatalf("tool %q is not visible to any role", name)
+		}
+	}
+
+	visibility := []struct {
+		role  string
+		tools []string
+	}{
+		{role: "", tools: []string{"calculate_delivery_fee", "get_public_parcel_status"}},
+		{role: "CUSTOMER", tools: []string{"calculate_delivery_fee", "get_public_parcel_status", "get_parcel_history", "get_active_parcels", "get_parcel_details"}},
+		{role: "COURIER", tools: []string{"calculate_delivery_fee", "get_my_courier_deliveries", "get_my_courier_delivery"}},
+		{role: "MERCHANT", tools: []string{"calculate_delivery_fee", "get_my_merchant_orders", "get_my_webhook_deliveries"}},
+		{role: "DISPATCHER", tools: []string{"calculate_delivery_fee", "get_public_parcel_status", "get_parcel_history", "get_active_parcels", "get_parcel_details", "search_parcels", "list_unassigned_parcels", "get_courier_workload"}},
+		{role: "ADMIN", tools: []string{"calculate_delivery_fee", "get_public_parcel_status", "get_parcel_history", "get_active_parcels", "get_parcel_details", "search_parcels", "list_unassigned_parcels", "get_courier_workload"}},
+	}
+	for _, testCase := range visibility {
+		caller := callerWithRole(testCase.role)
+		if testCase.role == "" {
+			caller = contract.CallerContext{}
+		}
+		got := map[string]bool{}
+		for _, definition := range registry.List(caller) {
+			got[definition.Name] = true
+		}
+		if len(got) != len(testCase.tools) {
+			t.Fatalf("role %q sees %d tools, want %d", testCase.role, len(got), len(testCase.tools))
+		}
+		for _, name := range testCase.tools {
+			if !got[name] {
+				t.Fatalf("role %q is missing %q", testCase.role, name)
+			}
 		}
 	}
 }
 
 func TestNewRegistryRequiresClients(t *testing.T) {
-	if _, err := tools.NewRegistry(nil, &fakeParcel{}); err == nil {
+	if _, err := tools.NewRegistry(nil, &fakeParcel{}, &fakeMerchant{}); err == nil {
 		t.Fatalf("expected error for nil pricing client")
 	}
-	if _, err := tools.NewRegistry(&fakePricing{}, nil); err == nil {
+	if _, err := tools.NewRegistry(&fakePricing{}, nil, &fakeMerchant{}); err == nil {
 		t.Fatalf("expected error for nil parcel client")
+	}
+	if _, err := tools.NewRegistry(&fakePricing{}, &fakeParcel{}, nil); err == nil {
+		t.Fatalf("expected error for nil merchant client")
 	}
 }
 
@@ -413,8 +547,11 @@ func TestTrackingHappyPath(t *testing.T) {
 	}
 
 	object := decodeObject(t, result.Data)
-	if len(object) != 6 {
-		t.Fatalf("expected exactly 6 fields, got %d: %s", len(object), marshal(t, result.Data))
+	if len(object) != 7 {
+		t.Fatalf("expected exactly 7 fields, got %d: %s", len(object), marshal(t, result.Data))
+	}
+	if string(object["scope"]) != `"account"` {
+		t.Fatalf("signed-in tracking scope = %s", object["scope"])
 	}
 	encoded := marshal(t, result.Data)
 	for _, private := range []string{"recipientName", "recipientPhone", "dropoffAddress", "internalId", "note", "phone", "address"} {
@@ -472,7 +609,7 @@ func TestHistoryRequiresAuthenticationBeforeHTTP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			parcel := &fakeParcel{}
 			registry := newRegistry(t, &fakePricing{}, parcel)
-			result := execute(t, registry, "get_my_parcel_history", map[string]any{"parcelId": testParcelID}, tc.caller)
+			result := execute(t, registry, "get_parcel_history", map[string]any{"parcelId": testParcelID}, tc.caller)
 			if result.Status != contract.StatusDenied {
 				t.Fatalf("expected DENIED, got %q", result.Status)
 			}
@@ -491,7 +628,7 @@ func TestHistoryHappyPath(t *testing.T) {
 	}}
 	registry := newRegistry(t, &fakePricing{}, parcel)
 
-	result := execute(t, registry, "get_my_parcel_history", map[string]any{"parcelId": testParcelID}, authenticated())
+	result := execute(t, registry, "get_parcel_history", map[string]any{"parcelId": testParcelID}, authenticated())
 	if result.Status != contract.StatusOK {
 		t.Fatalf("expected OK, got %q (%s)", result.Status, result.Message)
 	}
@@ -516,7 +653,7 @@ func TestHistoryValidation(t *testing.T) {
 	t.Run("invalid uuid", func(t *testing.T) {
 		parcel := &fakeParcel{}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_parcel_history", map[string]any{"parcelId": "not-a-uuid"}, authenticated())
+		result := execute(t, registry, "get_parcel_history", map[string]any{"parcelId": "not-a-uuid"}, authenticated())
 		if result.Status != contract.StatusInvalid {
 			t.Fatalf("expected INVALID, got %q", result.Status)
 		}
@@ -528,7 +665,7 @@ func TestHistoryValidation(t *testing.T) {
 	t.Run("model supplied identity rejected", func(t *testing.T) {
 		parcel := &fakeParcel{}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_parcel_history", map[string]any{
+		result := execute(t, registry, "get_parcel_history", map[string]any{
 			"parcelId": testParcelID,
 			"userId":   testUserID,
 		}, authenticated())
@@ -545,7 +682,7 @@ func TestHistoryUpstreamErrors(t *testing.T) {
 	t.Run("not found for account", func(t *testing.T) {
 		parcel := &fakeParcel{historyErr: &client.Error{Kind: client.KindNotFound, Status: 404}}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_parcel_history", map[string]any{"parcelId": testParcelID}, authenticated())
+		result := execute(t, registry, "get_parcel_history", map[string]any{"parcelId": testParcelID}, authenticated())
 		if result.Status != contract.StatusInvalid || !strings.Contains(result.Message, "not found for this account") {
 			t.Fatalf("expected safe not-found, got %q (%s)", result.Status, result.Message)
 		}
@@ -557,7 +694,7 @@ func TestHistoryUpstreamErrors(t *testing.T) {
 	t.Run("unauthorized", func(t *testing.T) {
 		parcel := &fakeParcel{historyErr: &client.Error{Kind: client.KindUnauthorized, Status: 403}}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_parcel_history", map[string]any{"parcelId": testParcelID}, authenticated())
+		result := execute(t, registry, "get_parcel_history", map[string]any{"parcelId": testParcelID}, authenticated())
 		if result.Status != contract.StatusDenied {
 			t.Fatalf("expected DENIED, got %q", result.Status)
 		}
@@ -566,7 +703,7 @@ func TestHistoryUpstreamErrors(t *testing.T) {
 	t.Run("unavailable", func(t *testing.T) {
 		parcel := &fakeParcel{historyErr: &client.Error{Kind: client.KindUnavailable, Status: 503}}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_parcel_history", map[string]any{"parcelId": testParcelID}, authenticated())
+		result := execute(t, registry, "get_parcel_history", map[string]any{"parcelId": testParcelID}, authenticated())
 		if result.Status != contract.StatusUnavailable {
 			t.Fatalf("expected UNAVAILABLE, got %q", result.Status)
 		}
@@ -576,7 +713,7 @@ func TestHistoryUpstreamErrors(t *testing.T) {
 func TestDeliveriesRequiresAuthenticationBeforeHTTP(t *testing.T) {
 	parcel := &fakeParcel{}
 	registry := newRegistry(t, &fakePricing{}, parcel)
-	result := execute(t, registry, "get_my_active_deliveries", nil, contract.CallerContext{})
+	result := execute(t, registry, "get_active_parcels", nil, contract.CallerContext{})
 	if result.Status != contract.StatusDenied {
 		t.Fatalf("expected DENIED, got %q", result.Status)
 	}
@@ -592,7 +729,7 @@ func TestDeliveriesHappyPath(t *testing.T) {
 	}}}
 	registry := newRegistry(t, &fakePricing{}, parcel)
 
-	result := execute(t, registry, "get_my_active_deliveries", map[string]any{"status": "IN_TRANSIT"}, authenticated())
+	result := execute(t, registry, "get_active_parcels", map[string]any{"status": "IN_TRANSIT"}, authenticated())
 	if result.Status != contract.StatusOK {
 		t.Fatalf("expected OK, got %q (%s)", result.Status, result.Message)
 	}
@@ -617,7 +754,7 @@ func TestDeliveriesEmptyListIsOK(t *testing.T) {
 	parcel := &fakeParcel{list: client.ParcelList{Items: []client.ParcelListItem{}}}
 	registry := newRegistry(t, &fakePricing{}, parcel)
 
-	result := execute(t, registry, "get_my_active_deliveries", nil, authenticated())
+	result := execute(t, registry, "get_active_parcels", nil, authenticated())
 	if result.Status != contract.StatusOK {
 		t.Fatalf("expected OK, got %q (%s)", result.Status, result.Message)
 	}
@@ -631,7 +768,7 @@ func TestDeliveriesValidation(t *testing.T) {
 	t.Run("invalid status enum", func(t *testing.T) {
 		parcel := &fakeParcel{}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_active_deliveries", map[string]any{"status": "in_transit"}, authenticated())
+		result := execute(t, registry, "get_active_parcels", map[string]any{"status": "in_transit"}, authenticated())
 		if result.Status != contract.StatusInvalid {
 			t.Fatalf("expected INVALID, got %q", result.Status)
 		}
@@ -643,7 +780,7 @@ func TestDeliveriesValidation(t *testing.T) {
 	t.Run("model supplied owner id rejected", func(t *testing.T) {
 		parcel := &fakeParcel{}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_active_deliveries", map[string]any{"ownerId": testUserID}, authenticated())
+		result := execute(t, registry, "get_active_parcels", map[string]any{"ownerId": testUserID}, authenticated())
 		if result.Status != contract.StatusInvalid {
 			t.Fatalf("expected INVALID, got %q", result.Status)
 		}
@@ -663,7 +800,7 @@ func TestDeliveriesCapsAtTwenty(t *testing.T) {
 	parcel := &fakeParcel{list: client.ParcelList{Items: items}}
 	registry := newRegistry(t, &fakePricing{}, parcel)
 
-	result := execute(t, registry, "get_my_active_deliveries", nil, authenticated())
+	result := execute(t, registry, "get_active_parcels", nil, authenticated())
 	if result.Status != contract.StatusOK {
 		t.Fatalf("expected OK, got %q", result.Status)
 	}
@@ -677,7 +814,7 @@ func TestDeliveriesUpstreamErrors(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		parcel := &fakeParcel{listErr: &client.Error{Kind: client.KindNotFound, Status: 404}}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_active_deliveries", nil, authenticated())
+		result := execute(t, registry, "get_active_parcels", nil, authenticated())
 		if result.Status != contract.StatusInvalid || !strings.Contains(result.Message, "not found for this account") {
 			t.Fatalf("expected safe not-found, got %q (%s)", result.Status, result.Message)
 		}
@@ -686,7 +823,7 @@ func TestDeliveriesUpstreamErrors(t *testing.T) {
 	t.Run("unavailable", func(t *testing.T) {
 		parcel := &fakeParcel{listErr: &client.Error{Kind: client.KindUnavailable, Status: 503}}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		result := execute(t, registry, "get_my_active_deliveries", nil, authenticated())
+		result := execute(t, registry, "get_active_parcels", nil, authenticated())
 		if result.Status != contract.StatusUnavailable {
 			t.Fatalf("expected UNAVAILABLE, got %q", result.Status)
 		}
@@ -709,19 +846,36 @@ func TestTrackingForwardsCallerTokenWithoutLeakingIt(t *testing.T) {
 	}
 }
 
-func TestTrackingDeniesGuestsBeforeUpstream(t *testing.T) {
-	parcel := &fakeParcel{tracking: client.Tracking{TrackingNumber: testTracking, Status: "CREATED"}}
+func TestTrackingGuestUsesPublicProjection(t *testing.T) {
+	parcel := &fakeParcel{
+		tracking:       client.Tracking{TrackingNumber: testTracking, Status: "ACCOUNT_ONLY"},
+		publicTracking: client.Tracking{TrackingNumber: testTracking, Status: "CREATED", PickupCity: "Colombo"},
+	}
 	registry := newRegistry(t, &fakePricing{}, parcel)
 
 	result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, contract.CallerContext{})
-	if result.Status != contract.StatusDenied {
-		t.Fatalf("expected DENIED for a guest, got %q", result.Status)
+	if result.Status != contract.StatusOK {
+		t.Fatalf("expected public tracking OK for a guest, got %q (%s)", result.Status, result.Message)
 	}
-	if !strings.Contains(strings.ToLower(result.Message), "sign in") {
-		t.Fatalf("guest denial should explain sign-in: %q", result.Message)
+	if parcel.publicCalls != 1 || parcel.trackingCalls != 0 {
+		t.Fatalf("guest used public=%d account=%d endpoints", parcel.publicCalls, parcel.trackingCalls)
 	}
-	if parcel.trackingCalls != 0 {
-		t.Fatalf("guest tracking reached upstream %d times", parcel.trackingCalls)
+	if !strings.Contains(marshal(t, result.Data), `"scope":"public"`) {
+		t.Fatalf("guest tracking scope missing: %s", marshal(t, result.Data))
+	}
+}
+
+func TestTrackingDeniesMerchantAndCourierBeforeUpstream(t *testing.T) {
+	for _, role := range []string{"MERCHANT", "COURIER"} {
+		parcel := &fakeParcel{}
+		registry := newRegistry(t, &fakePricing{}, parcel)
+		result := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, callerWithRole(role))
+		if result.Status != contract.StatusDenied {
+			t.Fatalf("%s tracking = %q, want DENIED", role, result.Status)
+		}
+		if parcel.publicCalls != 0 || parcel.trackingCalls != 0 {
+			t.Fatalf("%s tracking reached upstream", role)
+		}
 	}
 }
 
@@ -752,8 +906,9 @@ func TestPrivateToolRoleMatrix(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.role, func(t *testing.T) {
 			parcel := &fakeParcel{
-				tracking: client.Tracking{TrackingNumber: testTracking, Status: "IN_TRANSIT"},
-				history:  []client.HistoryItem{{Status: "IN_TRANSIT", ChangedAt: "2026-11-01T00:00:00Z"}},
+				tracking:       client.Tracking{TrackingNumber: testTracking, Status: "IN_TRANSIT"},
+				publicTracking: client.Tracking{TrackingNumber: testTracking, Status: "IN_TRANSIT"},
+				history:        []client.HistoryItem{{Status: "IN_TRANSIT", ChangedAt: "2026-11-01T00:00:00Z"}},
 				list: client.ParcelList{Items: []client.ParcelListItem{
 					{ID: testParcelID, TrackingNumber: testTracking, Status: "IN_TRANSIT"},
 				}},
@@ -764,8 +919,8 @@ func TestPrivateToolRoleMatrix(t *testing.T) {
 			registry := newRegistry(t, &fakePricing{}, parcel)
 			caller := callerWithRole(testCase.role)
 
-			history := execute(t, registry, "get_my_parcel_history", historyArgs, caller)
-			deliveries := execute(t, registry, "get_my_active_deliveries", nil, caller)
+			history := execute(t, registry, "get_parcel_history", historyArgs, caller)
+			deliveries := execute(t, registry, "get_active_parcels", nil, caller)
 			tracking := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, caller)
 
 			if testCase.allowed {
@@ -796,16 +951,21 @@ func TestPrivateToolRoleMatrix(t *testing.T) {
 	}
 
 	t.Run("anonymous", func(t *testing.T) {
-		parcel := &fakeParcel{}
+		parcel := &fakeParcel{
+			publicTracking: client.Tracking{TrackingNumber: testTracking, Status: "IN_TRANSIT"},
+		}
 		registry := newRegistry(t, &fakePricing{}, parcel)
-		history := execute(t, registry, "get_my_parcel_history", historyArgs, contract.CallerContext{})
-		deliveries := execute(t, registry, "get_my_active_deliveries", nil, contract.CallerContext{})
-		tracking := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, contract.CallerContext{})
-		if history.Status != contract.StatusDenied || deliveries.Status != contract.StatusDenied || tracking.Status != contract.StatusDenied {
-			t.Fatalf("expected DENIED")
+		history := execute(t, registry, "get_parcel_history", historyArgs, contract.CallerContext{})
+		deliveries := execute(t, registry, "get_active_parcels", nil, contract.CallerContext{})
+		public := execute(t, registry, "get_public_parcel_status", map[string]any{"trackingNumber": testTracking}, contract.CallerContext{})
+		if history.Status != contract.StatusDenied || deliveries.Status != contract.StatusDenied || public.Status != contract.StatusOK {
+			t.Fatalf("history=%q deliveries=%q public=%q", history.Status, deliveries.Status, public.Status)
 		}
 		if parcel.historyCalls != 0 || parcel.listCalls != 0 || parcel.adminCalls != 0 || parcel.trackingCalls != 0 {
-			t.Fatal("anonymous call reached upstream")
+			t.Fatal("anonymous private call reached upstream")
+		}
+		if parcel.publicCalls != 1 {
+			t.Fatalf("anonymous public tracking calls = %d", parcel.publicCalls)
 		}
 	})
 }
@@ -826,12 +986,12 @@ func TestOperationalDeliveriesAllowlistAndScope(t *testing.T) {
 	}}
 	registry := newRegistry(t, &fakePricing{}, parcel)
 
-	result := execute(t, registry, "get_my_active_deliveries", map[string]any{"status": "IN_TRANSIT"}, callerWithRole("DISPATCHER"))
+	result := execute(t, registry, "get_active_parcels", map[string]any{"status": "IN_TRANSIT"}, callerWithRole("DISPATCHER"))
 	if result.Status != contract.StatusOK {
 		t.Fatalf("expected OK, got %q (%s)", result.Status, result.Message)
 	}
-	if parcel.lastAdminStatus != "IN_TRANSIT" || parcel.lastAdminToken != testToken {
-		t.Fatalf("unexpected operational forward: status=%q token=%q", parcel.lastAdminStatus, parcel.lastAdminToken)
+	if parcel.lastAdminFilter.Status != "IN_TRANSIT" || parcel.lastAdminToken != testToken {
+		t.Fatalf("unexpected operational forward: status=%q token=%q", parcel.lastAdminFilter.Status, parcel.lastAdminToken)
 	}
 
 	encoded := marshal(t, result.Data)

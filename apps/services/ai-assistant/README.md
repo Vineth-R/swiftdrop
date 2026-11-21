@@ -2,8 +2,10 @@
 
 The Go backend for the SwiftDrop Delivery Assistant. It is publicly accessible to
 guests and answers SwiftDrop domain questions. When live data is required it calls
-exactly four approved read-only business tools against the existing Pricing and
-Parcel APIs using the caller's verified identity and role.
+one of exactly twelve approved read-only business tools against the existing
+Pricing, Parcel and Merchant APIs using the caller's verified identity and role.
+The registry exposes only the tools authorized for that role, and every execution
+re-checks it.
 
 Gemini is the only model provider, accessed through the official
 [`google.golang.org/genai`](https://pkg.go.dev/google.golang.org/genai) Go SDK
@@ -27,8 +29,8 @@ Next.js widget
          -> business-scope and deterministic extraction guards
          -> keyword knowledge retrieval (embedded Markdown)
          -> Gemini GenerateContent (function declarations)
-         -> strict tool allowlist + argument validation
-         -> Pricing client / Parcel client (caller credentials only)
+         -> role-filtered tool declarations + strict argument validation
+         -> Pricing / Parcel / Merchant clients (caller credentials only)
          -> sanitized function result
          -> Gemini final response
     -> API v1.1 success/error envelope
@@ -75,35 +77,56 @@ three approved knowledge sections, and runs a bounded tool loop:
 - Tool failures are returned to the model as safe statuses, never as upstream
   bodies. If the provider also fails, the endpoint returns `503 AI_UNAVAILABLE`.
 
-## The four approved tools
+## The twelve approved tools
 
-| Tool                       | Upstream                                                         | Access                                     |
-| -------------------------- | ---------------------------------------------------------------- | ------------------------------------------ |
-| `calculate_delivery_fee`   | `POST /pricing/estimate`                                         | Public                                     |
-| `get_public_parcel_status` | `GET /parcels/tracking/{trackingNumber}`                         | CUSTOMER own; DISPATCHER/ADMIN operational |
-| `get_my_parcel_history`    | `GET /parcels/{parcelId}/history`                                | CUSTOMER own; DISPATCHER/ADMIN operational |
-| `get_my_active_deliveries` | CUSTOMER: `GET /parcels`; DISPATCHER/ADMIN: `GET /admin/parcels` | CUSTOMER own; DISPATCHER/ADMIN operational |
+| Tool                        | Upstream                                                                     | Access                                       |
+| --------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------- |
+| `calculate_delivery_fee`    | `POST /pricing/estimate`                                                     | Everyone                                     |
+| `get_public_parcel_status`  | GUEST: `GET /tracking/{number}`; signed-in: `GET /parcels/tracking/{number}` | GUEST public; CUSTOMER own; DISPATCHER/ADMIN |
+| `get_parcel_history`        | `GET /parcels/{id}/history`                                                  | CUSTOMER own; DISPATCHER/ADMIN               |
+| `get_active_parcels`        | CUSTOMER: `GET /parcels`; staff: `GET /admin/parcels`                        | CUSTOMER; DISPATCHER/ADMIN                   |
+| `get_parcel_details`        | `GET /parcels/{id}`                                                          | CUSTOMER own; DISPATCHER/ADMIN               |
+| `search_parcels`            | `GET /admin/parcels`                                                         | DISPATCHER/ADMIN                             |
+| `list_unassigned_parcels`   | `GET /dispatch/unassigned`                                                   | DISPATCHER/ADMIN                             |
+| `get_courier_workload`      | `GET /dispatch/workload`                                                     | DISPATCHER/ADMIN                             |
+| `get_my_courier_deliveries` | `GET /courier/deliveries`                                                    | COURIER                                      |
+| `get_my_courier_delivery`   | `GET /courier/deliveries/{id}`                                               | COURIER                                      |
+| `get_my_merchant_orders`    | `GET /merchant/orders`                                                       | MERCHANT                                     |
+| `get_my_webhook_deliveries` | `GET /merchants/me/webhook/deliveries`                                       | MERCHANT                                     |
 
-`calculate_delivery_fee` resolves the customer's location names against the
-public zone directory (`GET /zones`) and then calls the Pricing estimate. It
-never computes a price. Pricing remains the source of truth.
+`calculate_delivery_fee` resolves location names against the public zone
+directory (`GET /zones`) and then calls the Pricing estimate. It never computes a
+price. Pricing remains the source of truth.
 
-The three parcel tools refuse guests, MERCHANT and COURIER before any HTTP
-request. CUSTOMER, DISPATCHER and ADMIN are allowed; the caller's verified access
-token is forwarded and Parcel remains authoritative for ownership and staff
-access. Tracking-number lookup uses the ownership-scoped Parcel endpoint, never
-the anonymous public tracking projection; a tracking number is not an identity
-credential. Another customer's tracking number returns the same safe not-found
-result as a missing one. The
-model never supplies a user/owner/customer ID. DISPATCHER/ADMIN operational
-lists use `GET /admin/parcels` and return a separate allowlist without customer
-or merchant IDs. Another customer's parcel produces the same safe not-found
-result as a missing parcel for a customer.
+`internal/tools` owns one shared gate per access shape (`requireParcelAccess`,
+`requireStaffAccess`, `requireCourierAccess`, `requireMerchantAccess`). The
+registry filters declarations through an optional `AvailableTo` interface, so a
+role never sees another role's tools. Execution calls the same gate again: a
+model that names a hidden tool receives `DENIED` with zero upstream requests.
+
+- Guests use the anonymous public tracking projection, which returns only status,
+  cities and timeline timestamps. Guests never receive private parcel data.
+- CUSTOMER reads are ownership-scoped by Parcel; the caller's verified token is
+  forwarded and the model never supplies a user/owner/customer ID.
+- COURIER and MERCHANT reads are scoped by the upstream service from the token
+  (Parcel assignment, Merchant owner). Neither accepts a courier or merchant ID.
+- DISPATCHER/ADMIN operational tools use `GET /admin/parcels`,
+  `GET /dispatch/unassigned`, `GET /dispatch/workload` and the parcel reads.
+  ADMIN inherits DISPATCHER permissions through one shared check.
+
+Merchant tracking-number lookup is exact and limited to the merchant's most
+recent 100 orders because the merchant API has no tracking-number filter. A miss
+returns an `INVALID` result that states the scan window and asks for an order ID
+or external order ID; there is no fuzzy matching and no cross-merchant search.
 
 Argument validation is strict: required keys, exact types, enum membership,
-UUID/tracking formats, weight precision, and no unknown keys. Tracking output and
-delivery output are re-marshalled through allowlists, so private upstream fields
-cannot leak even if an upstream returns them.
+boolean/date/UUID/tracking formats and no unknown keys. Result structures are
+rebuilt from explicit allowlists, so phone numbers, addresses, customer/merchant/
+owner IDs, courier phone numbers, proof data, internal notes and webhook payloads
+cannot reach the model even if an upstream response contains them.
+
+Deferred and not implemented: delivery reports, courier search, merchant search
+and merchant order timeline detail.
 
 ## Security model
 
@@ -180,6 +203,8 @@ approved repository facts, and run `go test ./apps/services/ai-assistant/...`.
 | `PRICING_TIMEOUT`              | `3s`                    |                                                     |
 | `PARCEL_BASE_URL`              | `http://parcel:8082`    | HTTP(S) origin                                      |
 | `PARCEL_TIMEOUT`               | `3s`                    |                                                     |
+| `MERCHANT_BASE_URL`            | `http://merchant:8084`  | HTTP(S) origin                                      |
+| `MERCHANT_TIMEOUT`             | `3s`                    |                                                     |
 
 A missing `GEMINI_API_KEY` does not stop the process or the gateway: the
 service starts with an unconfigured provider, `/ready` reports `unconfigured`,
@@ -220,6 +245,7 @@ return `404`. The store is not durable across restarts.
 APP_ENV=development AI_PROVIDER=mock PORT=8087 \
   PRICING_BASE_URL=http://127.0.0.1:8083 \
   PARCEL_BASE_URL=http://127.0.0.1:8082 \
+  MERCHANT_BASE_URL=http://127.0.0.1:8084 \
   go run ./apps/services/ai-assistant
 
 curl -s http://127.0.0.1:8087/ai/chat \
@@ -242,13 +268,14 @@ pnpm exec nx lint ai-assistant
 
 Coverage includes message validation, guest and authenticated conversation
 ownership, cross-guest isolation, session expiry/truncation, rate limiting,
-per-caller concurrency, optional authentication, the role matrix for both
-private tools, operational allowlists, privileged audit logging, the
-deterministic extraction guard, provider failure/timeout/empty response, tool
-loop success, unknown tools, strict arguments, denial before upstream,
-cross-customer safety, identity override rejection, ownership-scoped tracking
-sanitization, pricing non-fabrication, upstream unavailability, scope refusal,
-knowledge retrieval and the final API envelope.
+per-caller concurrency, optional authentication, the 12-tool role matrix in both
+directions (visibility and execution), hidden-tool denial with zero upstream
+calls, guest public tracking, operational allowlists, PII exclusion fixtures,
+privileged audit logging, the deterministic extraction guard, provider
+failure/timeout/empty response, tool loop success, unknown tools, strict
+arguments, denial before upstream, cross-customer/cross-courier/cross-merchant
+safety, identity override rejection, pricing non-fabrication, upstream
+unavailability, scope refusal, knowledge retrieval and the final API envelope.
 
 The Gemini adapter tests inject the SDK call, so CI needs no paid Gemini key and
 no network. A live Gemini call is not part of automated CI; verify it manually
@@ -266,5 +293,8 @@ with a real `GEMINI_API_KEY` if required.
 - The mock provider is for development and tests and does not prove Gemini.
 - No write tools, arbitrary HTTP, MCP, database access, embeddings or vector
   database.
+- Delivery reports, courier search, merchant search and merchant order timeline
+  detail are deferred.
+- Merchant tracking-number matching only covers the most recent 100 orders.
 - Live Gemini model names and quotas can change; `AI_MODEL` is configurable and
   the default is verified against the SDK at implementation time.

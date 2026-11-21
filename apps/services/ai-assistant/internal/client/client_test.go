@@ -496,7 +496,7 @@ func TestAdminParcelsExactQueryAndAuth(t *testing.T) {
 		if r.Method != http.MethodGet || r.URL.Path != "/admin/parcels" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
-		if got := r.URL.RawQuery; got != "page=1&pageSize=20&status=IN_TRANSIT" {
+		if got := r.URL.RawQuery; got != "page=1&pageSize=20&sort=createdAt%3Adesc&status=IN_TRANSIT" {
 			t.Fatalf("query = %q", got)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer dispatcher-token" {
@@ -516,7 +516,7 @@ func TestAdminParcelsExactQueryAndAuth(t *testing.T) {
 		t.Fatalf("NewParcelClient: %v", err)
 	}
 
-	list, err := client.AdminParcels(context.Background(), "IN_TRANSIT", "dispatcher-token")
+	list, err := client.AdminParcels(context.Background(), AdminParcelFilter{Status: "IN_TRANSIT"}, "dispatcher-token")
 	if err != nil {
 		t.Fatalf("AdminParcels: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestAdminParcelsExactQueryAndAuth(t *testing.T) {
 
 func TestAdminParcelsOmitsEmptyStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.RawQuery; got != "page=1&pageSize=20" {
+		if got := r.URL.RawQuery; got != "page=1&pageSize=20&sort=createdAt%3Adesc" {
 			t.Fatalf("query = %q", got)
 		}
 		_, _ = io.WriteString(w, `{"data":[],"meta":{"pagination":{"page":1,"pageSize":20,"totalItems":0,"totalPages":0}}}`)
@@ -554,7 +554,7 @@ func TestAdminParcelsOmitsEmptyStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewParcelClient: %v", err)
 	}
-	list, err := client.AdminParcels(context.Background(), "", "token")
+	list, err := client.AdminParcels(context.Background(), AdminParcelFilter{}, "token")
 	if err != nil {
 		t.Fatalf("AdminParcels: %v", err)
 	}

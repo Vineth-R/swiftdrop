@@ -7,7 +7,7 @@ import (
 	"github.com/Vineth-R/swiftdrop/packages/go-common/validation"
 )
 
-const toolNameMyParcelHistory = "get_my_parcel_history"
+const toolNameParcelHistory = "get_parcel_history"
 
 type historyTool struct {
 	parcel ParcelClient
@@ -15,7 +15,7 @@ type historyTool struct {
 
 func (t *historyTool) Definition() contract.ToolDeclaration {
 	return contract.ToolDeclaration{
-		Name: toolNameMyParcelHistory,
+		Name: toolNameParcelHistory,
 		Description: "Read a parcel's status history by parcel ID. Signed-in customers may read only their own parcels; " +
 			"dispatchers and administrators may read parcels for operational purposes. Never invent or accept a user ID, " +
 			"customer ID or owner ID; authorization is taken from the verified session. Ask for the parcel ID if it is missing.",
@@ -40,6 +40,11 @@ type historyEntry struct {
 
 type historyResult struct {
 	History []historyEntry `json:"history"`
+}
+
+func (t *historyTool) AvailableTo(caller contract.CallerContext) bool {
+	return hasVerifiedIdentity(caller) &&
+		(isCustomerRole(caller.Role) || isStaffRole(caller.Role))
 }
 
 func (t *historyTool) Execute(ctx context.Context, args map[string]any, caller contract.CallerContext) (contract.ToolResult, error) {

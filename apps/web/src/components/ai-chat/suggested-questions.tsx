@@ -1,10 +1,12 @@
 import { ArrowUpRight } from 'lucide-react';
 
-import { SUGGESTED_QUESTIONS } from '../../lib/ai-chat-api';
+import { suggestedQuestionsFor } from '../../lib/ai-chat-api';
 import { cn } from '../../lib/cn';
 import { buttonClasses } from '../ui/button';
+import type { Role } from '../../lib/tokens';
 
 type SuggestedQuestionsProps = {
+  role: Role | null;
   onSelect: (question: string) => void;
   isDisabled?: boolean;
 };
@@ -14,14 +16,16 @@ type SuggestedQuestionsProps = {
  * reply comes back from the assistant.
  */
 export function SuggestedQuestions({
+  role,
   onSelect,
   isDisabled = false,
 }: SuggestedQuestionsProps) {
+  const questions = suggestedQuestionsFor(role);
   return (
     <div className="flex flex-col gap-2">
       <p className="text-overline uppercase text-text-muted">Try asking</p>
       <ul aria-label="Suggested questions" className="flex flex-col gap-2">
-        {SUGGESTED_QUESTIONS.map((question) => (
+        {questions.map((question) => (
           <li key={question}>
             <button
               type="button"

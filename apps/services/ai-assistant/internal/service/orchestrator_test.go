@@ -64,7 +64,7 @@ func (r *fakeRegistry) Get(name string) (contract.Tool, bool) {
 	return tool, true
 }
 
-func (r *fakeRegistry) List() []contract.ToolDeclaration {
+func (r *fakeRegistry) List(contract.CallerContext) []contract.ToolDeclaration {
 	definitions := make([]contract.ToolDeclaration, 0, len(r.tools))
 	for _, tool := range r.tools {
 		definitions = append(definitions, tool.Definition())
@@ -473,7 +473,7 @@ func TestKnowledgeAndAuthAreInSystemInstruction(t *testing.T) {
 
 	if _, err := orchestrator.Chat(context.Background(), ChatInput{
 		Message: "How much does delivery from Colombo to Kandy cost for 2 kg?",
-		Caller:  contract.CallerContext{UserID: "user-1", Authenticated: true},
+		Caller:  contract.CallerContext{UserID: "user-1", Role: "CUSTOMER", Authenticated: true, AccessToken: "token"},
 	}); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -482,11 +482,14 @@ func TestKnowledgeAndAuthAreInSystemInstruction(t *testing.T) {
 	if !strings.Contains(system, "<swiftdrop_knowledge>") {
 		t.Fatal("knowledge wrapper is missing")
 	}
-	if !strings.Contains(system, "signed in") {
-		t.Fatal("authentication state is missing")
+	if !strings.Contains(system, "Caller role: customer") {
+		t.Fatal("verified role guidance is missing")
 	}
-	if !strings.Contains(system, "ask which parcel") {
+	if !strings.Contains(system, "ask which one") {
 		t.Fatal("single/multiple parcel clarification guidance is missing")
+	}
+	if strings.Contains(system, "dispatcher or administrator") {
+		t.Fatal("staff guidance leaked into a customer instruction")
 	}
 	if strings.Contains(system, "user-1") {
 		t.Fatal("user ID leaked into the system instruction")
@@ -600,13 +603,13 @@ func TestPrivilegedParcelLookupIsAuditedWithoutSecrets(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	registry := testRegistry()
-	registry.tools["get_my_parcel_history"] = &fakeTool{
-		definition: contract.ToolDeclaration{Name: "get_my_parcel_history"},
+	registry.tools["get_parcel_history"] = &fakeTool{
+		definition: contract.ToolDeclaration{Name: "get_parcel_history"},
 		result:     contract.ToolResult{Status: contract.StatusOK, Data: map[string]any{"history": []any{}}},
 	}
 	provider := mock.New(
 		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
-			Name:      "get_my_parcel_history",
+			Name:      "get_parcel_history",
 			Arguments: map[string]any{"parcelId": "b1f0f9d0-2a63-4a1f-9d7e-3c2c2f4a5b6c"},
 		}}},
 		contract.GenerateResponse{Text: "The parcel is in transit."},
@@ -626,7 +629,7 @@ func TestPrivilegedParcelLookupIsAuditedWithoutSecrets(t *testing.T) {
 	}
 
 	logged := buffer.String()
-	for _, required := range []string{"privileged parcel lookup", "actor_id=dispatcher-1", "role=DISPATCHER", "tool=get_my_parcel_history", "audit=true"} {
+	for _, required := range []string{"privileged parcel lookup", "actor_id=dispatcher-1", "role=DISPATCHER", "tool=get_parcel_history", "audit=true"} {
 		if !strings.Contains(logged, required) {
 			t.Fatalf("audit log missing %q: %s", required, logged)
 		}

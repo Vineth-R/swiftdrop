@@ -4379,13 +4379,13 @@ fallback message asking the user to try again later).
 
 
 
-   get_my_parcel_history                           GET                           Signed-in owner only
+   get_parcel_history                              GET                           Signed-in owner only
 
                                                    /parcels/{parcelId}/history
 
 
 
-   get_my_active_deliveries                        GET /parcels?status=...       Signed-in customer,
+   get_active_parcels                           GET /parcels?status=...       Signed-in customer,
 
                                                                                  own parcels only
 
@@ -4395,7 +4395,17 @@ fallback message asking the user to try again later).
 
 The service validates tool arguments, never accepts a user ID from the model, and
 
-answers only from API results.
+answers only from API results. The full released tool set also includes
+
+`get_parcel_details`, `search_parcels`, `list_unassigned_parcels`,
+
+`get_courier_workload`, `get_my_courier_deliveries`, `get_my_courier_delivery`,
+
+`get_my_merchant_orders` and `get_my_webhook_deliveries`; see
+
+`docs/ai-assistant.md` for the role matrix. Delivery reports, courier search,
+
+merchant search and merchant order timeline detail are deferred.
 
 
 

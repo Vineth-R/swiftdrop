@@ -11,6 +11,7 @@ import {
 
 import { useAiChatStore } from '../../lib/ai-chat-context';
 import { useAiChat } from '../../lib/use-ai-chat';
+import { useSessionRole } from '../../lib/use-session-identity';
 import { Alert } from '../ui/alert';
 import { Button } from '../ui/button';
 import { IconButton } from '../ui/icon-button';
@@ -47,6 +48,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     dismissError,
   } = useAiChat();
   const store = useAiChatStore();
+  const role = useSessionRole();
   const panelRef = useRef<HTMLDivElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const previousConversationState = useRef({
@@ -219,7 +221,11 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                 to see your own deliveries.
               </p>
             </div>
-            <SuggestedQuestions onSelect={sendMessage} isDisabled={isSending} />
+            <SuggestedQuestions
+              role={role}
+              onSelect={sendMessage}
+              isDisabled={isSending}
+            />
           </div>
         ) : (
           <div className="flex flex-col gap-3">

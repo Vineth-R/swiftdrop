@@ -6,7 +6,7 @@ Owner: `apps/services/ai-assistant` (Go backend). Session 2 owns `apps/web`, `do
 
 ## 1. Scope
 
-The assistant answers SwiftDrop domain questions and, when needed, calls exactly four approved read-only business tools that call existing SwiftDrop APIs with the caller's own verified credentials. It is public: guests receive an HttpOnly server-generated session, while signed-in callers keep their verified identity and role.
+The assistant answers SwiftDrop domain questions and, when needed, calls one of exactly twelve approved read-only business tools that call existing SwiftDrop APIs with the caller's own verified credentials. Each tool is exposed only to the roles in the matrix in section 8, and every execution re-checks the verified role. It is public: guests receive an HttpOnly server-generated session, while signed-in callers keep their verified identity and role.
 
 - Provider: Google Gemini only, through the official `google.golang.org/genai` Go SDK.
 - No database access from the model.
@@ -35,8 +35,8 @@ The Go Docker build uses the existing generic `infra/docker/go.Dockerfile` with 
 
 Access: public, rate limited. Authentication is optional. Anonymous callers receive an HttpOnly, always-Secure `sd_ai_guest` session cookie (`gs` + 32 lowercase hex) that is bound to their conversations. A conversation ID alone never grants access. Local development must use localhost, 127.0.0.1 or HTTPS, which browsers treat as secure contexts for Secure cookies.
 
-- If a valid `Authorization: Bearer <token>` or `sd_access` cookie is present, the caller is authenticated; private tools run only when the verified role is CUSTOMER, DISPATCHER or ADMIN.
-- If no credentials are present, the caller is anonymous and only the public pricing tool may be used. All parcel tools, including tracking-number lookup, are denied before any upstream call.
+- If a valid `Authorization: Bearer <token>` or `sd_access` cookie is present, the caller is authenticated and keeps the tools for the verified role: CUSTOMER, COURIER, MERCHANT, DISPATCHER or ADMIN.
+- If no credentials are present, the caller is anonymous and only the public pricing estimate and the anonymous public tracking projection are available. Every private tool is denied before any upstream call.
 - If credentials are present but `JWT_ACCESS_SECRET` is not configured, the request fails closed with `503 SERVICE_UNAVAILABLE`; it is never downgraded to anonymous.
 - If credentials are present but invalid or expired, the request is rejected with `401 UNAUTHENTICATED` / `401 TOKEN_EXPIRED`. It is never silently downgraded to anonymous.
 
@@ -126,11 +126,13 @@ Dependent-service failures (Pricing/Parcel) are returned to the model as tool re
 
 - Identity comes only from verified JWT access-token claims (`sub`, `role`) using `packages/go-common/auth`.
 - The Go service never accepts `userId`, `customerId`, `ownerId`, `role`, or `permissions` from the model.
-- The caller's raw access token is forwarded to Parcel only for private tools and is never sent to Gemini or logged.
-- Private tools fail closed with `DENIED` before any HTTP call for guests, MERCHANT and COURIER.
-- CUSTOMER private reads use `GET /parcels` and `GET /parcels/{parcelId}/history`; ownership is enforced by Parcel.
-- DISPATCHER and ADMIN use `GET /admin/parcels` for operational lists and `GET /parcels/{parcelId}/history` for history. ADMIN inherits DISPATCHER permissions; the caller's verified token is forwarded so Parcel remains authoritative.
-- Parcel remains authoritative for ownership. Customer A receives the same `404` for Customer B's parcel; the assistant reports that the parcel could not be found.
+- The caller's raw access token is forwarded to Parcel and Merchant only for private tools and is never sent to Gemini or logged.
+- Guest tools are limited to the pricing estimate and the anonymous public tracking projection. Every private tool fails closed with `DENIED` before any HTTP call for guests and for roles not in its matrix.
+- CUSTOMER reads use `GET /parcels`, `GET /parcels/{parcelId}`, `GET /parcels/{parcelId}/history` and `GET /parcels/tracking/{trackingNumber}`; ownership is enforced by Parcel.
+- DISPATCHER and ADMIN use `GET /admin/parcels`, `GET /dispatch/unassigned`, `GET /dispatch/workload` and the parcel reads. ADMIN inherits DISPATCHER permissions; the caller's verified token is forwarded so Parcel remains authoritative.
+- COURIER reads use `GET /courier/deliveries` and `GET /courier/deliveries/{parcelId}`; Parcel derives the courier from the token and enforces the current assignment.
+- MERCHANT reads use `GET /merchant/orders` and `GET /merchants/me/webhook/deliveries`; Merchant resolves the merchant from the verified session and enforces merchant scoping.
+- Parcel and Merchant remain authoritative for ownership. Customer A receives the same `404` for Customer B's parcel; another merchant's order is indistinguishable from a missing one.
 
 ## 6. Provider interface
 
@@ -232,51 +234,137 @@ type CallerContext struct {
 
 Argument validation is strict: required keys, exact types, enum membership, UUID/format checks, no unknown keys. The model cannot add identity fields; any unknown argument rejects the call.
 
-## 8. The four approved tools
+## 8. The twelve approved tools
 
-| Tool                       | Upstream call                                                                    | Access                                     |
-| -------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------ |
-| `calculate_delivery_fee`   | `POST {PRICING}/pricing/estimate`                                                | Public                                     |
-| `get_public_parcel_status` | `GET {PARCEL}/parcels/tracking/{trackingNumber}`                                 | CUSTOMER own; DISPATCHER/ADMIN operational |
-| `get_my_parcel_history`    | `GET {PARCEL}/parcels/{parcelId}/history`                                        | CUSTOMER, DISPATCHER, ADMIN                |
-| `get_my_active_deliveries` | CUSTOMER: `GET {PARCEL}/parcels`; DISPATCHER/ADMIN: `GET {PARCEL}/admin/parcels` | CUSTOMER, DISPATCHER, ADMIN                |
+The registry contains exactly these tools. `List(caller)` returns only the tools
+available to the caller; `Execute` independently re-checks the same role before
+any HTTP call, so a model that names a hidden tool receives `DENIED` with zero
+upstream traffic. ADMIN inherits DISPATCHER permissions through the shared
+`isStaffRole` check.
+
+| #   | Tool                        | Upstream call                                                                                                |   GUEST   | CUSTOMER | COURIER | MERCHANT | DISPATCHER / ADMIN |
+| --- | --------------------------- | ------------------------------------------------------------------------------------------------------------ | :-------: | :------: | :-----: | :------: | :----------------: |
+| 1   | `calculate_delivery_fee`    | `POST {PRICING}/pricing/estimate` after `GET {PRICING}/zones`                                                |    ✅     |    ✅    |   ✅    |    ✅    |         ✅         |
+| 2   | `get_public_parcel_status`  | GUEST: `GET {PARCEL}/tracking/{trackingNumber}`; signed-in: `GET {PARCEL}/parcels/tracking/{trackingNumber}` | ✅ public |  ✅ own  |    –    |    –     |         ✅         |
+| 3   | `get_parcel_history`        | `GET {PARCEL}/parcels/{parcelId}/history`                                                                    |     –     |    ✅    |    –    |    –     |         ✅         |
+| 4   | `get_active_parcels`        | CUSTOMER: `GET {PARCEL}/parcels`; staff: `GET {PARCEL}/admin/parcels`                                        |     –     |    ✅    |    –    |    –     |         ✅         |
+| 5   | `get_parcel_details`        | `GET {PARCEL}/parcels/{parcelId}`                                                                            |     –     |  ✅ own  |    –    |    –     |         ✅         |
+| 6   | `search_parcels`            | `GET {PARCEL}/admin/parcels`                                                                                 |     –     |    –     |    –    |    –     |         ✅         |
+| 7   | `list_unassigned_parcels`   | `GET {PARCEL}/dispatch/unassigned`                                                                           |     –     |    –     |    –    |    –     |         ✅         |
+| 8   | `get_courier_workload`      | `GET {PARCEL}/dispatch/workload`                                                                             |     –     |    –     |    –    |    –     |         ✅         |
+| 9   | `get_my_courier_deliveries` | `GET {PARCEL}/courier/deliveries`                                                                            |     –     |    –     |   ✅    |    –     |         –          |
+| 10  | `get_my_courier_delivery`   | `GET {PARCEL}/courier/deliveries/{parcelId}`                                                                 |     –     |    –     |   ✅    |    –     |         –          |
+| 11  | `get_my_merchant_orders`    | `GET {MERCHANT}/merchant/orders`                                                                             |     –     |    –     |    –    |    ✅    |         –          |
+| 12  | `get_my_webhook_deliveries` | `GET {MERCHANT}/merchants/me/webhook/deliveries`                                                             |     –     |    –     |    –    |    ✅    |         –          |
+
+There are no other tools. Unknown tool names are never executed. Argument
+validation is strict (required keys, exact types, enum membership, date format,
+UUID/tracking format, no unknown keys); the model cannot add identity fields.
 
 ### 8.1 `calculate_delivery_fee`
 
-Arguments:
-
-- `origin` (string, required): zone name or district, for example `Colombo`.
-- `destination` (string, required): zone name or district, for example `Kandy`.
-- `weightKg` (number, required): positive, at most two decimal places.
-- `sizeCategory` (string enum, required): `SMALL`, `MEDIUM`, `LARGE`, `OVERSIZED`.
-
-The client resolves `origin`/`destination` against the public `GET {PRICING}/zones` directory (case-insensitive match on zone name, code, or district) and then calls the real estimate endpoint. The tool never calculates a price. Result returns only: `currency`, `baseFee`, `weightCharge`, `sizeSurcharge`, `total`, `origin`, `destination`, `weightKg`, `sizeCategory`. Unknown/unserviceable routes and unpriced weights return a safe `INVALID` result explaining that no quote is available.
+Arguments: `origin`, `destination` (zone/code/district), `weightKg` (positive, at
+most two decimals), `sizeCategory` (`SMALL|MEDIUM|LARGE|OVERSIZED`). The client
+resolves zones against the public directory and calls the real estimate. Result
+allowlist: `currency`, `baseFee`, `weightCharge`, `sizeSurcharge`, `total`,
+`origin`, `destination`, `weightKg`, `sizeCategory`. No price is ever calculated
+locally.
 
 ### 8.2 `get_public_parcel_status`
 
-Arguments: `trackingNumber` (string, required, `^SD[KN][A-Z0-9]{8}$`).
+Argument: `trackingNumber` (`^SD[KN][A-Z0-9]{8}$`). Guests use the anonymous
+`/tracking/{trackingNumber}` projection with no credentials; their result has
+`scope: "public"`. CUSTOMER, DISPATCHER and ADMIN use the ownership-scoped
+`/parcels/tracking/{trackingNumber}` endpoint with their own token and
+`scope: "account"`. MERCHANT and COURIER are denied before any HTTP call. A
+tracking number is never an authentication credential. Result allowlist:
+`trackingNumber`, `status`, `pickupCity`, `dropoffCity`, `lastUpdatedAt`,
+`timeline` (`status`, `at`), `scope`.
 
-Allowed roles: CUSTOMER (own parcels only), DISPATCHER and ADMIN (operational access). GUEST, MERCHANT and COURIER are denied before any HTTP call. The client forwards the caller's access token to `GET {PARCEL}/parcels/tracking/{trackingNumber}`; Parcel matches `customer_user_id` for customers and allows staff operationally. The assistant never calls the anonymous public tracking projection, and a tracking number is never treated as an identity credential. Another customer's tracking number and a nonexistent one return the same safe `INVALID` not-found result.
+### 8.3 `get_parcel_history`
 
-Result allowlist: `trackingNumber`, `status`, `pickupCity`, `dropoffCity`, `lastUpdatedAt`, `timeline` (`status`, `at`). No names, addresses, phones, notes, proof, or internal IDs.
+Argument: `parcelId` (UUID). CUSTOMER (own), DISPATCHER and ADMIN. The caller's
+token is forwarded and Parcel enforces ownership. Result allowlist:
+`previousStatus`, `status`, `changedAt`, `note`.
 
-### 8.3 `get_my_parcel_history`
+### 8.4 `get_active_parcels`
 
-Arguments: `parcelId` (string, required, UUID).
+Optional `status` enum. CUSTOMER calls `/parcels`; staff call `/admin/parcels`.
+Result scope is `customer` or `operations`; customer rows include
+`id`, `trackingNumber`, `status`, `dropoffCity`, `recipientName`, `total`,
+`currency`, `createdAt`, `active`; operational rows include `id`,
+`trackingNumber`, `status`, `pickupCity`, `dropoffCity`, `courierId`,
+`createdAt`, `active`. Addresses, phone numbers and customer/merchant IDs are
+excluded.
 
-Allowed roles: CUSTOMER (own parcels only), DISPATCHER and ADMIN (operational access). GUEST, MERCHANT and COURIER are denied before any HTTP call. The model cannot supply an owner/user ID. The client forwards the caller's access token and Parcel enforces ownership/staff authorization. Result allowlist: `previousStatus`, `status`, `changedAt`, `note`. `failureReason` and `actorRole` are excluded.
+### 8.5 `get_parcel_details`
 
-### 8.4 `get_my_active_deliveries`
+Argument: `parcelId` (UUID). CUSTOMER (own), DISPATCHER and ADMIN via
+`GET /parcels/{parcelId}`. Result allowlist: `id`, `trackingNumber`, `status`,
+`pickupCity`, `dropoffCity`, `weightKg`, `sizeCategory`, `total`, `currency`,
+`courierName` (no phone), `failureReason`, `createdAt`, `updatedAt`,
+`deliveredAt`. Sender/recipient contacts, addresses, phones, proof data and
+internal metadata are excluded.
 
-Arguments: `status` (string enum, optional): one of `CREATED`, `PICKED_UP`, `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `FAILED`.
+### 8.6 `search_parcels`
 
-CUSTOMER calls `GET {PARCEL}/parcels?page=1&pageSize=20` with the optional status filter and the caller's token. DISPATCHER and ADMIN call `GET {PARCEL}/admin/parcels?page=1&pageSize=20` with the same filter and their own token. Result scope is `customer` or `operations`.
+DISPATCHER/ADMIN. Optional `status` enum, `trackingNumber` (prefix, letters and
+digits), `from` and `to` (`YYYY-MM-DD`, UTC creation bounds). The client converts
+them to the RFC3339 bounds the Parcel API expects. Returns at most the first 20
+matches plus `totalItems` and `hasMore`; the result includes `periodNote` so the
+model states the date scope. Addresses and customer/merchant IDs are excluded.
 
-- Customer allowlist: `id`, `trackingNumber`, `status`, `dropoffCity`, `recipientName`, `total`, `currency`, `createdAt`, `active`.
-- Operational allowlist: `id`, `trackingNumber`, `status`, `pickupCity`, `dropoffCity`, `courierId`, `createdAt`, `active`.
-- Both include `count`, `activeCount` and `totalItems`. Addresses, phone numbers, customer IDs, merchant IDs and internal metadata are excluded.
+### 8.7 `list_unassigned_parcels`
 
-There are no other tools. Unknown tool names are never executed.
+DISPATCHER/ADMIN. No arguments. Returns the first page (at most 20) of parcels
+with no current courier, with `id`, `trackingNumber`, `status`, cities, weight,
+size and creation time. Street addresses and zone IDs are excluded. Read-only.
+
+### 8.8 `get_courier_workload`
+
+DISPATCHER/ADMIN. No arguments. Returns up to 50 active couriers sorted by
+`activeDeliveries` descending, then name. Allowlist: `courierId`, `fullName`,
+`isAvailable`, `activeDeliveries`, `byStatus`. Phone numbers are excluded.
+
+### 8.9 `get_my_courier_deliveries`
+
+COURIER only. Optional `status` enum and `date` (`YYYY-MM-DD`, default today in
+Asia/Colombo). The Parcel API derives the courier from the forwarded token, so
+the model cannot select another courier. The upstream set is currently assigned
+active parcels plus deliveries completed or failed on the selected day. Returns
+at most 20 rows with `id`, `trackingNumber`, `status`, `dropoffCity`,
+`recipientName`, `weightKg`, `assignedAt`, `active`, plus `date` and `hasMore`.
+Addresses and phone numbers are excluded.
+
+### 8.10 `get_my_courier_delivery`
+
+COURIER only. Argument: `parcelId` (UUID) from the courier's own list. The
+Parcel service enforces the current assignment. Allowlist: `id`,
+`trackingNumber`, `status`, `dropoffCity`, `recipientName`, `weightKg`,
+`sizeCategory`, `assignedAt`, `history` (`status`, `previousStatus`, `note`,
+`failureReason`, `changedAt`). Sender/recipient phones, addresses and proof data
+are excluded.
+
+### 8.11 `get_my_merchant_orders`
+
+MERCHANT only. Optional `status` enum, `externalOrderId` (exact, max 100) and
+`trackingNumber` (exact, max 20). The Merchant service resolves the merchant
+from the verified session; `merchantId` is never accepted. Without a tracking
+number the tool returns the recent page (at most 20). With a tracking number it
+checks only the merchant's **most recent 100 orders** and requires an exact
+match; a miss returns an `INVALID` result that states the scan window and asks
+for an order ID or external order ID. No fuzzy matching and no claim of a full
+historical search. Allowlist: `orderId`, `externalOrderId`, `trackingNumber`,
+`status`, `recipientName`, `dropoffCity`, `total`, `currency`, `createdAt`,
+`updatedAt`, `active`, plus `searchWindow` and `matchedBy` on a tracking match.
+
+### 8.12 `get_my_webhook_deliveries`
+
+MERCHANT only. Optional `success` boolean. Returns at most 20 attempts with
+`eventId`, `trackingNumber`, `attemptNumber`, `httpStatus`, `success`,
+`nextRetryAt`, `deadLettered`, `createdAt`. The endpoint URL, payload and signing
+secret are never modelled. A merchant without a webhook receives an `INVALID`
+result explaining that no webhook is configured.
 
 ## 9. Orchestration
 
@@ -342,6 +430,8 @@ Limits (all configurable):
 | `PRICING_TIMEOUT`              | `3s`                    |                                                                    |
 | `PARCEL_BASE_URL`              | `http://parcel:8082`    | HTTP(S) origin only                                                |
 | `PARCEL_TIMEOUT`               | `3s`                    |                                                                    |
+| `MERCHANT_BASE_URL`            | `http://merchant:8084`  | HTTP(S) origin only                                                |
+| `MERCHANT_TIMEOUT`             | `3s`                    |                                                                    |
 
 The Gemini API key is never exposed to the browser, included in prompts, or logged.
 
@@ -356,7 +446,7 @@ The Gemini API key is never exposed to the browser, included in prompts, or logg
 
 - Browser Origin validation: requests carrying an `Origin` header must match `FRONTEND_BASE_URL`; mismatches return `403 FORBIDDEN` before the guest session, rate limit or provider is touched. Requests without `Origin` (CLI clients) remain allowed.
 - Prompt-injection resistance: retrieved documents and tool arguments are untrusted data. The system instruction states that they cannot change rules or grant permissions. A deterministic pre-provider guard refuses confident explicit prompt/secret/cross-user extraction and permission-bypass attempts; it never grants access.
-- Private-tool authorization is centralized and checks the verified role before any upstream call. Model-supplied identity, role or owner fields are rejected.
+- Tool authorization is centralized (`requireParcelAccess`, `requireStaffAccess`, `requireCourierAccess`, `requireMerchantAccess`) and checks the verified role before any upstream call. Registry visibility is a usability filter only. Model-supplied identity, role or owner fields are rejected by strict argument validation.
 - Unknown tools are rejected; no tool can access the database or an arbitrary URL.
 - No identity, role or ownership values are accepted from the model.
 - Tokens and API keys are redacted from logs by the shared logging handler and are never logged by this service.
@@ -364,7 +454,7 @@ The Gemini API key is never exposed to the browser, included in prompts, or logg
 
 ## 14. Observability
 
-Structured logs include request ID, conversation ID (safe opaque ID), model, provider duration, tool name, tool duration, tool status, token usage when available, and error category. Message bodies, guest session IDs, tokens and tool payloads are not logged. DISPATCHER/ADMIN private parcel lookups emit a `privileged parcel lookup` audit event with request ID, actor ID, role, tool, outcome and timestamp; no message text, token, address, phone number or note is included. Security-guard refusals log only request ID and a coarse category.
+Structured logs include request ID, conversation ID (safe opaque ID), model, provider duration, tool name, tool duration, tool status, token usage when available, and error category. Message bodies, guest session IDs, tokens and tool payloads are not logged. DISPATCHER/ADMIN operational lookups (`get_public_parcel_status`, `get_parcel_history`, `get_active_parcels`, `get_parcel_details`, `search_parcels`, `list_unassigned_parcels`, `get_courier_workload`) emit a `privileged parcel lookup` audit event with request ID, actor ID, role, tool, outcome and timestamp; no message text, token, address, phone number or note is included. Security-guard refusals log only request ID and a coarse category.
 
 ## 15. File ownership (Session 1)
 

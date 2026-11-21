@@ -70,8 +70,12 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure parcel client: %w", err)
 	}
+	merchantClient, err := client.NewMerchantClient(client.Config{BaseURL: cfg.MerchantBaseURL, Timeout: cfg.MerchantTimeout})
+	if err != nil {
+		return fmt.Errorf("configure merchant client: %w", err)
+	}
 
-	registry, err := tools.NewRegistry(pricingClient, parcelClient)
+	registry, err := tools.NewRegistry(pricingClient, parcelClient, merchantClient)
 	if err != nil {
 		return fmt.Errorf("configure tool registry: %w", err)
 	}

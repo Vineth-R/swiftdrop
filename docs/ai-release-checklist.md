@@ -5,31 +5,38 @@ from `release/m1-complete` or from production image publication.
 
 ## Required configuration
 
-| Variable                               | Required             | Notes                                                                                                            |
-| -------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `AI_ENABLED`                           | yes                  | `true` in the release.                                                                                           |
-| `AI_PROVIDER`                          | yes                  | `gemini`; `mock` is development-only.                                                                            |
-| `GEMINI_API_KEY`                       | yes for real answers | Injected only into the `ai-assistant` container. Never in the web image, a build arg, `NEXT_PUBLIC_*` or source. |
-| `AI_MODEL`                             | yes                  | Must be verified for the deployment key.                                                                         |
-| `JWT_ACCESS_SECRET`                    | yes                  | Must match Identity and Parcel so private tools work.                                                            |
-| `COOKIE_NAME`                          | yes                  | Must match Identity/Parcel (`sd_access` by default).                                                             |
-| `PRICING_BASE_URL` / `PARCEL_BASE_URL` | yes                  | Internal service addresses and timeouts.                                                                         |
-| `HTTP_TRUSTED_PROXIES`                 | yes                  | Limited to the gateway network.                                                                                  |
-| `AI_RATE_LIMIT` / `AI_RATE_WINDOW`     | recommended          | Defaults to 15 per minute.                                                                                       |
-| `AI_MAX_CONCURRENT`                    | recommended          | Process-local concurrency bound.                                                                                 |
+| Variable                                                     | Required             | Notes                                                                                                            |
+| ------------------------------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `AI_ENABLED`                                                 | yes                  | `true` in the release.                                                                                           |
+| `AI_PROVIDER`                                                | yes                  | `gemini`; `mock` is development-only.                                                                            |
+| `GEMINI_API_KEY`                                             | yes for real answers | Injected only into the `ai-assistant` container. Never in the web image, a build arg, `NEXT_PUBLIC_*` or source. |
+| `AI_MODEL`                                                   | yes                  | Must be verified for the deployment key.                                                                         |
+| `JWT_ACCESS_SECRET`                                          | yes                  | Must match Identity and Parcel so private tools work.                                                            |
+| `COOKIE_NAME`                                                | yes                  | Must match Identity/Parcel (`sd_access` by default).                                                             |
+| `PRICING_BASE_URL` / `PARCEL_BASE_URL` / `MERCHANT_BASE_URL` | yes                  | Internal service addresses and timeouts.                                                                         |
+| `HTTP_TRUSTED_PROXIES`                                       | yes                  | Limited to the gateway network.                                                                                  |
+| `AI_RATE_LIMIT` / `AI_RATE_WINDOW`                           | recommended          | Defaults to 15 per minute.                                                                                       |
+| `AI_MAX_CONCURRENT`                                          | recommended          | Process-local concurrency bound.                                                                                 |
 
 ## Behaviour and safety
 
 - The assistant is reachable only at `POST /api/v1/ai/chat`; its health and
   readiness probes stay internal.
-- Guests receive an HttpOnly guest session; they may use public tools only.
-- CUSTOMER, DISPATCHER and ADMIN may use the private parcel tools. MERCHANT,
-  COURIER and guests are denied.
+- Guests receive an HttpOnly guest session; they may use the pricing estimate and
+  the anonymous public tracking projection only.
+- CUSTOMER reads its own parcels; COURIER reads only its own deliveries;
+  MERCHANT reads only its own orders and webhook attempts; DISPATCHER and ADMIN
+  use operational tools, and ADMIN inherits DISPATCHER permissions.
+- The model sees only the tools for the verified role, and every execution
+  re-checks that role before any upstream call.
 - The model never receives a user ID, role or token as an authorization
   mechanism; the verified caller context decides access.
 - The assistant never accesses the database and exposes no write tools.
-- Tracking-number lookups use the ownership-scoped Parcel API, never the
-  anonymous public projection.
+- Tool results use explicit allowlists: phone numbers, addresses, customer/
+  merchant/owner IDs, courier phones, proof data and webhook payloads never reach
+  the model.
+- Merchant tracking-number lookup is exact and limited to the most recent 100
+  orders; it never searches across merchants.
 - A missing key leaves the process running and returns `503 AI_UNAVAILABLE`
   instead of taking down the gateway.
 
@@ -52,4 +59,6 @@ from `release/m1-complete` or from production image publication.
 - Conversation storage, rate limiting and concurrency are process-local; a
   multi-replica deployment needs shared state.
 - Gemini latency and provider availability affect answer quality.
+- Delivery reports, courier search, merchant search and merchant order timeline
+  detail are deferred.
 - Live Gemini verification requires a billable key and is credential-gated.
