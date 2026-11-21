@@ -135,9 +135,11 @@ type Tool interface {
 }
 
 // ToolRegistry is the allowlist boundary. Unknown names are never executed.
+// List returns only the tools available to the supplied caller; Execute must
+// still independently authorize every call because visibility is not security.
 type ToolRegistry interface {
 	Get(name string) (Tool, bool)
-	List() []ToolDeclaration
+	List(caller CallerContext) []ToolDeclaration
 	Execute(ctx context.Context, name string, args map[string]any, caller CallerContext) (ToolResult, error)
 }
 

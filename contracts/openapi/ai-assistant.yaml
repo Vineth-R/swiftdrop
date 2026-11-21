@@ -4,15 +4,17 @@ info:
   version: 1.1.0
   description: >-
     Gemini-backed SwiftDrop Delivery Assistant. The service answers SwiftDrop
-    domain questions and calls exactly four approved read-only tools against the
-    Pricing and Parcel APIs. Authentication is optional. Guests receive an
-    HttpOnly sd_ai_guest session bound to their conversations. CUSTOMER may use
-    the parcel tools for their own parcels, including their own tracking numbers;
-    DISPATCHER and ADMIN may use them for operational parcel access; GUEST,
-    MERCHANT and COURIER are denied all parcel tools. A tracking number is never
-    an authentication credential, and the assistant never calls the anonymous
-    public tracking projection. The model never receives credentials, a user ID,
-    a role, database access or arbitrary HTTP.
+    domain questions and calls one of exactly twelve approved read-only tools
+    against the Pricing, Parcel and Merchant APIs. Authentication is optional.
+    Guests receive an HttpOnly sd_ai_guest session bound to their conversations.
+    The tool registry is role-aware and every execution re-checks the verified
+    role: GUEST may use pricing and the anonymous public tracking projection;
+    CUSTOMER uses ownership-scoped parcel tools; COURIER uses only its own
+    delivery tools; MERCHANT uses only its own order and webhook tools;
+    DISPATCHER and ADMIN use operational tools, with ADMIN inheriting DISPATCHER
+    permissions. A tracking number is never an authentication credential. The
+    model never receives credentials, a user ID, a role, database access or
+    arbitrary HTTP.
 servers:
   - url: /api/v1
 paths:
@@ -92,14 +94,16 @@ paths:
         simultaneous turns per caller. The message is required and limited to
         500 characters. conversationId is optional and binds follow-up questions.
         Anonymous callers also receive an HttpOnly sd_ai_guest session cookie;
-        a guest must present that cookie and the conversation ID. CUSTOMER may
-        use the parcel tools for their own parcels, including ownership-scoped
-        tracking-number lookup; DISPATCHER and ADMIN may use them operationally;
-        GUEST, MERCHANT and COURIER are denied all parcel tools before any
-        upstream call. Responses never include provider
-        internals, credentials or private parcel fields. A deterministic guard
-        refuses confident explicit prompt/secret/cross-user extraction attempts
-        before the provider is called.
+        a guest must present that cookie and the conversation ID. Guests may use
+        the pricing estimate and the anonymous public tracking projection;
+        CUSTOMER uses ownership-scoped parcel tools; COURIER uses only its own
+        delivery tools; MERCHANT uses only its own order and webhook tools;
+        DISPATCHER and ADMIN use operational tools, with ADMIN inheriting
+        DISPATCHER permissions. A tool outside the caller's role is denied before
+        any upstream call, even if the model names it. Responses never include
+        provider internals, credentials or private parcel fields. A deterministic
+        guard refuses confident explicit prompt/secret/cross-user extraction
+        attempts before the provider is called.
       security:
         - {}
         - AccessCookie: []
@@ -242,8 +246,16 @@ components:
           enum:
             - calculate_delivery_fee
             - get_public_parcel_status
-            - get_my_parcel_history
-            - get_my_active_deliveries
+            - get_parcel_history
+            - get_active_parcels
+            - get_parcel_details
+            - search_parcels
+            - list_unassigned_parcels
+            - get_courier_workload
+            - get_my_courier_deliveries
+            - get_my_courier_delivery
+            - get_my_merchant_orders
+            - get_my_webhook_deliveries
         status:
           type: string
           enum: [OK, INVALID, DENIED, UNAVAILABLE]

@@ -1,4 +1,5 @@
 import { api } from './api';
+import type { Role } from './tokens';
 import { ApiError } from './api-errors';
 
 /**
@@ -14,14 +15,54 @@ import { ApiError } from './api-errors';
 /** The contract's hard limit on a chat message, in Unicode characters. */
 export const CHAT_MESSAGE_MAX = 500;
 
-/** Starting questions shown before the first message. */
-export const SUGGESTED_QUESTIONS = [
-  'What is SwiftDrop?',
-  'How does delivery pricing work?',
-  'Track my parcel.',
-  'Show my active deliveries.',
-  'What are your terms and conditions?',
-] as const;
+/**
+ * Starting questions shown before the first message. Each set only suggests
+ * capabilities the backend exposes to that role; the assistant still decides
+ * whether any tool may run, and a suggestion is never an authorization grant.
+ */
+export const SUGGESTED_QUESTIONS: Record<Role | 'GUEST', readonly string[]> = {
+  GUEST: [
+    'Track a parcel.',
+    'Estimate a delivery fee.',
+    'How does SwiftDrop work?',
+    'What does IN_TRANSIT mean?',
+  ],
+  CUSTOMER: [
+    'Track my parcel.',
+    'Show my active parcels.',
+    'View my parcel history.',
+    'How much would a delivery cost?',
+  ],
+  COURIER: [
+    'Show my active deliveries.',
+    'Show my completed deliveries.',
+    'Do I have any failed deliveries?',
+    'Find a delivery by parcel ID.',
+  ],
+  MERCHANT: [
+    'Show my recent orders.',
+    'Track an order.',
+    'Show my webhook delivery failures.',
+    'Which of my orders are still pending?',
+  ],
+  DISPATCHER: [
+    'Show unassigned parcels.',
+    'Check courier workloads.',
+    'Search for a parcel.',
+    'Show failed deliveries.',
+  ],
+  ADMIN: [
+    'Show unassigned parcels.',
+    'Search parcels.',
+    'Check courier workloads.',
+    'View parcel details.',
+  ],
+};
+
+/** The suggested questions for a verified role, or the guest set for null. */
+export function suggestedQuestionsFor(role: Role | null): readonly string[] {
+  return role ? SUGGESTED_QUESTIONS[role] : SUGGESTED_QUESTIONS.GUEST;
+}
 
 /** The safe outcome of one approved tool run, never its payload. */
 export type ChatToolStatus = 'OK' | 'INVALID' | 'DENIED' | 'UNAVAILABLE';
@@ -49,8 +90,16 @@ const TOOL_STATUSES: ReadonlySet<string> = new Set([
 const TOOL_LABELS: Record<string, string> = {
   calculate_delivery_fee: 'delivery pricing',
   get_public_parcel_status: 'parcel status',
-  get_my_parcel_history: 'your parcel history',
-  get_my_active_deliveries: 'your active deliveries',
+  get_parcel_history: 'parcel history',
+  get_active_parcels: 'parcel list',
+  get_parcel_details: 'parcel details',
+  search_parcels: 'parcel search',
+  list_unassigned_parcels: 'unassigned parcels',
+  get_courier_workload: 'courier workload',
+  get_my_courier_deliveries: 'your deliveries',
+  get_my_courier_delivery: 'your delivery details',
+  get_my_merchant_orders: 'your orders',
+  get_my_webhook_deliveries: 'webhook deliveries',
 };
 
 /**
@@ -192,7 +241,7 @@ export function toolProgressLabel(call: ChatToolCall): string | null {
   if (!subject) return null;
   switch (call.status) {
     case 'DENIED':
-      return `Sign in or use a customer account to use ${subject}.`;
+      return `That information is not available with your current access (${subject}).`;
     case 'UNAVAILABLE':
       return `${capitalise(subject)} is temporarily unavailable.`;
     case 'INVALID':

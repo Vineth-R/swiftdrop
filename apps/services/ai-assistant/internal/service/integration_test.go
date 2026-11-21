@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,12 +20,17 @@ import (
 )
 
 type upstreams struct {
-	pricing *httptest.Server
-	parcel  *httptest.Server
+	pricing  *httptest.Server
+	parcel   *httptest.Server
+	merchant *httptest.Server
 }
 
 func newOrchestratorWithUpstreams(t *testing.T, provider contract.Provider, servers upstreams) *Orchestrator {
 	t.Helper()
+	if servers.merchant == nil {
+		servers.merchant = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
+		t.Cleanup(servers.merchant.Close)
+	}
 	pricing, err := client.NewPricingClient(client.Config{BaseURL: servers.pricing.URL, Timeout: time.Second})
 	if err != nil {
 		t.Fatalf("pricing client: %v", err)
@@ -33,7 +39,11 @@ func newOrchestratorWithUpstreams(t *testing.T, provider contract.Provider, serv
 	if err != nil {
 		t.Fatalf("parcel client: %v", err)
 	}
-	registry, err := tools.NewRegistry(pricing, parcel)
+	merchant, err := client.NewMerchantClient(client.Config{BaseURL: servers.merchant.URL, Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("merchant client: %v", err)
+	}
+	registry, err := tools.NewRegistry(pricing, parcel, merchant)
 	if err != nil {
 		t.Fatalf("tools.NewRegistry: %v", err)
 	}
@@ -181,13 +191,24 @@ func TestEndToEndTrackingStripsPrivateFields(t *testing.T) {
 	}
 }
 
-func TestEndToEndGuestTrackingIsDeniedBeforeUpstream(t *testing.T) {
-	var parcelCalls atomic.Int32
+func TestEndToEndGuestTrackingUsesPublicProjection(t *testing.T) {
+	var publicCalls, privateCalls atomic.Int32
 	pricing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
 	defer pricing.Close()
 	parcel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		parcelCalls.Add(1)
-		http.NotFound(w, r)
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/tracking/"):
+			publicCalls.Add(1)
+			if r.Header.Get("Authorization") != "" {
+				t.Errorf("public tracking carried an authorization header")
+			}
+			_, _ = io.WriteString(w, `{"data":{"trackingNumber":"SDK7M2Q9XP4","status":"IN_TRANSIT","pickupCity":"Colombo","dropoffCity":"Kandy","lastUpdatedAt":"2026-11-01T00:00:00Z","timeline":[{"status":"CREATED","at":"2026-11-01T00:00:00Z"}],"recipientPhone":"0770000000"},"meta":{}}`)
+		case strings.HasPrefix(r.URL.Path, "/parcels/tracking/"):
+			privateCalls.Add(1)
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer parcel.Close()
 
@@ -195,7 +216,7 @@ func TestEndToEndGuestTrackingIsDeniedBeforeUpstream(t *testing.T) {
 		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
 			Name: "get_public_parcel_status", Arguments: map[string]any{"trackingNumber": "SDK7M2Q9XP4"},
 		}}},
-		contract.GenerateResponse{Text: "Please sign in to track your parcel."},
+		contract.GenerateResponse{Text: "Your parcel is in transit."},
 	)
 	orchestrator := newOrchestratorWithUpstreams(t, provider, upstreams{pricing: pricing, parcel: parcel})
 
@@ -203,11 +224,18 @@ func TestEndToEndGuestTrackingIsDeniedBeforeUpstream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
-	if output.ToolCalls[0].Status != "DENIED" {
+	if output.ToolCalls[0].Status != "OK" {
 		t.Fatalf("toolCalls = %+v", output.ToolCalls)
 	}
-	if parcelCalls.Load() != 0 {
-		t.Fatalf("guest tracking reached the Parcel API %d times", parcelCalls.Load())
+	if publicCalls.Load() != 1 || privateCalls.Load() != 0 {
+		t.Fatalf("public=%d private=%d", publicCalls.Load(), privateCalls.Load())
+	}
+	response := findFunctionResponse(provider.Requests()[1], "get_public_parcel_status")
+	encoded, _ := json.Marshal(response)
+	for _, secret := range []string{"0770000000", "recipientPhone"} {
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("public tracking leaked %q: %s", secret, encoded)
+		}
 	}
 }
 
@@ -264,7 +292,7 @@ func TestEndToEndAnonymousPrivateToolIsDeniedBeforeUpstream(t *testing.T) {
 
 	provider := mock.New(
 		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
-			Name: "get_my_parcel_history", Arguments: map[string]any{"parcelId": "b1d1b7f0-3a7b-4f1a-9d1d-1f0f5c3a2b10"},
+			Name: "get_parcel_history", Arguments: map[string]any{"parcelId": "b1d1b7f0-3a7b-4f1a-9d1d-1f0f5c3a2b10"},
 		}}},
 		contract.GenerateResponse{Text: "Please sign in to view your parcel history."},
 	)
@@ -295,7 +323,7 @@ func TestEndToEndCrossCustomerIsSafeNotFound(t *testing.T) {
 
 	provider := mock.New(
 		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
-			Name: "get_my_parcel_history", Arguments: map[string]any{"parcelId": "b1d1b7f0-3a7b-4f1a-9d1d-1f0f5c3a2b10"},
+			Name: "get_parcel_history", Arguments: map[string]any{"parcelId": "b1d1b7f0-3a7b-4f1a-9d1d-1f0f5c3a2b10"},
 		}}},
 		contract.GenerateResponse{Text: "I could not find that parcel for your account."},
 	)
@@ -314,7 +342,7 @@ func TestEndToEndCrossCustomerIsSafeNotFound(t *testing.T) {
 	if authorization != "Bearer token-a" {
 		t.Fatalf("Authorization = %q", authorization)
 	}
-	response := findFunctionResponse(provider.Requests()[1], "get_my_parcel_history")
+	response := findFunctionResponse(provider.Requests()[1], "get_parcel_history")
 	encoded, _ := json.Marshal(response)
 	if strings.Contains(string(encoded), "token-a") || strings.Contains(string(encoded), "user-a") {
 		t.Fatalf("credential or identity leaked to the model: %s", encoded)
@@ -333,7 +361,7 @@ func TestEndToEndModelSuppliedIdentityIsRejected(t *testing.T) {
 
 	provider := mock.New(
 		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
-			Name: "get_my_active_deliveries",
+			Name: "get_active_parcels",
 			Arguments: map[string]any{
 				"status":  "IN_TRANSIT",
 				"userId":  "victim-user",
@@ -382,7 +410,7 @@ func TestEndToEndActiveDeliveriesAllowlist(t *testing.T) {
 
 	provider := mock.New(
 		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
-			Name: "get_my_active_deliveries", Arguments: map[string]any{"status": "IN_TRANSIT"},
+			Name: "get_active_parcels", Arguments: map[string]any{"status": "IN_TRANSIT"},
 		}}},
 		contract.GenerateResponse{Text: "You have one parcel in transit."},
 	)
@@ -398,7 +426,7 @@ func TestEndToEndActiveDeliveriesAllowlist(t *testing.T) {
 	if output.ToolCalls[0].Status != "OK" {
 		t.Fatalf("toolCalls = %+v", output.ToolCalls)
 	}
-	response := findFunctionResponse(provider.Requests()[1], "get_my_active_deliveries")
+	response := findFunctionResponse(provider.Requests()[1], "get_active_parcels")
 	encoded, _ := json.Marshal(response)
 	text := string(encoded)
 	for _, secret := range []string{"Secret Lane", "Hidden Road", "0770000000"} {
@@ -450,27 +478,35 @@ func TestEndToEndPricingUnavailableDoesNotFabricate(t *testing.T) {
 	}
 }
 
-func TestRegistryContainsExactlyFourApprovedTools(t *testing.T) {
+func TestRegistryContainsExactlyTwelveApprovedTools(t *testing.T) {
 	pricing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
 	defer pricing.Close()
 	parcel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
 	defer parcel.Close()
+	merchant := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
+	defer merchant.Close()
 
 	pricingClient, _ := client.NewPricingClient(client.Config{BaseURL: pricing.URL, Timeout: time.Second})
 	parcelClient, _ := client.NewParcelClient(client.Config{BaseURL: parcel.URL, Timeout: time.Second})
-	registry, err := tools.NewRegistry(pricingClient, parcelClient)
+	merchantClient, _ := client.NewMerchantClient(client.Config{BaseURL: merchant.URL, Timeout: time.Second})
+	registry, err := tools.NewRegistry(pricingClient, parcelClient, merchantClient)
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	definitions := registry.List()
-	if len(definitions) != 4 {
-		t.Fatalf("definitions = %d, want 4", len(definitions))
+	definitions := registry.List(contract.CallerContext{
+		UserID: "0c5f8e3a-1d2b-4c6e-8f90-123456789abc", Role: "ADMIN", Authenticated: true, AccessToken: "token",
+	})
+	if len(definitions) != 8 {
+		t.Fatalf("admin definitions = %d, want 8", len(definitions))
 	}
 	names := map[string]bool{}
 	for _, definition := range definitions {
 		names[definition.Name] = true
 	}
-	for _, want := range []string{"calculate_delivery_fee", "get_public_parcel_status", "get_my_parcel_history", "get_my_active_deliveries"} {
+	for _, want := range []string{
+		"calculate_delivery_fee", "get_public_parcel_status", "get_parcel_history", "get_active_parcels",
+		"get_parcel_details", "search_parcels", "list_unassigned_parcels", "get_courier_workload",
+	} {
 		if !names[want] {
 			t.Fatalf("missing tool %s in %v", want, names)
 		}
@@ -514,7 +550,7 @@ func TestEndToEndDispatcherOperationalList(t *testing.T) {
 
 	provider := mock.New(
 		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{{
-			Name: "get_my_active_deliveries", Arguments: map[string]any{},
+			Name: "get_active_parcels", Arguments: map[string]any{},
 		}}},
 		contract.GenerateResponse{Text: "One operational parcel is in transit."},
 	)
@@ -532,7 +568,7 @@ func TestEndToEndDispatcherOperationalList(t *testing.T) {
 	if output.ToolCalls[0].Status != "OK" {
 		t.Fatalf("toolCalls = %+v", output.ToolCalls)
 	}
-	response := findFunctionResponse(provider.Requests()[1], "get_my_active_deliveries")
+	response := findFunctionResponse(provider.Requests()[1], "get_active_parcels")
 	encoded, _ := json.Marshal(response)
 	text := string(encoded)
 	for _, expected := range []string{`"scope":"operations"`, `"trackingNumber":"SDK7M2Q9XP4"`, `"pickupCity":"Colombo"`} {
@@ -559,8 +595,8 @@ func TestEndToEndMerchantPrivateToolsDeniedBeforeUpstream(t *testing.T) {
 
 	provider := mock.New(
 		contract.GenerateResponse{ToolCalls: []contract.FunctionCall{
-			{Name: "get_my_parcel_history", Arguments: map[string]any{"parcelId": "b1d1b7f0-3a7b-4f1a-9d1d-1f0f5c3a2b10"}},
-			{Name: "get_my_active_deliveries", Arguments: map[string]any{}},
+			{Name: "get_parcel_history", Arguments: map[string]any{"parcelId": "b1d1b7f0-3a7b-4f1a-9d1d-1f0f5c3a2b10"}},
+			{Name: "get_active_parcels", Arguments: map[string]any{}},
 		}},
 		contract.GenerateResponse{Text: "That feature is not available for this account."},
 	)

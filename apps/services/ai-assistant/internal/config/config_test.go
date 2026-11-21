@@ -60,6 +60,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.FrontendOrigin != "http://localhost:8080" {
 		t.Errorf("FrontendOrigin = %q", cfg.FrontendOrigin)
 	}
+	if cfg.MerchantBaseURL != "http://merchant:8084" || cfg.MerchantTimeout != 3*time.Second {
+		t.Errorf("merchant client = %q/%v", cfg.MerchantBaseURL, cfg.MerchantTimeout)
+	}
 }
 
 func TestLoadRejectsMissingAppEnv(t *testing.T) {
@@ -83,6 +86,8 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		"rate limit":             {"APP_ENV": "development", "AI_RATE_LIMIT": "0"},
 		"pricing URL":            {"APP_ENV": "development", "PRICING_BASE_URL": "ftp://pricing"},
 		"parcel path":            {"APP_ENV": "development", "PARCEL_BASE_URL": "http://parcel:8082/api"},
+		"merchant URL":           {"APP_ENV": "development", "MERCHANT_BASE_URL": "ftp://merchant"},
+		"merchant path":          {"APP_ENV": "development", "MERCHANT_BASE_URL": "http://merchant:8084/api"},
 		"bool":                   {"APP_ENV": "development", "AI_ENABLED": "sometimes"},
 		"model spaces":           {"APP_ENV": "development", "AI_MODEL": "gemini 2.5"},
 		"internal path":          {"APP_ENV": "development", "PRICING_BASE_URL": "http://user:pass@pricing:8083"},

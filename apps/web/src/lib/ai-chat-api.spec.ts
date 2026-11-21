@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   describeChatFailure,
   isConversationGone,
+  suggestedQuestionsFor,
   toolProgressLabel,
 } from './ai-chat-api';
 import { ApiError } from './api-errors';
@@ -108,13 +109,37 @@ describe('toolProgressLabel', () => {
     ).toBeNull();
   });
 
-  it('explains why a private tool needs a sign-in', () => {
+  it('explains a denied tool without exposing internals', () => {
     expect(
       toolProgressLabel({
-        name: 'get_my_active_deliveries',
+        name: 'get_active_parcels',
         status: 'DENIED',
       }),
-    ).toBe('Sign in or use a customer account to use your active deliveries.');
+    ).toBe(
+      'That information is not available with your current access (parcel list).',
+    );
+  });
+
+  it('labels every approved tool and its invalid state', () => {
+    const expected: Record<string, string> = {
+      calculate_delivery_fee: 'delivery pricing',
+      get_public_parcel_status: 'parcel status',
+      get_parcel_history: 'parcel history',
+      get_active_parcels: 'parcel list',
+      get_parcel_details: 'parcel details',
+      search_parcels: 'parcel search',
+      list_unassigned_parcels: 'unassigned parcels',
+      get_courier_workload: 'courier workload',
+      get_my_courier_deliveries: 'your deliveries',
+      get_my_courier_delivery: 'your delivery details',
+      get_my_merchant_orders: 'your orders',
+      get_my_webhook_deliveries: 'webhook deliveries',
+    };
+    for (const [name, subject] of Object.entries(expected)) {
+      expect(toolProgressLabel({ name, status: 'INVALID' })).toBe(
+        `More details are needed for ${subject}.`,
+      );
+    }
   });
 
   it('reports an unavailable dependency without its payload', () => {
@@ -128,5 +153,72 @@ describe('toolProgressLabel', () => {
 
   it('ignores an unknown tool name', () => {
     expect(toolProgressLabel({ name: 'run_sql', status: 'OK' })).toBeNull();
+  });
+});
+
+describe('suggestedQuestionsFor', () => {
+  it('gives guests only public starting points', () => {
+    expect(suggestedQuestionsFor(null)).toEqual([
+      'Track a parcel.',
+      'Estimate a delivery fee.',
+      'How does SwiftDrop work?',
+      'What does IN_TRANSIT mean?',
+    ]);
+  });
+
+  it('gives each signed-in role capabilities its backend tools support', () => {
+    expect(suggestedQuestionsFor('CUSTOMER')).toContain('Track my parcel.');
+    expect(suggestedQuestionsFor('CUSTOMER')).toContain(
+      'Show my active parcels.',
+    );
+    expect(suggestedQuestionsFor('CUSTOMER')).not.toContain(
+      'Check courier workloads.',
+    );
+
+    expect(suggestedQuestionsFor('COURIER')).toEqual([
+      'Show my active deliveries.',
+      'Show my completed deliveries.',
+      'Do I have any failed deliveries?',
+      'Find a delivery by parcel ID.',
+    ]);
+    expect(suggestedQuestionsFor('COURIER')).not.toContain(
+      'Show unassigned parcels.',
+    );
+
+    expect(suggestedQuestionsFor('MERCHANT')).toContain(
+      'Show my recent orders.',
+    );
+    expect(suggestedQuestionsFor('MERCHANT')).toContain(
+      'Show my webhook delivery failures.',
+    );
+    expect(suggestedQuestionsFor('MERCHANT')).not.toContain('Track my parcel.');
+
+    expect(suggestedQuestionsFor('DISPATCHER')).toEqual([
+      'Show unassigned parcels.',
+      'Check courier workloads.',
+      'Search for a parcel.',
+      'Show failed deliveries.',
+    ]);
+    expect(suggestedQuestionsFor('ADMIN')).toEqual([
+      'Show unassigned parcels.',
+      'Search parcels.',
+      'Check courier workloads.',
+      'View parcel details.',
+    ]);
+  });
+
+  it('uses plain strings that fit the chat limit', () => {
+    for (const role of [
+      null,
+      'CUSTOMER',
+      'COURIER',
+      'MERCHANT',
+      'DISPATCHER',
+      'ADMIN',
+    ] as const) {
+      for (const question of suggestedQuestionsFor(role)) {
+        expect(question.length).toBeLessThanOrEqual(120);
+      }
+    }
   });
 });

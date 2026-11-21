@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 
+	"github.com/Vineth-R/swiftdrop/apps/services/ai-assistant/internal/client"
 	"github.com/Vineth-R/swiftdrop/apps/services/ai-assistant/internal/contract"
 )
 
@@ -19,9 +20,9 @@ func (t *trackingTool) Definition() contract.ToolDeclaration {
 	return contract.ToolDeclaration{
 		Name: toolNamePublicParcelStatus,
 		Description: "Look up the delivery status of a parcel by its SwiftDrop tracking number, for example SDK7M2Q9XP4. " +
-			"Only signed-in customers (their own parcels) and authorized delivery staff may use this tool. " +
-			"Guests must be asked to sign in; never treat a tracking number as proof of identity. " +
-			"Never invent or accept a user, customer or owner ID.",
+			"Guests receive only the public tracking projection. Signed-in customers see their own parcels only; " +
+			"dispatchers and administrators may look up parcels operationally. A tracking number is never proof of identity " +
+			"and never grants access to private details. Never invent or accept a user, customer or owner ID.",
 		Parameters: contract.Parameters{
 			Properties: map[string]contract.Parameter{
 				"trackingNumber": {
@@ -32,6 +33,16 @@ func (t *trackingTool) Definition() contract.ToolDeclaration {
 			Required: []string{"trackingNumber"},
 		},
 	}
+}
+
+// AvailableTo is the registry-visible subset. Guests may use public tracking;
+// MERCHANT and COURIER may not use this tool.
+func (t *trackingTool) AvailableTo(caller contract.CallerContext) bool {
+	if !caller.Authenticated {
+		return true
+	}
+	return hasVerifiedIdentity(caller) &&
+		(isCustomerRole(caller.Role) || isStaffRole(caller.Role))
 }
 
 type trackingEvent struct {
@@ -46,28 +57,39 @@ type trackingResult struct {
 	DropoffCity    string          `json:"dropoffCity"`
 	LastUpdatedAt  string          `json:"lastUpdatedAt"`
 	Timeline       []trackingEvent `json:"timeline"`
+	Scope          string          `json:"scope"`
 }
 
 func (t *trackingTool) Execute(ctx context.Context, args map[string]any, caller contract.CallerContext) (contract.ToolResult, error) {
-	if denial, ok := requireParcelAccess(caller, "Please sign in to track your parcel."); !ok {
-		return denial, nil
+	guest := !caller.Authenticated
+	if !guest {
+		if denial, ok := requireParcelAccess(caller, "Please sign in to track your parcel."); !ok {
+			return denial, nil
+		}
 	}
 
 	values, message := validateArguments(args, []argSpec{
-		{name: "trackingNumber", kind: argString, required: true, maxLen: 32},
+		{name: "trackingNumber", kind: argString, required: true, maxLen: 32, pattern: trackingNumberPattern},
 	})
 	if message != "" {
 		return invalidResult(message), nil
 	}
 
 	number := values["trackingNumber"].(string)
-	if !trackingNumberPattern.MatchString(number) {
-		return invalidResult("The tracking number format is not valid. SwiftDrop tracking numbers look like SDK7M2Q9XP4."), nil
-	}
 
-	tracking, err := t.parcel.Tracking(ctx, number, caller.AccessToken)
-	if err != nil {
-		return trackingFailure(err), nil
+	var (
+		tracking    client.Tracking
+		trackingErr error
+		scope       = "account"
+	)
+	if guest {
+		scope = "public"
+		tracking, trackingErr = t.parcel.PublicTracking(ctx, number)
+	} else {
+		tracking, trackingErr = t.parcel.Tracking(ctx, number, caller.AccessToken)
+	}
+	if trackingErr != nil {
+		return trackingFailure(trackingErr), nil
 	}
 
 	timeline := make([]trackingEvent, 0, len(tracking.Timeline))
@@ -84,6 +106,7 @@ func (t *trackingTool) Execute(ctx context.Context, args map[string]any, caller 
 			DropoffCity:    tracking.DropoffCity,
 			LastUpdatedAt:  tracking.LastUpdatedAt,
 			Timeline:       timeline,
+			Scope:          scope,
 		},
 	}, nil
 }
