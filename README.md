@@ -1,86 +1,324 @@
 # SwiftDrop
 
-SwiftDrop is a parcel delivery and courier management platform. This repository is a production-oriented foundation: an Nx monorepo with a Next.js frontend, independently runnable Go HTTP services, RabbitMQ workers, a shared Go infrastructure package, PostgreSQL migrations, event and API contracts, Nginx routing, local Docker Compose infrastructure, and GitHub Actions CI.
+SwiftDrop is a parcel delivery and courier management platform for customers,
+merchants, couriers, dispatchers and administrators. It covers the whole delivery
+lifecycle — registration and sign-in, fee estimation, parcel creation, dispatch,
+courier pickup and delivery with photo proof, public tracking, merchant orders and
+signed webhooks, notifications, reports, and an AI delivery assistant.
 
-Identity authentication, pricing estimates/zones/internal quote and admin configuration, anonymous public parcel tracking, DISPATCHER/ADMIN parcel reports and the reports screen, and ADMIN notification-log reads and UI are implemented. Customer parcel creation, owned reads, internal merchant creation/summaries, merchant registration/approval, merchant orders and the merchant portal are implemented. The SwiftDrop Delivery Assistant (Gemini-backed service, chat widget, `/api/v1/ai/chat` gateway route and `ai-assistant` Compose service) is implemented against its [`IMPLEMENTATION_CONTRACT.md`](apps/services/ai-assistant/IMPLEMENTATION_CONTRACT.md). Courier delivery screens, status updates and proof upload/view are implemented. Dispatcher-initiated parcel status writes, SMS notification delivery, and SSE/persistent realtime replay remain planned. Signed merchant webhook delivery with business retries, merchant-owned parcel email notifications and merchant asynchronous order synchronization are implemented. The Realtime WebSocket `/ws` service and its `parcel.status_changed.v1` and `parcel.assigned.v1` consumers are implemented. Phase 2 adds consumer-aware realtime readiness, session-revocation checks in parcel/pricing/realtime, a webhook-secret keyring with AAD binding, CSRF origin enforcement, a CSP and security headers, and a Prometheus metrics foundation. Phase 3 adds consumer/relay-aware worker readiness, runtime event-schema validation, OpenAPI validation, expanded access and real-stack tests, identity token cleanup, historical-document reconciliation and a local k6 baseline. See [Current scope](#current-scope), [`docs/phase-2-security-reliability.md`](docs/phase-2-security-reliability.md), [`docs/phase-3-testing-documentation-qa.md`](docs/phase-3-testing-documentation-qa.md), [`docs/pricing-and-tracking.md`](docs/pricing-and-tracking.md), [`docs/ai-assistant.md`](docs/ai-assistant.md) and [`docs/architecture.md`](docs/architecture.md).
+The repository is a production-oriented Nx monorepo: a Next.js App Router frontend,
+independently deployable Go HTTP services, RabbitMQ workers, one shared Go
+infrastructure package, PostgreSQL migrations with one schema per service, OpenAPI
+and event contracts, Docker Compose infrastructure, and Nginx routing. GitHub
+Actions verifies the project on every pull request and on pushes to `development`
+and `main`.
 
-## Technology
+This README is the entry point. Deeper material is linked rather than duplicated:
+[`docs/architecture.md`](docs/architecture.md),
+[`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md),
+[`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md),
+[`docs/operations.md`](docs/operations.md) and [`AGENTS.md`](AGENTS.md).
 
-- **Frontend:** Next.js 16 App Router, React 19, TypeScript 6, pnpm, Nx, Tailwind CSS v4, shadcn/ui with Radix primitives, and Lucide icons.
-- **Backend:** Go 1.27.4 with Gin, one root Go module.
-- **Data:** PostgreSQL 16 with service-owned schemas and versioned SQL migrations.
-- **Messaging:** RabbitMQ 4.1 with a durable topic exchange, versioned JSON event contracts, bounded retries, and dead-lettering.
-- **Edge:** Nginx reverse proxy.
-- **Local orchestration:** Docker Compose.
-- **CI:** GitHub Actions.
+## 1. Project overview
 
-## Architecture
+SwiftDrop replaces ad-hoc courier coordination with one traceable system:
 
-| Service               | Responsibility                                                                                   | Internal port   |
-| --------------------- | ------------------------------------------------------------------------------------------------ | --------------- |
-| `identity`            | Authentication, admin users, couriers, internal lookups                                          | 8081            |
-| `parcel`              | Anonymous tracking, DISPATCHER/ADMIN reports, and COURIER delivery reads/status updates          | 8082            |
-| `pricing`             | Delivery quotes, zones, and ADMIN pricing configuration                                          | 8083            |
-| `merchant`            | Merchant accounts, orders, API credentials, webhook settings, contact lookup, and status sync    | 8084            |
-| `realtime`            | WebSocket `/ws` updates, status/assignment consumers, consumer-aware readiness                   | 8085            |
-| `ai-assistant`        | Gemini-backed SwiftDrop Delivery Assistant with four approved read-only tools                    | 8087            |
-| `notification-worker` | Notification delivery (legacy + customer/merchant parcel events), email, ADMIN notification logs | 8086            |
-| `webhook-worker`      | Signed merchant webhook delivery and 1m/5m/30m/2h/6h business retries                            | 8088 (internal) |
-| `@org/web`            | Next.js frontend                                                                                 | 3000            |
-| Nginx                 | Public HTTP entry point                                                                          | 8080            |
+- **Customers** estimate a fee, create a parcel, download a receipt and follow it on
+  the public tracking page.
+- **Merchants** register for approval, create orders through an authenticated API,
+  manage webhook subscriptions, and watch order status synchronize automatically.
+- **Couriers** see the deliveries assigned to them, confirm pickup, move a parcel to
+  out-for-delivery, and confirm delivery with a mandatory photo and recipient name.
+- **Dispatchers** assign and reassign parcels, watch live updates, and review daily
+  and outcome reports.
+- **Administrators** manage users, merchants, pricing, notification logs and audit
+  logs.
+- **Everyone** can ask the Gemini-backed SwiftDrop Delivery Assistant a question, and
+  signed-in customers, dispatchers and administrators can use its private parcel tools.
 
-Application access is through the gateway (`http://localhost:8080`). The Compose file also publishes development and infrastructure ports: RabbitMQ AMQP on `5672` and its management UI on `15672`, and Mailpit SMTP on `1025` and its web UI on `8025`. The service ports in the table above are internal to the Compose network and are not published to the host. Override any published port with the matching `.env` variable (`NGINX_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `MAILPIT_SMTP_PORT`, `MAILPIT_UI_PORT`). Services communicate synchronously over HTTP when a caller needs an immediate result. Asynchronous work uses RabbitMQ. Each persisting service owns its PostgreSQL schema and must not modify another service's tables. Realtime currently has no schema or persistence. Read [`docs/architecture.md`](docs/architecture.md) for service boundaries, routing, event conventions, lifecycle behavior, and readiness semantics; this README does not repeat the full architecture.
+The design is deliberately service-oriented. Synchronous work uses HTTP/JSON. Work
+that can be retried independently — notifications, merchant webhooks, merchant order
+status synchronization and realtime fan-out — uses RabbitMQ events with a
+transactional outbox in the Parcel service. Each service owns its schema and never
+reads another service's tables.
 
-## Repository structure
+For the current implementation boundary, see [Key features](#2-key-features) and
+[Known limitations](#known-limitations). Planned work is labelled as planned and is
+not presented as implemented.
+
+## 2. Key features
+
+### Identity and access
+
+- Customer registration with single-use email verification; unverified customers
+  cannot obtain a session.
+- Email/password login, refresh-token rotation with reuse detection, logout with
+  refresh-token revocation, and idempotent logout after access-token expiry.
+- Google OAuth 2.0 sign-in (opt-in; requires your own Google client).
+- Password reset by email, password change, account lockout after repeated failures.
+- Merchant registration and ADMIN approval, rejection, suspension and re-approval.
+- Session versioning (`sv` JWT claim) so suspension and re-approval invalidate old
+  access tokens; a password change revokes every refresh token.
+- Role-based access for `CUSTOMER`, `MERCHANT`, `COURIER`, `DISPATCHER` and `ADMIN`
+  enforced by the API, not only by the UI.
+- Profile read/update, ADMIN user management, courier directory and ADMIN audit-log
+  reads for identity, merchant and pricing.
+
+### Pricing and public tracking
+
+- Exact decimal LKR estimation by zone, weight band and size surcharge.
+- Public zone listing and public parcel tracking with an allowlisted projection (no
+  names, phone numbers, addresses, prices or internal IDs).
+- ADMIN pricing and zone configuration with transactional audit logging.
+- Live tracking updates over WebSocket.
+
+### Parcels and dispatching
+
+- Customer parcel creation that stores the accepted real pricing quote, the initial
+  history row and a pending outbox event atomically.
+- Customer-owned list, detail, history and PDF receipt.
+- Internal merchant parcel creation and summary for trusted callers.
+- Dispatcher assignment and reassignment with courier eligibility checks, one active
+  assignment per parcel, and terminal-state protection.
+- Dispatcher All parcels and Unassigned queues with live status and assignment
+  notices.
+- DISPATCHER/ADMIN daily and outcome reports with a chart, table and top failure
+  reasons.
+
+### Courier workflow
+
+- Today list and delivery history for the signed-in courier.
+- Assignment-scoped delivery detail with sender/recipient and parcel information.
+- Proof-backed pickup (`CREATED → PICKED_UP → IN_TRANSIT`) and delivery
+  (`OUT_FOR_DELIVERY → DELIVERED`) confirmations that commit status, history, proof
+  metadata and outbox data in one transaction.
+- Mandatory delivery photo and recipient name; failure reason for failed deliveries.
+- Private proof-photo storage with short-lived presigned reads and authorization.
+
+### Merchants, webhooks and notifications
+
+- Merchant order API (API v1.1 sections 8.16–8.18) authenticated by merchant API key,
+  with idempotency, snapshots and an initial timeline.
+- Merchant portal: order dashboard, list, detail, receipts, API-key management,
+  integration guide and Create via API panel.
+- Webhook settings with encrypted signing secrets, signed test sends, delivery
+  history and the six API v1.1 business retries.
+- Asynchronous merchant order status synchronization on `merchant.sync.queue`.
+- Branded transactional email for identity and parcel events; merchant-owned events
+  resolve the approved merchant contact through an internal API.
+- ADMIN notification-log read API and screen with masked recipients.
+
+### Realtime
+
+- WebSocket `/ws` with cookie or `?token=` authentication.
+- Per-parcel subscriptions for anonymous and customer clients; `scope: all` for
+  dispatchers and administrators.
+- Consumers for `parcel.status_changed.v1` and `parcel.assigned.v1`.
+
+### AI Delivery Assistant
+
+- Public floating chat widget on every page, backed by Gemini.
+- Server-side guest sessions and optional verified JWT identity.
+- Exactly four read-only tools: fee estimate, ownership-scoped parcel status, owned
+  parcel history and owned active deliveries.
+- Deterministic extraction/permission guard, approved embedded knowledge, safe
+  Markdown rendering, privileged-lookup auditing and safe fallbacks.
+- `AI_PROVIDER=mock` for deterministic development and tests.
+
+### Platform
+
+- Health and readiness endpoints, structured logging, request IDs, panic recovery,
+  JSON error envelopes, graceful shutdown and Prometheus metrics.
+- PostgreSQL migrations with rollback, verification, and restore/rehearsal tooling.
+- RabbitMQ publisher confirms, bounded retries, dead-lettering and idempotent
+  consumers.
+- CSRF origin enforcement, a Content Security Policy, security headers, rate limits,
+  private object storage and credential redaction.
+- CI covering Go, frontend, integration, event-flow, access, real-stack, security and
+  container scans.
+
+## 3. Application screenshots
+
+No screenshots are committed to the repository, so none are shown here rather than
+presenting stale or unverified images. The implemented screens are:
+
+| Area       | Routes                                                                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public     | `/`, `/login`, `/register`, `/register/customer`, `/register/merchant`, `/verify-email`, `/forgot-password`, `/reset-password`, `/signed-out`, `/track`, `/merchant/pending`, `/design`                       |
+| Customer   | `/dashboard`, `/new`, `/parcels`, `/parcels/{id}`, `/profile`, `/profile/security`                                                                                                                            |
+| Merchant   | `/dashboard`, `/merchant/orders`, `/merchant/orders/{orderId}`, `/merchant/integration`, `/merchant/profile`, `/api-keys`, `/webhook`, `/profile`                                                             |
+| Courier    | `/dashboard` (Today), `/history`, `/workload`, `/deliveries/{parcelId}`                                                                                                                                       |
+| Dispatcher | `/dashboard`, `/parcels`, `/unassigned`, `/reports`, `/profile`                                                                                                                                               |
+| Admin      | `/dashboard`, `/admin/users`, `/admin/users/new`, `/admin/users/{userId}/edit`, `/admin/merchants`, `/admin/notification-logs`, `/admin/audit-logs`, `/admin/pricing`, `/admin/zones`, `/reports`, `/profile` |
+
+`/design` is the running style guide: it shows every design token and component in
+light and dark mode. To capture screenshots for a report, start the stack
+(`make up-build`), open <http://localhost:8080>, and use a browser screenshot tool.
+Editable architecture and ER diagram sources live in [`docs/diagrams`](docs/diagrams).
+
+## 4. System architecture
+
+```text
+Browser
+  |
+  v
+Nginx :8080 (only published application port)
+  |-- /                              -> Next.js web :3000
+  |-- /api/v1/auth|users|couriers    -> identity :8081
+  |-- /api/v1/admin/users            -> identity :8081
+  |-- /api/v1/parcels|tracking       -> parcel :8082
+  |-- /api/v1/dispatch|courier       -> parcel :8082
+  |-- /api/v1/reports                -> parcel :8082
+  |-- /api/v1/pricing|zones          -> pricing :8083
+  |-- /api/v1/admin/pricing|zones    -> pricing :8083
+  |-- /api/v1/merchants|merchant     -> merchant :8084
+  |-- /api/v1/admin/merchants        -> merchant :8084
+  |-- /api/v1/admin/notification-logs-> notification-worker :8086
+  |-- /api/v1/ai/chat                -> ai-assistant :8087
+  |-- /ws                            -> realtime :8085
+  |-- /healthz                       -> gateway health
+  `-- /internal                      -> 404 (never routed)
+
+Workers and services
+  |-- merchant            -> RabbitMQ (merchant.sync.queue), PostgreSQL, internal HTTP
+  |-- notification-worker -> RabbitMQ, PostgreSQL, admin HTTP :8086, Identity + Merchant HTTP
+  |-- webhook-worker      -> RabbitMQ, Merchant + Parcel internal HTTP
+  |-- realtime            -> RabbitMQ, PostgreSQL, WebSocket
+  `-- ai-assistant        -> Pricing + Parcel internal HTTP, Gemini
+
+PostgreSQL, RabbitMQ and Mailpit are addressed by Compose service names.
+RabbitMQ (5672/15672) and Mailpit (1025/8025) publish host ports;
+PostgreSQL, application services and workers do not.
+```
+
+```mermaid
+flowchart LR
+  B[Browser] --> N[Nginx gateway]
+  N --> W[Next.js web]
+  N --> ID[identity]
+  N --> P[parcel]
+  N --> PR[pricing]
+  N --> M[merchant]
+  N --> R[realtime]
+  N --> A[ai-assistant]
+  N --> NW[notification-worker]
+  P --> PG[(PostgreSQL)]
+  ID --> PG
+  PR --> PG
+  M --> PG
+  NW --> PG
+  R --> PG
+  P -->|outbox relay| Q[[RabbitMQ]]
+  Q --> NW
+  Q --> WH[webhook-worker]
+  Q --> R
+  Q --> M
+  A --> PR
+  A --> P
+  A --> G[Gemini API]
+  WH --> M
+  WH --> P
+  NW --> ID
+  NW --> M
+```
+
+| Service               | Responsibility                                                                   | Internal port |
+| --------------------- | -------------------------------------------------------------------------------- | ------------- |
+| `identity`            | Authentication, users, couriers, internal identity lookups                       | 8081          |
+| `parcel`              | Parcels, tracking, dispatch, courier workflow, proofs, reports, receipts, outbox | 8082          |
+| `pricing`             | Estimates, zones, pricing rules and ADMIN configuration                          | 8083          |
+| `merchant`            | Merchant accounts, API keys, orders, webhooks, status sync, internal lookups     | 8084          |
+| `realtime`            | WebSocket `/ws` and status/assignment consumers                                  | 8085          |
+| `notification-worker` | Email delivery, notification log, ADMIN notification-log read API                | 8086          |
+| `ai-assistant`        | Gemini-backed Delivery Assistant and its four read-only tools                    | 8087          |
+| `webhook-worker`      | Signed merchant webhook delivery and business retries                            | 8088          |
+| `web`                 | Next.js frontend                                                                 | 3000          |
+| `nginx`               | Public gateway                                                                   | 8080 (host)   |
+
+Each persisting service owns one PostgreSQL schema: `identity`, `parcel`, `pricing`,
+`merchant` and `notification`. Realtime is stateless. Services never read another
+service's schema; cross-service reads use HTTP and side effects use events. See
+[`docs/architecture.md`](docs/architecture.md) for lifecycle, readiness and messaging
+details.
+
+## 5. Technology stack
+
+| Layer         | Choice                                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Frontend      | Next.js 16 App Router, React 19, TypeScript 6, Tailwind CSS v4, shadcn/ui (Radix), Lucide icons, `react-markdown` |
+| Monorepo      | Nx 24, pnpm 12.15.0, Vitest, Playwright                                                                           |
+| Backend       | Go 1.27.4, Gin v1.12.0, one root Go module                                                                        |
+| Data          | PostgreSQL 16, pgx, golang-migrate v4.18.3                                                                        |
+| Messaging     | RabbitMQ 4.1 management (`amqp091-go`)                                                                            |
+| AI            | Google Gemini through `google.golang.org/genai`                                                                   |
+| Storage       | Local filesystem (development), VersityGW S3-compatible (opt-in), Neon Object Storage (production)                |
+| Edge          | Nginx 1.27                                                                                                        |
+| Local runtime | Docker Compose v2                                                                                                 |
+| CI/CD         | GitHub Actions, GHCR image publication, CodeQL, Gitleaks, Trivy, Syft                                             |
+| Observability | `log/slog`, request IDs, Prometheus `/metrics`                                                                    |
+
+## 6. Repository structure
 
 ```text
 apps/
-  web/                      Next.js App Router application
-  web-e2e/                  Playwright end-to-end tests
+  web/                     Next.js App Router application
+  web-e2e/                 Playwright end-to-end and real-stack tests
   services/
-    identity/
-    parcel/
-    pricing/
-    merchant/
-    ai-assistant/
-    notification-worker/
-    webhook-worker/
-    realtime/
+    identity/              Authentication, users, couriers
+    parcel/                Parcels, dispatch, courier, proofs, reports, outbox relay
+    pricing/               Fees, zones, pricing administration
+    merchant/              Merchants, orders, API keys, webhooks, status sync
+    realtime/              WebSocket gateway and consumers
+    ai-assistant/          Gemini assistant, tools and knowledge base
+    notification-worker/   Email delivery and notification log
+    webhook-worker/        Signed merchant webhook delivery
 packages/
-  go-common/                Shared Go infrastructure
+  go-common/               Shared infrastructure (no business entities)
+  webhookdelivery/         Webhook signing and delivery helper
 contracts/
-  openapi/                  Per-service OpenAPI specifications
-  events/                   Versioned event contracts and conventions
-migrations/                 Service-owned SQL migrations
+  openapi/                 Per-service OpenAPI specifications
+  events/                  Versioned event JSON Schemas and conventions
+  routes/                  Runtime Gin route inventories
+migrations/
+  identity/ parcel/ pricing/ merchant/ notification/
 infra/
-  docker/                   Go and Next.js Dockerfiles
-  nginx/                    Local reverse proxy configuration
-docs/                       Architecture documentation
-tests/integration/          RabbitMQ and PostgreSQL integration tests
-.github/workflows/          CI
+  docker/                  Go and Next.js Dockerfiles
+  nginx/                   Gateway configuration
+docs/                      Architecture, API, database, operations and report sources
+tests/
+  integration/             RabbitMQ, PostgreSQL and event-flow suites
+  access/                  Cross-service authorization matrix
+  contracts/               Contract and route-inventory tests
+  perf/                    k6 baseline scenarios
+  scripts/                 CI helper tests
+scripts/                   Operational and release scripts
+.github/workflows/         CI, deployment and security workflows
 ```
 
-Each Go service has `main.go`, `internal/config`, and either `internal/http` or `internal/worker`, with tests beside the code.
+Each Go service has a `main.go`, `internal/config` and either `internal/http` or
+`internal/worker`, with tests beside the code. Do not create a nested `go.mod`, a
+`go.work`, a shared business package, or direct cross-schema access.
 
-## Prerequisites
+## 7. Prerequisites
 
-- Go **1.27.4** or a compatible 1.27 toolchain (`go.mod` is the source of truth).
-- Node.js **24**, the supported and CI-tested version. Other Node.js versions are not officially supported.
-- pnpm **12.15.0** through Corepack.
-- Docker with Docker Compose v2.
-- `curl`, used by the gateway route verification.
-- Optional: the `golang-migrate` CLI for database migrations.
-- Optional: `psql` to inspect the local database.
-- Optional: Chromium if you run Playwright E2E tests.
+- **Go 1.27.4** or a compatible 1.27 toolchain (`go.mod` is authoritative).
+- **Node.js 24** — the supported and CI-tested version.
+- **pnpm 12.15.0** through Corepack.
+- **Docker** with **Docker Compose v2**.
+- **make** and **curl**.
+- Optional: `golang-migrate` CLI, `psql`, Chromium for Playwright, `k6` for the
+  performance scenarios, a Gemini API key for live AI answers.
 
 ```sh
 corepack enable
 corepack prepare pnpm@12.15.0 --activate
 ```
 
-`make` drives the database helpers and local demo seeds (`make migrate`, `make migrate-down`, `make db-verify`, `make db-reset`, `make seed`, `make seed-merchant`, `make check-routes`). Nx and Go commands remain available for everything else.
+Docker must be running before any Compose command. The quick start needs only
+Docker, Compose, `make`, `curl` and `openssl`; Go and Node.js are for host-side
+development and tests.
 
-## Install and configure
+## 8. Environment setup
 
 ```sh
 git clone https://github.com/Vineth-R/swiftdrop.git
@@ -89,9 +327,9 @@ cp .env.example .env
 pnpm install --frozen-lockfile
 ```
 
-`.env.example` contains safe local placeholders only. Set `APP_ENV` explicitly to `development`, `staging`, or `production`; all backend services and workers refuse to start without it. Do not commit `.env`, credentials, private keys, or production secrets. Docker Compose reads `.env` automatically. Go services read process environment variables directly and do not load `.env`; export it before running a service or worker on the host.
-
-The template documents every variable currently used: PostgreSQL, RabbitMQ, gateway, Mailpit, Gmail SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`), pool overrides, and the M4 pricing/tracking settings (`HTTP_TRUSTED_PROXIES` for Pricing and Parcel, plus `INTERNAL_TOKEN`, `JWT_ACCESS_SECRET` and `COOKIE_NAME` for Pricing). It also includes identity settings (`JWT_REFRESH_SECRET`, token TTLs, cookie names and flags, Google OAuth client settings, `FRONTEND_BASE_URL`) and the notification worker's identity contact lookup (`IDENTITY_BASE_URL`, `IDENTITY_TIMEOUT`, `INTERNAL_TOKEN`), email links/footer (`FRONTEND_BASE_URL`, `SUPPORT_EMAIL`) and legacy plus parcel domain-event queues (`NOTIFICATION_QUEUE`/`NOTIFICATION_ROUTING_KEY`, `NOTIFICATION_PARCEL_CREATED_*`, `NOTIFICATION_PARCEL_STATUS_*`). The AI section adds `AI_*`, `GEMINI_API_KEY`, and the internal Pricing/Parcel origins; `GEMINI_API_KEY` is injected only into the `ai-assistant` container and must never use a `NEXT_PUBLIC_` name. The realtime service adds `REALTIME_QUEUE`, `REALTIME_ROUTING_KEY`, and `REALTIME_ALLOWED_ORIGINS`, and uses the shared `RABBITMQ_*` and `JWT_ACCESS_SECRET`/`COOKIE_NAME` settings. Parcel proof uploads add `PROOF_STORAGE_DIR` (Compose defaults to `/home/app/proofs` on the private `parcel-proofs` volume; unset in native runs fails uploads closed with `503`) and `PROOF_MAX_PER_PARCEL` (default 20, range 1-100). In development, an unset or shorter-than-16-character `INTERNAL_TOKEN` keeps the internal endpoints fail-closed. Outside development, identity and pricing refuse to start unless the token is at least 32 random bytes and is not a placeholder. `JWT_ACCESS_SECRET` must be at least 32 random bytes and not a placeholder outside development; an unset value leaves pricing, parcel and notification-worker authenticated routes fail-closed with `503`. Never commit real credentials.
+`.env` is untracked and is the only place for local secrets. Docker Compose reads it
+automatically. Go services read process environment variables directly and do **not**
+load `.env`; export it before running a service or worker on the host:
 
 ```sh
 set -a
@@ -99,313 +337,442 @@ set -a
 set +a
 ```
 
-### Run a second clone safely
+### Required values
 
-Compose namespaces containers, networks, and volumes by project name. The default project name is `swiftdrop`; set `COMPOSE_PROJECT_NAME` to give a second checkout its own resources:
+`APP_ENV` must be exactly `development`, `staging` or `production`; every backend
+service and worker refuses to start without it. Generate local secrets rather than
+copying placeholders:
+
+```sh
+# JWT_ACCESS_SECRET must be at least 32 random bytes outside development.
+printf 'JWT_ACCESS_SECRET=%s\n' "$(openssl rand -hex 32)"
+printf 'JWT_REFRESH_SECRET=%s\n' "$(openssl rand -hex 32)"
+printf 'INTERNAL_TOKEN=%s\n' "$(openssl rand -hex 32)"
+printf 'WEBHOOK_SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
+```
+
+| Group          | Variables                                                                                                                                                                                 | Notes                                                                        |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Runtime        | `APP_ENV`, `LOG_LEVEL`, `NGINX_PORT`                                                                                                                                                      | `APP_ENV` is required; gateway defaults to `8080`                            |
+| PostgreSQL     | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`, `DATABASE_URL_DIRECT`                                                                                                | Compose builds the container URL; `DATABASE_URL` is for host-side tools only |
+| Pool tuning    | `DB_MAX_OPEN_CONNS`, `DB_MAX_IDLE_CONNS`, `DB_CONN_MAX_LIFETIME`, `DB_CONN_MAX_IDLE_TIME`, `DB_CONNECT_TIMEOUT`, `DB_HEALTH_CHECK_PERIOD`                                                 | `POSTGRES_MAX_CONNS` / `POSTGRES_MIN_CONNS` remain aliases                   |
+| RabbitMQ       | `RABBITMQ_URL`, `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_EXCHANGE`, `RABBITMQ_MAX_RETRIES`, `RABBITMQ_RETRY_DELAY`, `RABBITMQ_RECONNECT_MIN`, `RABBITMQ_RECONNECT_MAX` | Defaults work with Compose                                                   |
+| Auth           | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_NAME`, token TTLs, cookie flags                                                                                                        | Secrets must be at least 32 bytes outside development                        |
+| Internal calls | `INTERNAL_TOKEN`, `IDENTITY_BASE_URL`, `MERCHANT_BASE_URL`, `PRICING_BASE_URL`, `PARCEL_BASE_URL` and timeouts                                                                            | Development accepts Compose service names                                    |
+| Email          | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `SUPPORT_EMAIL`                                                                                    | Defaults to Mailpit; Gmail is opt-in                                         |
+| Google OAuth   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                                                                                                                         | Optional; the routes are not mounted until configured                        |
+| Proof storage  | `STORAGE_PROVIDER`, `STORAGE_*`, `PROOF_STORAGE_DIR`, `PROOF_MAX_PER_PARCEL`, `PROOF_MAX_SIZE_BYTES`, `PROOF_PRESIGNED_URL_TTL_SECONDS`                                                   | Local filesystem is the development default                                  |
+| Webhooks       | `WEBHOOK_SECRET_KEY`, `WEBHOOK_SECRET_KEY_ID`, `WEBHOOK_SECRET_KEYS`                                                                                                                      | 64 hex characters; keyring supports rotation                                 |
+| AI             | `AI_ENABLED`, `AI_PROVIDER`, `GEMINI_API_KEY`, `AI_MODEL`, timeouts, rate and concurrency limits                                                                                          | Key is read only by `ai-assistant`                                           |
+| Seeds          | `SEED_*` and `SEED_MERCHANT_*`                                                                                                                                                            | Passwords have no defaults                                                   |
+
+`.env.example` documents every variable with safe placeholders. Never commit real
+credentials, and never expose `GEMINI_API_KEY` through a `NEXT_PUBLIC_` name, the web
+image, a build argument or source control.
+
+Outside development, a configured `JWT_ACCESS_SECRET` must be at least 32 random
+bytes and not a placeholder, and identity/pricing refuse to start unless
+`INTERNAL_TOKEN` is at least 32 random bytes. In development, an unset or
+shorter-than-16-character `INTERNAL_TOKEN` keeps internal endpoints fail-closed.
+
+## 9. Docker Compose quick start
+
+```sh
+cp .env.example .env
+# set at least APP_ENV=development and a real JWT_ACCESS_SECRET
+make up-build
+```
+
+`make up-build` builds every image and then runs the startup workflow: validate
+configuration, start PostgreSQL/RabbitMQ/Mailpit and wait for health, apply all five
+service migrations, start the application images and wait for readiness, then verify
+gateway routes with `scripts/check-routes.sh`.
+
+Open:
+
+| Endpoint                          | URL                                                         |
+| --------------------------------- | ----------------------------------------------------------- |
+| Application (through the gateway) | <http://localhost:8080/>                                    |
+| Mailpit (captured email)          | <http://localhost:8025/>                                    |
+| RabbitMQ management               | <http://localhost:15672/> (Compose credentials from `.env`) |
+| Gateway health                    | <http://localhost:8080/healthz>                             |
+| PostgreSQL                        | Internal only (`postgres:5432`)                             |
+| Service and worker ports          | Internal only                                               |
+
+Subsequent starts with existing images:
+
+```sh
+make up
+```
+
+After changing application source, rebuild:
+
+```sh
+make up-build
+```
+
+`make up` is safe to repeat: Compose is a no-op, migrations report no change, routes
+are re-verified, and a missing image fails before startup with instructions.
+
+### Common commands
+
+| Command                                                                     | Purpose                                                                           |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `make help`                                                                 | List all targets                                                                  |
+| `make build`                                                                | Build all application images without starting                                     |
+| `make up`                                                                   | Start dependencies, migrate, start services, verify routes                        |
+| `make up-build`                                                             | Build images, then run `make up`                                                  |
+| `make down`                                                                 | Stop containers and keep volumes                                                  |
+| `make logs`                                                                 | Follow logs                                                                       |
+| `make migrate`                                                              | Apply all service migrations                                                      |
+| `make migrate-status`                                                       | Print each migration version and fail on dirty state                              |
+| `make migrate-create SERVICE=parcel NAME=description`                       | Create a migration pair                                                           |
+| `make db-verify`                                                            | Read-only baseline verification                                                   |
+| `make seed` / `make seed-merchant` / `make seed-parcels` / `make seed-demo` | Seed demo data                                                                    |
+| `make check-routes`                                                         | Verify gateway routing against the running stack                                  |
+| `make test`                                                                 | Go race tests                                                                     |
+| `make test-db`                                                              | PostgreSQL integration tests                                                      |
+| `make test-storage`                                                         | S3-compatible object-store integration tests                                      |
+| `make test-access`                                                          | Cross-service access tests against the gateway                                    |
+| `make check-openapi`                                                        | Contract and route-inventory validation                                           |
+| `make db-reset`                                                             | Delete local volumes and rebuild (**destructive**, requires `CONFIRM_DB_RESET=1`) |
+
+Compose namespaces resources by project name. To run a second checkout safely:
 
 ```sh
 COMPOSE_PROJECT_NAME=swiftdrop-verify make up-build
 COMPOSE_PROJECT_NAME=swiftdrop-verify make down
 ```
 
-Use `make project-name` to print the resolved project name. Compose resources are prefixed with it (for example `swiftdrop-verify-postgres-1` and `swiftdrop-verify_postgres-data`). Project isolation does not change published host ports, so if two stacks run at the same time, choose different ports in the second clone's `.env` (or export them), for example `NGINX_PORT=8180`, `RABBITMQ_PORT=5772`, `RABBITMQ_MANAGEMENT_PORT=15673`, `MAILPIT_SMTP_PORT=1125`, and `MAILPIT_UI_PORT=8125`. `make down` keeps that project's volumes; only `make db-reset` deletes them, and only for the selected project.
+Choose different published ports in the second checkout's `.env` (for example
+`NGINX_PORT=8180`, `RABBITMQ_PORT=5772`, `RABBITMQ_MANAGEMENT_PORT=15673`,
+`MAILPIT_SMTP_PORT=1125`, `MAILPIT_UI_PORT=8125`).
 
-The integration branch is `development`. Create feature branches from it and open pull requests into `development`. Do not push directly to `development` or `main`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the branch, pull request, review, and merge workflow.
+## 10. Database migrations
 
-## Quick start
+Migrations live under `migrations/<service>/` and use
+`NNNNNN_description.up.sql` / `.down.sql`. Each service has its own version table.
+Applied migrations are immutable; fix mistakes with a new forward migration.
 
-Prerequisites: Docker with Compose v2, `make`, and `curl`. Go, Node.js, pnpm, and Playwright are only needed for host-side development and tests.
+| Service      | Current head | Notes                                                                                    |
+| ------------ | ------------ | ---------------------------------------------------------------------------------------- |
+| Identity     | `000006`     | OAuth state binding, email verification, session version, merchant lifecycle             |
+| Pricing      | `000002`     | Baseline tables and seeds                                                                |
+| Parcel       | `000008`     | Dispatch, price breakdown, outbox types/claim, customer list index, proof kind           |
+| Merchant     | `000011`     | Constraints, onboarding, registration-number compatibility, order snapshots, idempotency |
+| Notification | `000003`     | Delivery-log `created_at` index                                                          |
 
-```sh
-git clone https://github.com/Vineth-R/swiftdrop.git
-cd swiftdrop
-cp .env.example .env
-# edit .env only if your local configuration differs
-make up-build
-```
-
-`make up-build` builds all images and then runs the full startup workflow. `make up`:
-
-1. validates configuration (`preflight`);
-2. starts PostgreSQL, RabbitMQ and Mailpit and waits for their health checks;
-3. applies all five service migrations;
-4. starts the existing application images and waits for readiness;
-5. runs `scripts/check-routes.sh` against the actual published Nginx port.
-
-Open <http://localhost:8080/>. Mailpit is at <http://localhost:8025/> and RabbitMQ management at <http://localhost:15672/>. The first build can take several minutes.
-
-**Subsequent startups:** use `make up`. It starts existing images with `--no-build` and does not rebuild them.
-
-**After changing application source code:** use `make up-build` so the images are rebuilt before startup.
-
-Running `make up` again is safe: Compose is a no-op, migrations report `no change`, and routes are re-verified. If an application image is missing, `make up` fails before starting and tells you to run `make build` or `make up-build`.
-
-If `.env` is missing and required variables are not exported, or `JWT_ACCESS_SECRET` is empty, `make up` fails during preflight with a clear error instead of waiting for unhealthy containers.
-
-### Command reference
-
-| Command                        | What it does                                                                  |
-| ------------------------------ | ----------------------------------------------------------------------------- |
-| `make build`                   | Build all application images; does not start containers                       |
-| `make up`                      | Start dependencies, migrate, start services, verify routes                    |
-| `make up-build`                | Build images, then run the full `make up` workflow                            |
-| `docker compose up --build -d` | Start only; **builds but does not migrate**                                   |
-| `make migrate`                 | Apply all service migrations (uses `DATABASE_URL_DIRECT` when set)            |
-| `make migrate-status`          | Print each migration version and fail on dirty state                          |
-| `make migrate-create`          | Create a migration pair (`SERVICE=parcel NAME=description`)                   |
-| `make storage-up`              | Start local S3-compatible storage and create the proof bucket                 |
-| `make db-audit`                | Read-only source database inventory                                           |
-| `make db-backup`               | Verified local PostgreSQL backup outside the repository                       |
-| `make proof-transfer`          | Dry-run local proof files into object storage                                 |
-| `make proof-reconcile`         | Compare database proof keys with stored objects                               |
-| `make db-verify`               | Verify the documented database baseline (read-only)                           |
-| `make project-name`            | Print the resolved Compose project name                                       |
-| `make seed`                    | Create the five deterministic demo users                                      |
-| `make seed-parcels`            | Create one demo parcel for each canonical status                              |
-| `make seed-demo`               | Seed users, merchant, API key and parcels through Compose                     |
-| `make migrate-down`            | Roll back **one migration per service** (destructive; see below)              |
-| `make check-routes`            | Verify gateway routing against the running stack                              |
-| `make logs`                    | Follow logs                                                                   |
-| `make down`                    | Stop containers; keeps volumes and data                                       |
-| `make db-reset`                | Delete local volumes and rebuild (destructive; requires `CONFIRM_DB_RESET=1`) |
-
-Start only what you need:
-
-```sh
-docker compose up -d postgres        # database and migrations
-docker compose up -d rabbitmq        # workers and broker-backed integration tests
-docker compose up -d mailpit         # local email UI
-```
-
-PostgreSQL is internal to the Compose network and does not publish a host port. Containers connect to it at `postgres:5432`; Compose builds that URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`, so services and `make migrate` never use the `localhost` URL. Application services read `DB_*` pool settings (the legacy `POSTGRES_MAX_CONNS` / `POSTGRES_MIN_CONNS` names remain aliases). The `DATABASE_URL` in `.env.example` is a **host-side** default for tools such as `psql`, `go run`, and `make seed`. It points at `localhost:5432` and works only when a PostgreSQL instance is reachable there (for example a separate local installation). It cannot reach the Compose database. PostgreSQL integration tests use a separate `TEST_DATABASE_URL` instead; see [PostgreSQL integration tests](#postgresql-integration-tests) below. Do not use `localhost` from inside a container, and do not add a host port to `docker-compose.yml` just for local tests.
-
-### Neon production and object storage
-
-Production uses the existing Neon project (`proud-rice-63339713`, AWS US East 2, branch `production`, database `neondb`). Application services use the pooled `DATABASE_URL`; migrations use `DATABASE_URL_DIRECT`. Local Docker PostgreSQL remains the default and needs no Neon credentials. See [`docs/neon-production.md`](docs/neon-production.md) for project facts, pool budgets, staging validation, backup/restore, data migration, proof transfer, cutover, and GitHub secrets.
-
-Delivery proof photos use `packages/go-common/objectstore`. Local filesystem storage is the development default; `make storage-up` starts an opt-in VersityGW S3-compatible profile for local development, and production uses Neon Object Storage's private `delivery-proofs` bucket. Proof keys are `<parcel-uuid>/<proof-uuid>.jpg|.png`; legacy flat keys remain readable. See [`docs/delivery-proof-storage.md`](docs/delivery-proof-storage.md).
-
-```sh
-make migrate-status
-make storage-up
-make proof-transfer      # dry run
-make proof-reconcile
-```
-
-## Sending email
-
-Mailpit is the local email sink and is always available at <http://localhost:8025> (SMTP on `1025`). `.env.example` defaults to Mailpit, so no credentials are required for local email.
-
-### Gmail SMTP (opt-in)
-
-1. Enable 2-Step Verification on the Google account.
-2. Create an App Password at Google Account → Security → App Passwords (choose "Mail"). Google shows a 16-character password; the normal account password will not work.
-3. Create `.env` from the template and set your own credentials in the untracked file:
-   ```sh
-   cp .env.example .env
-   # edit .env and uncomment the Gmail block:
-   # SMTP_HOST=smtp.gmail.com
-   # SMTP_PORT=587
-   # SMTP_USER=your-account@gmail.com
-   # SMTP_PASSWORD=your-16-character-app-password
-   # SMTP_FROM=your-account@gmail.com
-   # SMTP_FROM_NAME=Swift Drop Support
-   ```
-4. Recreate the services that receive mail configuration:
-   ```sh
-   docker compose up -d --force-recreate identity notification-worker
-   ```
-
-Gmail settings used by the template:
-
-| Setting   | Value                            |
-| --------- | -------------------------------- |
-| Host      | `smtp.gmail.com`                 |
-| Port      | `587` (STARTTLS)                 |
-| Username  | the Gmail address                |
-| Password  | 16-character Google App Password |
-| From      | the same Gmail address           |
-| From name | `Swift Drop Support`             |
-
-Mailpit publishes `${MAILPIT_SMTP_PORT:-1025}` and its UI on `8025`. To switch back from Gmail, set `SMTP_HOST=mailpit`, `SMTP_PORT=1025`, and leave `SMTP_USER`/`SMTP_PASSWORD` empty.
-
-**Security and scope**
-
-- The App Password belongs only in `.env`, which is untracked. Never commit it, paste it into chat, or log it. Revoke it from the Google account if exposed.
-- TLS certificate verification stays enabled. Certificate revocation checking (`CheckCertificateRevocation`) is not implemented in the sender.
-- The identity service sends its account emails (password reset, password changed, welcome, account locked and so on) and the notification worker sends notification email through the shared mailer in `packages/go-common/mailer`, which reads this configuration. The emails themselves, their branded templates, how to preview them with `make email-preview` and `make email-send-preview`, and real delivery with a provider are described in [docs/email.md](docs/email.md). `SUPPORT_EMAIL`, `SMTP_REPLY_TO` and `SMTP_SECURE` are optional. The notification worker requires `SMTP_HOST` and fails startup when SMTP is not configured. Delivery is at-least-once; a duplicate email is possible if a crash or connection loss happens between an SMTP send and the broker acknowledgement.
-- Gmail SMTP is suitable for development and small volumes. Production email should use a transactional provider with SPF/DKIM/DMARC.
-
-## Database migrations
-
-Migrations live under `migrations/<service>/` and use `NNNNNN_description.up.sql` / `.down.sql`. Applied migrations are immutable.
-
-- `000001_initial_schema` creates the schema.
-- `000002_tables` is the M1 baseline from [`docs/db.sql`](docs/db.sql) (26 tables, triggers, seeds). Identity `000004`-`000006`, merchant `000007` and merchant `000011` add five additive tables, making 31 tables in the complete chain.
-- `000006_merchant_constraints` is the merchant-specific forward migration that preserves the merchant checks after the duplicate merchant migration files were removed. Versions `000003`–`000005` are intentionally absent for merchant; the runner accepts gaps.
-- `000007_registration_onboarding` adds merchant onboarding tables and the required registration-number constraint.
-- `000008_business_reg_no_optional` is the forward compatibility migration applied to the source/production databases.
-- `000009_restore_business_reg_no_required` restores the mandatory registration-number constraint after `000008`.
-- `000010_merchant_order_snapshots` adds the merchant order pickup/recipient snapshots and the `(merchant_id, updated_at)` index.
-- New migrations start at the next unused version (merchant: `000011`).
-
-Apply migrations (PostgreSQL must be running):
+The complete chain creates **31 tables**: the 26-table `docs/db.sql` baseline plus
+five additive tables. See the addendum in
+[`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md).
 
 ```sh
 docker compose up -d postgres
 make migrate
-```
-
-`make migrate` runs `scripts/migrate.sh` inside the pinned `migrate/migrate:v4.18.3` container. The migrate service receives a `DATABASE_URL` that Compose builds from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` (from `.env` or exported variables), so custom credentials are honored, and it never prints the URL. It bootstraps `public.set_updated_at()` and applies identity → pricing → parcel → merchant → notification, each with its own `<service>_schema_migrations` version table.
-
-Expected result: 31 tables and seeds `5/5/25/4/4`.
-
-Verify the baseline without writing to the database:
-
-```sh
+make migrate-status
 make db-verify
 ```
 
-`make db-verify` runs read-only queries through the Compose `postgres` service with `default_transaction_read_only=on`. It checks the five schemas, 30 base tables, the four additive identity/merchant tables, five identity roles, five pricing zones, 25 pricing rules, four weight bands, and four size surcharges, then prints `PASS`/`FAIL` for each check and exits non-zero if any expectation is not met. It does not run migrations, reset data, or print credentials.
+`make migrate` runs the pinned `migrate/migrate:v4.18.3` image through
+`scripts/migrate.sh`, bootstraps `public.set_updated_at()`, and applies identity →
+pricing → parcel → merchant → notification. It never prints the connection URL.
 
-**Windows and line endings.** Git for Windows may convert shell scripts to CRLF, which breaks execution in the Linux migration container. `.gitattributes` forces LF for `*.sh` and `Makefile`; do not override it. If an existing clone still fails with `bad interpreter: /bin/sh^M` or `$'\r': command not found`, preserve any local edits and re-checkout only the affected scripts:
+`make db-verify` runs read-only checks through the Compose PostgreSQL service with
+`default_transaction_read_only=on`. A development database that has extra
+admin-created pricing data will correctly report a mismatch against the baseline
+counts; verify against a freshly migrated database for release evidence.
 
-```sh
-git stash push -- scripts/migrate.sh scripts/check-routes.sh
-rm scripts/migrate.sh scripts/check-routes.sh
-git checkout -- scripts/migrate.sh scripts/check-routes.sh
-git stash pop
-```
-
-A fresh clone also works. Do not run `git checkout -- scripts/` to fix this: it rewrites every file under `scripts/` and can discard unrelated local changes.
-
-Roll back:
+Roll back one migration per service (disposable databases only):
 
 ```sh
 make migrate-down
 ```
 
-This rolls back **one migration per service** in reverse order. On services currently at version 2 this drops their schema and tables. Use it only on a disposable database. Migrations never run automatically at application startup.
+Never run `make migrate-down` or `make db-reset` against shared or production data.
+Migrations are not applied automatically at service startup.
 
-Destructive reset (local only, explicit use):
+To rehearse backup, restore and migration rollback:
 
 ```sh
-make db-reset
+make db-rehearse-restore REHEARSAL_DATABASE_URL='postgres://.../disposable?sslmode=disable'
 ```
 
-`make db-reset` runs `docker compose down -v`, deleting local PostgreSQL and RabbitMQ volumes. Never use it on shared data.
+See [`docs/operations.md`](docs/operations.md) and
+[`migrations/README.md`](migrations/README.md).
 
-### Custom database credentials
+## 11. Demo data and seed instructions
 
-Set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in `.env` (or export them). Migrations and services use the same values. Passwords containing URL-reserved characters (`@ : / ? # [ ] %`) are a known limitation because Compose builds the connection URL from these values; use URL-safe credentials for now.
-
-`make migrate` fails clearly if the database is unreachable or credentials are wrong. Inspect with `docker compose ps postgres` and `docker compose logs postgres`. The migration runner never prints the connection URL.
-
-## SwiftDrop Delivery Assistant
-
-The Delivery Assistant is a floating chat widget available on every page. It
-answers SwiftDrop questions and, when needed, calls the real Pricing and Parcel
-service through exactly four read-only tools. Gemini is the only provider; the
-browser talks only to `POST /api/v1/ai/chat` through Nginx, and the Gemini key
-exists only in the `ai-assistant` container.
+Demo users are never created by migrations, Compose or service startup. Seeds are
+operator-run, idempotent, and refuse `APP_ENV=production`.
 
 ```sh
-cp .env.example .env          # then set GEMINI_API_KEY, or AI_PROVIDER=mock
+export SEED_ADMIN_PASSWORD='<your-password>'
+export SEED_DISPATCHER_PASSWORD='<your-password>'
+export SEED_COURIER_1_PASSWORD='<your-password>'
+export SEED_COURIER_2_PASSWORD='<your-password>'
+export SEED_CUSTOMER_PASSWORD='<your-password>'
+export SEED_MERCHANT_PASSWORD='<your-password>'
+
+make seed            # five demo users + courier profiles
+make seed-merchant   # approved merchant owner and merchant record
+make seed-parcels    # one parcel per canonical status
+make seed-demo       # all of the above through the Compose network
+```
+
+`make seed-demo` can also create a known merchant API key:
+
+```sh
+export SEED_MERCHANT_API_KEY="$(printf 'sdk_live_%s_%s' "$(openssl rand -hex 8)" "$(openssl rand -hex 24)")"
+make seed-demo
+```
+
+Only the key hash is stored; the full value is the one you supplied. The email
+addresses in `.env.example` use `example.com` and are placeholders, not mailboxes.
+Seeds require a reachable database and, for the merchant path, a reachable Identity
+service. Verify that any `DATABASE_URL` points at a disposable database before
+seeding.
+
+## 12. Application access and service endpoints
+
+Everything a browser uses goes through Nginx on `http://localhost:8080`. Nginx strips
+`/api/v1` before forwarding, so Gin registers root paths such as `/auth/...`,
+`/parcels/...`, `/health` and `/ready`.
+
+| Public prefix                                                                                                            | Upstream service                  |
+| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers`, `/api/v1/admin/audit-logs/identity`          | identity                          |
+| `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports` | parcel                            |
+| `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/admin/pricing`, `/api/v1/admin/zones`, `/api/v1/admin/audit-logs/pricing`   | pricing                           |
+| `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`, `/api/v1/admin/audit-logs/merchant`                  | merchant                          |
+| `/api/v1/admin/notification-logs`                                                                                        | notification-worker               |
+| `/api/v1/ai`                                                                                                             | ai-assistant                      |
+| `/ws`                                                                                                                    | realtime                          |
+| `/healthz`                                                                                                               | gateway only                      |
+| `/internal`                                                                                                              | blocked at the gateway (JSON 404) |
+
+Health probes are internal:
+
+```sh
+docker compose exec identity wget -qO- http://127.0.0.1:8081/ready
+docker compose exec parcel wget -qO- http://127.0.0.1:8082/health
+```
+
+`/health` is liveness. `/ready` reports required dependencies; for example, realtime
+requires PostgreSQL and both consumers, the notification worker requires PostgreSQL
+and all three consumers, and `ai-assistant` returns `503` when its provider is
+disabled or unconfigured. `/healthz` and `/readyz` remain deprecated aliases.
+
+The browser-only Next.js development server runs on `http://localhost:3000` and
+proxies `/api/v1` to the gateway at `http://127.0.0.1:8080` (`API_PROXY_TARGET`
+overrides it). `/ws` is not proxied by Next, so for `nx dev` copy
+`apps/web/.env.example` to the untracked `apps/web/.env.local`.
+
+## 13. User roles and demo accounts
+
+| Role         | Main capabilities                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `CUSTOMER`   | Register/verify, estimate, create and track own parcels, download receipts, edit profile, use private AI parcel tools |
+| `MERCHANT`   | Approved merchant portal, orders, API keys, webhooks, receipts, integration guide                                     |
+| `COURIER`    | Today list, delivery history, pickups, out-for-delivery, delivery with proof, failures                                |
+| `DISPATCHER` | All parcels, unassigned queue, assignment/reassignment, reports, live updates, operational AI access                  |
+| `ADMIN`      | Users, merchants, pricing, notification logs, audit logs, reports, operational AI access                              |
+
+Demo accounts created by `make seed` / `make seed-demo`:
+
+| Role       | Email (placeholder)           | Password                   |
+| ---------- | ----------------------------- | -------------------------- |
+| ADMIN      | `seed.admin@example.com`      | `SEED_ADMIN_PASSWORD`      |
+| DISPATCHER | `seed.dispatcher@example.com` | `SEED_DISPATCHER_PASSWORD` |
+| COURIER 1  | `seed.courier.1@example.com`  | `SEED_COURIER_1_PASSWORD`  |
+| COURIER 2  | `seed.courier.2@example.com`  | `SEED_COURIER_2_PASSWORD`  |
+| CUSTOMER   | `seed.customer@example.com`   | `SEED_CUSTOMER_PASSWORD`   |
+| MERCHANT   | `seed.merchant@example.com`   | `SEED_MERCHANT_PASSWORD`   |
+
+Passwords have no default and are never committed. You can also register a customer
+at `/register/customer`; merchants apply at `/register/merchant` and cannot sign in
+until an administrator approves them at `/admin/merchants`.
+
+A development login example:
+
+```sh
+curl -i -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -H 'X-Token-Mode: body' \
+  -d '{"email":"seed.customer@example.com","password":"<your-password>"}'
+```
+
+Five wrong passwords lock the account for 15 minutes. Login and register are limited
+to 10 requests per minute per client address.
+
+## 14. API documentation
+
+- Product specification: [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md)
+- Machine-readable contracts: [`contracts/openapi`](contracts/openapi)
+- Event schemas and conventions: [`contracts/events`](contracts/events)
+- Runtime route inventories: [`contracts/routes`](contracts/routes)
+- Merchant integration guide: [`docs/merchant-api-guide.html`](docs/merchant-api-guide.html)
+  and [`docs/merchant-api-guide.pdf`](docs/merchant-api-guide.pdf)
+- Merchant API guide source: `make merchant-api-pdf`
+
+Errors use the API v1.1 envelope and never expose stack traces, SQL or credentials:
+
+```json
+{
+  "error": { "code": "NOT_FOUND", "message": "route not found" },
+  "meta": { "requestId": "..." }
+}
+```
+
+Status codes follow REST conventions: `200/201/204` success, `400` malformed input,
+`401/403` authentication/authorization, `404` missing, `409` conflict, `422` semantic
+validation and `500` unexpected failure. Unmatched routes return JSON `NOT_FOUND`;
+disallowed methods return `METHOD_NOT_ALLOWED` with an `Allow` header.
+
+Most browser routes authenticate with the `sd_access` HttpOnly cookie (15 minutes)
+and rotate the `sd_refresh` cookie (7 days). Merchant order creation (API 8.16) is
+authenticated only by `X-API-Key`; the portal never handles a merchant key. Internal
+service-to-service routes require `X-Internal-Token` and, for merchant internal
+routes, a well-formed `X-Request-Id`, and are never proxied by Nginx.
+
+Validate contracts and route coverage:
+
+```sh
+make check-openapi
+```
+
+After an intentional route change, regenerate the inventories and review the diff
+with the OpenAPI and Nginx changes:
+
+```sh
+UPDATE_ROUTES=1 go test -run TestRouteInventory ./apps/services/...
+```
+
+## 15. Event-driven architecture
+
+The durable topic exchange is **`swiftdrop.events`**. Event names are versioned as
+`<domain>.<past_tense_action>.v<major>`.
+
+| Event                      | Producers           | Consumers                                                                       |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------- |
+| `parcel.created.v1`        | Parcel outbox relay | notification-worker                                                             |
+| `parcel.assigned.v1`       | Parcel outbox relay | realtime                                                                        |
+| `parcel.status_changed.v1` | Parcel outbox relay | notification-worker, webhook-worker, realtime, merchant (`merchant.sync.queue`) |
+
+Durable queues include `notification.requested.v1` (legacy work item),
+`notification.parcel.created.v1`, `notification.parcel.status_changed.v1`,
+`webhook.parcel.status_changed.v1`, `realtime.parcel.status_changed.v1`,
+`realtime.parcel.assigned.v1` and `merchant.sync.queue`.
+
+- **Transactional outbox.** Parcel creation, assignment and status writes store a
+  PENDING outbox row in the same transaction as the business change. The relay claims
+  rows atomically (`FOR UPDATE SKIP LOCKED`, `claim_token`/`claimed_at`) before
+  publishing with publisher confirms, so replicas do not publish the same row.
+  Publication is at-least-once; consumers are idempotent.
+- **Retries and dead letters.** Resources are derived from the exchange and queue:
+  `<exchange>.retry`, `<queue>.retry.v2`, `<exchange>.dlx`, `<queue>.dlq`. Failures
+  are classified as permanent or retryable; retryable failures are retried up to
+  `RABBITMQ_MAX_RETRIES` (default 3) with `RABBITMQ_RETRY_DELAY` (default 30s), then
+  dead-lettered. Malformed or unsupported messages are dead-lettered immediately.
+- **Framing and schemas.** Message bodies are limited to 1 MiB and must be absent or
+  `application/json`. Envelopes and the full event payload are validated against the
+  embedded JSON Schemas before handling.
+- **Merchant webhooks.** The webhook worker delivers the API v1.1 public projection
+  with HMAC signing, records attempts, and schedules the 1m/5m/30m/2h/6h business
+  retries. Suspended, pending or rejected merchants and inactive webhooks are
+  suppressed before the HTTP request.
+- **Realtime.** Status events project only public tracking fields. Assignment notices
+  reach dispatcher/administrator `scope: all` clients only and tell them to refetch
+  authoritative REST state.
+
+See [`contracts/events/README.md`](contracts/events/README.md) and
+[`docs/architecture.md`](docs/architecture.md).
+
+## 16. AI assistant setup and usage
+
+The Delivery Assistant is part of the release, not an optional extra branch. It is a
+floating chat widget on every page and a Go service at `apps/services/ai-assistant`.
+The browser calls only `POST /api/v1/ai/chat` through Nginx; the Gemini key exists
+only in the `ai-assistant` container.
+
+### Live Gemini
+
+```sh
+# in .env
+AI_ENABLED=true
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your-key
+AI_MODEL=gemini-3.5-flash
+```
+
+```sh
 make up-build
 curl -s http://localhost:8080/api/v1/ai/chat \
   -H 'Content-Type: application/json' \
   -d '{"message":"What is SwiftDrop?","conversationId":null}'
 ```
 
-Setup, the endpoint contract, mock-provider flow, tests, security notes and the
-known limitations (in-process conversations and rate limiting) are in
-[`docs/ai-assistant.md`](docs/ai-assistant.md). The Go service, Gemini
-integration, knowledge base and tool registry live in
-[`apps/services/ai-assistant`](apps/services/ai-assistant) and follow its
+### Deterministic local provider
+
+```sh
+AI_PROVIDER=mock
+GEMINI_API_KEY=
+```
+
+`mock` is development-only. A missing or invalid Gemini key does not stop the
+gateway: the assistant returns `503 AI_UNAVAILABLE` with a safe message.
+
+### Permissions and tools
+
+| Caller                | Tool access                                                                   |
+| --------------------- | ----------------------------------------------------------------------------- |
+| Guest                 | No private tools; approved knowledge only; HttpOnly `sd_ai_guest` session     |
+| `CUSTOMER`            | Own parcel status/history/active deliveries, including tracking-number lookup |
+| `DISPATCHER`, `ADMIN` | Operational parcel access                                                     |
+| `MERCHANT`, `COURIER` | No parcel tools                                                               |
+
+Exactly four read-only tools exist: `calculate_delivery_fee`,
+`get_public_parcel_status` (ownership-scoped; despite the name it never uses the
+anonymous public endpoint), `get_my_parcel_history` and `get_my_active_deliveries`.
+The assistant never accepts identity or role from the model, never accesses the
+database, exposes no write tools, and treats a tracking number as data — not as an
+authentication credential.
+
+Conversation history, rate limiting (15/minute) and concurrency limits are
+process-local and non-durable. Multi-replica coordination is future work. See
+[`docs/ai-assistant.md`](docs/ai-assistant.md),
+[`docs/ai-release-checklist.md`](docs/ai-release-checklist.md) and the service's
 [`IMPLEMENTATION_CONTRACT.md`](apps/services/ai-assistant/IMPLEMENTATION_CONTRACT.md).
 
-## Run the frontend
+## 17. Testing and verification
 
-```sh
-pnpm exec nx dev @org/web
-```
+Run checks from the repository root so the single Go module and shared packages
+resolve.
 
-The application is available at <http://localhost:3000>. Run the frontend unit tests with `pnpm exec nx test @org/web`; browser flows run through Playwright with `pnpm exec nx e2e @org/web-e2e`.
-
-The browser only ever calls `/api/v1/...` on its own origin. In development, Next proxies those calls to the gateway at `http://127.0.0.1:8080` (set `API_PROXY_TARGET` to use another address), so the session cookies stay first-party. Start the backend first with `make up`, otherwise sign-in, register and password reset fail with "We could not reach SwiftDrop". Google sign-in only completes from <http://localhost:8080>, because its redirect address is the gateway.
-
-Live updates use a WebSocket, and Next proxies `/api/v1` but not `/ws`. For `nx dev`, copy `apps/web/.env.example` to the untracked `apps/web/.env.local` so the client connects to the gateway at `ws://localhost:8080/ws`. Behind the gateway (production and Docker) the client uses the page's own host, so no override is needed.
-
-The screens are `/login`, `/register`, `/forgot-password`, `/reset-password`, `/signed-out`, the role-based `/dashboard` (a customer's recent parcels, a merchant's business and API keys, an administrator's waiting counts, the courier's Today view), `/profile`, `/profile/security`, the COURIER `/history` delivery-history screen, the COURIER delivery detail screen with status updates and proof upload/view, the DISPATCHER/ADMIN `/reports` screen, the ADMIN `/admin/users` and `/admin/notification-logs`, the merchant `/merchant/orders` list/detail and Create via API panel, and the public `/track` parcel tracking page. `/design` shows the tokens, the SwiftDrop components and the shadcn/ui primitives.
-
-## Run an individual HTTP service
-
-```sh
-set -a
-. ./.env
-set +a
-
-go run ./apps/services/identity
-```
-
-Or use Nx:
-
-```sh
-pnpm exec nx serve identity
-```
-
-Service health endpoints are internal to the Compose network (they are not published to the host):
-
-- `GET /health` — liveness, `{"status":"ok"}`. `/healthz` remains a deprecated alias.
-- `GET /ready` — readiness for the service's required workload. Every service checks PostgreSQL; parcel also reports its outbox relay when publishing is configured, merchant reports its sync consumer when enabled, realtime reports both consumers, the notification worker reports all three consumers, and the webhook worker reports its consumer on its internal port. A missing required dependency returns `503` with the failing checks. `/readyz` remains a deprecated alias.
-
-Inspect them with `docker compose exec`, for example `docker compose exec identity wget -qO- http://127.0.0.1:8081/ready`. Through the gateway, only `/healthz` is public.
-
-Unmatched routes return the API v1.1 error envelope with code `NOT_FOUND` and `meta.requestId`; disallowed methods return `METHOD_NOT_ALLOWED` with an `Allow` header. Panics are converted to `INTERNAL_ERROR`; stack traces, SQL, and credentials never reach clients.
-
-## Run a worker
-
-Workers require RabbitMQ. Start it with Docker Compose:
-
-```sh
-docker compose up -d rabbitmq
-```
-
-Then:
-
-```sh
-set -a
-. ./.env
-set +a
-
-go run ./apps/services/notification-worker
-```
-
-The notification worker also requires SMTP configuration. `.env.example` defaults to Mailpit (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`), so start Mailpit with `docker compose up -d mailpit` and view delivered mail at <http://localhost:8025>. A missing or invalid SMTP configuration fails startup.
-
-Workers reconnect with capped exponential backoff and jitter when the broker is unavailable, and reset the backoff after a session reaches the consume phase. They acknowledge a message only after the handler succeeds or after a retry/dead-letter publication is confirmed. Unclassified handler failures are retried up to `RABBITMQ_MAX_RETRIES` (default `3`) with `RABBITMQ_RETRY_DELAY` (default `30s`) and then dead-lettered; malformed or unsupported messages are dead-lettered immediately. A second termination signal forces exit if graceful shutdown does not finish.
-
-Notification delivery is at-least-once. The worker acknowledges only after the SMTP send succeeds, but delivery and acknowledgement cannot be atomic, so a duplicate email is possible after a crash or connection loss between them. A delivery failure is retried and eventually dead-lettered. Invalid payloads and unsupported channels such as `sms` are permanent failures. Workers accept message bodies up to 1 MiB with an absent or `application/json` content type. Workers do not expose a public HTTP API, with one deliberate exception: the notification worker exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API on internal port `8086`, reachable only through the gateway. Worker health checks verify the process and, for the notification worker, database connectivity; they do not prove an active RabbitMQ consumer or successful event delivery. The event-flow integration test verifies the committed outbox → relay → RabbitMQ → notification/webhook/realtime/merchant-sync chain against real PostgreSQL and RabbitMQ.
-
-Processed-event records are retained for 30 days by default. The notification worker runs cleanup immediately at startup and then every 24 hours by default, deleting `notification.processed_events` rows whose `processed_at` is strictly older than the cutoff. Configure the policy with `NOTIFICATION_PROCESSED_EVENTS_RETENTION` (default `720h`) and `NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL` (default `24h`); both values must be positive. Cleanup never modifies `notification_logs`, and a failed cleanup is logged and retried on the next interval without stopping notification consumption. Graceful shutdown cancels the scheduler and waits for it to stop before the database closes. Idempotency is guaranteed only while the processed-event row is retained, so a sufficiently late redelivery after cleanup can be processed again.
-
-## Tests and checks
-
-### Go unit tests and builds
+### Backend
 
 ```sh
 gofmt -l apps/services packages/go-common tests/integration
 go vet ./...
-go test ./...
-go test -race ./...
+go test -race -count=1 ./...
 go build ./...
 ```
 
-Unit tests do not require PostgreSQL or RabbitMQ.
+`make test` runs the race suite. Unit tests do not require PostgreSQL or RabbitMQ.
 
-### RabbitMQ integration tests
+### PostgreSQL integration
 
-Broker-backed messaging integration tests live in [`tests/integration`](tests/integration) behind the `integration` build tag. They cover acknowledgement, retry-then-success, permanent dead-lettering, retry exhaustion, and panic recovery.
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
+  make test-db
+```
+
+`TEST_DATABASE_URL` must allow `CREATE DATABASE`; tests create and drop uniquely named
+databases and never touch application data. The suite covers migrations
+(up/down/reapply), pricing HTTP, notification idempotency/retention, the
+notification-log repository, demo seeds, merchant HTTP/repository and the Parcel
+PostgreSQL tests. The Parcel tests require the `migrate` CLI on `PATH`.
+
+### RabbitMQ integration and event flow
 
 ```sh
 docker compose up -d rabbitmq
@@ -413,353 +780,203 @@ RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
   go test -tags=integration ./tests/integration
 ```
 
-Tests skip when `RABBITMQ_URL` is unset. CI sets it and fails the job if any integration test is skipped. Each test creates uniquely named exchanges and queues and removes them during cleanup. See [`tests/integration/README.md`](tests/integration/README.md).
-
-The event-flow suite in [`tests/integration/eventflow`](tests/integration/eventflow) (tag `integration`) requires both PostgreSQL and RabbitMQ. It writes a real courier status transaction and outbox row, runs the real relay and AMQP publisher, and processes the event with the real notification, webhook, realtime and merchant-sync handlers (in-process with real clients). Merchant notifications use the real merchant internal lookup and the merchant order snapshot is updated exactly once. CI runs it as the `eventflow` job and fails on skips:
-
 ```sh
 TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
 RABBITMQ_URL='amqp://swiftdrop:swiftdrop@localhost:5672/' \
   go test -race -count=1 -tags=integration ./tests/integration/eventflow/...
 ```
 
-### PostgreSQL integration tests
+The event-flow suite writes real outbox rows, runs the real relay and AMQP publisher,
+and processes events with the real notification, webhook, realtime and merchant-sync
+handlers. CI fails on skipped integration tests.
 
-Dispatch and pricing migration tests live in [`tests/integration/database`](tests/integration/database) behind the `integration` build tag. They apply the parcel/pricing baseline and dispatch migrations to a uniquely named, isolated database, then verify constraints, indexes, triggers, seed data, upgrade paths, and rollback/reapply. The pricing HTTP integration test in `apps/services/pricing/internal/http` exercises the real router, repository and seeded PostgreSQL data. The parcel report query integration test in `apps/services/parcel/internal/reports` uses the parcel fixture and verifies UTC boundaries, zero-day filling, outcomes rates, top-five failure reasons and 90-day index use. The notification-log integration test in `apps/services/notification-worker/internal/notificationlog` applies the real notification migrations to an isolated database and verifies filtering, pagination, ordering and empty results. The processed-event cleanup integration test in `apps/services/notification-worker/internal/idempotency` uses a separate disposable database and verifies cutoff behavior, repeatability, cancellation, concurrency and delivery-log preservation.
-
-```sh
-TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/postgres?sslmode=disable' \
-  make test-db
-```
-
-`TEST_DATABASE_URL` must allow `CREATE DATABASE`. The tests drop their isolated databases during cleanup and never touch application data outside them. `make test-db` runs the migration suite, the pricing HTTP integration tests, the notification-worker idempotency/cleanup tests, the notification-log repository integration tests and the demo-seed integration tests. Compose PostgreSQL is not published to the host, so use a separately running local PostgreSQL or a temporary published test instance. CI runs the same tests against PostgreSQL 16.
-
-### Nx and frontend checks
+### Frontend
 
 ```sh
-pnpm exec nx show projects
-
-pnpm exec nx run-many -t lint test build \
-  -p identity,parcel,pricing,merchant,ai-assistant,notification-worker,webhook-worker,realtime,go-common
-
+pnpm exec nx test @org/web
+pnpm exec nx typecheck @org/web
 pnpm exec nx lint @org/web
 pnpm exec nx build @org/web
 pnpm exec nx lint @org/web-e2e
 pnpm exec nx typecheck @org/web-e2e
-```
-
-`@org/web` has no separate `test` or `typecheck` target; the Next build performs type checking.
-
-To run Playwright E2E locally:
-
-```sh
 pnpm exec playwright install chromium
 pnpm exec nx run @org/web-e2e:e2e --args="--project=chromium"
 ```
 
-Local mocked E2E uses the production Next build, matching CI and the deployed
-application. The development server deliberately runs React effects twice in
-Strict Mode, which changes the request sequence several mocked journeys assert
-on; do not switch these tests back to `nx dev`.
+The Playwright config also defines Firefox and WebKit for local use; CI runs Chromium
+only. Mocked journeys use the production Next build on purpose, matching CI and the
+deployed application. Real-stack journeys (`*.real.spec.ts`) run against Compose and
+need the seeded accounts through `REAL_STACK_*` variables; see
+`apps/web-e2e` and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-The Playwright configuration also defines Firefox and WebKit projects, but CI
-runs Chromium only in this phase.
-
-Validate OpenAPI contracts and the runtime route inventories:
+### Contracts, design lint and schemas
 
 ```sh
 make check-openapi
+node --test "tests/contracts/*.test.mjs"
+node --test "apps/web/eslint-rules/*.test.mjs"
+node --test "apps/web/src/lib/*.test.mjs"
+pnpm exec prettier --check .
 ```
 
-The committed `contracts/routes/<service>.json` inventories are snapshots of
-`gin.Engine.Routes()`. After an intentional route change, regenerate them with
-`UPDATE_ROUTES=1 go test -run TestRouteInventory ./apps/services/...` and review
-the diff with the OpenAPI and Nginx changes. See
-[`contracts/routes/README.md`](contracts/routes/README.md).
-
-Local k6 smoke/load scenarios live in `tests/perf`; see
-[`docs/phase-3-performance-baseline.md`](docs/phase-3-performance-baseline.md).
-
-The `real-stack` project runs `*.real.spec.ts` against the Compose stack through the gateway. It needs the five demo accounts from `make seed` and the matching variables; use the same values you gave `SEED_*_EMAIL` / `SEED_*_PASSWORD`:
-
-| Account    | Variables                                                       |
-| ---------- | --------------------------------------------------------------- |
-| ADMIN      | `REAL_STACK_ADMIN_EMAIL`, `REAL_STACK_ADMIN_PASSWORD`           |
-| DISPATCHER | `REAL_STACK_DISPATCHER_EMAIL`, `REAL_STACK_DISPATCHER_PASSWORD` |
-| COURIER_1  | `REAL_STACK_COURIER_1_EMAIL`, `REAL_STACK_COURIER_1_PASSWORD`   |
-| COURIER_2  | `REAL_STACK_COURIER_2_EMAIL`, `REAL_STACK_COURIER_2_PASSWORD`   |
-| CUSTOMER   | `REAL_STACK_CUSTOMER_EMAIL`, `REAL_STACK_CUSTOMER_PASSWORD`     |
-
-`REAL_STACK_BASE_URL` (default `http://localhost:8080`), `REAL_STACK_RABBITMQ_URL`, `MAILPIT_URL`, `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS` are optional. Locally a missing account skips its test; in CI every account is required, and the run fails if the provisioning step did not supply one. The real-stack CI job seeds all five accounts into its disposable database and passes generated credentials to Playwright through the step environment, never through the repository.
-
-The E2E suite includes `track.spec.ts`, which covers the public `/track` page without a backend: found, delivered, failed, not-found, invalid-format, rate-limited, server-fault and offline states, shared links, refresh behaviour, public-field privacy, and responsive and accessibility checks. `track-live.spec.ts` covers live status updates on `/track` with the production hook against a fake realtime server: a change without a reload, updates for another parcel, repeats and older updates, same-status updates, stale snapshots (including a manual Refresh), private-field privacy, dropped and refused connections, and no subscription before a parcel is found. `dispatch-live.spec.ts` covers live status updates on the dispatcher All parcels page with the production hook against a fake realtime server: following every parcel, a row changing without a reload, updates for a parcel not on the page, older updates, reloads after subscribing, stale snapshots, a failed reload, private-field privacy, dropped and refused connections, and a customer never connecting. It also includes `booking-fee.spec.ts`, which covers the customer booking wizard's fee estimate problems: field-level route, weight and 422 messages, rate-limit countdowns that hold Retry estimate and Create delivery independently, and server faults. `admin-users.spec.ts` covers the ADMIN `/admin/users` screen without a backend: the user list, search, the role and account filters, pagination, activate and deactivate with confirmation, the self-deactivation guard, and the loading, empty, error and no-permission states.
-
-Go targets run from the repository root so the single root module and shared packages resolve correctly. `go.mod`, `go.sum`, and `packages/go-common` are part of every Go target's Nx cache key.
-
-## Run the integrated environment
+### Security and infrastructure
 
 ```sh
-make up-build    # first run or after changing source code
-make up          # subsequent runs, reusing built images
+go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+pnpm audit --prod --audit-level=high
+docker compose config --quiet
+make test-access          # against a running Compose gateway
+make test-storage         # when the local S3-compatible service is running
 ```
 
-`make up-build` builds the images and then runs the full startup workflow. `make up` starts the migration dependencies, applies migrations, starts the existing images and waits for readiness, then verifies gateway routes without rebuilding. Plain `docker compose up --build -d` starts the same stack but does **not** migrate; run `make migrate` afterwards. Nginx waits for its web and HTTP service dependencies to become healthy before starting. Endpoints:
-
-- Gateway (only public application port): <http://localhost:8080/>
-- Frontend through the gateway: <http://localhost:8080/>
-- Gateway health: <http://localhost:8080/healthz>
-- Mailpit UI: <http://localhost:8025/>
-- RabbitMQ management: <http://localhost:15672/>
-- Public API groups: `/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/couriers`, `/api/v1/admin/notification-logs`, `/api/v1/pricing`, `/api/v1/zones`, `/api/v1/parcels`, `/api/v1/tracking`, `/api/v1/dispatch`, `/api/v1/admin/parcels`, `/api/v1/courier`, `/api/v1/reports`, `/api/v1/merchants`, `/api/v1/merchant`, `/api/v1/admin/merchants`
-- WebSocket: `ws://localhost:8080/ws`
-- `/internal/*` is blocked at the gateway (JSON `404`); `/api/v1/ai/chat` is implemented and forwarded to the AI assistant.
-
-### Docker build cache
-
-The Go image copies only `go.mod`, `go.sum`, `packages/`, and the selected service. The web image copies the pnpm/Nx manifests, `nx.json`, TypeScript configs, `apps/web`, `apps/web-e2e`, and `packages`, instead of the whole repository. Backend-only changes therefore do not invalidate the web build, and documentation, migration, Makefile, and Compose changes do not invalidate Go builds. If a JavaScript package is added under `packages/`, add its manifest to the `pnpm install` layer in `infra/docker/web.Dockerfile`.
-
-## Demo login
-
-Email and password authentication is implemented in the identity service (API v1.1 sections 2.1 to 2.4): register, login, refresh and logout. Google login, password reset, admin user management, the courier list and the identity internal lookups are also implemented (sections 2.5, 2.6, 2.10 to 2.17 and 13); the signed-in profile and password-change endpoints are implemented. Demo users are not created by migrations; seed them with `make seed` below, or register an account instead:
-
-```sh
-curl -i -X POST http://localhost:8080/api/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"Str0ngPass!","fullName":"Your Name","phone":"+94771234567"}'
-
-curl -i -X POST http://localhost:8080/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -H 'X-Token-Mode: body' \
-  -d '{"email":"you@example.com","password":"Str0ngPass!"}'
-```
-
-Login sets the HttpOnly `sd_access` (15 minutes) and `sd_refresh` (7 days) cookies and, in token mode, also returns `accessToken` and `refreshToken` in the body. Five wrong passwords lock the account for 15 minutes (`423 ACCOUNT_LOCKED`), and login and register are limited to 10 requests per minute per client address. `JWT_ACCESS_SECRET` is required; outside development it must be at least 32 random bytes. Admin endpoints require an ADMIN account; use the demo ADMIN created by `make seed` or another ADMIN account.
-
-### Google OAuth (opt-in)
-
-Google sign-in is implemented. It stays disabled until you configure your own OAuth client; SwiftDrop does not ship credentials. Keep real client IDs and secrets in your untracked `.env` only.
-
-1. In Google Cloud Console, create an OAuth 2.0 Client ID of type **Web application**.
-2. Add the authorized redirect URI exactly: `http://localhost:8080/api/v1/auth/google/callback`. The browser must reach the callback through the gateway, not through the Next.js development origin.
-3. Set these values in `.env` (or export them before starting the service on the host), then recreate the identity container:
-   ```sh
-   GOOGLE_CLIENT_ID=your-client-id
-   GOOGLE_CLIENT_SECRET=your-client-secret
-   GOOGLE_REDIRECT_URI=http://localhost:8080/api/v1/auth/google/callback
-   ```
-   ```sh
-   docker compose up -d --force-recreate identity
-   ```
-4. Start the flow at <http://localhost:8080/api/v1/auth/google/login> (the login screen links to it) and complete consent in a browser.
-
-The identity service reads `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` from its process environment. If any is missing, or the redirect URI is not an absolute HTTP(S) URL, the service logs a warning naming the missing settings (never their values) and does not mount `/auth/google/login` or `/auth/google/callback`; those paths return `404 NOT_FOUND`. Email/password authentication continues to work. See [`docs/identity-m2-handoff.md`](docs/identity-m2-handoff.md) for the browser flow and error behaviour.
-
-### Demo seed
-
-`make seed` creates one ADMIN, one DISPATCHER, two COURIER accounts with valid courier profiles, and one CUSTOMER. It is a local development tool and never runs during service startup, Compose startup, or migrations. It refuses `APP_ENV=production` and a non-local database unless `ALLOW_REMOTE_SEED=1` is set for a disposable target. It repairs a missing courier profile on a rerun without changing the user.
-
-The command reads process environment variables; it does not load `.env` automatically. Export `DATABASE_URL` and all ten values before running it:
-
-```sh
-export DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/swiftdrop?sslmode=disable'
-export SEED_ADMIN_EMAIL='seed.admin@example.com'
-export SEED_ADMIN_PASSWORD='<your-admin-password>'
-# ...the remaining SEED_DISPATCHER, SEED_COURIER_1, SEED_COURIER_2 and SEED_CUSTOMER pairs
-make seed
-```
-
-The complete required set is `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_DISPATCHER_EMAIL`, `SEED_DISPATCHER_PASSWORD`, `SEED_COURIER_1_EMAIL`, `SEED_COURIER_1_PASSWORD`, `SEED_COURIER_2_EMAIL`, `SEED_COURIER_2_PASSWORD`, `SEED_CUSTOMER_EMAIL`, and `SEED_CUSTOMER_PASSWORD`.
-
-The addresses in `.env.example` use `example.com` and are placeholders, not real mailboxes. The seed is idempotent: existing emails are skipped, including accounts with a different role, and existing passwords, roles, user details and courier profiles are never overwritten. A rerun therefore creates zero users and skips the five existing accounts.
-
-Compose PostgreSQL is internal and does not publish a host port. To seed from the host, point `DATABASE_URL` at a reachable PostgreSQL instance. For isolated local testing, use a temporary disposable PostgreSQL database, apply all five service migrations to it, export that URL and the seed variables, then run `make seed`. Do not point the seed at production or a shared database.
-
-### Merchant demo seed
-
-`make seed-merchant` creates one APPROVED merchant demo account: an Identity MERCHANT owner plus its merchant record. It goes through the real registration and admin-approval paths, is idempotent, and never runs during service startup, Compose startup, or migrations. It requires `DATABASE_URL`, a reachable Identity service (`IDENTITY_BASE_URL`, default `http://localhost:8081`), `INTERNAL_TOKEN`, and the `SEED_MERCHANT_*` variables, including an explicit `SEED_MERCHANT_PASSWORD` with no default. It refuses `APP_ENV=production`. Optionally set `SEED_MERCHANT_API_KEY` to create a demo API key; only its hash is stored and the full value is never logged. Export the values before running:
-
-```sh
-export DATABASE_URL='postgres://swiftdrop:swiftdrop@localhost:5432/swiftdrop?sslmode=disable'
-export SEED_MERCHANT_EMAIL='merchant@example.com'
-export SEED_MERCHANT_PASSWORD='<your-merchant-password>'
-# ...the remaining SEED_MERCHANT_FULL_NAME, _PHONE, _BUSINESS_NAME,
-# _BUSINESS_REG_NO, _CONTACT_EMAIL, _CONTACT_PHONE, _PICKUP_ADDRESS and
-# _PICKUP_ZONE_CODE values
-make seed-merchant
-```
-
-See [`.env.example`](.env.example) for the complete variable set and safe local placeholders.
-
-### Unified demo seed and demo API key
-
-`make seed-demo` seeds everything through the Compose network: the five demo
-accounts, the approved merchant, an optional known API key, and one parcel for
-each canonical status (`CREATED`, `PICKED_UP`, `IN_TRANSIT`,
-`OUT_FOR_DELIVERY`, `DELIVERED`, `FAILED`). It is idempotent: reruns create no
-duplicates and never overwrite existing rows.
-
-```sh
-export SEED_MERCHANT_PASSWORD='<your-merchant-password>'
-# Generate a demo key and export it for this run. The template leaves it blank;
-# there is no predictable default.
-export SEED_MERCHANT_API_KEY="$(printf 'sdk_live_%s_%s' "$(openssl rand -hex 8)" "$(openssl rand -hex 24)")"
-make seed-demo
-```
-
-Only the SHA-256 hash of `SEED_MERCHANT_API_KEY` is stored. The full key is
-never logged; it is the value you supplied. The seeded merchant can then call
-API 8.16 with `Authorization: Bearer <key>`. `make seed-parcels` runs only the
-parcel step and requires the five demo accounts to exist first.
-
-Stop containers without deleting data:
-
-```sh
-docker compose down
-```
-
-`docker compose down -v` also deletes the PostgreSQL and RabbitMQ volumes. That is destructive; use it only when you intend to reset local data.
-
-## CI
-
-GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on pull requests to `development` and `main`, on pushes to those branches, and on `v*` and `milestone-*` tags. The current jobs are:
-
-| Job                           | What it runs                                                                                                                                                                                                                                                                                                                                       |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Go checks**                 | `gofmt` verification, `go vet ./...`, `go test -race -covermode=atomic -coverprofile=coverage.out ./...`, uploads `coverage.out`, `go build ./...`, `docker compose config --quiet`, and the worker-healthcheck guard.                                                                                                                             |
-| **Go vulnerability scan**     | Installs pinned `govulncheck@v1.9.0` and fails on reachable symbol-level vulnerabilities.                                                                                                                                                                                                                                                          |
-| **Repository hygiene**        | Enforces LF line endings and the `.gitattributes` `eol=lf` rule for tracked shell scripts.                                                                                                                                                                                                                                                         |
-| **RabbitMQ integration**      | Starts a RabbitMQ service container, requires `RABBITMQ_URL`, waits for the broker port, runs `go test -race -count=1 -tags=integration -v ./tests/integration`, and fails if any test is skipped.                                                                                                                                                 |
-| **PostgreSQL integration**    | Starts a PostgreSQL 16 service container, requires `TEST_DATABASE_URL`, and runs the isolated dispatch, processed-event cleanup, notification-log, pricing, demo-seed and merchant HTTP/seed database tests plus the parcel PostgreSQL tests (`-tags=integration,postgres` with `PARCEL_TEST_DATABASE_URL`); fails if any test is skipped.         |
-| **Event flow E2E**            | Starts PostgreSQL 16 and RabbitMQ, then runs `go test -race -count=1 -tags=integration ./tests/integration/eventflow/...`, which exercises the real relay, notification, webhook, realtime and merchant-sync handlers with in-process handlers; fails if any test is skipped.                                                                      |
-| **Frontend checks**           | Installs dependencies with pnpm, runs Prettier in check mode over the configured scope, validates `contracts/events`, runs the design-lint and API-client Node tests, runs `pnpm exec nx test @org/web`, `pnpm exec nx typecheck @org/web`, `pnpm exec nx run-many -t lint build --projects=@org/web,@org/web-e2e`, and typechecks `@org/web-e2e`. |
-| **Frontend production audit** | Installs the frozen lockfile and runs `pnpm audit --prod --audit-level=high`; high/critical production findings fail.                                                                                                                                                                                                                              |
-| **Playwright E2E**            | Installs Chromium with dependencies and runs the `@org/web-e2e` E2E target with `--project=chromium` only.                                                                                                                                                                                                                                         |
-| **Secret scanning**           | Installs checksum-verified Gitleaks and scans full Git history with redacted output.                                                                                                                                                                                                                                                               |
-| **Docker builds and scans**   | Detects changed projects with `dorny/paths-filter`, builds only affected images, verifies each image exists, scans it with Trivy (HIGH/CRITICAL), and uploads a Syft CycloneDX SBOM plus the Trivy report.                                                                                                                                         |
-| **Access tests**              | Builds and starts the full Compose stack and runs the cross-service access suite when a Docker service changes, or when Compose, Nginx, PostgreSQL initialization, migrations, access tests, the Makefile, migration scripts, or `.env.example` change.                                                                                            |
-| **Migration validation**      | Applies every service migration from a fresh PostgreSQL database with pinned golang-migrate, verifies clean versions, table counts and expected per-service heads.                                                                                                                                                                                 |
-| **Object storage**            | Starts a VersityGW S3-compatible service and runs the `integration,storage` objectstore tests; fails if any test is skipped.                                                                                                                                                                                                                       |
-| **Pooled PostgreSQL**         | Runs PostgreSQL behind PgBouncer in transaction mode and exercises the pooled compatibility test.                                                                                                                                                                                                                                                  |
-| **Real-stack onboarding E2E** | Builds and starts the Compose stack with Mailpit, creates a real administrator, and runs the Playwright `real-stack` project.                                                                                                                                                                                                                      |
-| **Notification worker E2E**   | Builds and starts the notification worker, Identity and Merchant images with Mailpit, then runs the `notificationflow` suite covering legacy, customer-owned and merchant-owned parcel events; fails on skips.                                                                                                                                     |
-| **SAST (CodeQL)**             | Runs advanced CodeQL analysis for Go and JavaScript/TypeScript on pull requests and development/main pushes.                                                                                                                                                                                                                                       |
-| **Security gate**             | Aggregates Go, frontend, secret, SAST, and container security results; Docker is allowed to be skipped when change detection finds no affected images, but a failed Docker/scan job fails the gate.                                                                                                                                                |
-| **Required CI gate**          | Always runs and fails if any core check, integration job, security gate, `changes`, Docker build, or access test fails or is cancelled; Docker, access and other path-filtered jobs may be skipped when change detection finds no affected projects.                                                                                               |
-| **Release smoke (tags)**      | On `v*` and `milestone-*` tags, prepares `.env` from `.env.example`, builds every image, starts the full Compose stack with `--wait`, applies migrations with `make migrate`, runs `scripts/check-routes.sh`, and stops the stack.                                                                                                                 |
-
-The path filters, the separate access output, and the required-gate result handling are covered by `tests/scripts/ci_path_filter_test.go`. CI enforces Prettier on documentation, contracts, workflows, web sources and other configured files through `pnpm exec prettier --check`. [`.github/workflows/deploy-production.yml`](.github/workflows/deploy-production.yml) applies and verifies Neon migrations and then publishes the service and web images to GHCR; it does not roll the application out. This documentation does not claim that CI has passed for a given revision; check the Actions run for the branch or pull request.
-
-Dependency updates are managed manually by the development team; Dependabot is not enabled.
-
-See [Security scanning](docs/security-scanning.md) for scanner versions, thresholds, local commands, SBOM artifacts, exception policy, and security-gate troubleshooting.
-
-## Troubleshooting
-
-- **Port already in use:** change `NGINX_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `MAILPIT_SMTP_PORT`, or `MAILPIT_UI_PORT` in `.env` and restart Compose. `SMTP_PORT` is the outbound provider port, not a published port. Service and web ports are internal and are not published.
-- **Environment variables missing for a host process:** Go services do not load `.env`. Export it with `set -a; . ./.env; set +a` before `go run` or `nx serve`.
-- **Migrations cannot connect:** run `docker compose up -d postgres`, then `docker compose ps postgres`. Confirm `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` match your `.env`. `make migrate` reads the Compose-resolved `DATABASE_URL`, not a hardcoded one. URL-reserved password characters are a known limitation (use URL-safe credentials).
-- **Nginx returns 502 or will not start:** Nginx resolves upstreams at startup. Start the full stack with `make up` rather than starting Nginx alone. Check `docker compose ps` for unhealthy services.
-- **Images are missing or stale (`make up` starts old code):** run `make up-build` to rebuild before starting.
-- **Worker keeps reconnecting:** confirm RabbitMQ is healthy and `RABBITMQ_URL` points at the broker. For containers use the `rabbitmq` service name; use `localhost` only from the host. Reconnect attempts are logged with the next delay.
-- **Integration tests skip:** `RABBITMQ_URL` is unset or empty. Set it to the Compose broker URL. CI treats skips as failures.
-- **Playwright cannot launch a browser:** run `pnpm exec playwright install chromium` (add `--with-deps` on Linux if system libraries are missing).
-- **Docker runs out of memory while building every Go image:** the Go Dockerfile bounds compiler memory (`GOFLAGS=-p=1`, `GOMEMLIMIT`, `GOGC`), and `make build` builds the application images one service at a time in a fixed order. If a build still exhausts memory, build one service at a time with `docker compose build <service>` and then run `make up`; do not run global Docker cleanup.
-
-  ```sh
-  docker compose build identity
-  docker compose build parcel
-  docker compose build pricing
-  docker compose build merchant
-  docker compose build realtime
-  docker compose build notification-worker
-  docker compose build webhook-worker
-  docker compose build web
-
-  docker compose up -d
-  ```
-
-- **Migration fails with a duplicate version:** check `migrations/<service>/` for repeated six-digit versions. Applied migrations are immutable; add a new forward migration instead of renumbering an applied one.
-- **Merchant migration history:** the duplicate merchant files (`000002_merchants`–`000005_audit_logs`) were removed before ever being applied to the baseline database. Merchant schema changes now live in `000006_merchant_constraints`, `000007_registration_onboarding`, the compatibility migration `000008_business_reg_no_optional`, `000009_restore_business_reg_no_required`, `000010_merchant_order_snapshots` and `000011_merchant_order_idempotency`; the current head is `000011` and the next merchant migration starts at `000012`. Databases that somehow applied the merchant variant as version 2 must be rebuilt by the merchant owner.
-- **CI fails on formatting:** run `gofmt -w` on the changed Go files and `pnpm exec prettier --write` on changed documentation or frontend files.
-
-## Branching and pull requests
-
-Start feature branches from `development` and open pull requests into `development`. Keep changes focused, include tests and documentation with implementation changes, and use the pull request template. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow and required checks.
-
-## Adding a new service
-
-1. Create `apps/services/<name>/` with `main.go`, `internal/config`, and either `internal/http` or `internal/worker` plus tests.
-2. Import shared code through `github.com/Vineth-R/swiftdrop/packages/go-common/...`.
-3. Add a `project.json` with `build`, `test`, `lint`, and `serve` targets using `nx:run-commands`.
-4. Add a service-owned schema migration under `migrations/<name>/` if the service persists data.
-5. Add an OpenAPI specification under `contracts/openapi/`.
-6. Add a `TestRouteInventory` beside the router and a `contracts/routes/<name>.json` inventory; add the service to `tests/contracts/route-inventory.test.mjs`.
-7. If the service is public, add an Nginx route and matching Gin paths, then update the Compose service and documentation.
-8. Run `gofmt`, `go test ./...`, `go build ./...`, `make check-openapi`, and the Nx targets.
-
-Do not create a nested `go.mod` or `go.work`. Do not give services a shared business-logic package or direct access to another service's tables.
-
-## Documentation
-
-- [`DESIGN.md`](DESIGN.md): the frontend design guide. Read it before building or changing any screen in `apps/web`.
-- [`docs/architecture.md`](docs/architecture.md): service boundaries, routing, lifecycle, messaging, and readiness.
-- [`docs/data-retention.md`](docs/data-retention.md): approved retention for notification logs, merchant reservations, processed events and identity tokens.
-- [`docs/db.sql`](docs/db.sql): canonical 26-table baseline (five schemas, triggers, seeds); additive migrations bring the current chain to 31 tables.
-- [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md) and [`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md): product API and database design sources.
-- [`docs/merchant-api-guide.html`](docs/merchant-api-guide.html) and [`docs/merchant-api-guide.pdf`](docs/merchant-api-guide.pdf): merchant-facing integration guide (zones, orders, receipt, webhooks); regenerate the PDF with `make merchant-api-pdf`.
-- Customer and merchant receipts share `packages/go-common/receiptdesign`; the customer receipt is `GET /api/v1/parcels/{reference}/receipt` (UUID or tracking number).
-- [`docs/how-to-error-logging.md`](docs/how-to-error-logging.md): adopting the shared error envelope and safe logging.
-- [`docs/security-scanning.md`](docs/security-scanning.md): automated security scanners, thresholds, SBOMs, exceptions, and gate troubleshooting.
-- [`docs/follow-ups/merchant-database-integration.md`](docs/follow-ups/merchant-database-integration.md): merchant-owner database integration review.
-- [`contracts/events/README.md`](contracts/events/README.md): event naming, envelope, framing, and failure rules.
-- [`contracts/openapi/README.md`](contracts/openapi/README.md): HTTP contracts and shared error behavior.
-- [`migrations/README.md`](migrations/README.md): migration conventions and commands.
-- [`docs/neon-production.md`](docs/neon-production.md): Neon PostgreSQL, data migration, cutover, and GitHub environment setup.
-- [`docs/delivery-proof-storage.md`](docs/delivery-proof-storage.md): private proof storage, presigned downloads, local S3-compatible storage, and reconciliation.
-- [`docs/realtime-verify.md`](docs/realtime-verify.md): operator-run WebSocket verification for API v1.1 section 9, including its synthetic-event side effects and cleanup.
-- [`infra/nginx/README.md`](infra/nginx/README.md): local edge routing.
-- [`tests/integration/README.md`](tests/integration/README.md): RabbitMQ and PostgreSQL integration test setup.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md): development and review workflow.
-
-## Current scope
-
-Implemented: repository structure, service entry points, health and readiness endpoints, environment configuration with case-insensitive and trimmed values, structured logging, request IDs, graceful shutdown, structured panic recovery, JSON 404/405 responses, a 1 MiB HTTP header limit, shared infrastructure, event envelope and message framing validation, bounded RabbitMQ retry and dead-letter routing with publisher confirms, reconnect backoff with jitter, unit and broker-backed messaging integration tests, one Playwright example test run Chromium-only in CI, Dockerfiles, Compose infrastructure, Nginx routing, migration and event conventions, Nx targets, CI, and documentation.
-
-Platform foundation implemented: shared PostgreSQL pool and database-backed readiness, five-schema migrations (31 tables and reference seeds, including the recovered identity/merchant additive migrations), forward merchant constraints, Mailpit, published gateway and development infrastructure ports, API v1.1 error envelope with request IDs, redacting logs, the API v1.1 gateway route groups, and `make up` one-command startup with container-based migrations.
-
-M4 implemented: `POST /pricing/estimate`, `GET /zones`, authenticated internal quote/zone lookups, ADMIN pricing configuration with transactional audit logging, exact decimal LKR calculations, bounded public rate limiting, trusted-proxy handling, and anonymous `GET /tracking/{trackingNumber}` backed by real parcel/status-history rows. M5 consumes the real internal quote and persists its exact LKR total and snake_case `price_breakdown` atomically with the parcel, initial history and PENDING outbox data. Customer creation/read/history/PDF APIs, internal merchant creation/summary and the `/new`, `/parcels`, `/parcels/{id}` screens are implemented. See [M5 evidence](docs/m5-complete-parcel-flow.md) for verification and remaining dependencies.
-
-M10.1 reports implemented in the parcel service: `GET /reports/daily` returns UTC event-date counts of created, delivered and failed parcels with zero-filled days, and `GET /reports/outcomes` returns totals, success/failure rates and the five most common failure reasons for parcels created in the range. Both require DISPATCHER or ADMIN access, default to 7 and 30 inclusive UTC dates respectively, reject ranges longer than 90 days, and set `Cache-Control: no-store`. The report routes fail closed with `503` when `JWT_ACCESS_SECRET` is not configured.
-
-M10.4 adds the DISPATCHER/ADMIN `/reports` screen. It filters a UTC date range of up to 90 days, shows outcome totals, success and failure rates, top failure reasons, and a daily chart and table. Loading, empty, server-fault, rate-limit, validation, no-permission and network states are handled; the screen calls the two M10.1 report endpoints through the shared API client. Its Playwright suite covers the report states, role access, range validation, touch targets and dark mode.
-
-The parcel service implements the COURIER delivery reads, status updates and private proof uploads. `GET /api/v1/courier/deliveries` (API v1.1 section 6.1) lists the verified courier's active assignments regardless of assignment date plus DELIVERED/FAILED parcels completed on the selected Asia/Colombo day, with optional status filtering, stable pagination and `Cache-Control: no-store`. `GET /api/v1/courier/deliveries/{parcelId}` (section 6.2) returns assignment-scoped detail with contacts, chronological history and latest proof metadata, without exposing photo storage paths. `POST /api/v1/courier/deliveries/{parcelId}/status` (section 6.3) locks the parcel, verifies the current assignment, validates the transition through the shared state machine, and commits the parcel row, status history and a PENDING `parcel.status_changed` outbox event in one transaction; the existing M6 relay publishes `parcel.status_changed.v1` after commit. `POST /api/v1/courier/deliveries/{parcelId}/proof` (section 6.4) accepts multipart recipient name, note and an optional JPEG/PNG photo, validates the decoded content and 5 MiB limit, verifies the current assignment under the parcel row lock, stores the photo privately through `PROOF_STORAGE_DIR`, and records metadata transactionally. Uploads are limited to 30 per minute per verified courier and to `PROOF_MAX_PER_PARCEL` proofs per parcel (default 20); the gateway accepts up to 6 MiB so multipart overhead cannot reject a 5 MiB photo. All four use the verified token subject, require COURIER access, and fail closed with `503` when `JWT_ACCESS_SECRET` is not configured. The courier web screens implement the chosen-day list, assignment-scoped detail, next-status updates and proof upload/view with JPEG/PNG and exact 5 MiB client validation. Mocked Playwright coverage includes a successful delivery with a recipient name, a failed delivery with a reason, proof upload and preview, rate limiting and the per-parcel proof quota. Real-stack coverage includes the complete customer, dispatcher and courier delivery journey, terminal delivery with recipient and proof, failed delivery with a reason, proof photo viewing, tracking updates and dispatcher assignment notices. See the Phase 4 completion report and the real-stack specs. Proof files are local to one Parcel replica or a shared volume; independent local volumes on multiple replicas are unsafe.
-
-Notification email delivery is implemented in the notification worker for the legacy `notification.requested.v1` work item and the customer-owned `parcel.created.v1`/`parcel.status_changed.v1` domain events. The legacy path validates the required `parcel_id` and `recipient`; the domain path resolves the customer's contact through the identity internal endpoint and renders a branded parcel email. Merchant-owned parcel events resolve the approved merchant contact through the merchant internal `GET /internal/merchants/{merchantId}/contact` endpoint: APPROVED merchants receive one email, while PENDING/SUSPENDED/REJECTED merchants, unknown merchants and empty contacts are permanent dead-letter failures with no email, log or processed row. `sms` is a permanent failure, and delivery failures follow the existing retry/dead-letter policy. The worker records processed event IDs in `notification.processed_events` and delivery outcomes in `notification.notification_logs` (`SENT`, `PENDING`, `FAILED`); the success log and processed-event writes share one transaction. A background scheduler deletes processed-event records older than 30 days at startup and every 24 hours by default. Identity deletes expired refresh, password-reset and email-verification tokens after `IDENTITY_TOKEN_RETENTION` (default 30 days) at startup and every `IDENTITY_TOKEN_CLEANUP_INTERVAL` (default 24 hours). The worker also exposes the ADMIN-only `GET /api/v1/admin/notification-logs` read API through its internal HTTP port `8086`; recipients are masked and `status` can filter `PENDING`, `SENT` or `FAILED`. Delivery remains at-least-once, not exactly-once, and M5 creation now writes transactional outbox data; M6 relay publication is implemented and integrated with creation.
-
-The webhook worker consumes `parcel.status_changed.v1` on `webhook.parcel.status_changed.v1`, loads the merchant webhook and decrypted signing secret through the Merchant internal API, reads `externalOrderId` from `GET /internal/parcels/{parcelId}/summary`, and delivers the signed public projection. It records each delivery attempt through the Merchant internal API and schedules the API v1.1 1m/5m/30m/2h/6h business retries (six attempts) through RabbitMQ delay queues. `GET /internal/parcels/{parcelId}/summary` is implemented in `contracts/openapi/parcel.yaml`. The merchant service consumes `parcel.status_changed.v1` on `merchant.sync.queue` and updates its order snapshot and timeline exactly once.
-
-The SwiftDrop Delivery Assistant is implemented end to end: a public global launcher and responsive panel, a welcome state and suggested questions, assistant and user turns, safe Markdown replies, immediate composer clearing, duplicate prevention, a typing state, retry for safe failures, conversation continuity, and the 422/429/503/network handling in the shared API client. The widget calls `POST /api/v1/ai/chat` with the browser's own cookies. Guests get an HttpOnly `sd_ai_guest` session bound to their conversation; signed-in CUSTOMER, DISPATCHER and ADMIN callers can use private parcel tools, including ownership-scoped tracking, without the frontend ever handling a token or deciding permissions, while MERCHANT, COURIER and guests are denied all parcel tools. A tracking number is never treated as an authentication credential, and the assistant never uses the anonymous public tracking endpoint. The panel also opens at the top of its welcome content and only follows new messages while the reader is near the bottom. A deterministic extraction guard runs before Gemini, privileged lookups are audited, and signing in or out resets the conversation. Nginx forwards `POST /api/v1/ai/chat` (prefix-stripped to `/ai/chat`) to the `ai-assistant` upstream on internal port `8087`, keeps the assistant's health probes internal, and Compose injects the assistant's environment and runs its `/ready` health check. Playwright covers the widget with a mocked chat endpoint; a live Gemini smoke test needs a configured key. The Gemini-backed Go service, knowledge base and four-tool registry live in `apps/services/ai-assistant`; see its README, [`docs/ai-assistant.md`](docs/ai-assistant.md) and the implementation contract.
-
-Realtime (`/ws`) is implemented: JWT cookie or `?token=` auth, per-parcel subscriptions for anonymous and customer clients, DISPATCHER/ADMIN `scope: all`, ping/pong, token-expiry and shutdown handling, and an in-process hub. It consumes `parcel.status_changed.v1` on `realtime.parcel.status_changed.v1` and `parcel.assigned.v1` on `realtime.parcel.assigned.v1`; status updates carry only public tracking fields and assignment notices are dispatch-only refetch signals. `/ready` requires PostgreSQL and both consumers and recovers after broker reconnection; `/health` remains liveness. SSE, persistence/replay and multi-replica fan-out are not implemented; multiple replicas share one queue, so each event reaches only one replica. The web `useLiveUpdates` hook is consumed by public tracking, dispatcher All parcels/unassigned/workload and courier views.
-
-Implemented by identity (M2/M3): email/password authentication, Google login, password reset, admin users, couriers, internal lookups, and the signed-in user's own `GET` and `PATCH /users/me` and `PUT /users/me/password`. Implemented by M4: pricing estimates/zones/internal quote, ADMIN pricing configuration and public tracking reads. Implemented by M1: the legacy notification worker, the customer-owned and merchant-owned `parcel.created.v1`/`parcel.status_changed.v1` consumers with identity and merchant contact resolution, signed merchant webhook delivery with six business retries, ADMIN notification delivery-log reads and the ADMIN notification-log screen, with masked recipients and status filtering, plus deterministic demo-user seeding (`make seed`) and merchant demo seeding (`make seed-merchant`). The event-flow integration test exercises the real relay, notification, webhook, realtime and merchant-sync handlers against PostgreSQL and RabbitMQ. Implemented by M10: the DISPATCHER/ADMIN reports screen (`/reports`). The COURIER `/history` delivery-history screen is implemented in the web app against the implemented parcel `GET /courier/deliveries` list and detail reads. The courier Today list, delivery-detail, status-update and proof upload/view screens are also implemented.
-
-Not implemented: dispatcher-initiated parcel status writes, SMS notification delivery, payments, external integrations, production TLS, Kubernetes, Terraform, and production deployment automation. Live-stack Playwright journeys cover onboarding, merchant orders/webhooks, courier completion with proof and failed delivery, customer and cross-role delivery, dispatcher assignment, tracking, event flow, notification logs, admin mutations and real admin/pricing/reports reads.
-
-Report artifacts still outstanding: the Word report has Section 6.1 (Customer delivery flow) and Section 8 (Design Patterns and Principles) headings with no body content, and Figures 8/9 have no source or caption in `docs/report` or `docs/diagrams`. The report owner must supply and insert that content; this repository does not invent it.
-
-## Registration and merchant onboarding
-
-Customers register at `/register/customer`, receive a single-use verification
-email and cannot sign in until it is verified. Merchants register at
-`/register/merchant`; the Identity account stays inactive and the application
-stays PENDING until an administrator approves it at `/admin/merchants`.
-Approval applies a lifecycle-bound session-version transition. Suspension and
-reapproval invalidate old access tokens, so a fresh login is required.
-
-Approved merchants manage API keys at `/api-keys`, view orders at
-`/merchant/orders`, and open `/merchant/orders/{id}` for the fee and synchronized
-status timeline. Order creation is API 8.16, authenticated only by `X-API-Key`;
-the portal never stores or sends a merchant key and instead shows a Create via
-API panel with the request example, error codes and a link to API key management.
+CI runs gofmt, `go vet`, the race suite with coverage, build, Compose validation, Go
+vulnerability scanning, RabbitMQ/PostgreSQL/event-flow integration, frontend
+Prettier/lint/test/typecheck/build, Chromium Playwright, Gitleaks, CodeQL, Trivy image
+scans and SBOM generation, access tests, migration validation, object-storage tests,
+pooled PostgreSQL, real-stack onboarding, notification-worker E2E and a release smoke
+on `v*`/`milestone-*` tags. `Required CI gate` and `Security gate` are the required
+status checks. See the final acceptance evidence in
+[`docs/implementation/FINAL_ACCEPTANCE_REPORT.md`](docs/implementation/FINAL_ACCEPTANCE_REPORT.md),
+[`docs/implementation/FINAL_TEST_REPORT.md`](docs/implementation/FINAL_TEST_REPORT.md)
+and [`docs/implementation/SECURITY_REVIEW.md`](docs/implementation/SECURITY_REVIEW.md).
+
+A check is evidence only when it was actually run. The final release report records
+what ran, what passed, and any environment limitation.
+
+## 18. Security considerations
+
+- **Authentication.** Passwords are bcrypt-hashed; access and refresh tokens are
+  validated for signature, allowed algorithm, expiry and issuer. Refresh tokens
+  rotate and reuse is detected. Merchants must be approved to obtain a session.
+- **Authorization.** The backend enforces roles and ownership on every protected
+  route. Client-side guards are convenience only. Cross-customer reads return `404`.
+- **Session revocation.** The `sv` claim is checked against Identity; suspension and
+  re-approval invalidate old access tokens, and a password change revokes every
+  refresh token. Checks fail closed when Identity is unavailable.
+- **Secrets.** `.env` is untracked; `.env.example` contains placeholders only.
+  Webhook signing secrets use AES-256-GCM with AAD binding and a rotation keyring.
+  Secrets, tokens and passwords never appear in logs or error responses; request
+  query strings are redacted at the gateway.
+- **CSRF and headers.** State-changing cross-site requests are rejected by origin
+  checks. Nginx adds a CSP and security headers; the script/style `'unsafe-inline'`
+  allowances are required by Next hydration and React style attributes.
+- **Limits.** HTTP headers are limited to 1 MiB, request and upload sizes are bounded,
+  photos are validated as decoded JPEG/PNG up to 5 MiB, and login, registration,
+  parcel creation, proof upload, webhook tests and AI chat are rate limited.
+- **Private proofs.** Proof photos are stored outside the database and served through
+  short-lived presigned URLs or an authorized stream. A committed proof always
+  references an object uploaded before commit; `proof-reconcile` reports orphans and
+  missing objects.
+- **Internal endpoints.** `/internal` is never routed publicly. Shared
+  `INTERNAL_TOKEN` routes fail closed when the token is unset; merchant internal
+  routes also require `X-Request-Id`.
+- **Retention.** Notification delivery logs are retained 180 days, processed events
+  30 days, audit logs 365 days and webhook attempts 90 days by default; merchant order
+  reservations are retained indefinitely. See [`docs/data-retention.md`](docs/data-retention.md).
+- **Supply chain.** CI runs `govulncheck`, `pnpm audit`, Gitleaks, CodeQL, Trivy and
+  Syft. Dependencies are updated manually; Dependabot is disabled.
+- **Known limitations.** No production TLS, Kubernetes, Terraform or shared
+  rate-limit/conversation state. SMS is not implemented. AI conversation state is
+  process-local. Dispatcher-initiated status writes are outside API v1.1. Local proof
+  storage requires a single Parcel replica or a shared volume. See
+  [Known limitations](#known-limitations).
+
+## 19. Troubleshooting
+
+| Symptom                              | Fix                                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Port already in use                  | Change `NGINX_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, `MAILPIT_SMTP_PORT` or `MAILPIT_UI_PORT` in `.env`      |
+| `make up` fails preflight            | Ensure `.env` exists with `APP_ENV` and a non-empty `JWT_ACCESS_SECRET`                                                   |
+| Host process cannot see variables    | Go services do not load `.env`; run `set -a; . ./.env; set +a` first                                                      |
+| Nginx returns 502 or will not start  | Nginx resolves upstreams at startup; run `make up` for the full stack, then check `docker compose ps`                     |
+| `make up` starts old code            | Rebuild with `make up-build`                                                                                              |
+| Migrations cannot connect            | `docker compose up -d postgres`; confirm `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`; use URL-safe credentials |
+| Migration duplicate version          | Never renumber an applied migration; add a forward migration                                                              |
+| Worker keeps reconnecting            | Check RabbitMQ health and `RABBITMQ_URL`; use the `rabbitmq` service name inside Compose                                  |
+| Integration tests skip               | Set `RABBITMQ_URL`; CI treats skips as failures                                                                           |
+| Playwright cannot launch Chromium    | `pnpm exec playwright install chromium` (add `--with-deps` on Linux)                                                      |
+| AI chat returns `503 AI_UNAVAILABLE` | Check `AI_ENABLED`, `AI_PROVIDER` and `GEMINI_API_KEY`; use `mock` for local tests                                        |
+| Email does not arrive                | Open Mailpit at <http://localhost:8025>; confirm `SMTP_HOST=mailpit` and `SMTP_PORT=1025`                                 |
+| db-verify reports extra pricing rows | The development database has extra admin-created data; verify against a freshly migrated database                         |
+| Docker build runs out of memory      | Build one service at a time (`docker compose build parcel`) then `make up`; do not run global Docker cleanup              |
+| Formatting check fails               | `gofmt -w` changed Go files and `pnpm exec prettier --write` changed docs/frontend files                                  |
+
+More procedures are in [`docs/operations.md`](docs/operations.md).
+
+## 20. Team members and contributions
+
+SwiftDrop was built by a ten-person team. The areas below summarize each
+contributor's primary work, derived from repository history and
+[`docs/implementation/MEMBER_WISE_STATUS.md`](docs/implementation/MEMBER_WISE_STATUS.md).
+
+| Member | Name                 | Primary contributions                                                                                                       |
+| ------ | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| M1     | Vineth Ranathunga    | Platform foundation, notification worker, merchant service, parcel service, web application, Docker/CI, release integration |
+| M2     | Nihan Kuruppu        | Identity service, authentication screens, email templates, web application and E2E                                          |
+| M3     | Manuthi Perera       | Identity, Google OAuth, password reset, profile and admin flows                                                             |
+| M4     | Thisal Kokuhennadi   | Pricing service, zones, public tracking and booking fee flow                                                                |
+| M5     | Supesh Asalya        | Customer parcel creation, pricing integration, receipts, M5 database verification                                           |
+| M6     | Achira Sandaruwan    | Dispatch assignment, parcel state machine, outbox relay and realtime assignment                                             |
+| M7     | Nawamini Keragala    | Courier delivery reads, status updates, proof upload/storage and courier screens                                            |
+| M8     | Rangana Amarathunge  | Merchant integration, merchant orders, snapshots and merchant portal                                                        |
+| M9     | Minimuthu Thennakoon | Webhook worker, signed delivery, retries and webhook settings                                                               |
+| M10    | Sandunike Kulawala   | Reports, realtime WebSocket, live-update hooks and realtime verification                                                    |
+
+Cross-cutting work (CI, security hardening, contracts, integration suites, final
+acceptance) was shared across the team; the member mapping above reflects each
+member's primary ownership, not exclusive contribution.
+
+## Known limitations
+
+These are deliberate boundaries, not hidden gaps:
+
+- No production TLS termination, Kubernetes, Terraform or cloud deployment
+  automation. Compose is the supported local and CI runtime.
+- No SMS delivery. SMS is a documented permanent failure for the notification worker.
+- Realtime has no SSE, persistence/replay or multi-replica fan-out; replicas sharing
+  one queue each receive a subset of events.
+- AI conversation storage, rate limiting and concurrency are process-local.
+- Shared distributed rate limiting and a Prometheus/Grafana deployment are deferred.
+- Dispatcher-initiated parcel status writes and customer edit/cancel are outside API
+  v1.1.
+- Payment processing and third-party carrier integrations are not implemented.
+- Proof storage on independent local volumes across multiple Parcel replicas is
+  unsafe; use one replica, a shared volume, or object storage.
+- The academic report has outstanding source material: Section 6.1 and Section 8
+  headings and Figures 8/9 have no source in `docs/report` or `docs/diagrams`. The
+  report owner must supply them; the repository does not invent report content.
+
+## Further documentation
+
+| Document                                                                                           | Purpose                                                |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| [`AGENTS.md`](AGENTS.md)                                                                           | Repository rules for human and AI contributors         |
+| [`DESIGN.md`](DESIGN.md)                                                                           | Frontend design contract; read before changing screens |
+| [`docs/architecture.md`](docs/architecture.md)                                                     | Service boundaries, routing, messaging, readiness      |
+| [`docs/API_Documentation_v1.1.md`](docs/API_Documentation_v1.1.md)                                 | Product API specification                              |
+| [`docs/Database_Design_Document_v1.1.md`](docs/Database_Design_Document_v1.1.md)                   | Logical database design and final migration addendum   |
+| [`docs/operations.md`](docs/operations.md)                                                         | Operational runbook                                    |
+| [`docs/neon-production.md`](docs/neon-production.md)                                               | Neon PostgreSQL, pool budgets and cutover              |
+| [`docs/data-retention.md`](docs/data-retention.md)                                                 | Retention policy and cleanup jobs                      |
+| [`docs/delivery-proof-storage.md`](docs/delivery-proof-storage.md)                                 | Proof storage and reconciliation                       |
+| [`docs/security-scanning.md`](docs/security-scanning.md)                                           | Scanners, thresholds and exceptions                    |
+| [`docs/email.md`](docs/email.md)                                                                   | Branded email, templates and previews                  |
+| [`docs/merchant-integration.md`](docs/merchant-integration.md)                                     | Merchant order and integration flows                   |
+| [`docs/merchant-internal-api.md`](docs/merchant-internal-api.md)                                   | Merchant internal API                                  |
+| [`docs/identity-internal-api.md`](docs/identity-internal-api.md)                                   | Identity internal API                                  |
+| [`docs/webhook-worker.md`](docs/webhook-worker.md)                                                 | Webhook worker flow                                    |
+| [`docs/realtime-verify.md`](docs/realtime-verify.md)                                               | WebSocket verification                                 |
+| [`docs/phase-2-security-reliability.md`](docs/phase-2-security-reliability.md)                     | Phase 2 hardening record                               |
+| [`docs/phase-3-testing-documentation-qa.md`](docs/phase-3-testing-documentation-qa.md)             | Phase 3 QA record                                      |
+| [`docs/phase-4-completion-report.md`](docs/phase-4-completion-report.md)                           | Phase 4 completion record                              |
+| [`docs/implementation/FINAL_ACCEPTANCE_REPORT.md`](docs/implementation/FINAL_ACCEPTANCE_REPORT.md) | Final acceptance evidence                              |
+| [`docs/implementation/FINAL_TEST_REPORT.md`](docs/implementation/FINAL_TEST_REPORT.md)             | Final test evidence                                    |
+| [`docs/implementation/SECURITY_REVIEW.md`](docs/implementation/SECURITY_REVIEW.md)                 | Security review                                        |
+| [`docs/report`](docs/report)                                                                       | Academic report sources and editable diagrams          |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md)                                                               | Branch, pull request and review workflow               |
+| [`contracts/events/README.md`](contracts/events/README.md)                                         | Event naming, envelope and failure rules               |
+| [`contracts/openapi/README.md`](contracts/openapi/README.md)                                       | HTTP contracts and error behavior                      |
+| [`contracts/routes/README.md`](contracts/routes/README.md)                                         | Route inventory regeneration                           |
+| [`migrations/README.md`](migrations/README.md)                                                     | Migration conventions and commands                     |
+| [`infra/nginx/README.md`](infra/nginx/README.md)                                                   | Local edge routing                                     |
+| [`tests/integration/README.md`](tests/integration/README.md)                                       | Integration test setup                                 |

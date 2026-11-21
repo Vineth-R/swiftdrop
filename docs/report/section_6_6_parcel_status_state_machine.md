@@ -1,5 +1,12 @@
 ## 6.6 Parcel Status State Machine
 
+> **Implementation status (final release).** This section is report source recorded
+> while the write path was being designed. Items marked planned below are now
+> implemented: courier and dispatch HTTP handlers, the assignment repository and
+> identity eligibility check, the outbox writer/relay/RabbitMQ producer, and realtime
+> status broadcasts. For current behaviour use `AGENTS.md`, `README.md` and
+> `docs/architecture.md`.
+
 The parcel lifecycle is a deterministic finite state machine. The domain rules live in `apps/services/parcel/internal/statemachine`, independent of HTTP handlers and database code. The PostgreSQL schema independently rejects invalid status changes through the `parcel.enforce_status_transition()` trigger.
 
 ### 6.6.1 Status Lifecycle

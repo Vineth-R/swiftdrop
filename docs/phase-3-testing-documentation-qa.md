@@ -5,12 +5,13 @@ Status: merged into `development` at
 
 ## 1. Scope
 
-Phase 3 addresses the findings in
-[`docs/phase-3-initial-audit.md`](phase-3-initial-audit.md). The goal is a
-stable CI baseline, accurate contracts and documentation, honest readiness
-semantics, stronger cross-service and authorization coverage, safe data
-lifecycle controls, and measurable local performance evidence. It does not add
-new business capabilities or production infrastructure.
+Phase 3 addressed the findings recorded in the Phase 3 initial audit (the
+working audit was consolidated into this completion record during the final
+documentation cleanup). The goal was a stable CI baseline, accurate contracts
+and documentation, honest readiness semantics, stronger cross-service and
+authorization coverage, safe data lifecycle controls, and measurable local
+performance evidence. It did not add new business capabilities or production
+infrastructure.
 
 ## 2. Findings addressed
 

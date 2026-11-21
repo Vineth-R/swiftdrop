@@ -19,9 +19,8 @@ SwiftDrop is a foundation-stage monorepo. Keep changes focused, preserve existin
 
 The integration branch is `development`. Create feature branches from it and open pull requests into `development`.
 
-- Do not push directly to `development` or `main`.
+- Do not push directly to `development` or `main`; repository rulesets block it.
 - Use a short descriptive branch name, for example `feature/parcel-create-endpoint`, `fix/worker-shutdown`, or `docs/onboarding`.
-- Do not assume branch protection or required reviews exist until the team establishes a permanent mainline.
 - Rebase or merge from `development` only when needed to resolve conflicts. Do not rewrite other contributors' history.
 
 ## Commits
@@ -44,13 +43,15 @@ Keep pull requests small enough to review. Split independent work. Update docume
 
 ## Review and merge expectations
 
-No enforced branch protection or required-review configuration is documented in this repository yet. The recommended team default is:
+Branch protection is enforced through repository rulesets (verified against the
+GitHub repository configuration):
 
-- At least one reviewer approves before merge.
-- The required checks — `Required CI gate` and `Security gate` — pass for the pull request head.
+- Direct pushes, force pushes and branch deletion are blocked on `development` and `main`.
+- A pull request is required, and the branch must be up to date before merging.
+- The required checks — `Required CI gate` and `Security gate` — must pass for the pull request head.
+- `main` additionally requires one approving review; self-approval is not possible.
 - Review comments are resolved or explicitly deferred.
 - The author has run the local checks listed below.
-- Direct pushes to `development` or `main` are avoided.
 
 A reviewer should verify behavior, tests, error handling, service ownership, secret safety, and documentation accuracy, not only style.
 

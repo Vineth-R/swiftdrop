@@ -2,6 +2,14 @@
 
 > Converted from the supplied PDF. Text and table alignment have been preserved where possible; review complex tables and diagrams against the original PDF.
 
+> **Implementation note (final release).** This document specifies the logical
+> database design. The authoritative applied schema is the migration chain under
+> [`migrations`](../migrations): identity head `000006`, pricing `000002`, parcel
+> `000008`, merchant `000011`, notification `000003`, for 31 tables across the five
+> service-owned schemas. Additive post-v1.1 changes are listed in the addendum at the
+> end of this document. See [`migrations/README.md`](../migrations/README.md) for the
+> conventions and `make migrate` / `make db-verify` for application and verification.
+
 
 <!-- PDF page 1 -->
 
@@ -2632,3 +2640,32 @@ removed. Suspension still requires a reason.
 state. `merchant.merchant_status_transitions` records merchant-owned lifecycle
 transitions including the Identity transition ID, sequence, actor, optional
 merchant-facing rejection reason and synchronization status.
+
+## Addendum: final migration chain (implemented)
+
+The applied chain is larger than the v1.1 logical design because later milestones
+added additive tables, columns, indexes, constraints and triggers. Applied
+migrations are immutable; new work always adds a forward migration above the
+current head.
+
+| Service      | Head     | Post-baseline migrations                                                                                                                                                             |
+| ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity     | `000006` | `000003_oauth_states_browser_binding`, `000004_email_verification`, `000005_session_version`, `000006_merchant_lifecycle_transitions`                                                |
+| Pricing      | `000002` | None beyond the `000002_tables` baseline                                                                                                                                             |
+| Parcel       | `000008` | `000003_dispatch_foundations`, `000004_price_breakdown_total`, `000005_outbox_event_types`, `000006_customer_parcel_list_index`, `000007_outbox_claim`, `000008_proof_kind`           |
+| Merchant     | `000011` | `000006_merchant_constraints`, `000007_registration_onboarding`, `000008_business_reg_no_optional`, `000009_restore_business_reg_no_required`, `000010_merchant_order_snapshots`, `000011_merchant_order_idempotency` |
+| Notification | `000003` | `000003_notification_log_created_at_index`                                                                                                                                           |
+
+The complete chain creates 31 tables: the 26-table `docs/db.sql` baseline plus five
+additive tables (identity email-verification tokens and merchant lifecycle
+transitions, merchant registration attempts and merchant status transitions, and
+merchant order idempotency reservations). Parcel keeps the baseline
+`parcel_assignments`, `outbox_events` and `delivery_proofs` tables and extends them
+in place. Merchant version numbers `000003`-`000005` are intentionally absent; the
+migration runner accepts gaps.
+
+Verification: `make migrate-status` reports the heads above and no dirty state, and
+`make db-verify` checks the schemas, table count, additive tables, seed data and
+retention index. `TestAllServiceMigrationCycles` covers fresh up, rollback-one,
+reapply and clean version tracking for all five services against a disposable
+database.

@@ -130,6 +130,21 @@ regexes = [
   '''routingKey == "parcel\.''',
 ]
 
+# The realtime WebSocket handler tests previously embedded a per-test HS256
+# signing key. It is a fixed, non-functional placeholder ending in
+# `-test-secret`; the current tests generate a random key for every run, but the
+# historical commit remains in the protected-branch history.
+[[rules.allowlists]]
+description = "Realtime WebSocket tests use a placeholder signing key"
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^apps/services/realtime/internal/ws/handler_test\.go$''',
+]
+regexes = [
+  '''[0-9a-f]{32}-test-secret"''',
+]
+
 # The realtime assignment consumer names the parcel.assigned.v1 routing key in
 # its configuration and the local environment template. It is a versioned event
 # name, not a credential, and the same string already exists in the approved
