@@ -2,6 +2,15 @@
 
 > Converted from the supplied PDF. Text and table alignment have been preserved where possible; review complex tables and diagrams against the original PDF.
 
+> **Implementation note (final release).** This document is the product API v1.1
+> specification. The machine-readable, implementation-validated contracts live in
+> [`contracts/openapi`](../contracts/openapi). Endpoints added after v1.1 that are
+> additive and do not change v1.1 behaviour — for example the per-proof photo read,
+> ADMIN password recovery, ADMIN merchant email, parcel assignment history, ADMIN
+> audit-log reads, and the customer/merchant receipt PDFs — are documented there and
+> in `README.md`. Where this document and the OpenAPI specification differ for an
+> additive endpoint, the OpenAPI specification is authoritative.
+
 
 <!-- PDF page 1 -->
 

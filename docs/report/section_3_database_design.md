@@ -1,5 +1,11 @@
 # 3. Data Model
 
+> **Final migration chain.** The 26-table baseline described below is the
+> `000002_tables` baseline from `docs/db.sql`. Additive migrations bring the complete
+> chain to 31 tables across the five service schemas (identity head `000006`, pricing
+> `000002`, parcel `000008`, merchant `000011`, notification `000003`). See the
+> addendum in `docs/Database_Design_Document_v1.1.md` and `migrations/README.md`.
+
 This section describes the database design of SwiftDrop using the **SwiftDrop Database Design Document — Version 1.1 (aligned with API v1.1)** as the planned specification. The repository migrations and Figure 6 distinguish that design from the SQL definitions present at revision `0106b4a`. A table defined by a migration is not, by itself, evidence that it is deployed in a shared database or used by a completed business workflow.
 
 ## 3.1 Key modelling decisions

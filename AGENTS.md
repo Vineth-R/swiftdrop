@@ -410,7 +410,8 @@ Never claim tests passed unless they were actually run and passed. Report any ch
 ## Git and change management
 
 - Inspect `git status` before editing.
-- The current integration branch is `development`. Create feature branches from it and open pull requests into `development`; do not assume branch protection or required reviews exist until the team establishes a permanent mainline.
+- `development` is the integration branch and `main` is the release branch. Create feature branches from `development` and open pull requests into `development`; release `development` into `main` through a pull request. Both branches are protected by repository rulesets: direct pushes, force pushes and deletion are blocked, and the `Required CI gate` and `Security gate` checks must pass on an up-to-date branch. `main` additionally requires one approving review. Do not attempt to bypass these rules.
+- The AI assistant is part of the released product and must remain in `main`. There is no AI-free release branch or policy; historical AI-exclusion guidance is superseded.
 - Preserve existing user changes and untracked files.
 - Do not reset, clean, rebase, force-push, or discard changes without explicit permission.
 - Do not commit or push unless explicitly instructed.
