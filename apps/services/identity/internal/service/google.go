@@ -347,10 +347,10 @@ func (g *GoogleAuth) linkExisting(ctx context.Context, user repository.User, goo
 	if passwordCleared {
 		user.PasswordHash = nil
 	}
-	g.base.logger.InfoContext(ctx, "google account linked to existing user",
-		"user_id", user.ID,
-		"password_cleared", passwordCleared,
-	)
+	g.base.logger.InfoContext(ctx, "google account linked to existing user", "user_id", user.ID)
+	if passwordCleared {
+		g.base.logger.InfoContext(ctx, "google account link cleared the existing password", "user_id", user.ID)
+	}
 	return user, nil
 }
 

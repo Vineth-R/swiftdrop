@@ -27,6 +27,10 @@ const (
 	DefaultPostgresSSLMode  = "disable"
 	DefaultPostgresHostname = "localhost"
 
+	// maxPoolConns is the largest value that fits the int32 pool fields used by
+	// pgx. Environment values above it are rejected instead of overflowing.
+	maxPoolConns = 1<<31 - 1
+
 	// Pool settings accept the DB_* names first and the legacy POSTGRES_*
 	// names as aliases so existing local and Compose configuration keeps working.
 	envMaxOpenConns     = "DB_MAX_OPEN_CONNS"
@@ -133,8 +137,8 @@ func loadConfig(loader sharedconfig.Loader, explicitURL string) (Config, error) 
 	if err != nil {
 		return Config{}, err
 	}
-	if maxConns < 1 {
-		return Config{}, fmt.Errorf("%w: %s must be at least 1", ErrInvalidConfig, envMaxOpenConns)
+	if maxConns < 1 || maxConns > maxPoolConns {
+		return Config{}, fmt.Errorf("%w: %s must be between 1 and %d", ErrInvalidConfig, envMaxOpenConns, maxPoolConns)
 	}
 	config.MaxConns = int32(maxConns)
 
@@ -142,7 +146,7 @@ func loadConfig(loader sharedconfig.Loader, explicitURL string) (Config, error) 
 	if err != nil {
 		return Config{}, err
 	}
-	if minConns < 0 || minConns > maxConns {
+	if minConns < 0 || minConns > maxConns || minConns > maxPoolConns {
 		return Config{}, fmt.Errorf("%w: %s must be between 0 and %s", ErrInvalidConfig, envMaxIdleConns, envMaxOpenConns)
 	}
 	config.MinConns = int32(minConns)
