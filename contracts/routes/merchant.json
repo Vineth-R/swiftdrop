@@ -1,0 +1,203 @@
+{
+  "service": "merchant",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/admin/audit-logs/merchant",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/merchants",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/merchants/{merchantId}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/merchants/{merchantId}/approve",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/merchants/{merchantId}/email",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/merchants/{merchantId}/reject",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/merchants/{merchantId}/suspend",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated liveness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/internal/merchants/owners/{userId}/approval",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/internal/merchants/{merchantId}/contact",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/internal/merchants/{merchantId}/webhook",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "POST",
+      "path": "/internal/merchants/{merchantId}/webhook/attempts",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/internal/merchants/{merchantId}/webhook/deliveries/{eventId}",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/merchant/orders",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/merchant/orders",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/merchant/orders/{orderId}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/merchant/orders/{orderId}/receipt",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/merchants/me",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/merchants/me",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/merchants/me/keys",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/merchants/me/keys",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/merchants/me/keys/{keyId}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/merchants/me/webhook",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PUT",
+      "path": "/merchants/me/webhook",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/merchants/me/webhook/deliveries",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/merchants/me/webhook/test",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/merchants/register",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/readyz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated readiness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    }
+  ]
+}

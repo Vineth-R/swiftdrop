@@ -1,0 +1,19 @@
+# Verified false positives: the email template catalog previously used a
+# high-entropy sample verification link token for local previews. It is not a
+# credential. The current catalog uses a non-secret placeholder, but the PR
+# commit range still includes the older commits. Keep this allowlist narrow to
+# the exact historical fingerprints.
+99dfd9b8834108ba58897c3d74d792518abab442:packages/go-common/emails/catalog.go:generic-api-key:55
+2f906f910534e34d75664f01162333a50f145ce2:packages/go-common/emails/catalog.go:generic-api-key:55
+# M8 merchant order integration tests originally used an all-hex placeholder
+# signing key. It is a test-only constant, not a credential. The current test
+# uses a human-readable placeholder, but the PR commit range still contains the
+# older commits. Keep the allowlist to the exact historical fingerprints.
+7dc9b16513fd744868d82cb5c43de5bdaf417052:apps/services/merchant/internal/http/orders_integration_test.go:generic-api-key:36
+8f6b1e88e39805467e64212bc2edd31163efa52b:apps/services/merchant/internal/http/orders_integration_test.go:generic-api-key:36
+# The webhook portal Playwright spec originally used a high-entropy sample
+# signing secret as a rendered fixture. It is not a credential and matches the
+# contract's documented example. The current test assembles a deterministic
+# placeholder at runtime, but the PR commit range still contains the older
+# commit. Keep the allowlist to the exact historical fingerprint.
+4820749ebd393300916a80aa887807946493b88f:apps/web-e2e/src/webhook.spec.ts:generic-api-key:31

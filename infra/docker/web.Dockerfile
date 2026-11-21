@@ -8,7 +8,10 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/web-e2e/package.json apps/web-e2e/package.json
 RUN pnpm install --frozen-lockfile
 
-COPY . .
+COPY nx.json tsconfig.base.json tsconfig.json ./
+COPY packages ./packages
+COPY apps/web ./apps/web
+COPY apps/web-e2e ./apps/web-e2e
 
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm exec nx build @org/web
@@ -21,7 +24,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-RUN addgroup -S nextjs && adduser -S -G nextjs nextjs
+RUN addgroup -S nextjs && adduser -S -G nextjs nextjs \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=build --chown=nextjs:nextjs /workspace/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nextjs /workspace/apps/web/.next/static ./apps/web/.next/static

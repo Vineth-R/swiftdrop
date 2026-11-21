@@ -6,6 +6,13 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// retryQueueSuffix names the retry queue for the current failure topology.
+// Durable queue arguments are immutable, so changing the dead-letter target
+// requires a new queue name. The v2 retry queue returns messages to its owning
+// queue; the legacy .retry queue returned them to the shared domain exchange,
+// which fanned a retry out to every worker bound to that event.
+const retryQueueSuffix = ".retry.v2"
+
 type topology struct {
 	Exchange             string
 	Queue                string
@@ -24,8 +31,8 @@ func (c ConsumerConfig) topology() topology {
 		Queue:                c.Queue,
 		RoutingKey:           c.RoutingKey,
 		RetryExchange:        c.Exchange + ".retry",
-		RetryQueue:           c.Queue + ".retry",
-		RetryRoutingKey:      c.Queue + ".retry",
+		RetryQueue:           c.Queue + retryQueueSuffix,
+		RetryRoutingKey:      c.Queue + retryQueueSuffix,
 		DeadLetterExchange:   c.Exchange + ".dlx",
 		DeadLetterQueue:      c.Queue + ".dlq",
 		DeadLetterRoutingKey: c.Queue + ".dlq",
@@ -59,9 +66,13 @@ func declareFailureTopology(channel *amqp.Channel, t topology) error {
 	}
 
 	retryQueue, err := channel.QueueDeclare(t.RetryQueue, true, false, false, false, amqp.Table{
-		"x-queue-type":              "classic",
-		"x-dead-letter-exchange":    t.Exchange,
-		"x-dead-letter-routing-key": t.RoutingKey,
+		"x-queue-type": "classic",
+		// Return the retry to the queue that owns it. The default exchange
+		// routes by queue name, so another worker bound to the same domain
+		// routing key never receives this retry. Returning through the shared
+		// domain exchange would fan the retry out to every subscriber.
+		"x-dead-letter-exchange":    "",
+		"x-dead-letter-routing-key": t.Queue,
 	})
 	if err != nil {
 		return fmt.Errorf("declare retry queue %s: %w", t.RetryQueue, err)

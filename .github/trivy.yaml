@@ -1,0 +1,19 @@
+# SwiftDrop container vulnerability policy.
+#
+# Used by the container security steps in .github/workflows/ci.yml.
+# The docker matrix job fails when an image contains a HIGH or CRITICAL
+# vulnerability, including vulnerabilities that have no fix yet.
+#
+# Exceptions live in .github/trivyignore.yaml and must follow the policy
+# documented there.
+exit-code: 1
+format: table
+ignorefile: .github/trivyignore.yaml
+severity:
+  - HIGH
+  - CRITICAL
+scan:
+  scanners:
+    - vuln
+vulnerability:
+  ignore-unfixed: false

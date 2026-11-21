@@ -1,0 +1,219 @@
+{
+  "service": "parcel",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/admin/parcels",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/parcels/probe",
+      "classification": "probe",
+      "documented": false,
+      "gateway": true,
+      "reason": "access-matrix probe behind DISPATCHER/ADMIN authentication; intentionally outside the public API contract"
+    },
+    {
+      "method": "GET",
+      "path": "/courier/deliveries",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/courier/deliveries/{parcelId}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/courier/deliveries/{parcelId}/delivery",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/courier/deliveries/{parcelId}/pickup",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/courier/deliveries/{parcelId}/proof",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/courier/deliveries/{parcelId}/status",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PUT",
+      "path": "/dispatch/parcels/{parcelId}/assignment",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/dispatch/probe",
+      "classification": "probe",
+      "documented": false,
+      "gateway": true,
+      "reason": "access-matrix probe behind DISPATCHER/ADMIN authentication; intentionally outside the public API contract"
+    },
+    {
+      "method": "GET",
+      "path": "/dispatch/unassigned",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/dispatch/workload",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated liveness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    },
+    {
+      "method": "POST",
+      "path": "/internal/parcels",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/internal/parcels/{parcelId}/summary",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/parcels",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/parcels",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/tracking/{trackingNumber}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/{parcelId}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/{parcelId}/assignments",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/{parcelId}/history",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/{parcelId}/proof/photo",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/{parcelId}/proof/photo/content",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/{parcelId}/proofs/{proofId}/photo",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/{parcelId}/proofs/{proofId}/photo/content",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/parcels/{parcelId}/receipt",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/readyz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated readiness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/daily",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/reports/outcomes",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/tracking/{trackingNumber}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    }
+  ]
+}

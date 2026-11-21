@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net"
+	"net/url"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -31,6 +33,14 @@ type Message struct {
 	Headers       map[string]any
 }
 
+// Observer receives low-cardinality processing facts. Implementations must be
+// safe for concurrent use and must not put message content in a metric label.
+type Observer struct {
+	Processed func(queue string, duration time.Duration)
+	Failed    func(queue string, permanent bool)
+	Retried   func(queue string)
+}
+
 type ConsumerConfig struct {
 	URL            string
 	Exchange       string
@@ -42,6 +52,12 @@ type ConsumerConfig struct {
 	RetryDelay     time.Duration
 	ReconnectMin   time.Duration
 	ReconnectMax   time.Duration
+	// Health optionally records the consumer lifecycle so a readiness endpoint
+	// can report whether this consumer can process events. A nil value is a
+	// no-op and leaves existing callers unchanged.
+	Health *Health
+	// Observer optionally records processing outcomes for metrics.
+	Observer *Observer
 }
 
 func (c ConsumerConfig) validate() error {
@@ -104,17 +120,25 @@ type consumer struct {
 
 func (c consumer) run(ctx context.Context) error {
 	backoff := c.config.ReconnectMin
+	c.config.Health.MarkConnecting()
 
 	for {
 		if ctx.Err() != nil {
+			c.config.Health.MarkStopped()
 			return nil
 		}
 
 		ready := false
-		err := c.consume(ctx, c.config, c.handler, c.logger, func() { ready = true })
+		err := c.consume(ctx, c.config, c.handler, c.logger, func() {
+			ready = true
+			c.config.Health.MarkReady()
+		})
 		if ctx.Err() != nil {
+			c.config.Health.MarkStopped()
 			return nil
 		}
+
+		c.config.Health.MarkReconnecting(err)
 
 		// A session that reached the consume phase proves the broker and
 		// topology are reachable, so the next failure starts from the floor
@@ -129,6 +153,7 @@ func (c consumer) run(ctx context.Context) error {
 		}
 
 		if err := c.wait(ctx, delay); err != nil {
+			c.config.Health.MarkStopped()
 			return nil
 		}
 
@@ -195,6 +220,8 @@ func consumeOnce(ctx context.Context, config ConsumerConfig, handler Handler, lo
 		maxRetries: config.MaxRetries,
 		retryDelay: config.RetryDelay,
 		logger:     logger,
+		queue:      queue.Name,
+		observer:   config.Observer,
 	}
 
 	for {
@@ -216,7 +243,7 @@ func dialAMQP(ctx context.Context, url string) (*amqp.Connection, error) {
 		KeepAlive: 30 * time.Second,
 	}
 
-	return amqp.DialConfig(url, amqp.Config{
+	connection, err := amqp.DialConfig(url, amqp.Config{
 		Heartbeat: 10 * time.Second,
 		Locale:    "en_US",
 		Dial: func(network, addr string) (net.Conn, error) {
@@ -233,6 +260,33 @@ func dialAMQP(ctx context.Context, url string) (*amqp.Connection, error) {
 			return conn, nil
 		},
 	})
+	if err != nil {
+		return nil, redactAMQPError(err, url)
+	}
+	return connection, nil
+}
+
+// redactAMQPError removes connection URL credentials from errors returned by
+// the AMQP client. Some URL parse errors embed the raw URL, including its
+// userinfo, so the error is replaced with a generic message in that case.
+func redactAMQPError(err error, rawURL string) error {
+	if err == nil {
+		return nil
+	}
+
+	message := err.Error()
+	if rawURL != "" && strings.Contains(message, rawURL) {
+		return errors.New("connect to rabbitmq: invalid connection URL")
+	}
+
+	parsed, parseErr := url.Parse(rawURL)
+	if parseErr == nil && parsed.User != nil {
+		if password, ok := parsed.User.Password(); ok && password != "" && strings.Contains(message, password) {
+			return errors.New("connect to rabbitmq: connection URL credentials must not be logged")
+		}
+	}
+
+	return err
 }
 
 func waitContext(ctx context.Context, delay time.Duration) error {
@@ -261,6 +315,8 @@ type deliveryProcessor struct {
 	maxRetries int
 	retryDelay time.Duration
 	logger     *slog.Logger
+	queue      string
+	observer   *Observer
 }
 
 func (p deliveryProcessor) handle(parent context.Context, delivery amqp.Delivery) {
@@ -268,10 +324,12 @@ func (p deliveryProcessor) handle(parent context.Context, delivery amqp.Delivery
 	defer cancel()
 
 	message := messageFromDelivery(delivery)
+	started := time.Now()
 	err := invokeHandler(ctx, p.handler, message, delivery, p.logger)
 
 	switch {
 	case err == nil:
+		p.observeProcessed(started)
 		ackDelivery(delivery, message, p.logger)
 	case parent.Err() != nil:
 		p.logger.Warn("message handling interrupted by shutdown",
@@ -297,11 +355,13 @@ func (p deliveryProcessor) routeFailure(parent context.Context, delivery amqp.De
 	attempts := retryCountFromHeaders(delivery.Headers)
 
 	if failureClass == "permanent" {
+		p.observeFailed(true)
 		p.deadLetter(parent, delivery, message, handlerErr, "permanent")
 		return
 	}
 
 	if attempts >= p.maxRetries {
+		p.observeFailed(false)
 		p.deadLetter(parent, delivery, message, handlerErr, "retry_exhausted")
 		return
 	}
@@ -336,6 +396,9 @@ func (p deliveryProcessor) routeFailure(parent context.Context, delivery amqp.De
 		return
 	}
 
+	if p.observer != nil && p.observer.Retried != nil {
+		p.observer.Retried(p.queue)
+	}
 	p.logger.Warn("message scheduled for retry",
 		"message_id", message.MessageID,
 		"correlation_id", message.CorrelationID,
@@ -349,6 +412,20 @@ func (p deliveryProcessor) routeFailure(parent context.Context, delivery amqp.De
 		"error", handlerErr,
 	)
 	ackDelivery(delivery, message, p.logger)
+}
+
+func (p deliveryProcessor) observeProcessed(started time.Time) {
+	if p.observer == nil || p.observer.Processed == nil {
+		return
+	}
+	p.observer.Processed(p.queue, time.Since(started))
+}
+
+func (p deliveryProcessor) observeFailed(permanent bool) {
+	if p.observer == nil || p.observer.Failed == nil {
+		return
+	}
+	p.observer.Failed(p.queue, permanent)
 }
 
 func (p deliveryProcessor) deadLetter(parent context.Context, delivery amqp.Delivery, message Message, handlerErr error, reason string) {

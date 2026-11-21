@@ -1,12 +1,35 @@
-name: swiftdrop
+# Default Compose project. Set COMPOSE_PROJECT_NAME to run a second checkout
+# side by side with its own containers and volumes, for example:
+#   COMPOSE_PROJECT_NAME=swiftdrop-verify make up-build
+name: ${COMPOSE_PROJECT_NAME:-swiftdrop}
 
 x-app-env: &app-env
-  APP_ENV: ${APP_ENV:-development}
+  # Do not inject a development fallback. All backend services and workers require an explicit
+  # APP_ENV and refuse to start when it is missing, empty, or whitespace.
+  APP_ENV: ${APP_ENV:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
 x-go-build: &go-build
   context: .
   dockerfile: infra/docker/go.Dockerfile
+
+x-mail-env: &mail-env
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-no-reply@swiftdrop.local}
+  SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Swift Drop Support}
+  SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+  SMTP_SECURE: ${SMTP_SECURE:-auto}
+  SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+
+x-db-pool: &db-pool
+  DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-10}
+  DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-2}
+  DB_CONN_MAX_LIFETIME: ${DB_CONN_MAX_LIFETIME:-30m}
+  DB_CONN_MAX_IDLE_TIME: ${DB_CONN_MAX_IDLE_TIME:-5m}
+  DB_CONNECT_TIMEOUT: ${DB_CONNECT_TIMEOUT:-5s}
 
 x-rabbitmq-env: &rabbitmq-env
   RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-swiftdrop}:${RABBITMQ_DEFAULT_PASS:-swiftdrop}@rabbitmq:5672/
@@ -25,16 +48,29 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-swiftdrop}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swiftdrop}
       POSTGRES_DB: ${POSTGRES_DB:-swiftdrop}
-    ports:
-      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init/01-schemas.sql:/docker-entrypoint-initdb.d/01-schemas.sql:ro
     healthcheck:
       test:
         ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 5s
       timeout: 5s
       retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    profiles: ['tools']
+    entrypoint: ['migrate']
+    volumes:
+      - ./migrations:/migrations:ro
+      - ./scripts/migrate.sh:/usr/local/bin/migrate-all:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DATABASE_URL_DIRECT: ${DATABASE_URL_DIRECT:-}
 
   rabbitmq:
     image: rabbitmq:4.1-management-alpine
@@ -52,19 +88,90 @@ services:
       timeout: 10s
       retries: 10
 
+  mailpit:
+    image: axllent/mailpit:v1.27
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+    ports:
+      - '${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '${MAILPIT_UI_PORT:-8025}:8025'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8025/readyz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  s3:
+    image: versity/versitygw:v1.11.0
+    profiles: ['storage']
+    command: ['posix', '--sidecar', '/meta', '/data']
+    environment:
+      ROOT_ACCESS_KEY: ${STORAGE_ACCESS_KEY_ID:-swiftdrop}
+      ROOT_SECRET_KEY: ${STORAGE_SECRET_ACCESS_KEY:-swiftdrop-s3}
+      VGW_REGION: ${STORAGE_REGION:-us-east-1}
+    ports:
+      - '${S3_PORT:-7070}:7070'
+    volumes:
+      - s3-data:/data
+      - s3-meta:/meta
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 7070']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  s3-init:
+    image: amazon/aws-cli:2.28.0
+    profiles: ['storage']
+    depends_on:
+      s3:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-swiftdrop}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-swiftdrop-s3}
+      AWS_DEFAULT_REGION: ${STORAGE_REGION:-us-east-1}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - 'aws --endpoint-url http://s3:7070 s3api head-bucket --bucket "${STORAGE_BUCKET:-delivery-proofs}" >/dev/null 2>&1 || aws --endpoint-url http://s3:7070 s3api create-bucket --bucket "${STORAGE_BUCKET:-delivery-proofs}"'
+
   identity:
     build:
       <<: *go-build
       args:
         SERVICE: identity
     environment:
-      <<: *app-env
+      <<: [*app-env, *mail-env, *db-pool]
       PORT: '8081'
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
-    ports:
-      - '${IDENTITY_PORT:-8081}:8081'
+      DB_MAX_OPEN_CONNS: ${IDENTITY_DB_MAX_OPEN_CONNS:-10}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-168h}
+      OAUTH_STATE_TTL: ${OAUTH_STATE_TTL:-10m}
+      PASSWORD_RESET_TOKEN_TTL: ${PASSWORD_RESET_TOKEN_TTL:-30m}
+      EMAIL_VERIFICATION_TOKEN_TTL: ${EMAIL_VERIFICATION_TOKEN_TTL:-30m}
+      IDENTITY_TOKEN_RETENTION: ${IDENTITY_TOKEN_RETENTION:-720h}
+      IDENTITY_TOKEN_CLEANUP_INTERVAL: ${IDENTITY_TOKEN_CLEANUP_INTERVAL:-24h}
+      MERCHANT_BASE_URL: ${MERCHANT_BASE_URL:-http://merchant:8084}
+      MERCHANT_TIMEOUT: ${MERCHANT_TIMEOUT:-3s}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      COOKIE_REFRESH_NAME: ${COOKIE_REFRESH_NAME:-sd_refresh}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-5}
+      LOGIN_LOCKOUT_DURATION: ${LOGIN_LOCKOUT_DURATION:-15m}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8081/healthz']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8081/ready']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -75,13 +182,43 @@ services:
       args:
         SERVICE: parcel
     environment:
-      <<: *app-env
+      <<: [*app-env, *rabbitmq-env, *db-pool]
       PORT: '8082'
+      HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
-    ports:
-      - '${PARCEL_PORT:-8082}:8082'
+      DB_MAX_OPEN_CONNS: ${PARCEL_DB_MAX_OPEN_CONNS:-15}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      PRICING_BASE_URL: http://pricing:8083
+      PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      PROOF_STORAGE_DIR: ${PROOF_STORAGE_DIR:-/home/app/proofs}
+      PROOF_MAX_PER_PARCEL: ${PROOF_MAX_PER_PARCEL:-20}
+      PROOF_MAX_SIZE_BYTES: ${PROOF_MAX_SIZE_BYTES:-5242880}
+      PROOF_PRESIGNED_URL_TTL_SECONDS: ${PROOF_PRESIGNED_URL_TTL_SECONDS:-300}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      STORAGE_LOCAL_DIR: ${STORAGE_LOCAL_DIR:-/home/app/proofs}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-2}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-delivery-proofs}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
+      STORAGE_USE_PATH_STYLE: ${STORAGE_USE_PATH_STYLE:-true}
+    volumes:
+      # /home/app is created and owned by the image's non-root app user. An
+      # empty named volume inherits that ownership, so the service can create
+      # its private proofs subdirectory without running as root.
+      - parcel-proofs:/home/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8082/healthz']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8082/ready']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -92,16 +229,73 @@ services:
       args:
         SERVICE: pricing
     environment:
-      <<: *app-env
+      <<: [*app-env, *db-pool]
       PORT: '8083'
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
-    ports:
-      - '${PRICING_PORT:-8083}:8083'
+      DB_MAX_OPEN_CONNS: ${PRICING_DB_MAX_OPEN_CONNS:-10}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8083/healthz']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8083/ready']
       interval: 10s
       timeout: 5s
       retries: 5
+
+  ai-assistant:
+    build:
+      <<: *go-build
+      args:
+        SERVICE: ai-assistant
+    environment:
+      <<: *app-env
+      PORT: '8087'
+      HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16}
+      # Gemini is the only provider. The key is injected here, never in the web
+      # image or a NEXT_PUBLIC_ variable. Use AI_PROVIDER=mock for a local stack
+      # without a paid key.
+      AI_ENABLED: ${AI_ENABLED:-true}
+      AI_PROVIDER: ${AI_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gemini-3.5-flash}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.2}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-1024}
+      AI_REQUEST_TIMEOUT: ${AI_REQUEST_TIMEOUT:-15s}
+      AI_TOOL_TIMEOUT: ${AI_TOOL_TIMEOUT:-5s}
+      AI_TOTAL_TIMEOUT: ${AI_TOTAL_TIMEOUT:-25s}
+      AI_MAX_TOOL_ROUNDS: ${AI_MAX_TOOL_ROUNDS:-3}
+      AI_MAX_TOOL_CALLS: ${AI_MAX_TOOL_CALLS:-4}
+      AI_MAX_HISTORY_MESSAGES: ${AI_MAX_HISTORY_MESSAGES:-12}
+      AI_CONVERSATION_TTL: ${AI_CONVERSATION_TTL:-30m}
+      AI_CONVERSATION_MAX: ${AI_CONVERSATION_MAX:-10000}
+      AI_CONVERSATION_MAX_MESSAGES: ${AI_CONVERSATION_MAX_MESSAGES:-40}
+      AI_RATE_LIMIT: ${AI_RATE_LIMIT:-15}
+      AI_RATE_WINDOW: ${AI_RATE_WINDOW:-1m}
+      AI_MAX_CONCURRENT: ${AI_MAX_CONCURRENT:-3}
+      AI_GUEST_COOKIE_NAME: ${AI_GUEST_COOKIE_NAME:-sd_ai_guest}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      PRICING_BASE_URL: http://pricing:8083
+      PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
+      PARCEL_BASE_URL: http://parcel:8082
+      PARCEL_TIMEOUT: ${PARCEL_TIMEOUT:-3s}
+      MERCHANT_BASE_URL: http://merchant:8084
+      MERCHANT_TIMEOUT: ${MERCHANT_TIMEOUT:-3s}
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8087/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    stop_grace_period: 40s
 
   merchant:
     build:
@@ -109,13 +303,37 @@ services:
       args:
         SERVICE: merchant
     environment:
-      <<: *app-env
+      <<: [*app-env, *mail-env, *rabbitmq-env, *db-pool]
       PORT: '8084'
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
+      PRICING_BASE_URL: ${PRICING_BASE_URL:-http://pricing:8083}
+      PRICING_TIMEOUT: ${PRICING_TIMEOUT:-3s}
+      PARCEL_BASE_URL: ${PARCEL_BASE_URL:-http://parcel:8082}
+      PARCEL_TIMEOUT: ${PARCEL_TIMEOUT:-3s}
+      WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:-}
+      WEBHOOK_SECRET_KEY_ID: ${WEBHOOK_SECRET_KEY_ID:-k1}
+      WEBHOOK_SECRET_KEYS: ${WEBHOOK_SECRET_KEYS:-}
+      WEBHOOK_TEST_ORIGIN: ${WEBHOOK_TEST_ORIGIN:-}
+      WEBHOOK_TEST_CA_FILE: ${WEBHOOK_TEST_CA_FILE:-}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      MERCHANT_SYNC_QUEUE: ${MERCHANT_SYNC_QUEUE:-merchant.sync.queue}
+      MERCHANT_SYNC_ROUTING_KEY: ${MERCHANT_SYNC_ROUTING_KEY:-parcel.status_changed.v1}
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
-    ports:
-      - '${MERCHANT_PORT:-8084}:8084'
+      DB_MAX_OPEN_CONNS: ${MERCHANT_DB_MAX_OPEN_CONNS:-8}
+    volumes:
+      - webhook-test-certs:/test-certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8084/healthz']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8084/ready']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -126,13 +344,30 @@ services:
       args:
         SERVICE: realtime
     environment:
-      <<: *app-env
+      <<: [*app-env, *rabbitmq-env, *db-pool]
       PORT: '8085'
       DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
-    ports:
-      - '${REALTIME_PORT:-8085}:8085'
+      DB_MAX_OPEN_CONNS: ${REALTIME_DB_MAX_OPEN_CONNS:-4}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
+      REALTIME_SESSION_CHECK_INTERVAL: ${REALTIME_SESSION_CHECK_INTERVAL:-1m}
+      REALTIME_QUEUE: ${REALTIME_QUEUE:-realtime.parcel.status_changed.v1}
+      REALTIME_ROUTING_KEY: ${REALTIME_ROUTING_KEY:-parcel.status_changed.v1}
+      REALTIME_ASSIGNED_QUEUE: ${REALTIME_ASSIGNED_QUEUE:-realtime.parcel.assigned.v1}
+      REALTIME_ASSIGNED_ROUTING_KEY: ${REALTIME_ASSIGNED_ROUTING_KEY:-parcel.assigned.v1}
+      REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8085/healthz']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8085/ready']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -143,13 +378,47 @@ services:
       args:
         SERVICE: notification-worker
     environment:
-      <<: [*app-env, *rabbitmq-env]
+      <<: [*app-env, *rabbitmq-env, *mail-env, *db-pool]
+      PORT: '8086'
+      DATABASE_URL: postgres://${POSTGRES_USER:-swiftdrop}:${POSTGRES_PASSWORD:-swiftdrop}@postgres:5432/${POSTGRES_DB:-swiftdrop}?sslmode=disable
+      DB_MAX_OPEN_CONNS: ${NOTIFICATION_DB_MAX_OPEN_CONNS:-8}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      COOKIE_NAME: ${COOKIE_NAME:-sd_access}
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification.requested.v1}
       NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-notification.requested.v1}
+      NOTIFICATION_PARCEL_CREATED_QUEUE: ${NOTIFICATION_PARCEL_CREATED_QUEUE:-notification.parcel.created.v1}
+      NOTIFICATION_PARCEL_CREATED_ROUTING_KEY: ${NOTIFICATION_PARCEL_CREATED_ROUTING_KEY:-parcel.created.v1}
+      NOTIFICATION_PARCEL_STATUS_QUEUE: ${NOTIFICATION_PARCEL_STATUS_QUEUE:-notification.parcel.status_changed.v1}
+      NOTIFICATION_PARCEL_STATUS_ROUTING_KEY: ${NOTIFICATION_PARCEL_STATUS_ROUTING_KEY:-parcel.status_changed.v1}
+      NOTIFICATION_PROCESSED_EVENTS_RETENTION: ${NOTIFICATION_PROCESSED_EVENTS_RETENTION:-720h}
+      NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL: ${NOTIFICATION_PROCESSED_EVENTS_CLEANUP_INTERVAL:-24h}
+      NOTIFICATION_LOG_RETENTION: ${NOTIFICATION_LOG_RETENTION:-4320h}
+      NOTIFICATION_LOG_CLEANUP_INTERVAL: ${NOTIFICATION_LOG_CLEANUP_INTERVAL:-24h}
+      IDENTITY_BASE_URL: ${IDENTITY_BASE_URL:-http://identity:8081}
+      IDENTITY_TIMEOUT: ${IDENTITY_TIMEOUT:-3s}
+      MERCHANT_BASE_URL: ${MERCHANT_BASE_URL:-http://merchant:8084}
+      MERCHANT_TIMEOUT: ${MERCHANT_TIMEOUT:-3s}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
     stop_grace_period: 35s
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      merchant:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pgrep -x /usr/local/bin/service > /dev/null && wget -qO- http://127.0.0.1:8086/ready > /dev/null',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   webhook-worker:
     build:
@@ -158,12 +427,49 @@ services:
         SERVICE: webhook-worker
     environment:
       <<: [*app-env, *rabbitmq-env]
-      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.delivery.requested.v1}
-      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-webhook.delivery.requested.v1}
+      PORT: '8088'
+      WEBHOOK_QUEUE: ${WEBHOOK_QUEUE:-webhook.parcel.status_changed.v1}
+      WEBHOOK_ROUTING_KEY: ${WEBHOOK_ROUTING_KEY:-parcel.status_changed.v1}
+      WEBHOOK_RETRY_DELAYS: ${WEBHOOK_RETRY_DELAYS:-}
+      WEBHOOK_TEST_ORIGIN: ${WEBHOOK_TEST_ORIGIN:-}
+      WEBHOOK_TEST_CA_FILE: ${WEBHOOK_TEST_CA_FILE:-}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      MERCHANT_BASE_URL: http://merchant:8084
+      PARCEL_BASE_URL: http://parcel:8082
+    volumes:
+      - webhook-test-certs:/test-certs:ro
     stop_grace_period: 35s
     depends_on:
       rabbitmq:
         condition: service_healthy
+      merchant:
+        condition: service_healthy
+      parcel:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8088/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  webhook-sink:
+    profiles: ['webhook-test']
+    image: golang:1.27-alpine
+    working_dir: /src/tests/webhook-sink
+    volumes:
+      - .:/src:ro
+      - webhook-test-certs:/certs
+    environment:
+      WEBHOOK_SINK_CERT_FILE: /certs/cert.pem
+    command: ['go', 'run', '.']
+    ports:
+      - '127.0.0.1:${WEBHOOK_SINK_PORT:-8099}:8099'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8099/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   web:
     build:
@@ -173,8 +479,6 @@ services:
       NODE_ENV: production
       PORT: '3000'
       HOSTNAME: 0.0.0.0
-    ports:
-      - '${WEB_PORT:-3000}:3000'
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/']
       interval: 15s
@@ -187,19 +491,34 @@ services:
       - '${NGINX_PORT:-8080}:80'
     volumes:
       - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    # nginx resolves upstream names once at startup. restart: true restarts it
+    # whenever Compose recreates one of these services (a new container gets a
+    # new address), so the gateway never keeps pointing at a dead one.
     depends_on:
       web:
         condition: service_healthy
+        restart: true
       identity:
         condition: service_healthy
+        restart: true
       parcel:
         condition: service_healthy
+        restart: true
       pricing:
         condition: service_healthy
+        restart: true
       merchant:
         condition: service_healthy
+        restart: true
+      ai-assistant:
+        condition: service_healthy
+        restart: true
       realtime:
         condition: service_healthy
+        restart: true
+      notification-worker:
+        condition: service_healthy
+        restart: true
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1/nginx-health']
       interval: 10s
@@ -209,3 +528,7 @@ services:
 volumes:
   postgres-data:
   rabbitmq-data:
+  parcel-proofs:
+  webhook-test-certs:
+  s3-data:
+  s3-meta:

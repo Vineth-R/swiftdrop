@@ -2,22 +2,37 @@ package main
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/config"
+	servicehttp "github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/http"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/identityclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/merchantclient"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/notificationlog"
+	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/retention"
 	"github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/worker"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/metrics"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/postgres"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/sessioncheck"
 )
 
 const serviceName = "notification-worker"
 
 func main() {
 	if err := run(); err != nil {
-		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("worker stopped", "service", serviceName, "error", err)
+		logging.NewBootstrap(serviceName).Error("worker stopped", "error", err)
 		os.Exit(1)
 	}
 }
@@ -33,8 +48,80 @@ func run() error {
 		return err
 	}
 
+	if config.AppEnv != "development" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	sender, err := mailer.NewSMTP(config.SMTP)
+	if err != nil {
+		return fmt.Errorf("create smtp mailer: %w", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	databaseConfig, err := postgres.LoadConfigFromURL(config.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("configure database: %w", err)
+	}
+	database, err := postgres.Open(ctx, databaseConfig)
+	if err != nil {
+		return fmt.Errorf("connect database: %w", err)
+	}
+	defer database.Close()
+	logger.Info("database connection established")
+
+	store := idempotency.NewPostgres(database, idempotency.ConsumerName)
+
+	identity, err := identityclient.New(config.IdentityBaseURL, config.InternalToken, config.IdentityTimeout)
+	if err != nil {
+		return fmt.Errorf("configure identity client: %w", err)
+	}
+	merchants, err := merchantclient.New(config.MerchantBaseURL, config.InternalToken, config.MerchantTimeout)
+	if err != nil {
+		return fmt.Errorf("configure merchant client: %w", err)
+	}
+	if config.InternalTokenProblem != "" {
+		logger.Warn("internal contact lookups are not fully configured", "problem", config.InternalTokenProblem)
+	}
+	site := emails.Site{BaseURL: config.FrontendBaseURL, SupportEmail: config.SupportEmail}
+	handler := worker.New(logger, sender, store, identity, merchants, site)
+
+	sessionClient, err := sessioncheck.NewClient(config.IdentityBaseURL, config.InternalToken, config.IdentityTimeout)
+	if err != nil {
+		return fmt.Errorf("configure identity session checker: %w", err)
+	}
+	logStore := notificationlog.NewRepository(database)
+	router, err := servicehttp.New(logger, servicehttp.Options{
+		Store:        logStore,
+		AccessSecret: config.AccessSecret,
+		CookieName:   config.CookieName,
+		SessionCheck: sessioncheck.New(sessionClient),
+	})
+	if err != nil {
+		return fmt.Errorf("configure notification admin router: %w", err)
+	}
+	registry := metrics.NewRegistry()
+	router.GET("/metrics", metrics.Handler(registry))
+	legacyHealth := messaging.NewHealth()
+	createdHealth := messaging.NewHealth()
+	statusHealth := messaging.NewHealth()
+	router.GET("/health", postgres.HealthHandler())
+	router.GET("/ready", notificationReadinessHandler(database, legacyHealth, createdHealth, statusHealth))
+
+	if config.AccessSecret == "" {
+		logger.Warn("JWT_ACCESS_SECRET is not set; the admin notification-log API will return 503")
+	}
+
+	server := httpx.NewServer(httpx.ServerConfig{
+		Addr:              config.Addr(),
+		Handler:           metrics.NewHTTPHandler(registry, router),
+		Logger:            logger,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	})
 
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -68,23 +155,123 @@ func run() error {
 
 	logger.Info("starting worker",
 		"exchange", config.Exchange,
-		"queue", config.Queue,
-		"routing_key", config.RoutingKey,
+		"legacy_queue", config.Queue,
+		"legacy_routing_key", config.RoutingKey,
+		"parcel_created_queue", config.ParcelCreatedQueue,
+		"parcel_created_routing_key", config.ParcelCreatedRoutingKey,
+		"parcel_status_queue", config.ParcelStatusQueue,
+		"parcel_status_routing_key", config.ParcelStatusRoutingKey,
 		"environment", config.AppEnv,
 	)
+	logger.Info("starting http service",
+		"listen_addr", config.Addr(),
+		"environment", config.AppEnv,
+	)
+	logger.Info("processed-event retention enabled",
+		"retention", config.ProcessedEventsRetention,
+		"cleanup_interval", config.ProcessedEventsCleanupInterval,
+	)
+	logger.Info("notification-log retention enabled",
+		"retention", config.NotificationLogRetention,
+		"cleanup_interval", config.NotificationLogCleanupInterval,
+	)
 
-	err = messaging.Run(ctx, messaging.ConsumerConfig{
-		URL:            config.RabbitMQURL,
-		Exchange:       config.Exchange,
-		Queue:          config.Queue,
-		RoutingKey:     config.RoutingKey,
-		Prefetch:       config.Prefetch,
-		HandlerTimeout: config.HandlerTimeout,
-		MaxRetries:     config.MaxRetries,
-		RetryDelay:     config.RetryDelay,
-		ReconnectMin:   config.ReconnectMin,
-		ReconnectMax:   config.ReconnectMax,
-	}, worker.New(logger), logger)
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		retention.Run(ctx, logger, store, config.ProcessedEventsRetention, config.ProcessedEventsCleanupInterval)
+	}()
+	logCleanupDone := make(chan struct{})
+	go func() {
+		defer close(logCleanupDone)
+		retention.RunJob(ctx, logger, retention.Job{
+			Name:        "notification-log",
+			Operation:   "cleanup_notification_logs",
+			Retention:   config.NotificationLogRetention,
+			Interval:    config.NotificationLogCleanupInterval,
+			Clean:       logStore.DeleteBefore,
+			LogDuration: true,
+			LogError:    true,
+		})
+	}()
+
+	consumers := []messaging.ConsumerConfig{
+		{
+			URL:            config.RabbitMQURL,
+			Exchange:       config.Exchange,
+			Queue:          config.Queue,
+			RoutingKey:     config.RoutingKey,
+			Prefetch:       config.Prefetch,
+			HandlerTimeout: config.HandlerTimeout,
+			MaxRetries:     config.MaxRetries,
+			RetryDelay:     config.RetryDelay,
+			ReconnectMin:   config.ReconnectMin,
+			ReconnectMax:   config.ReconnectMax,
+			Health:         legacyHealth,
+		},
+		{
+			URL:            config.RabbitMQURL,
+			Exchange:       config.Exchange,
+			Queue:          config.ParcelCreatedQueue,
+			RoutingKey:     config.ParcelCreatedRoutingKey,
+			Prefetch:       config.Prefetch,
+			HandlerTimeout: config.HandlerTimeout,
+			MaxRetries:     config.MaxRetries,
+			RetryDelay:     config.RetryDelay,
+			ReconnectMin:   config.ReconnectMin,
+			ReconnectMax:   config.ReconnectMax,
+			Health:         createdHealth,
+		},
+		{
+			URL:            config.RabbitMQURL,
+			Exchange:       config.Exchange,
+			Queue:          config.ParcelStatusQueue,
+			RoutingKey:     config.ParcelStatusRoutingKey,
+			Prefetch:       config.Prefetch,
+			HandlerTimeout: config.HandlerTimeout,
+			MaxRetries:     config.MaxRetries,
+			RetryDelay:     config.RetryDelay,
+			ReconnectMin:   config.ReconnectMin,
+			ReconnectMax:   config.ReconnectMax,
+			Health:         statusHealth,
+		},
+	}
+
+	results := make(chan error, len(consumers)+1)
+	go func() {
+		results <- httpx.Serve(ctx, server, 10*time.Second)
+	}()
+	for _, consumer := range consumers {
+		go func(consumer messaging.ConsumerConfig) {
+			results <- messaging.Run(ctx, consumer, handler, logger)
+		}(consumer)
+	}
+
+	first := <-results
+	cancel()
+	firstErr := first
+	for range consumers {
+		if err := <-results; err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 	close(stopped)
-	return err
+	<-cleanupDone
+	<-logCleanupDone
+	return firstErr
+}
+
+// notificationReadinessHandler reports only the database and the three
+// notification consumers. A cleanup failure is intentionally not a readiness
+// dependency: retention is maintenance and must not stop delivery.
+func notificationReadinessHandler(
+	database postgres.Pinger,
+	legacy, created, status *messaging.Health,
+) gin.HandlerFunc {
+	return httpx.ReadinessHandler(
+		httpx.DatabaseDependency(database, postgres.DefaultReadyTimeout),
+		httpx.BooleanDependency("consumer.notification_requested", legacy.Ready),
+		httpx.BooleanDependency("consumer.parcel_created", created.Ready),
+		httpx.BooleanDependency("consumer.parcel_status_changed", status.Ready),
+	)
 }

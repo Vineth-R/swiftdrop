@@ -1,0 +1,148 @@
+// Package notify sends merchant application and lifecycle emails with the
+// shared branded templates. Delivery is background best-effort SMTP.
+package notify
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/Vineth-R/swiftdrop/packages/go-common/emails"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/mailer"
+)
+
+const (
+	sendTimeout = 30 * time.Second
+	maxAttempts = 2
+)
+
+type Notifier struct {
+	mailer   mailer.Mailer
+	site     emails.Site
+	logger   *slog.Logger
+	dispatch func(func())
+	pending  sync.WaitGroup
+}
+
+func New(sender mailer.Mailer, site emails.Site, logger *slog.Logger) *Notifier {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	n := &Notifier{mailer: sender, site: site, logger: logger}
+	n.dispatch = func(job func()) {
+		n.pending.Add(1)
+		go func() { defer n.pending.Done(); job() }()
+	}
+	return n
+}
+
+func (n *Notifier) Wait() { n.pending.Wait() }
+
+func (n *Notifier) Received(ctx context.Context, to, ownerName, businessName, contactEmail string, submittedAt time.Time) {
+	n.send(ctx, "merchant_application_received", to, emails.MerchantApplicationReceived(emails.MerchantApplicationData{
+		OwnerName: ownerName, BusinessName: businessName, ContactEmail: contactEmail,
+		SubmittedAt: emails.FormatTime(submittedAt), LoginURL: n.site.URL("/login"),
+	}))
+}
+
+func (n *Notifier) Approved(ctx context.Context, to, ownerName, businessName string, approvedAt time.Time) {
+	n.send(ctx, "merchant_approved", to, emails.MerchantApproved(emails.MerchantApprovedData{
+		OwnerName: ownerName, BusinessName: businessName,
+		ApprovedAt: emails.FormatTime(approvedAt), LoginURL: n.site.URL("/login"),
+	}))
+}
+
+func (n *Notifier) Rejected(ctx context.Context, to, ownerName, businessName string, reason *string) {
+	text := ""
+	if reason != nil {
+		text = *reason
+	}
+	n.send(ctx, "merchant_rejected", to, emails.MerchantRejected(emails.MerchantDecisionData{
+		OwnerName: ownerName, BusinessName: businessName, Reason: text,
+	}))
+}
+
+func (n *Notifier) Suspended(ctx context.Context, to, ownerName, businessName string, reason *string) {
+	text := ""
+	if reason != nil {
+		text = *reason
+	}
+	n.send(ctx, "merchant_suspended", to, emails.MerchantSuspended(emails.MerchantDecisionData{
+		OwnerName: ownerName, BusinessName: businessName, Reason: text,
+	}))
+}
+
+// SendAdminMessage sends an administrator-composed message to a merchant. It
+// is synchronous so the HTTP handler can tell the administrator whether the
+// SMTP server accepted the message instead of claiming success.
+func (n *Notifier) SendAdminMessage(ctx context.Context, to, businessName, subject, message string) error {
+	if n == nil || n.mailer == nil {
+		return errors.New("merchant email is not configured")
+	}
+	email := emails.MerchantAdminMessage(emails.MerchantAdminMessageData{
+		BusinessName: businessName,
+		Subject:      subject,
+		Message:      message,
+	})
+	rendered, err := email.Message(to, n.site)
+	if err != nil {
+		return err
+	}
+	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+	if err := n.mailer.Send(sendCtx, rendered); err != nil {
+		n.logger.ErrorContext(sendCtx, "merchant admin email was not sent", "reason", emailSendFailureReason(err))
+		return err
+	}
+	return nil
+}
+
+// APIKeyCreated sends a security notice for a newly created key. Only the
+// display prefix is passed; the secret and its hash never enter an email.
+func (n *Notifier) APIKeyCreated(ctx context.Context, to, ownerName, keyName, keyPrefix string, createdAt time.Time) {
+	n.send(ctx, "merchant_api_key_created", to, emails.MerchantAPIKeyCreated(emails.MerchantAPIKeyData{
+		OwnerName: ownerName, KeyName: keyName, KeyPrefix: keyPrefix,
+		CreatedAt: emails.FormatTime(createdAt), KeysURL: n.site.URL("/api-keys"),
+	}))
+}
+
+// emailSendFailureReason classifies a delivery failure for the log. The error
+// text is never logged because an SMTP server can echo the recipient address.
+func emailSendFailureReason(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "send_failed"
+	}
+}
+
+func (n *Notifier) send(ctx context.Context, kind, to string, email emails.Email) {
+	message, err := email.Message(to, n.site)
+	if err != nil {
+		n.logger.ErrorContext(ctx, "merchant email could not be built", "email_kind", kind, "reason", "build_failed")
+		return
+	}
+	n.dispatch(func() {
+		sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTimeout)
+		defer cancel()
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			if err := n.mailer.Send(sendCtx, message); err == nil {
+				return
+			} else {
+				n.logger.ErrorContext(sendCtx, "merchant email was not sent", "email_kind", kind, "attempt", attempt, "reason", emailSendFailureReason(err))
+			}
+			if attempt < maxAttempts {
+				select {
+				case <-sendCtx.Done():
+					return
+				case <-time.After(time.Duration(attempt) * time.Second):
+				}
+			}
+		}
+	})
+}

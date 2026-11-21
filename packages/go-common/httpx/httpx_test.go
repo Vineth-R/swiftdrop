@@ -102,8 +102,11 @@ func TestRouterNotFoundIsJSON(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if body.Error.Code != "not_found" {
-		t.Fatalf("error code = %q, want not_found", body.Error.Code)
+	if body.Error.Code != "NOT_FOUND" {
+		t.Fatalf("error code = %q, want NOT_FOUND", body.Error.Code)
+	}
+	if body.Meta.RequestID == "" {
+		t.Fatal("error response did not include meta.requestId")
 	}
 }
 
@@ -129,8 +132,11 @@ func TestRouterMethodNotAllowedIsJSON(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if body.Error.Code != "method_not_allowed" {
-		t.Fatalf("error code = %q, want method_not_allowed", body.Error.Code)
+	if body.Error.Code != "METHOD_NOT_ALLOWED" {
+		t.Fatalf("error code = %q, want METHOD_NOT_ALLOWED", body.Error.Code)
+	}
+	if body.Meta.RequestID == "" {
+		t.Fatal("error response did not include meta.requestId")
 	}
 	if body.Error.Message != "method not allowed" {
 		t.Fatalf("error message = %q", body.Error.Message)
@@ -228,8 +234,11 @@ func TestRecoveryWritesJSONEnvelopeAndLogsContext(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if body.Error.Code != "internal_error" {
-		t.Fatalf("error code = %q, want internal_error", body.Error.Code)
+	if body.Error.Code != "INTERNAL_ERROR" {
+		t.Fatalf("error code = %q, want INTERNAL_ERROR", body.Error.Code)
+	}
+	if body.Meta.RequestID == "" {
+		t.Fatal("error response did not include meta.requestId")
 	}
 	if body.Error.Message != "internal server error" {
 		t.Fatalf("error message = %q", body.Error.Message)
@@ -359,5 +368,54 @@ func TestNewServerHardening(t *testing.T) {
 	custom := NewServer(ServerConfig{MaxHeaderBytes: 2 << 20})
 	if custom.MaxHeaderBytes != 2<<20 {
 		t.Fatalf("MaxHeaderBytes = %d, want %d", custom.MaxHeaderBytes, 2<<20)
+	}
+}
+
+func TestErrorWithFieldsKeepsStandardEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := NewRouter(discardLogger())
+	router.GET("/", func(c *gin.Context) {
+		ErrorWithFields(c, http.StatusConflict, "PRICE_CHANGED", "fee changed", map[string]any{"currentFee": 550.0, "code": "IGNORED"})
+	})
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set(requestid.Header, "req-fields")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	var body struct {
+		Error map[string]any `json:"error"`
+		Meta  struct {
+			RequestID string `json:"requestId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if body.Error["code"] != "PRICE_CHANGED" {
+		t.Fatalf("code = %v", body.Error["code"])
+	}
+	if body.Error["currentFee"] != 550.0 {
+		t.Fatalf("currentFee = %v", body.Error["currentFee"])
+	}
+	if body.Meta.RequestID != "req-fields" {
+		t.Fatalf("requestId = %q", body.Meta.RequestID)
+	}
+}
+
+func TestRecoveryRedactsSensitivePanicValue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, buffer := bufferLogger()
+	router := NewRouter(logger)
+	router.GET("/panic-secret", func(*gin.Context) {
+		panic("token=super-secret-value")
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/panic-secret", nil))
+
+	if strings.Contains(buffer.String(), "super-secret-value") {
+		t.Fatalf("panic value leaked into logs: %s", buffer.String())
+	}
+	if !strings.Contains(buffer.String(), "[REDACTED]") {
+		t.Fatalf("panic value was not redacted: %s", buffer.String())
 	}
 }

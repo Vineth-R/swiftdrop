@@ -1,0 +1,115 @@
+# Equivalent of 'make up' (make is not installed on this Windows machine; commands copied from the Makefile)
+# commit ebcdff4 + working tree, 2026-11-05T10:29:53+05:30
+$ docker compose up -d --no-build --wait --wait-timeout 300
+ Container swiftdrop-rabbitmq-1  Created
+ Container swiftdrop-postgres-1  Created
+ Container swiftdrop-mailpit-1  Recreate
+ Container swiftdrop-web-1  Recreate
+ Container swiftdrop-pricing-1  Recreate
+ Container swiftdrop-realtime-1  Recreate
+ Container swiftdrop-parcel-1  Recreate
+ Container swiftdrop-notification-worker-1  Recreate
+ Container swiftdrop-identity-1  Recreate
+ Container swiftdrop-merchant-1  Recreate
+ Container swiftdrop-webhook-worker-1  Recreate
+ Container swiftdrop-pricing-1  Recreated
+ Container swiftdrop-realtime-1  Recreated
+ Container swiftdrop-merchant-1  Recreated
+ Container swiftdrop-webhook-worker-1  Recreated
+ Container swiftdrop-identity-1  Recreated
+ Container swiftdrop-mailpit-1  Recreated
+ Container swiftdrop-notification-worker-1  Recreated
+ Container swiftdrop-web-1  Recreated
+ Container swiftdrop-parcel-1  Recreated
+ Container swiftdrop-nginx-1  Created
+ Container swiftdrop-mailpit-1  Starting
+ Container swiftdrop-rabbitmq-1  Starting
+ Container swiftdrop-web-1  Starting
+ Container swiftdrop-postgres-1  Starting
+ Container swiftdrop-rabbitmq-1  Started
+ Container swiftdrop-rabbitmq-1  Waiting
+ Container swiftdrop-web-1  Started
+ Container swiftdrop-postgres-1  Started
+ Container swiftdrop-rabbitmq-1  Waiting
+ Container swiftdrop-postgres-1  Waiting
+ Container swiftdrop-postgres-1  Waiting
+ Container swiftdrop-postgres-1  Waiting
+ Container swiftdrop-postgres-1  Waiting
+ Container swiftdrop-postgres-1  Waiting
+ Container swiftdrop-postgres-1  Waiting
+ Container swiftdrop-mailpit-1  Started
+ Container swiftdrop-postgres-1  Healthy
+ Container swiftdrop-realtime-1  Starting
+ Container swiftdrop-postgres-1  Healthy
+ Container swiftdrop-merchant-1  Starting
+ Container swiftdrop-postgres-1  Healthy
+ Container swiftdrop-identity-1  Starting
+ Container swiftdrop-postgres-1  Healthy
+ Container swiftdrop-pricing-1  Starting
+ Container swiftdrop-postgres-1  Healthy
+ Container swiftdrop-parcel-1  Starting
+ Container swiftdrop-postgres-1  Healthy
+ Container swiftdrop-realtime-1  Started
+ Container swiftdrop-merchant-1  Started
+ Container swiftdrop-identity-1  Started
+ Container swiftdrop-parcel-1  Started
+ Container swiftdrop-pricing-1  Started
+ Container swiftdrop-rabbitmq-1  Healthy
+ Container swiftdrop-notification-worker-1  Starting
+ Container swiftdrop-rabbitmq-1  Healthy
+ Container swiftdrop-webhook-worker-1  Starting
+ Container swiftdrop-notification-worker-1  Started
+ Container swiftdrop-realtime-1  Waiting
+ Container swiftdrop-notification-worker-1  Waiting
+ Container swiftdrop-web-1  Waiting
+ Container swiftdrop-identity-1  Waiting
+ Container swiftdrop-parcel-1  Waiting
+ Container swiftdrop-pricing-1  Waiting
+ Container swiftdrop-merchant-1  Waiting
+ Container swiftdrop-realtime-1  Healthy
+ Container swiftdrop-parcel-1  Healthy
+ Container swiftdrop-merchant-1  Healthy
+ Container swiftdrop-identity-1  Healthy
+ Container swiftdrop-pricing-1  Healthy
+ Container swiftdrop-web-1  Healthy
+ Container swiftdrop-webhook-worker-1  Started
+ Container swiftdrop-notification-worker-1  Healthy
+ Container swiftdrop-nginx-1  Starting
+ Container swiftdrop-nginx-1  Started
+ Container swiftdrop-nginx-1  Waiting
+ Container swiftdrop-rabbitmq-1  Waiting
+ Container swiftdrop-webhook-worker-1  Waiting
+ Container swiftdrop-mailpit-1  Waiting
+ Container swiftdrop-postgres-1  Waiting
+ Container swiftdrop-merchant-1  Waiting
+ Container swiftdrop-identity-1  Waiting
+ Container swiftdrop-realtime-1  Waiting
+ Container swiftdrop-web-1  Waiting
+ Container swiftdrop-pricing-1  Waiting
+ Container swiftdrop-notification-worker-1  Waiting
+ Container swiftdrop-parcel-1  Waiting
+ Container swiftdrop-identity-1  Healthy
+ Container swiftdrop-merchant-1  Healthy
+ Container swiftdrop-postgres-1  Healthy
+ Container swiftdrop-mailpit-1  Healthy
+ Container swiftdrop-realtime-1  Healthy
+ Container swiftdrop-rabbitmq-1  Healthy
+ Container swiftdrop-pricing-1  Healthy
+ Container swiftdrop-webhook-worker-1  Healthy
+ Container swiftdrop-notification-worker-1  Healthy
+ Container swiftdrop-web-1  Healthy
+ Container swiftdrop-parcel-1  Healthy
+ Container swiftdrop-nginx-1  Healthy
+rc=0
+identity running healthy
+mailpit running healthy
+merchant running healthy
+nginx running healthy
+notification-worker running healthy
+parcel running healthy
+postgres running healthy
+pricing running healthy
+rabbitmq running healthy
+realtime running healthy
+web running healthy
+webhook-worker running healthy

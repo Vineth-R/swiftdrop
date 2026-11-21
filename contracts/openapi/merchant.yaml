@@ -1,19 +1,32 @@
 openapi: 3.0.3
 info:
   title: SwiftDrop Merchant API
-  version: 0.1.0
+  version: 0.3.0
   description: >-
-    Merchant account management, integration settings, and future API
-    credentials. This specification currently covers only the operational
-    health endpoints. Every response uses either the success shape shown below
-    or the standard error envelope
-    `{ "error": { "code": "...", "message": "..." } }`. Unmatched routes return
-    `404 not_found`, disallowed methods return `405 method_not_allowed` with an
-    `Allow` header, and unexpected failures return `500 internal_error`.
+    Merchant account management, merchant orders, integration settings, and API
+    credentials. Order creation (8.16) is API-key-only; reads (8.17-8.18) accept a
+    MERCHANT session or an API key and are merchant-scoped.
+    Successful merchant responses use the API v1.1 success envelope
+    `{ "data": ..., "meta": { "requestId": "...", "timestamp": "..." } }`.
+    Errors use the standard error envelope
+    `{ "error": { "code": "...", "message": "..." }, "meta": { "requestId": "..." } }`.
+    Error codes are the uppercase API v1.1 values, for example
+    `VALIDATION_ERROR`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`,
+    `MERCHANT_NOT_APPROVED`, `KEY_LIMIT_REACHED`, `SERVICE_UNAVAILABLE`, and
+    `INVALID_MERCHANT_STATE`. Unmatched routes return `404 NOT_FOUND`,
+    disallowed methods return `405 METHOD_NOT_ALLOWED` with an `Allow` header,
+    and unexpected failures return `500 INTERNAL_ERROR`.
+
+    The merchant webhook settings endpoints are session-authenticated. The
+    caller must present an HS256 access token (cookie or bearer) with the
+    `MERCHANT` role, and the merchant record is resolved from the verified
+    token subject through `owner_user_id`. The endpoints answer `503`
+    `SERVICE_UNAVAILABLE` when `JWT_ACCESS_SECRET` or `WEBHOOK_SECRET_KEY` is
+    not configured.
 servers:
-  - url: /api/v1/merchants
+  - url: /api/v1
 paths:
-  /healthz:
+  /health:
     get:
       operationId: merchantHealth
       summary: Process health
@@ -32,26 +45,907 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
-  /readyz:
+  /ready:
     get:
       operationId: merchantReady
-      summary: Process readiness
+      summary: Service readiness
       responses:
         '200':
-          description: The service process is ready to accept traffic. Dependency checks are not performed yet.
+          description: The service is ready. The database check is reported when DATABASE_URL is configured.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthResponse'
+                $ref: '#/components/schemas/ReadinessResponse'
               example:
                 status: ready
+                checks:
+                  database: ok
+        '503':
+          description: A dependency check is down.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                status: unavailable
+                checks:
+                  database: down
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /merchants/me/webhook:
+    get:
+      operationId: getMerchantWebhook
+      summary: Get the webhook settings (8.12)
+      description: >-
+        Returns the authenticated merchant's URL, subscribed event types and
+        active state. The signing secret is never returned. The merchant is
+        resolved from the verified access-token subject; a merchant ID is never
+        read from the request.
+      tags: [Merchant webhook]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current webhook settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebhookSettings'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WebhookNotConfigured'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      operationId: putMerchantWebhook
+      summary: Create or replace the webhook settings (8.13)
+      description: >-
+        Approved merchants only. The URL must use HTTPS and must not point to a
+        private, loopback or otherwise non-public address; the host is resolved
+        and checked again when the webhook is delivered. A new signing secret is
+        generated on the first save, or when `rotateSecret` is true, and is
+        returned exactly once in `signingSecret`. It is stored encrypted with
+        AES-256-GCM and cannot be read again.
+
+        Concurrent saves are serialised in PostgreSQL. If two requests race to
+        create the webhook, exactly one returns the new secret; the other keeps
+        that secret and omits `signingSecret`. Send `rotateSecret: true` to
+        obtain a new secret.
+      tags: [Merchant webhook]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookSettingsRequest'
+      responses:
+        '200':
+          description: >-
+            Saved. `signingSecret` is present only when the candidate secret was
+            actually persisted (creation or rotation).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebhookSettingsWithSecret'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 'FORBIDDEN (no merchant account) or MERCHANT_NOT_APPROVED.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 'VALIDATION_ERROR, or WEBHOOK_URL_NOT_ALLOWED when the URL is not HTTPS or points to a non-public address.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /merchants/me/webhook/test:
+    post:
+      operationId: testMerchantWebhook
+      summary: Send a sample event (8.14)
+      description: >-
+        Sends a signed sample `parcel.status_changed` event to the configured
+        URL and records the attempt in the delivery log (8.15). The sample uses
+        tracking number `SDNTEST0001`. A failed delivery still returns 200 with
+        `delivered: false` and is recorded as a dead-lettered attempt; it is not
+        retried. `httpStatus` is `null` on timeout or connection failure.
+        Internal error details are never returned. Requires an APPROVED
+        merchant.
+      tags: [Merchant webhook]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Result of the test delivery.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebhookTestResult'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WebhookNotConfigured'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /merchants/me/webhook/deliveries:
+    get:
+      operationId: listMerchantWebhookDeliveries
+      summary: Delivery attempt log (8.15)
+      description: >-
+        Every delivery attempt for the authenticated merchant, including
+        retries and dead-letter status, newest first. `page` is capped at 10000
+        and `pageSize` at 100; values outside the range are rejected with
+        `422 VALIDATION_ERROR` rather than reaching the database. Responses are
+        marked `Cache-Control: no-store`.
+      tags: [Merchant webhook]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: success
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Filter by delivery success. Omit for both.
+        - name: trackingNumber
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 20
+          description: Exact tracking-number match.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: One page of attempts.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookDeliveryAttempt'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /merchants/register:
+    post:
+      operationId: merchantRegister
+      summary: Register a merchant business
+      description: >-
+        Creates an inactive Identity MERCHANT account and a PENDING merchant
+        application. No session is issued. The optional Idempotency-Key makes
+        retries safe. The pickup zone must exist and be active.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fullName, email, phone, password, business]
+              properties:
+                fullName: { type: string }
+                email: { type: string, format: email }
+                phone: { type: string }
+                password: { type: string }
+                business:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    [
+                      name,
+                      registrationNumber,
+                      businessAddress,
+                      contactEmail,
+                      contactPhone,
+                      pickupAddress,
+                      pickupZoneId,
+                    ]
+                  properties:
+                    name: { type: string }
+                    registrationNumber:
+                      type: string
+                      minLength: 3
+                      maxLength: 50
+                      description: >-
+                        Required. 3-50 letters, digits, spaces, hyphens, slashes
+                        or dots, with at least one digit. The stored value is
+                        trimmed, whitespace-collapsed and upper-cased.
+                    contactEmail: { type: string, format: email }
+                    contactPhone: { type: string }
+                    businessAddress: { type: string }
+                    pickupAddress: { type: string }
+                    pickupZoneId: { type: string, format: uuid }
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, maxLength: 128 }
+      responses:
+        '201':
+          description: Application created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      merchantId: { type: string, format: uuid }
+                      userId: { type: string, format: uuid }
+                      status: { type: string, enum: [PENDING] }
+        '409':
+          {
+            description: EMAIL_ALREADY_EXISTS,
+            DUPLICATE_MERCHANT_APPLICATION or DUPLICATE_BUSINESS_REGISTRATION.,
+          }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /merchants/me:
+    get:
+      operationId: merchantGetProfile
+      summary: Get the authenticated merchant profile (8.2)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200': { description: The merchant profile and status. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: MERCHANT_NOT_PROVISIONED. }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    patch:
+      operationId: merchantUpdateProfile
+      summary: Update contact and default pickup details (8.3)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200': { description: Updated. }
+        '403': { description: MERCHANT_NOT_APPROVED. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /merchants/me/keys:
+    get:
+      operationId: merchantListKeys
+      summary: List API keys (8.9)
+      description: >-
+        Key metadata for the authenticated merchant. The secret part of a key is
+        never returned after creation.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Key metadata, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MerchantAPIKey'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: MERCHANT_NOT_APPROVED. }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      operationId: merchantCreateKey
+      summary: Create an API key (8.10)
+      description: >-
+        Approved merchants only. The full key is returned exactly once in this
+        response; later reads expose only its prefix. At most five active keys
+        are allowed.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 100 }
+      responses:
+        '201':
+          description: Created; the full key is returned once.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MerchantAPIKeyCreated'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: MERCHANT_NOT_APPROVED. }
+        '409': { description: KEY_LIMIT_REACHED. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /merchants/me/keys/{keyId}:
+    delete:
+      operationId: merchantRevokeKey
+      summary: Revoke an API key (8.11)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Revoked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: MERCHANT_NOT_APPROVED. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /merchant/orders:
+    post:
+      operationId: merchantCreateOrder
+      summary: Create a merchant order (8.16)
+      description: >-
+        Server-to-server order creation for an APPROVED merchant. The merchant is
+        resolved from the API key; the request body cannot carry a merchant or
+        owner identity. Parcel Operations calculates the fee and returns the SDN
+        tracking number. A reused external order reference or Idempotency-Key
+        with the same normalized payload returns the original order with 200;
+        a different payload returns 409 DUPLICATE_ORDER.
+      tags: [Merchant orders]
+      security:
+        - MerchantApiKey: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, maxLength: 100 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantOrderCreateRequest'
+      responses:
+        '201':
+          description: The order and parcel were created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantOrderCreateEnvelope'
+        '200':
+          description: The same payload was replayed; no new parcel was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantOrderCreateEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: DUPLICATE_ORDER.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: VALIDATION_ERROR, ROUTE_NOT_SERVICEABLE or WEIGHT_NOT_PRICED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    get:
+      operationId: merchantListOrders
+      summary: List the caller's merchant orders (8.17)
+      description: >-
+        Merchant-scoped list for a MERCHANT session or merchant API key. Another
+        merchant's orders are never included. Sorting is limited to the
+        documented fields; pageSize is capped at 100.
+      tags: [Merchant orders]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+        - MerchantApiKey: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              [
+                CREATED,
+                PICKED_UP,
+                IN_TRANSIT,
+                OUT_FOR_DELIVERY,
+                DELIVERED,
+                FAILED,
+              ]
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: externalOrderId
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: sort
+          in: query
+          schema: { type: string, example: 'createdAt:desc' }
+          description: 'One of createdAt, updatedAt or externalOrderId, with :asc or :desc.'
+      responses:
+        '200':
+          description: One page of the merchant's orders.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MerchantOrderListItem'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /merchant/orders/{orderId}:
+    get:
+      operationId: merchantGetOrder
+      summary: Get one merchant order (8.18)
+      description: >-
+        Returns the snapshot, fee, current status and chronological status
+        timeline. A missing order and another merchant's order both return 404.
+      tags: [Merchant orders]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+        - MerchantApiKey: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The merchant order.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MerchantOrderDetail'
+                  meta:
+                    $ref: '#/components/schemas/SuccessMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /merchant/orders/{trackingNumber}/receipt:
+    get:
+      operationId: merchantOrderReceipt
+      summary: Download a merchant order receipt (post-acceptance)
+      description: >-
+        Returns a private PDF receipt for the caller's own order. The path value
+        is the public SDN tracking number, not an authorization credential: the
+        query is scoped to the authenticated merchant and another merchant's
+        order returns 404. API-key and MERCHANT session credentials are both
+        accepted. The response is not cached.
+      tags: [Merchant orders]
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+        - MerchantApiKey: []
+      parameters:
+        - name: trackingNumber
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9-]{4,40}$'
+            example: SDN4T8W2LC6
+      responses:
+        '200':
+          description: The receipt PDF.
+          headers:
+            Content-Disposition:
+              description: Attachment filename containing the tracking number.
+              schema: { type: string }
+            Cache-Control:
+              description: Private receipts are not cached.
+              schema: { type: string, example: no-store }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/audit-logs/merchant:
+    get:
+      operationId: adminMerchantAuditLogs
+      summary: List merchant audit records (ADMIN)
+      description: Read-only merchant lifecycle and administrative actions.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - {
+            name: page,
+            in: query,
+            schema: { type: integer, minimum: 1, default: 1 },
+          }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+        - {
+            name: actorUserId,
+            in: query,
+            schema: { type: string, format: uuid },
+          }
+        - { name: action, in: query, schema: { type: string, maxLength: 60 } }
+        - {
+            name: entityType,
+            in: query,
+            schema: { type: string, maxLength: 40 },
+          }
+        - { name: entityId, in: query, schema: { type: string, format: uuid } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - {
+            name: sort,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: ['createdAt:asc', 'createdAt:desc'],
+                default: 'createdAt:desc',
+              },
+          }
+      responses:
+        '200':
+          description: One page of audit records. Credential-like detail keys are redacted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        [
+                          id,
+                          actorUserId,
+                          action,
+                          entityType,
+                          details,
+                          createdAt,
+                        ]
+                      properties:
+                        id: { type: string, format: uuid }
+                        actorUserId: { type: string, format: uuid }
+                        action: { type: string }
+                        entityType: { type: string }
+                        entityId: { type: string, format: uuid, nullable: true }
+                        details: { type: object, additionalProperties: true }
+                        createdAt: { type: string, format: date-time }
+                  meta:
+                    type: object
+                    additionalProperties: true
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/merchants:
+    get:
+      operationId: adminListMerchants
+      summary: List merchant applications (8.4)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            { type: string, enum: [PENDING, APPROVED, REJECTED, SUSPENDED] }
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: sort
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: >-
+            A paginated merchant list. A REJECTED or SUSPENDED merchant whose
+            status has not yet reached Identity carries `identitySync: PENDING`;
+            repeating the reject or suspend call retries it. The field is left out
+            for every other merchant.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/merchants/{merchantId}:
+    get:
+      operationId: adminGetMerchant
+      summary: Get one merchant (8.5)
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: >-
+            Full merchant profile, with `identitySync: PENDING` when a REJECTED or
+            SUSPENDED status has not yet reached Identity (see the list).
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/merchants/{merchantId}/approve:
+    post:
+      operationId: adminApproveMerchant
+      summary: Approve and activate a merchant (8.6)
+      description: >-
+        Applies an Identity lifecycle transition and only then commits APPROVED.
+        Allowed from PENDING, SUSPENDED and REJECTED (re-approval). If activation
+        fails, the merchant stays in its previous state, login remains blocked,
+        and the same transition can be retried.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: 'Approved; identitySync is APPLIED or PENDING.' }
+        '409': { description: INVALID_MERCHANT_STATE. }
+        '503': { description: MERCHANT_ACTIVATION_FAILED. }
+  /admin/merchants/{merchantId}/reject:
+    post:
+      operationId: adminRejectMerchant
+      summary: Reject an application (8.7)
+      description: >-
+        The reason is optional, nullable and limited to 1,000 characters. Empty
+        and whitespace-only values are stored as null. The Identity lifecycle
+        transition still deactivates the account and increments the session
+        version. A rejection email omits the reason when none is provided.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: string, nullable: true, maxLength: 1000 }
+      responses:
+        '200': { description: 'Rejected; identitySync is APPLIED or PENDING.' }
+        '409': { description: INVALID_MERCHANT_STATE. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/merchants/{merchantId}/suspend:
+    post:
+      operationId: adminSuspendMerchant
+      summary: Suspend a merchant (8.8)
+      description: >-
+        Commits SUSPENDED immediately, then deactivates Identity and revokes
+        refresh tokens. If Identity is unavailable, business operations are
+        still blocked and identitySync is PENDING for safe retry.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        '200': { description: 'Suspended; identitySync is APPLIED or PENDING.' }
+        '409': { description: INVALID_MERCHANT_STATE. }
+  /admin/merchants/{merchantId}/email:
+    post:
+      operationId: adminSendMerchantEmail
+      summary: Send an administrative email to a merchant
+      description: >-
+        Sends a message from an administrator to the merchant's registered
+        business email. Delivery is synchronous and a failure is reported rather
+        than shown as success. The endpoint is rate limited to 30 requests per
+        minute per client address, and a successful send is audited as
+        `ADMIN_EMAIL_SENT` with the subject only.
+      security:
+        - AccessCookie: []
+        - BearerAuth: []
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [subject, message]
+              properties:
+                subject: { type: string, minLength: 1, maxLength: 150 }
+                message: { type: string, minLength: 1, maxLength: 5000 }
+      responses:
+        '200':
+          description: The SMTP server accepted the message.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [message]
+                    properties:
+                      message: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { description: The email could not be sent. }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
 components:
+  securitySchemes:
+    AccessCookie:
+      type: apiKey
+      in: cookie
+      name: sd_access
+    MerchantApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HS256 JWT
   schemas:
     HealthResponse:
       type: object
@@ -61,16 +955,386 @@ components:
       properties:
         status:
           type: string
-      example:
-        status: ok
+          enum: [ok]
+    ReadinessResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [ready, unavailable]
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, down]
+    SuccessMeta:
+      type: object
+      additionalProperties: false
+      required: [requestId, timestamp]
+      properties:
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    Pagination:
+      type: object
+      additionalProperties: false
+      required: [page, pageSize, totalItems, totalPages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalItems:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    MerchantAPIKey:
+      type: object
+      additionalProperties: false
+      required: [id, name, keyPrefix, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 100 }
+        keyPrefix:
+          { type: string, description: Display prefix only; never the secret. }
+        status: { type: string, enum: [ACTIVE, REVOKED] }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: string, format: date-time, nullable: true }
+    MerchantAPIKeyCreated:
+      type: object
+      additionalProperties: false
+      required: [id, name, keyPrefix, apiKey, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 100 }
+        keyPrefix: { type: string }
+        apiKey:
+          type: string
+          description: The full key. This is the only time it is returned.
+        createdAt: { type: string, format: date-time }
+    MerchantOrderContact:
+      type: object
+      additionalProperties: false
+      required: [name, phone, address, city, zoneId]
+      properties:
+        name: { type: string, maxLength: 150 }
+        phone: { type: string, example: '+94712345678' }
+        address: { type: string, maxLength: 255 }
+        city: { type: string, maxLength: 100 }
+        zoneId: { type: string, format: uuid }
+    MerchantOrderFee:
+      type: object
+      additionalProperties: false
+      required: [currency, baseFee, weightCharge, sizeSurcharge, total]
+      properties:
+        currency: { type: string, enum: [LKR] }
+        baseFee: { type: number }
+        weightCharge: { type: number }
+        sizeSurcharge: { type: number }
+        total: { type: number }
+    MerchantOrderCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [externalOrderId, recipient, weightKg, sizeCategory]
+      properties:
+        externalOrderId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        pickup:
+          $ref: '#/components/schemas/MerchantOrderContact'
+          description: Optional. When omitted the merchant's default pickup is used.
+        recipient:
+          $ref: '#/components/schemas/MerchantOrderContact'
+        weightKg:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 9999.99
+        sizeCategory:
+          type: string
+          enum: [SMALL, MEDIUM, LARGE, OVERSIZED]
+        description:
+          type: string
+          maxLength: 255
+          nullable: true
+    MerchantOrderCreateResult:
+      type: object
+      additionalProperties: false
+      required:
+        [orderId, externalOrderId, trackingNumber, status, fee, createdAt]
+      properties:
+        orderId: { type: string, format: uuid }
+        externalOrderId: { type: string }
+        trackingNumber: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        fee:
+          $ref: '#/components/schemas/MerchantOrderFee'
+        createdAt: { type: string, format: date-time }
+    MerchantOrderCreateEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/MerchantOrderCreateResult'
+        meta:
+          $ref: '#/components/schemas/SuccessMeta'
+    MerchantOrderListItem:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          orderId,
+          externalOrderId,
+          trackingNumber,
+          status,
+          recipientName,
+          dropoffCity,
+          total,
+          currency,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        orderId: { type: string, format: uuid }
+        externalOrderId: { type: string }
+        trackingNumber: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        recipientName: { type: string }
+        dropoffCity: { type: string }
+        total: { type: number }
+        currency: { type: string, enum: [LKR] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    MerchantOrderTimelineEvent:
+      type: object
+      additionalProperties: false
+      required: [status, at]
+      properties:
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        at: { type: string, format: date-time }
+    MerchantOrderDetail:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          orderId,
+          externalOrderId,
+          trackingNumber,
+          status,
+          recipientName,
+          dropoffCity,
+          total,
+          currency,
+          createdAt,
+          updatedAt,
+          weightKg,
+          sizeCategory,
+          fee,
+          timeline,
+        ]
+      properties:
+        orderId: { type: string, format: uuid }
+        externalOrderId: { type: string }
+        trackingNumber: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              PICKED_UP,
+              IN_TRANSIT,
+              OUT_FOR_DELIVERY,
+              DELIVERED,
+              FAILED,
+            ]
+        recipientName: { type: string }
+        dropoffCity: { type: string }
+        total: { type: number }
+        currency: { type: string, enum: [LKR] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        weightKg: { type: number }
+        sizeCategory:
+          type: string
+          enum: [SMALL, MEDIUM, LARGE, OVERSIZED]
+        description:
+          type: string
+          nullable: true
+        fee:
+          $ref: '#/components/schemas/MerchantOrderFee'
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/MerchantOrderTimelineEvent'
+    WebhookSettingsRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 500
+          description: Public HTTPS URL. Credentials, private addresses and loopback targets are rejected.
+          example: https://shopzone.lk/hooks/swiftdrop
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [parcel.status_changed]
+          default: [parcel.status_changed]
+        isActive:
+          type: boolean
+          default: true
+        rotateSecret:
+          type: boolean
+          default: false
+          description: Generate and persist a new signing secret before returning it.
+    WebhookSettings:
+      type: object
+      additionalProperties: false
+      required: [url, eventTypes, isActive, updatedAt]
+      properties:
+        url:
+          type: string
+          format: uri
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [parcel.status_changed]
+        isActive:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+    WebhookSettingsWithSecret:
+      type: object
+      additionalProperties: false
+      required: [url, eventTypes, isActive, updatedAt]
+      properties:
+        url:
+          type: string
+          format: uri
+        eventTypes:
+          type: array
+          items:
+            type: string
+            enum: [parcel.status_changed]
+        isActive:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+        signingSecret:
+          type: string
+          description: Returned only when the secret was created or rotated. It cannot be read again.
+          example: whsec_3F9aQ1xK7LmP2vR8
+    WebhookTestResult:
+      type: object
+      additionalProperties: false
+      required: [delivered, httpStatus, durationMs]
+      properties:
+        delivered:
+          type: boolean
+        httpStatus:
+          type: integer
+          nullable: true
+          description: The merchant endpoint's HTTP status, or null when no response arrived.
+        durationMs:
+          type: integer
+          minimum: 0
+    WebhookDeliveryAttempt:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          eventId,
+          trackingNumber,
+          attemptNumber,
+          httpStatus,
+          success,
+          nextRetryAt,
+          deadLettered,
+          createdAt,
+        ]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        trackingNumber:
+          type: string
+        attemptNumber:
+          type: integer
+          minimum: 1
+          maximum: 6
+        httpStatus:
+          type: integer
+          nullable: true
+        success:
+          type: boolean
+        nextRetryAt:
+          type: string
+          format: date-time
+          nullable: true
+        deadLettered:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
     ErrorResponse:
       type: object
       additionalProperties: false
       required:
         - error
+        - meta
       properties:
         error:
           $ref: '#/components/schemas/ErrorDetail'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
     ErrorDetail:
       type: object
       additionalProperties: false
@@ -80,29 +1344,45 @@ components:
       properties:
         code:
           type: string
-          description: Stable machine-readable error code.
+          description: Stable machine-readable error code from API v1.1.
         message:
           type: string
           description: Human-readable message with no internal implementation details.
+        details:
+          type: array
+          description: Field-level validation details, present only for validation errors.
+          items:
+            type: object
+            additionalProperties: true
+    ResponseMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+      properties:
+        requestId:
+          type: string
+          description: Request correlation ID, also returned in the X-Request-Id header.
   responses:
     NotFound:
       description: >-
-        No route matched the request path. This shared handler applies to every
-        unmatched path under the service prefix and returns the standard error
-        envelope with code `not_found`.
+        No route matched the request path. Returns the standard error envelope
+        with code `NOT_FOUND`.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             error:
-              code: not_found
+              code: NOT_FOUND
               message: route not found
+            meta:
+              requestId: req_01
     MethodNotAllowed:
       description: >-
-        The HTTP method is not allowed for the requested path. The response is
-        the standard error envelope with code `method_not_allowed`, and the
-        `Allow` header lists the permitted methods.
+        The HTTP method is not allowed for the requested path. Returns the
+        standard error envelope with code `METHOD_NOT_ALLOWED`; the `Allow`
+        header lists the permitted methods.
       headers:
         Allow:
           description: Comma-separated list of methods allowed for the path.
@@ -115,17 +1395,109 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             error:
-              code: method_not_allowed
+              code: METHOD_NOT_ALLOWED
               message: method not allowed
+            meta:
+              requestId: req_01
     InternalServerError:
       description: >-
-        An unexpected server error occurred. The response is the standard error
-        envelope with code `internal_error`; internal details are not exposed.
+        An unexpected server error occurred. Returns the standard error envelope
+        with code `INTERNAL_ERROR`; internal details are not exposed.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             error:
-              code: internal_error
+              code: INTERNAL_ERROR
               message: internal server error
+            meta:
+              requestId: req_01
+    Unauthorized:
+      description: 'UNAUTHENTICATED or TOKEN_EXPIRED. The access token is missing, invalid or expired.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: UNAUTHENTICATED
+              message: authentication required
+            meta:
+              requestId: req_01
+    Forbidden:
+      description: 'FORBIDDEN when the caller is not a MERCHANT or has no merchant account.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: FORBIDDEN
+              message: not allowed
+            meta:
+              requestId: req_01
+    ValidationError:
+      description: 'VALIDATION_ERROR for malformed or out-of-range input.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: page and pageSize must be positive numbers
+            meta:
+              requestId: req_01
+    WebhookNotConfigured:
+      description: 'WEBHOOK_NOT_CONFIGURED. The merchant has not saved a webhook.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: WEBHOOK_NOT_CONFIGURED
+              message: no webhook is configured
+            meta:
+              requestId: req_01
+    ServiceUnavailable:
+      description: 'SERVICE_UNAVAILABLE. WEBHOOK_SECRET_KEY or JWT_ACCESS_SECRET is not configured, so the endpoints stay fail closed.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: SERVICE_UNAVAILABLE
+              message: webhook settings are not configured
+            meta:
+              requestId: req_01
+    BadRequest:
+      description: 'BAD_REQUEST. The request body or query parameters are malformed.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: BAD_REQUEST
+              message: request body must be valid JSON
+            meta:
+              requestId: req_01
+    RateLimited:
+      description: 'RATE_LIMITED. The caller exceeded the endpoint budget; Retry-After gives the wait.'
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: RATE_LIMITED
+              message: too many requests
+            meta:
+              requestId: req_01

@@ -1,0 +1,44 @@
+{
+  "service": "ai-assistant",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/ai/chat",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "service liveness probe registered by the service entrypoint; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated liveness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "service readiness probe registered by the service entrypoint; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/readyz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated readiness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    }
+  ]
+}

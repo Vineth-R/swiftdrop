@@ -24,11 +24,11 @@ func TestLoadFrom(t *testing.T) {
 		t.Fatalf("LoadFrom() returned error: %v", err)
 	}
 
-	if config.Queue != "webhook.delivery.requested.v1" {
+	if config.Queue != "webhook.parcel.status_changed.v1" {
 		t.Fatalf("Queue = %q", config.Queue)
 	}
-	if config.RoutingKey != config.Queue {
-		t.Fatalf("RoutingKey = %q, want %q", config.RoutingKey, config.Queue)
+	if config.RoutingKey != "parcel.status_changed.v1" {
+		t.Fatalf("RoutingKey = %q, want parcel.status_changed.v1", config.RoutingKey)
 	}
 	if config.MaxRetries != 3 {
 		t.Fatalf("MaxRetries = %d, want 3", config.MaxRetries)
@@ -38,9 +38,60 @@ func TestLoadFrom(t *testing.T) {
 	}
 }
 
+func TestLoadFromRejectsMissingOrInvalidAppEnv(t *testing.T) {
+	tests := map[string]map[string]string{
+		"unset":      {},
+		"empty":      {"APP_ENV": ""},
+		"whitespace": {"APP_ENV": "   "},
+		"unknown":    {"APP_ENV": "local"},
+	}
+
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := values[key]
+				return value, ok
+			})
+
+			_, err := LoadFrom(loader)
+			if err == nil {
+				t.Fatal("LoadFrom() should have failed")
+			}
+			if !strings.Contains(err.Error(), "APP_ENV") {
+				t.Fatalf("error should reference APP_ENV, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestLoadFromAcceptsSupportedAppEnv(t *testing.T) {
+	for _, appEnv := range []string{"development", "staging", "production"} {
+		t.Run(appEnv, func(t *testing.T) {
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				values := map[string]string{
+					"APP_ENV":      appEnv,
+					"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+				}
+				value, ok := values[key]
+				return value, ok
+			})
+
+			config, err := LoadFrom(loader)
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if config.AppEnv != appEnv {
+				t.Fatalf("AppEnv = %q, want %q", config.AppEnv, appEnv)
+			}
+		})
+	}
+}
+
 func TestLoadFromParsesRetryConfig(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 		values := map[string]string{
+			"APP_ENV":              "development",
 			"RABBITMQ_URL":         "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
 			"RABBITMQ_MAX_RETRIES": "5",
 			"RABBITMQ_RETRY_DELAY": "2s",
@@ -71,6 +122,7 @@ func TestLoadFromRejectsInvalidRetryConfig(t *testing.T) {
 
 	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
+			values["APP_ENV"] = "development"
 			values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
 			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
 				value, ok := values[key]
@@ -86,7 +138,10 @@ func TestLoadFromRejectsInvalidRetryConfig(t *testing.T) {
 
 func TestLoadFromRejectsInvalidRabbitMQURL(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		if key == "RABBITMQ_URL" {
+		switch key {
+		case "APP_ENV":
+			return "development", true
+		case "RABBITMQ_URL":
 			return "http://rabbitmq:5672", true
 		}
 		return "", false
@@ -99,7 +154,10 @@ func TestLoadFromRejectsInvalidRabbitMQURL(t *testing.T) {
 
 func TestLoadFromDoesNotLeakRabbitMQCredentials(t *testing.T) {
 	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
-		if key == "RABBITMQ_URL" {
+		switch key {
+		case "APP_ENV":
+			return "development", true
+		case "RABBITMQ_URL":
 			return "amqp://swiftdrop:s3cr3t-password@rabbitmq:5672/%zz", true
 		}
 		return "", false
@@ -138,5 +196,124 @@ func TestLoadFromIsCaseInsensitiveAndTrims(t *testing.T) {
 	}
 	if config.LogLevel != "warning" {
 		t.Fatalf("LogLevel = %q, want warning", config.LogLevel)
+	}
+}
+
+func TestUsesLegacyQueue(t *testing.T) {
+	tests := map[string]struct {
+		values map[string]string
+		want   bool
+	}{
+		"defaults":           {},
+		"new queue":          {values: map[string]string{"WEBHOOK_QUEUE": "webhook.parcel.status_changed.v1"}},
+		"legacy queue":       {values: map[string]string{"WEBHOOK_QUEUE": "webhook.delivery.requested.v1"}, want: true},
+		"legacy routing key": {values: map[string]string{"WEBHOOK_ROUTING_KEY": "webhook.delivery.requested.v1"}, want: true},
+		"both legacy": {
+			values: map[string]string{
+				"WEBHOOK_QUEUE":       "webhook.delivery.requested.v1",
+				"WEBHOOK_ROUTING_KEY": "webhook.delivery.requested.v1",
+			},
+			want: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			values := map[string]string{
+				"APP_ENV":      "development",
+				"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+			}
+			for key, value := range test.values {
+				values[key] = value
+			}
+
+			loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+				value, ok := values[key]
+				return value, ok
+			})
+
+			config, err := LoadFrom(loader)
+			if err != nil {
+				t.Fatalf("LoadFrom() returned error: %v", err)
+			}
+			if got := config.UsesLegacyQueue(); got != test.want {
+				t.Fatalf("UsesLegacyQueue() = %v, want %v", got, test.want)
+			}
+
+			// Explicit configuration is reported, never rewritten.
+			if value, ok := test.values["WEBHOOK_QUEUE"]; ok && config.Queue != value {
+				t.Fatalf("Queue = %q, want %q", config.Queue, value)
+			}
+			if value, ok := test.values["WEBHOOK_ROUTING_KEY"]; ok && config.RoutingKey != value {
+				t.Fatalf("RoutingKey = %q, want %q", config.RoutingKey, value)
+			}
+		})
+	}
+}
+
+func TestLoadFromReadinessPort(t *testing.T) {
+	loader := func(port string) sharedconfig.Loader {
+		return sharedconfig.NewLoader(func(key string) (string, bool) {
+			values := map[string]string{
+				"APP_ENV":      "development",
+				"RABBITMQ_URL": "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+			}
+			if port != "" {
+				values["PORT"] = port
+			}
+			value, ok := values[key]
+			return value, ok
+		})
+	}
+	config, err := LoadFrom(loader(""))
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if config.Port != 8088 || config.Addr() != ":8088" {
+		t.Fatalf("port/addr = %d/%q, want 8088/:8088", config.Port, config.Addr())
+	}
+	config, err = LoadFrom(loader("9099"))
+	if err != nil || config.Port != 9099 {
+		t.Fatalf("custom port = %d, %v", config.Port, err)
+	}
+}
+
+func TestLoadFromParsesDevelopmentWebhookTestSettings(t *testing.T) {
+	loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_ENV":              "development",
+			"RABBITMQ_URL":         "amqp://swiftdrop:swiftdrop@rabbitmq:5672/",
+			"WEBHOOK_RETRY_DELAYS": "2s,2s,2s,2s,2s",
+			"WEBHOOK_TEST_ORIGIN":  "http://webhook-sink:8099",
+		}
+		value, ok := values[key]
+		return value, ok
+	})
+	config, err := LoadFrom(loader)
+	if err != nil {
+		t.Fatalf("LoadFrom() returned error: %v", err)
+	}
+	if len(config.RetryDelays) != 5 || config.RetryDelays[0] != 2*time.Second {
+		t.Fatalf("RetryDelays = %v", config.RetryDelays)
+	}
+	if config.TestWebhookOrigin != "http://webhook-sink:8099" {
+		t.Fatalf("TestWebhookOrigin = %q", config.TestWebhookOrigin)
+	}
+}
+
+func TestLoadFromRejectsWebhookTestSettingsOutsideDevelopment(t *testing.T) {
+	for _, values := range []map[string]string{
+		{"WEBHOOK_RETRY_DELAYS": "2s,2s,2s,2s,2s"},
+		{"WEBHOOK_TEST_ORIGIN": "http://webhook-sink:8099"},
+	} {
+		values["APP_ENV"] = "production"
+		values["RABBITMQ_URL"] = "amqp://swiftdrop:swiftdrop@rabbitmq:5672/"
+		loader := sharedconfig.NewLoader(func(key string) (string, bool) {
+			value, ok := values[key]
+			return value, ok
+		})
+		if _, err := LoadFrom(loader); err == nil {
+			t.Fatalf("LoadFrom() accepted development-only settings: %v", values)
+		}
 	}
 }

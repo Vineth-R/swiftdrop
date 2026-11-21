@@ -42,8 +42,11 @@ Thumbs.db
 
 .nx/cache
 .nx/workspace-data
+.cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
+.claude/worktrees
+.claude/settings.local.json
 .nx/polygraph
 .nx/self-healing
 .nx/migrate-runs
@@ -63,6 +66,9 @@ bin/
 *.test
 *.prof
 coverage.out
+merchant-coverage.out
+m5-parcel-coverage.out
+merchant-coverage.out
 coverage/
 dist/
 
@@ -107,3 +113,14 @@ docker-compose.override.yml
 *.swo
 *~
 
+
+# Go coverage table written by scripts/coverage.sh
+coverage-summary.md
+
+# ==========================================
+# Database dumps and operator reports
+# ==========================================
+
+*.dump
+*.dump.sha256
+/swiftdrop-backups/

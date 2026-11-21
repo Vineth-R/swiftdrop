@@ -1,0 +1,133 @@
+{
+  "service": "pricing",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/admin/audit-logs/pricing",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/pricing/bands",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/pricing/bands",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/pricing/bands/{id}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/pricing/rules",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/pricing/rules",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/pricing/rules/{id}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/pricing/surcharges",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/pricing/surcharges/{id}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/zones",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/zones",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/zones/{id}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated liveness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    },
+    {
+      "method": "POST",
+      "path": "/internal/pricing/quote",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/internal/zones/{zoneId}",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "POST",
+      "path": "/pricing/estimate",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/readyz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated readiness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/zones",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    }
+  ]
+}

@@ -29,34 +29,59 @@ const baseURL = process.env['BASE_URL'] || webServerAddress;
  */
 export default defineConfig({
   ...nxE2EPreset(import.meta.dirname, { testDir: './src' }),
+  // The real stack shares login rate limits and, in one test, stops Identity.
+  // Run its files one at a time; the mocked suite stays parallel.
+  // The real stack shares login limits and some tests stop Identity. The
+  // mocked suite is stable at two local workers; CI keeps Playwright's own
+  // worker count. This avoids local resource contention without masking a
+  // product regression.
+  workers: process.env['REAL_STACK'] ? 1 : isCI ? undefined : 2,
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     baseURL,
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
   },
-  webServer: {
-    command: isCI
-      ? 'pnpm exec nx run @org/web:start'
-      : 'pnpm exec nx run @org/web:dev',
-    url: webServerAddress,
-    reuseExistingServer: true,
-    cwd: workspaceRoot,
-  },
+  webServer: process.env['REAL_STACK']
+    ? undefined
+    : {
+        // Run the production build locally as well as in CI. The dev server
+        // intentionally double-invokes effects under React Strict Mode, which
+        // changes the request sequence several mocked journeys assert on; the
+        // production build matches the deployed application and CI.
+        command: isCI
+          ? 'pnpm exec nx run @org/web:start'
+          : 'pnpm exec nx run @org/web:build && pnpm exec nx run @org/web:start',
+        url: webServerAddress,
+        reuseExistingServer: true,
+        cwd: workspaceRoot,
+      },
   projects: [
     {
       name: 'chromium',
+      testIgnore: /.*\.real\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
 
     {
       name: 'firefox',
+      testIgnore: /.*\.real\.spec\.ts/,
       use: { ...devices['Desktop Firefox'] },
     },
 
     {
       name: 'webkit',
+      testIgnore: /.*\.real\.spec\.ts/,
       use: { ...devices['Desktop Safari'] },
+    },
+
+    {
+      name: 'real-stack',
+      testMatch: /.*\.real\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env['REAL_STACK_BASE_URL'] || 'http://localhost:8080',
+      },
     },
 
     // Uncomment for mobile browsers support

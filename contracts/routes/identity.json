@@ -1,0 +1,210 @@
+{
+  "service": "identity",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/admin/audit-logs/identity",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/users",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/{userId}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/users/{userId}",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/users/{userId}/password-reset",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/users/{userId}/status",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/forgot-password",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/auth/google/callback",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/auth/google/login",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/logout",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/refresh",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/register",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/resend-verification",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/reset-password",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/verify-email",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/couriers",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated liveness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/internal/couriers/{courierId}/eligibility",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "POST",
+      "path": "/internal/merchant-owners",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/internal/merchant-owners/{userId}",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "POST",
+      "path": "/internal/merchant-owners/{userId}/lifecycle",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/internal/users/{userId}/contact",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/internal/users/{userId}/session-state",
+      "classification": "internal",
+      "documented": true,
+      "gateway": false
+    },
+    {
+      "method": "GET",
+      "path": "/readyz",
+      "classification": "operational",
+      "documented": false,
+      "gateway": false,
+      "reason": "deprecated readiness alias registered by httpx.RegisterHealth; not routed through the gateway"
+    },
+    {
+      "method": "GET",
+      "path": "/users/me",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/users/me",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    },
+    {
+      "method": "PUT",
+      "path": "/users/me/password",
+      "classification": "public",
+      "documented": true,
+      "gateway": true
+    }
+  ]
+}

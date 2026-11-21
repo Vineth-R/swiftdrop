@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	Header     = "X-Request-ID"
+	Header     = "X-Request-Id"
 	contextKey = "request_id"
 )
 
@@ -73,6 +73,15 @@ func FromContext(ctx context.Context) string {
 		return id
 	}
 	return ""
+}
+
+// WithContext returns a context carrying id so outbound clients can propagate
+// the inbound request ID. An invalid id leaves the context unchanged.
+func WithContext(ctx context.Context, id string) context.Context {
+	if !Valid(id) {
+		return ctx
+	}
+	return context.WithValue(ctx, contextKeyValue, id)
 }
 
 func timeFallback() string {

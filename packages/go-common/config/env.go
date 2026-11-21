@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -10,6 +11,23 @@ import (
 
 type Loader struct {
 	lookup func(string) (string, bool)
+}
+
+// CIDRs parses an optional comma-separated trusted-network allowlist.
+func (l Loader) CIDRs(key string) ([]string, error) {
+	raw := l.String(key, "")
+	if raw == "" {
+		return nil, nil
+	}
+	result := []string{}
+	for _, value := range strings.Split(raw, ",") {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
+		if err != nil {
+			return nil, fmt.Errorf("%s must contain valid CIDRs", key)
+		}
+		result = append(result, prefix.Masked().String())
+	}
+	return result, nil
 }
 
 func Load() Loader {

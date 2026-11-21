@@ -1,0 +1,26 @@
+# SwiftDrop container vulnerability exceptions.
+#
+# The container security steps fail on HIGH and CRITICAL findings. Prefer
+# upgrading the package, the base image, or removing the unused component.
+#
+# An exception is acceptable only when all of the following are true:
+# - The finding has no fixed version available for the affected package, or
+#   the vulnerable code path is demonstrably unreachable in this image.
+# - The owning service team accepts the residual risk in writing.
+# - The exception is scoped as narrowly as possible: use `purls` or `paths`
+#   in addition to `id` when the CVE affects more than one package.
+# - The exception includes a `statement` explaining why it is safe and an
+#   `expired_at` date no more than 90 days in the future.
+#
+# Expired entries stop suppressing findings automatically, so the next scan
+# fails until the entry is renewed or the finding is fixed.
+#
+# This file intentionally starts empty. Add entries in this shape:
+#
+# vulnerabilities:
+#   - id: CVE-2026-00000
+#     purls:
+#       - pkg:golang/example.com/module@v1.2.3
+#     statement: Vulnerable function is not reachable from the service entrypoint.
+#     expired_at: 2026-12-31
+vulnerabilities: []

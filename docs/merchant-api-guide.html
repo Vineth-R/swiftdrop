@@ -1,0 +1,1356 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SwiftDrop Merchant API Guide</title>
+    <style>
+      :root {
+        --navy: #0f172a;
+        --navy-2: #172033;
+        --lime: #c6f135;
+        --lime-soft: #eefbc0;
+        --ink: #1e293b;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --surface: #f7f9fc;
+        --surface-2: #eef2f7;
+        --white: #ffffff;
+        --danger: #b42318;
+        --danger-soft: #fef3f2;
+        --ok: #027a48;
+        --ok-soft: #ecfdf3;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--white);
+        font:
+          11pt/1.55 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          'Helvetica Neue',
+          Arial,
+          sans-serif;
+      }
+
+      a {
+        color: #1d4ed8;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 2px;
+      }
+
+      .page {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 0 auto;
+        padding: 18mm 18mm 20mm;
+        background: var(--white);
+      }
+
+      .cover {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 261mm;
+        background:
+          radial-gradient(circle at 85% 8%, #24324a 0, transparent 38%),
+          linear-gradient(160deg, var(--navy) 0%, #0b1220 100%);
+        color: var(--white);
+        border-radius: 6mm;
+        padding: 20mm;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        font-size: 18pt;
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: var(--lime);
+        color: var(--navy);
+        font-size: 19pt;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .cover-kicker {
+        margin-top: 46mm;
+        color: var(--lime);
+        font-size: 9pt;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .cover h1 {
+        margin: 8px 0 0;
+        max-width: 150mm;
+        font-size: 36pt;
+        line-height: 1.05;
+        letter-spacing: -0.035em;
+      }
+
+      .cover p.lead {
+        max-width: 140mm;
+        margin: 14px 0 0;
+        color: #cbd5e1;
+        font-size: 13pt;
+        line-height: 1.5;
+      }
+
+      .cover-meta {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        border-top: 1px solid #334155;
+        padding-top: 10mm;
+      }
+
+      .cover-meta div {
+        color: #cbd5e1;
+        font-size: 9pt;
+      }
+
+      .cover-meta strong {
+        display: block;
+        margin-top: 3px;
+        color: var(--white);
+        font-size: 10.5pt;
+        font-weight: 700;
+      }
+
+      h2 {
+        margin: 0 0 4mm;
+        padding-top: 2mm;
+        color: var(--navy);
+        font-size: 19pt;
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+        border-top: 3px solid var(--lime);
+      }
+
+      h3 {
+        margin: 7mm 0 2mm;
+        color: var(--navy);
+        font-size: 13pt;
+        line-height: 1.3;
+      }
+
+      h4 {
+        margin: 5mm 0 1.5mm;
+        color: var(--navy);
+        font-size: 11pt;
+      }
+
+      p {
+        margin: 0 0 3mm;
+      }
+
+      ul,
+      ol {
+        margin: 0 0 3mm;
+        padding-left: 6mm;
+      }
+
+      li {
+        margin: 0 0 1.2mm;
+      }
+
+      code {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+        font-size: 9pt;
+        background: var(--surface-2);
+        border-radius: 3px;
+        padding: 1px 4px;
+      }
+
+      pre {
+        margin: 0 0 4mm;
+        padding: 4mm;
+        overflow: visible;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: var(--navy);
+        color: #e2e8f0;
+        border-radius: 3mm;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+        font-size: 8.5pt;
+        line-height: 1.5;
+      }
+
+      pre code {
+        background: transparent;
+        color: inherit;
+        padding: 0;
+        font-size: inherit;
+      }
+
+      table {
+        width: 100%;
+        margin: 0 0 4mm;
+        border-collapse: collapse;
+        font-size: 9.5pt;
+      }
+
+      th,
+      td {
+        padding: 2.2mm 2.5mm;
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid var(--line);
+      }
+
+      th {
+        color: var(--navy);
+        background: var(--surface);
+        font-size: 8.5pt;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      td code {
+        white-space: nowrap;
+      }
+
+      .note,
+      .warn,
+      .ok {
+        margin: 0 0 4mm;
+        padding: 3mm 4mm;
+        border-radius: 2mm;
+        font-size: 9.5pt;
+      }
+
+      .note {
+        background: var(--surface);
+        border-left: 3px solid var(--navy);
+      }
+
+      .warn {
+        background: var(--danger-soft);
+        border-left: 3px solid var(--danger);
+      }
+
+      .ok {
+        background: var(--ok-soft);
+        border-left: 3px solid var(--ok);
+      }
+
+      .toc {
+        columns: 2;
+        column-gap: 12mm;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .toc li {
+        margin: 0 0 2.5mm;
+        break-inside: avoid;
+      }
+
+      .toc a {
+        color: var(--ink);
+        text-decoration: none;
+      }
+
+      .toc .num {
+        display: inline-block;
+        width: 8mm;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .pill {
+        display: inline-block;
+        padding: 0.6mm 2mm;
+        border-radius: 999px;
+        background: var(--lime-soft);
+        color: #3f6212;
+        font-size: 8pt;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .page-break {
+        break-before: page;
+      }
+
+      .avoid-break {
+        break-inside: avoid;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5mm;
+      }
+
+      .card {
+        padding: 4mm;
+        border: 1px solid var(--line);
+        border-radius: 3mm;
+        background: var(--surface);
+      }
+
+      .card h4 {
+        margin-top: 0;
+      }
+
+      .footer-note {
+        margin-top: 8mm;
+        padding-top: 3mm;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 8.5pt;
+      }
+
+      @page {
+        size: A4;
+      }
+
+      @media print {
+        body {
+          font-size: 10.5pt;
+        }
+
+        .page {
+          width: auto;
+          min-height: 0;
+          margin: 0;
+          padding: 0;
+        }
+
+        .page.cover {
+          min-height: 250mm;
+          padding: 20mm;
+          border-radius: 0;
+        }
+
+        a {
+          color: var(--ink);
+          text-decoration: none;
+        }
+
+        pre {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section class="page cover">
+      <div class="brand"><span class="mark">S</span> SwiftDrop</div>
+      <div>
+        <div class="cover-kicker">Developer documentation</div>
+        <h1>Merchant API Guide</h1>
+        <p class="lead">
+          Create delivery orders from your own store, follow their status, and
+          receive signed status webhooks. This guide covers the API-key
+          integration surface and the reference data your server needs.
+        </p>
+      </div>
+      <div class="cover-meta">
+        <div>Version<strong>API v1.1 · guide 1.0</strong></div>
+        <div>Document date<strong>20 November 2026</strong></div>
+        <div>Base URL<strong>/api/v1</strong></div>
+      </div>
+    </section>
+
+    <section class="page page-break">
+      <h2>Contents</h2>
+      <ol class="toc">
+        <li>
+          <a href="#overview"><span class="num">1</span> Overview</a>
+        </li>
+        <li>
+          <a href="#authentication"
+            ><span class="num">2</span> Authentication boundaries</a
+          >
+        </li>
+        <li>
+          <a href="#zones"><span class="num">3</span> Zone lookup</a>
+        </li>
+        <li>
+          <a href="#create"><span class="num">4</span> Create an order</a>
+        </li>
+        <li>
+          <a href="#list"><span class="num">5</span> List orders</a>
+        </li>
+        <li>
+          <a href="#detail"><span class="num">6</span> Retrieve an order</a>
+        </li>
+        <li>
+          <a href="#receipt"><span class="num">7</span> Download a receipt</a>
+        </li>
+        <li>
+          <a href="#lifecycle"><span class="num">8</span> Status lifecycle</a>
+        </li>
+        <li>
+          <a href="#webhooks"><span class="num">9</span> Webhooks</a>
+        </li>
+        <li>
+          <a href="#errors"><span class="num">10</span> Errors</a>
+        </li>
+        <li>
+          <a href="#quickstart"><span class="num">11</span> Quick start</a>
+        </li>
+        <li>
+          <a href="#support"
+            ><span class="num">12</span> Support and versioning</a
+          >
+        </li>
+      </ol>
+
+      <div class="note">
+        <strong>Copy the examples carefully.</strong> Replace every placeholder
+        host, API key and zone UUID with the live values from your account. The
+        zone UUIDs printed in this guide are from the local seeded environment
+        and are examples, not universal constants.
+      </div>
+
+      <h3>What you can build</h3>
+      <ul>
+        <li>Create a delivery order when your store packs an item.</li>
+        <li>List and filter the orders you created.</li>
+        <li>Read one order with its fee snapshot and status timeline.</li>
+        <li>Download a branded PDF receipt for an order.</li>
+        <li>Receive signed status webhooks and update your own system.</li>
+      </ul>
+    </section>
+
+    <section class="page page-break" id="overview">
+      <h2>1. Overview</h2>
+      <p>
+        SwiftDrop is a parcel delivery platform. The merchant API lets an
+        approved merchant create delivery orders server-to-server and follow
+        their progress. SwiftDrop calculates the delivery fee and returns an
+        <code>SDN</code> tracking number. The merchant remains the owner of the
+        customer relationship; SwiftDrop owns the parcel and delivery workflow.
+      </p>
+
+      <h3>Base URL</h3>
+      <p>
+        All routes in this guide are relative to the gateway base URL:
+        <code>https://&lt;your-swiftdrop-host&gt;/api/v1</code>. The local
+        development gateway is <code>http://localhost:8080/api/v1</code>.
+      </p>
+
+      <h3>Content type</h3>
+      <p>
+        Send <code>Content-Type: application/json</code> for every request with
+        a body. Send <code>Accept: application/json</code>; the receipt endpoint
+        returns <code>application/pdf</code>.
+      </p>
+
+      <h3>Rate limit</h3>
+      <p>
+        Order creation is limited to
+        <strong>120 requests per minute per API key</strong>. A limit breach
+        returns <code>429 RATE_LIMITED</code>. List, detail and receipt reads
+        are not subject to that creation limiter, but normal gateway limits
+        still apply; cache reference data such as zones rather than fetching it
+        for every order.
+      </p>
+
+      <h3>Idempotency</h3>
+      <p>Two independent idempotency mechanisms protect order creation:</p>
+      <ul>
+        <li>
+          <code>externalOrderId</code> is your own order reference. Reusing it
+          with the same normalized payload returns the original order with
+          <code>200</code> instead of creating a second parcel.
+        </li>
+        <li>
+          The optional <code>Idempotency-Key</code> header (up to 100
+          characters) identifies one attempt. Reusing it with the same payload
+          also returns the original order.
+        </li>
+      </ul>
+      <p>
+        If the same reference or key is reused with a
+        <em>different</em> payload, the API returns
+        <code>409 DUPLICATE_ORDER</code>. Generate a new key for each new
+        attempt and persist it with the request you sent.
+      </p>
+
+      <div class="ok">
+        <strong>Never lose an order to a timeout.</strong> Retry the same
+        request with the same <code>Idempotency-Key</code> and payload. A lost
+        response is safe to retry; a new payload under the same key is not.
+      </div>
+    </section>
+
+    <section class="page page-break" id="authentication">
+      <h2>2. Authentication boundaries</h2>
+      <p>
+        SwiftDrop has two different credential types. Use the right one for the
+        right surface.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Surface</th>
+            <th>Credential</th>
+            <th>Where it is used</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Merchant portal</td>
+            <td>MERCHANT session (HttpOnly cookie)</td>
+            <td>
+              Dashboard, business profile, API-key management, webhook settings,
+              order screens, receipt downloads
+            </td>
+          </tr>
+          <tr>
+            <td>Server-to-server order integration</td>
+            <td><code>X-API-Key</code></td>
+            <td>
+              Create, list, detail and receipt endpoints. The key stays on your
+              server and is never sent to a browser.
+            </td>
+          </tr>
+          <tr>
+            <td>Order reads and receipt</td>
+            <td>Either a MERCHANT session or <code>X-API-Key</code></td>
+            <td>
+              The order read/receipt routes accept both; the create route is
+              API-key only.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>API keys</h3>
+      <ul>
+        <li>Create and revoke keys in the merchant portal under API keys.</li>
+        <li>
+          The full key is shown once, at creation. SwiftDrop stores only a hash.
+        </li>
+        <li>
+          Send it as <code>X-API-Key: sdk_live_...</code>. A missing, unknown or
+          revoked key returns <code>401 INVALID_API_KEY</code>.
+        </li>
+        <li>
+          An approved merchant is required. A pending, rejected or suspended
+          merchant returns <code>403 MERCHANT_NOT_APPROVED</code>.
+        </li>
+        <li>
+          Revoke a key immediately if it is exposed, then create a replacement.
+        </li>
+      </ul>
+
+      <h3>Merchant identity is never in the request body</h3>
+      <p>
+        The merchant is resolved from the API key or session. Do not send a
+        <code>merchantId</code>, <code>ownerUserId</code> or any identity field
+        in an order request; unknown fields are rejected with
+        <code>400 BAD_REQUEST</code>. Another merchant's orders are not readable
+        with your credential.
+      </p>
+    </section>
+
+    <section class="page page-break" id="zones">
+      <h2>3. Zone lookup</h2>
+      <p>
+        Every pickup and recipient contact needs a <code>zoneId</code>. Zones
+        are public reference data and are intentionally available without a
+        merchant credential:
+      </p>
+      <pre><code>GET /api/v1/zones</code></pre>
+
+      <h3>Response</h3>
+      <pre><code>{
+  "data": [
+    {
+      "id": "1f7b9734-bfc0-4370-9c0c-75a1a60ab182",
+      "code": "CMB",
+      "name": "Colombo",
+      "districts": ["Colombo"]
+    },
+    {
+      "id": "ff42248d-483c-4d0c-bc67-b97731c019c6",
+      "code": "KDY",
+      "name": "Kandy",
+      "districts": ["Kandy"]
+    },
+    {
+      "id": "46894090-a63e-4f55-be00-7eb93cc9ba1e",
+      "code": "GMP",
+      "name": "Gampaha",
+      "districts": ["Gampaha", "Negombo"]
+    }
+  ],
+  "meta": { "requestId": "req_zones", "timestamp": "2026-11-20T10:00:00Z" }
+}</code></pre>
+
+      <p>
+        Only active zones are returned. Map the recipient's city or district to
+        the matching <code>districts</code> entry and store the zone
+        <code>id</code>. District names are not unique across every possible
+        future zone, so prefer an exact match and keep the chosen zone with the
+        order.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Zone</th>
+            <th>Districts (seeded example)</th>
+            <th>UUID (seeded example)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>CMB</td>
+            <td>Colombo</td>
+            <td>Colombo</td>
+            <td><code>1f7b9734-bfc0-4370-9c0c-75a1a60ab182</code></td>
+          </tr>
+          <tr>
+            <td>GLE</td>
+            <td>Galle</td>
+            <td>Galle</td>
+            <td><code>c6b2921a-cead-4161-b69a-251208e23313</code></td>
+          </tr>
+          <tr>
+            <td>GMP</td>
+            <td>Gampaha</td>
+            <td>Gampaha, Negombo</td>
+            <td><code>46894090-a63e-4f55-be00-7eb93cc9ba1e</code></td>
+          </tr>
+          <tr>
+            <td>JFN</td>
+            <td>Jaffna</td>
+            <td>Jaffna</td>
+            <td><code>92d74a45-61ac-4739-ac52-a24d04879c73</code></td>
+          </tr>
+          <tr>
+            <td>KDY</td>
+            <td>Kandy</td>
+            <td>Kandy</td>
+            <td><code>ff42248d-483c-4d0c-bc67-b97731c019c6</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="warn">
+        The UUIDs above are from the seeded local environment. Fetch
+        <code>/zones</code> in each environment and use the returned IDs. Do not
+        hardcode a production UUID from this guide.
+      </div>
+
+      <h3>Pickup zone</h3>
+      <p>
+        If you omit <code>pickup</code> on an order, SwiftDrop uses the pickup
+        address and zone configured on your merchant business profile. Include
+        <code>pickup</code> only when this order ships from a different place.
+      </p>
+    </section>
+
+    <section class="page page-break" id="create">
+      <h2>4. Create an order</h2>
+      <pre><code>POST /api/v1/merchant/orders
+X-API-Key: &lt;your key&gt;
+Idempotency-Key: order-100245
+Content-Type: application/json</code></pre>
+
+      <h3>Request fields</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Required</th>
+            <th>Rules</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>externalOrderId</code></td>
+            <td>string</td>
+            <td>yes</td>
+            <td>1–100 characters; your own reference</td>
+          </tr>
+          <tr>
+            <td><code>pickup</code></td>
+            <td>contact</td>
+            <td>no</td>
+            <td>Omit to use the merchant profile pickup</td>
+          </tr>
+          <tr>
+            <td><code>recipient</code></td>
+            <td>contact</td>
+            <td>yes</td>
+            <td>Name, phone, address, city and zoneId</td>
+          </tr>
+          <tr>
+            <td><code>weightKg</code></td>
+            <td>number</td>
+            <td>yes</td>
+            <td>Greater than 0, at most 9999.99; up to 2 decimals</td>
+          </tr>
+          <tr>
+            <td><code>sizeCategory</code></td>
+            <td>string</td>
+            <td>yes</td>
+            <td>
+              <code>SMALL</code>, <code>MEDIUM</code>, <code>LARGE</code> or
+              <code>OVERSIZED</code>
+            </td>
+          </tr>
+          <tr>
+            <td><code>description</code></td>
+            <td>string</td>
+            <td>no</td>
+            <td>At most 255 characters</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Contact fields</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Rules</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>name</code></td>
+            <td>At most 150 characters</td>
+          </tr>
+          <tr>
+            <td><code>phone</code></td>
+            <td>Use E.164, for example <code>+94712345678</code></td>
+          </tr>
+          <tr>
+            <td><code>address</code></td>
+            <td>At most 255 characters</td>
+          </tr>
+          <tr>
+            <td><code>city</code></td>
+            <td>At most 100 characters</td>
+          </tr>
+          <tr>
+            <td><code>zoneId</code></td>
+            <td>A UUID from <code>GET /api/v1/zones</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Example request</h3>
+      <pre><code>{
+  "externalOrderId": "SZ-100245",
+  "recipient": {
+    "name": "Amali Fernando",
+    "phone": "+94712345678",
+    "address": "45 Lake Drive",
+    "city": "Kandy",
+    "zoneId": "ff42248d-483c-4d0c-bc67-b97731c019c6"
+  },
+  "weightKg": 1.5,
+  "sizeCategory": "SMALL",
+  "description": "Phone case"
+}</code></pre>
+
+      <h3>Response 201</h3>
+      <pre><code>{
+  "data": {
+    "orderId": "7f3a2c1e-4b5d-4e6f-8a90-b1c2d3e4f506",
+    "externalOrderId": "SZ-100245",
+    "trackingNumber": "SDN4T8W2LC6",
+    "status": "CREATED",
+    "fee": {
+      "currency": "LKR",
+      "baseFee": 450.00,
+      "weightCharge": 100.00,
+      "sizeSurcharge": 0.00,
+      "total": 550.00
+    },
+    "createdAt": "2026-11-20T10:00:00Z"
+  },
+  "meta": { "requestId": "req_created", "timestamp": "2026-11-20T10:00:00Z" }
+}</code></pre>
+
+      <p>
+        <code>orderId</code> is the stable API v1.1 order identifier. Keep it
+        for the detail and receipt routes. <code>trackingNumber</code> is the
+        public parcel identifier; show it to the recipient.
+      </p>
+
+      <div class="ok">
+        A replay with the same payload returns <strong>200</strong> and the same
+        order. A replay with a different payload returns
+        <strong>409 DUPLICATE_ORDER</strong>.
+      </div>
+    </section>
+
+    <section class="page page-break" id="list">
+      <h2>5. List orders</h2>
+      <pre><code>GET /api/v1/merchant/orders?status=IN_TRANSIT&amp;page=1&amp;pageSize=20&amp;sort=createdAt:desc
+X-API-Key: &lt;your key&gt;</code></pre>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Query</th>
+            <th>Rules</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>status</code></td>
+            <td>One of the six order statuses</td>
+          </tr>
+          <tr>
+            <td><code>from</code>, <code>to</code></td>
+            <td>Dates in <code>YYYY-MM-DD</code> format</td>
+          </tr>
+          <tr>
+            <td><code>externalOrderId</code></td>
+            <td>Exact reference, at most 100 characters</td>
+          </tr>
+          <tr>
+            <td><code>page</code></td>
+            <td>Default <code>1</code></td>
+          </tr>
+          <tr>
+            <td><code>pageSize</code></td>
+            <td>1–100, default <code>20</code></td>
+          </tr>
+          <tr>
+            <td><code>sort</code></td>
+            <td>
+              <code>createdAt</code>, <code>updatedAt</code> or
+              <code>externalOrderId</code>, with <code>:asc</code> or
+              <code>:desc</code>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Response 200</h3>
+      <pre><code>{
+  "data": [
+    {
+      "orderId": "7f3a2c1e-4b5d-4e6f-8a90-b1c2d3e4f506",
+      "externalOrderId": "SZ-100245",
+      "trackingNumber": "SDN4T8W2LC6",
+      "status": "IN_TRANSIT",
+      "recipientName": "Amali Fernando",
+      "dropoffCity": "Kandy",
+      "total": 550.00,
+      "currency": "LKR",
+      "createdAt": "2026-11-20T10:00:00Z",
+      "updatedAt": "2026-11-20T13:00:00Z"
+    }
+  ],
+  "meta": {
+    "requestId": "req_list",
+    "timestamp": "2026-11-20T13:05:00Z",
+    "pagination": {
+      "page": 1,
+      "pageSize": 20,
+      "totalItems": 1,
+      "totalPages": 1
+    }
+  }
+}</code></pre>
+      <p>
+        The list is always scoped to the authenticated merchant. Another
+        merchant's orders are never included.
+      </p>
+    </section>
+
+    <section class="page page-break" id="detail">
+      <h2>6. Retrieve an order</h2>
+      <pre><code>GET /api/v1/merchant/orders/7f3a2c1e-4b5d-4e6f-8a90-b1c2d3e4f506
+X-API-Key: &lt;your key&gt;</code></pre>
+      <p>
+        The response is the list item plus <code>weightKg</code>,
+        <code>sizeCategory</code>, <code>description</code>, the full
+        <code>fee</code> snapshot and a chronological <code>timeline</code> of
+        status events.
+      </p>
+      <pre><code>{
+  "data": {
+    "orderId": "7f3a2c1e-4b5d-4e6f-8a90-b1c2d3e4f506",
+    "externalOrderId": "SZ-100245",
+    "trackingNumber": "SDN4T8W2LC6",
+    "status": "IN_TRANSIT",
+    "recipientName": "Amali Fernando",
+    "dropoffCity": "Kandy",
+    "total": 550.00,
+    "currency": "LKR",
+    "createdAt": "2026-11-20T10:00:00Z",
+    "updatedAt": "2026-11-20T13:00:00Z",
+    "weightKg": 1.50,
+    "sizeCategory": "SMALL",
+    "description": "Phone case",
+    "fee": {
+      "currency": "LKR",
+      "baseFee": 450.00,
+      "weightCharge": 100.00,
+      "sizeSurcharge": 0.00,
+      "total": 550.00
+    },
+    "timeline": [
+      { "status": "CREATED", "at": "2026-11-20T10:00:00Z" },
+      { "status": "PICKED_UP", "at": "2026-11-20T11:00:00Z" },
+      { "status": "IN_TRANSIT", "at": "2026-11-20T13:00:00Z" }
+    ]
+  },
+  "meta": { "requestId": "req_detail", "timestamp": "2026-11-20T13:05:00Z" }
+}</code></pre>
+
+      <div class="warn">
+        A missing order and another merchant's order both return
+        <code>404 NOT_FOUND</code>. Do not use a UUID's unguessability as an
+        authorization control; SwiftDrop scopes every query to the authenticated
+        merchant.
+      </div>
+    </section>
+
+    <section class="page page-break" id="receipt">
+      <h2>7. Download a receipt</h2>
+      <pre><code>GET /api/v1/merchant/orders/{trackingNumber}/receipt
+X-API-Key: &lt;your key&gt;</code></pre>
+      <p>
+        Example with a real tracking number:
+        <code>GET /api/v1/merchant/orders/SDN4T8W2LC6/receipt</code>.
+      </p>
+      <p>
+        Returns a private, branded PDF for the order with that tracking number.
+        The route accepts a merchant session cookie or an API key. The tracking
+        number is a lookup key, not an authorization token: the order must
+        belong to the authenticated merchant, otherwise the response is
+        <code>404 NOT_FOUND</code>.
+      </p>
+
+      <h3>Response 200</h3>
+      <pre><code>Content-Type: application/pdf
+Content-Disposition: attachment; filename="SwiftDrop-order-SDN4T8W2LC6.pdf"
+Cache-Control: no-store</code></pre>
+
+      <p>
+        The PDF contains the SwiftDrop wordmark, receipt title, tracking number,
+        external order reference, merchant and pickup details, recipient
+        details, parcel description/weight/size, the fee breakdown, current
+        status and the recorded status timeline. The fee is a snapshot, not a
+        payment receipt.
+      </p>
+
+      <h3>Download from the portal</h3>
+      <p>
+        Open an order in the merchant portal and choose
+        <strong>Download receipt</strong>. The browser downloads
+        <code>SwiftDrop-order-&lt;trackingNumber&gt;.pdf</code>.
+      </p>
+    </section>
+
+    <section class="page page-break" id="lifecycle">
+      <h2>8. Status lifecycle</h2>
+      <p>
+        Merchant orders mirror the parcel status that SwiftDrop records. The
+        allowed transitions are:
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>From</th>
+            <th>Allowed next</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>CREATED</code></td>
+            <td><code>PICKED_UP</code>, <code>FAILED</code></td>
+          </tr>
+          <tr>
+            <td><code>PICKED_UP</code></td>
+            <td><code>IN_TRANSIT</code>, <code>FAILED</code></td>
+          </tr>
+          <tr>
+            <td><code>IN_TRANSIT</code></td>
+            <td><code>OUT_FOR_DELIVERY</code>, <code>FAILED</code></td>
+          </tr>
+          <tr>
+            <td><code>OUT_FOR_DELIVERY</code></td>
+            <td><code>DELIVERED</code>, <code>FAILED</code></td>
+          </tr>
+          <tr>
+            <td><code>DELIVERED</code></td>
+            <td>Terminal</td>
+          </tr>
+          <tr>
+            <td><code>FAILED</code></td>
+            <td>Terminal</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Each accepted transition is written to the order timeline. A courier
+        pickup includes proof of pickup; a delivery includes proof of delivery
+        and a recipient. A failed delivery records a failure reason. The
+        merchant order status is synchronized from the parcel status.
+      </p>
+      <p>
+        Notifications and webhooks are triggered by status changes. The exact
+        public webhook event is <code>parcel.status_changed</code>; the internal
+        RabbitMQ event is <code>parcel.status_changed.v1</code>.
+      </p>
+    </section>
+
+    <section class="page page-break" id="webhooks">
+      <h2>9. Webhooks</h2>
+      <p>
+        Configure the webhook URL and signing secret in the merchant portal.
+        SwiftDrop sends an HTTP <code>POST</code> whenever a parcel linked to
+        your merchant changes status.
+      </p>
+
+      <h3>Headers</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Header</th>
+            <th>Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>Content-Type</code></td>
+            <td><code>application/json</code></td>
+          </tr>
+          <tr>
+            <td><code>X-SwiftDrop-Event</code></td>
+            <td><code>parcel.status_changed</code></td>
+          </tr>
+          <tr>
+            <td><code>X-SwiftDrop-Event-Id</code></td>
+            <td>Stable event ID; use it to ignore duplicates</td>
+          </tr>
+          <tr>
+            <td><code>X-SwiftDrop-Timestamp</code></td>
+            <td>Unix seconds when the request was signed</td>
+          </tr>
+          <tr>
+            <td><code>X-SwiftDrop-Signature</code></td>
+            <td>
+              <code>sha256=</code> plus the lowercase hex HMAC-SHA256 of
+              <code>&lt;timestamp&gt;.&lt;raw body&gt;</code>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Body</h3>
+      <pre><code>{
+  "eventId": "6c8f8e56-5c6b-4d7c-9d9a-5f0f1f2b3c4d",
+  "eventType": "parcel.status_changed",
+  "schemaVersion": 1,
+  "occurredAt": "2026-11-20T13:00:00Z",
+  "data": {
+    "trackingNumber": "SDN4T8W2LC6",
+    "externalOrderId": "SZ-100245",
+    "previousStatus": "PICKED_UP",
+    "status": "IN_TRANSIT",
+    "note": null,
+    "failureReason": null
+  }
+}</code></pre>
+
+      <h3>Verify the signature</h3>
+      <p>
+        Verify the HMAC against the <strong>raw request body</strong>, not a
+        parsed and re-serialized object. Reject timestamps outside five minutes
+        in either direction, and compare signatures in constant time.
+      </p>
+      <pre><code>const crypto = require('crypto');
+
+function verifySwiftDrop(secret, headers, rawBody) {
+  const timestamp = headers['x-swiftdrop-timestamp'];
+  const received = headers['x-swiftdrop-signature'];
+  if (!timestamp || !received) return false;
+
+  const now = Math.floor(Date.now() / 1000);
+  const sent = Number(timestamp);
+  if (!Number.isInteger(sent) || Math.abs(now - sent) &gt; 300) return false;
+
+  const expected =
+    'sha256=' +
+    crypto
+      .createHmac('sha256', secret)
+      .update(timestamp + '.')
+      .update(rawBody)
+      .digest('hex');
+
+  const a = Buffer.from(expected);
+  const b = Buffer.from(received);
+  return a.length === b.length &amp;&amp; crypto.timingSafeEqual(a, b);
+}</code></pre>
+
+      <h3>Delivery rules</h3>
+      <ul>
+        <li>
+          Respond with any <code>2xx</code> within <strong>10 seconds</strong>.
+          Any other result counts as a failure.
+        </li>
+        <li>
+          Failed deliveries are retried after approximately 1 minute, 5 minutes,
+          30 minutes, 2 hours and 6 hours (six business attempts including the
+          first).
+        </li>
+        <li>
+          After exhaustion the event is dead-lettered and no further automatic
+          attempt is made.
+        </li>
+        <li>
+          A suspended, pending or rejected merchant, or an inactive/unsubscribed
+          webhook, is suppressed before the request and is not retried on
+          reinstatement.
+        </li>
+        <li>
+          Delivery is at least once. Deduplicate on the event ID (<code
+            >X-SwiftDrop-Event-Id</code
+          >
+          / body <code>eventId</code>), not on the tracking number alone.
+        </li>
+        <li>
+          The webhook URL must be HTTPS, must resolve to a public address, and
+          must not redirect.
+        </li>
+      </ul>
+    </section>
+
+    <section class="page page-break" id="errors">
+      <h2>10. Errors</h2>
+      <p>Every error uses the same envelope:</p>
+      <pre><code>{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "one or more fields are invalid",
+    "details": [
+      { "field": "recipient.zoneId", "issue": "must be a UUID" }
+    ]
+  },
+  "meta": { "requestId": "req_error", "timestamp": "2026-11-20T13:00:00Z" }
+}</code></pre>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Code</th>
+            <th>What to do</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>400</td>
+            <td><code>BAD_REQUEST</code></td>
+            <td>
+              Malformed JSON or an unknown field. Send exactly the documented
+              shape.
+            </td>
+          </tr>
+          <tr>
+            <td>401</td>
+            <td><code>INVALID_API_KEY</code></td>
+            <td>
+              Missing, unknown or revoked key. Create a new key in the portal.
+            </td>
+          </tr>
+          <tr>
+            <td>403</td>
+            <td><code>MERCHANT_NOT_APPROVED</code></td>
+            <td>The merchant is pending, rejected or suspended.</td>
+          </tr>
+          <tr>
+            <td>404</td>
+            <td><code>NOT_FOUND</code></td>
+            <td>
+              The order does not exist, is another merchant's order, or the
+              receipt tracking number is unknown.
+            </td>
+          </tr>
+          <tr>
+            <td>409</td>
+            <td><code>DUPLICATE_ORDER</code></td>
+            <td>Same reference or idempotency key with a different payload.</td>
+          </tr>
+          <tr>
+            <td>422</td>
+            <td><code>VALIDATION_ERROR</code></td>
+            <td>Invalid fields. Read <code>details[].field</code>.</td>
+          </tr>
+          <tr>
+            <td>422</td>
+            <td><code>ROUTE_NOT_SERVICEABLE</code></td>
+            <td>The pickup/destination zone pair is not priced.</td>
+          </tr>
+          <tr>
+            <td>422</td>
+            <td><code>WEIGHT_NOT_PRICED</code></td>
+            <td>The weight is outside every active pricing band.</td>
+          </tr>
+          <tr>
+            <td>429</td>
+            <td><code>RATE_LIMITED</code></td>
+            <td>
+              More than 120 order creations per minute for one key. Back off.
+            </td>
+          </tr>
+          <tr>
+            <td>503</td>
+            <td><code>SERVICE_UNAVAILABLE</code></td>
+            <td>
+              Parcel or Pricing is temporarily unavailable. Retry with the same
+              key.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="page page-break" id="quickstart">
+      <h2>11. Quick start</h2>
+      <p>Set these shell variables once:</p>
+      <pre><code>export SWIFTDROP_HOST="http://localhost:8080"
+export SWIFTDROP_API_KEY="sdk_live_..."
+export DEST_ZONE="ff42248d-483c-4d0c-bc67-b97731c019c6"</code></pre>
+
+      <h3>1. Find a zone</h3>
+      <pre><code>curl -s "$SWIFTDROP_HOST/api/v1/zones"</code></pre>
+
+      <h3>2. Create an order</h3>
+      <pre><code>curl -s -X POST "$SWIFTDROP_HOST/api/v1/merchant/orders" \
+  -H "X-API-Key: $SWIFTDROP_API_KEY" \
+  -H "Idempotency-Key: SZ-100245" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "externalOrderId": "SZ-100245",
+    "recipient": {
+      "name": "Amali Fernando",
+      "phone": "+94712345678",
+      "address": "45 Lake Drive",
+      "city": "Kandy",
+      "zoneId": "'"$DEST_ZONE"'"
+    },
+    "weightKg": 1.5,
+    "sizeCategory": "SMALL",
+    "description": "Phone case"
+  }'</code></pre>
+
+      <h3>3. List your orders</h3>
+      <pre><code>curl -s "$SWIFTDROP_HOST/api/v1/merchant/orders?page=1&amp;pageSize=20" \
+  -H "X-API-Key: $SWIFTDROP_API_KEY"</code></pre>
+
+      <h3>4. Read one order</h3>
+      <pre><code>curl -s "$SWIFTDROP_HOST/api/v1/merchant/orders/&lt;orderId&gt;" \
+  -H "X-API-Key: $SWIFTDROP_API_KEY"</code></pre>
+
+      <h3>5. Download the receipt</h3>
+      <pre><code>curl -s -D receipt.headers \
+  -o "receipt_SDN4T8W2LC6.pdf" \
+  "$SWIFTDROP_HOST/api/v1/merchant/orders/SDN4T8W2LC6/receipt" \
+  -H "X-API-Key: $SWIFTDROP_API_KEY"</code></pre>
+
+      <div class="note">
+        <strong>Portal-only actions.</strong> API keys, webhook URL/secret
+        settings, webhook test sends, delivery logs and the business profile are
+        managed in the merchant portal with a MERCHANT session. They are not
+        API-key endpoints and are not part of a server integration.
+      </div>
+    </section>
+
+    <section class="page page-break" id="support">
+      <h2>12. Support and versioning</h2>
+      <p>
+        This guide describes API v1.1 plus additive, backward-compatible
+        merchant enhancements: the dedicated
+        <code>GET /merchant/orders/{trackingNumber}/receipt</code> endpoint, the
+        dedicated integration page and this guide. The existing
+        <code>orderId</code> field and detail route remain unchanged.
+      </p>
+      <ul>
+        <li>
+          The existing <code>orderId</code> field and
+          <code>GET /merchant/orders/{orderId}</code> route remain supported.
+        </li>
+        <li>
+          New fields may be added in a backward-compatible way. Ignore unknown
+          response fields.
+        </li>
+        <li>
+          Send only documented request fields; unknown request fields are
+          rejected.
+        </li>
+        <li>
+          Keep your API keys, webhook signing secret and raw customer data out
+          of logs and error reports.
+        </li>
+      </ul>
+
+      <h3>Checklist before going live</h3>
+      <ul>
+        <li>Store the API key server-side and rotate it if exposed.</li>
+        <li>Fetch and cache the active zone list.</li>
+        <li>
+          Persist <code>orderId</code>, <code>trackingNumber</code> and your
+          <code>externalOrderId</code>.
+        </li>
+        <li>
+          Retry ambiguous failures with the same
+          <code>Idempotency-Key</code> and payload.
+        </li>
+        <li>
+          Verify webhook signatures against the raw body and deduplicate on the
+          event ID.
+        </li>
+        <li>
+          Respond to webhooks with 2xx within 10 seconds and move slow work to a
+          queue.
+        </li>
+      </ul>
+
+      <div class="footer-note">
+        SwiftDrop merchant API guide · Version 1.0 · 20 November 2026. Generated
+        from the implemented API contract and OpenAPI specification.
+      </div>
+    </section>
+  </body>
+</html>

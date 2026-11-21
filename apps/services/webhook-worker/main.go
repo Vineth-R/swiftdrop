@@ -2,22 +2,28 @@ package main
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	serviceconfig "github.com/Vineth-R/swiftdrop/apps/services/webhook-worker/internal/config"
 	"github.com/Vineth-R/swiftdrop/apps/services/webhook-worker/internal/worker"
+	sharedconfig "github.com/Vineth-R/swiftdrop/packages/go-common/config"
+	"github.com/Vineth-R/swiftdrop/packages/go-common/httpx"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/logging"
 	"github.com/Vineth-R/swiftdrop/packages/go-common/messaging"
+	"github.com/Vineth-R/swiftdrop/packages/webhookdelivery"
 )
 
 const serviceName = "webhook-worker"
 
 func main() {
 	if err := run(); err != nil {
-		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("worker stopped", "service", serviceName, "error", err)
+		logging.NewBootstrap(serviceName).Error("worker stopped", "error", err)
 		os.Exit(1)
 	}
 }
@@ -28,9 +34,19 @@ func run() error {
 		return err
 	}
 
+	clients, err := serviceconfig.LoadClients(sharedconfig.Load(), config.AppEnv)
+	if err != nil {
+		return err
+	}
+
 	logger, err := logging.New(serviceName, config.AppEnv, config.LogLevel)
 	if err != nil {
 		return err
+	}
+	if clients.InternalTokenProblem != "" {
+		// Development only: the internal APIs refuse calls without a token, so
+		// deliveries fail and are retried until INTERNAL_TOKEN is fixed.
+		logger.Warn("internal API calls will be refused", "reason", clients.InternalTokenProblem)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -73,18 +89,79 @@ func run() error {
 		"environment", config.AppEnv,
 	)
 
-	err = messaging.Run(ctx, messaging.ConsumerConfig{
-		URL:            config.RabbitMQURL,
-		Exchange:       config.Exchange,
-		Queue:          config.Queue,
-		RoutingKey:     config.RoutingKey,
-		Prefetch:       config.Prefetch,
-		HandlerTimeout: config.HandlerTimeout,
-		MaxRetries:     config.MaxRetries,
-		RetryDelay:     config.RetryDelay,
-		ReconnectMin:   config.ReconnectMin,
-		ReconnectMax:   config.ReconnectMax,
-	}, worker.New(logger), logger)
+	if config.UsesLegacyQueue() {
+		logger.Warn("legacy webhook queue configuration detected",
+			"queue", config.Queue,
+			"routing_key", config.RoutingKey,
+			"hint", "webhook.delivery.requested.v1 has no producer; set WEBHOOK_QUEUE=webhook.parcel.status_changed.v1 and WEBHOOK_ROUTING_KEY=parcel.status_changed.v1 to receive parcel status events",
+		)
+	}
+
+	sender := webhookdelivery.NewSender()
+	if config.TestWebhookOrigin != "" {
+		testSender, err := webhookdelivery.NewTestOnlySender(config.TestWebhookOrigin, config.TestWebhookCAFile)
+		if err != nil {
+			return fmt.Errorf("configure test webhook sender: %w", err)
+		}
+		sender = testSender
+		logger.Warn("test webhook origin is enabled", "origin", config.TestWebhookOrigin)
+	}
+
+	consumerHealth := messaging.NewHealth()
+	router := httpx.NewRouter(logger)
+	registerHTTPRoutes(router, consumerHealth)
+	server := httpx.NewServer(httpx.ServerConfig{
+		Addr:              config.Addr(),
+		Handler:           router,
+		Logger:            logger,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	})
+
+	results := make(chan error, 2)
+	go func() { results <- httpx.Serve(ctx, server, 10*time.Second) }()
+	go func() {
+		results <- messaging.Run(ctx, messaging.ConsumerConfig{
+			URL:            config.RabbitMQURL,
+			Exchange:       config.Exchange,
+			Queue:          config.Queue,
+			RoutingKey:     config.RoutingKey,
+			Prefetch:       config.Prefetch,
+			HandlerTimeout: config.HandlerTimeout,
+			MaxRetries:     config.MaxRetries,
+			RetryDelay:     config.RetryDelay,
+			ReconnectMin:   config.ReconnectMin,
+			ReconnectMax:   config.ReconnectMax,
+			Health:         consumerHealth,
+		}, worker.New(logger, worker.Deps{
+			Merchants:   worker.NewMerchantClient(clients.MerchantBaseURL, clients.InternalToken, clients.ClientTimeout),
+			Parcels:     worker.NewParcelClient(clients.ParcelBaseURL, clients.InternalToken, clients.ClientTimeout),
+			Sender:      sender,
+			Scheduler:   worker.NewAMQPScheduler(config.RabbitMQURL, config.Queue),
+			RetryDelays: config.RetryDelays,
+		}), logger)
+	}()
+
+	first := <-results
+	cancel()
+	second := <-results
 	close(stopped)
-	return err
+	if first != nil {
+		return first
+	}
+	return second
+}
+
+// registerHTTPRoutes mounts the webhook worker's internal HTTP surface. The
+// worker has no business routes; only its operational probes are exposed, and
+// the route inventory test uses this helper without starting the consumer.
+func registerHTTPRoutes(router *gin.Engine, consumerHealth *messaging.Health) {
+	router.GET("/health", func(c *gin.Context) {
+		httpx.JSON(c, 200, gin.H{"status": "ok"})
+	})
+	router.GET("/ready", httpx.ReadinessHandler(
+		httpx.BooleanDependency("consumer.webhook", consumerHealth.Ready),
+	))
 }

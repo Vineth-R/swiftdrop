@@ -4,7 +4,7 @@ SwiftDrop is a foundation-stage monorepo. Keep changes focused, preserve existin
 
 ## Before you start
 
-1. Read [`README.md`](README.md) for setup and repository rules, and [`docs/architecture.md`](docs/architecture.md) for service boundaries.
+1. Read [`AGENTS.md`](AGENTS.md) for repository rules and [`docs/architecture.md`](docs/architecture.md) for service boundaries.
 2. Install the prerequisites from the [README](README.md#prerequisites).
 3. Set up the workspace:
 
@@ -17,13 +17,11 @@ SwiftDrop is a foundation-stage monorepo. Keep changes focused, preserve existin
 
 ## Branch workflow
 
-The current remote default branch is `chore/initial-workspace`. It is a shared coordination branch, not a permanent product mainline.
+The integration branch is `development`. Create feature branches from it and open pull requests into `development`.
 
-- Create feature branches from `chore/initial-workspace`.
-- Do not push directly to the shared branch.
+- Do not push directly to `development` or `main`; repository rulesets block it.
 - Use a short descriptive branch name, for example `feature/parcel-create-endpoint`, `fix/worker-shutdown`, or `docs/onboarding`.
-- When the team establishes a permanent mainline, rename or replace the shared branch deliberately, update the remote default, and protect the new mainline. Until then, do not assume a protected-branch setting or required-review rule is enforced.
-- Rebase or merge from the shared branch only when needed to resolve conflicts. Do not rewrite other contributors' history.
+- Rebase or merge from `development` only when needed to resolve conflicts. Do not rewrite other contributors' history.
 
 ## Commits
 
@@ -33,7 +31,7 @@ The current remote default branch is `chore/initial-workspace`. It is a shared c
 
 ## Pull requests
 
-Open a pull request against `chore/initial-workspace` using [`.github/pull_request_template.md`](.github/pull_request_template.md). Include:
+Open a pull request against `development` using [`.github/pull_request_template.md`](.github/pull_request_template.md). Include:
 
 - A summary of the change and the problem it solves.
 - A linked issue when one exists.
@@ -45,13 +43,15 @@ Keep pull requests small enough to review. Split independent work. Update docume
 
 ## Review and merge expectations
 
-No enforced branch protection or required-review configuration is documented in this repository yet. The recommended team default is:
+Branch protection is enforced through repository rulesets (verified against the
+GitHub repository configuration):
 
-- At least one reviewer approves before merge.
-- All configured CI checks pass for the pull request head.
+- Direct pushes, force pushes and branch deletion are blocked on `development` and `main`.
+- A pull request is required, and the branch must be up to date before merging.
+- The required checks — `Required CI gate` and `Security gate` — must pass for the pull request head.
+- `main` additionally requires one approving review; self-approval is not possible.
 - Review comments are resolved or explicitly deferred.
 - The author has run the local checks listed below.
-- Direct pushes to the shared branch are avoided.
 
 A reviewer should verify behavior, tests, error handling, service ownership, secret safety, and documentation accuracy, not only style.
 
@@ -64,10 +64,11 @@ Run the checks that match your change.
 ```sh
 gofmt -w apps/services packages/go-common tests/integration
 go vet ./...
-go test ./...
-go test -race ./...
+make test
 go build ./...
 ```
+
+`make test` runs `go test -race -count=1 ./...`, which is what CI runs. Database tests need `TEST_DATABASE_URL`; see `make test-db` and [`tests/integration/README.md`](tests/integration/README.md).
 
 For affected Nx projects:
 
@@ -90,7 +91,10 @@ See [`tests/integration/README.md`](tests/integration/README.md). CI sets `RABBI
 
 ### Frontend changes
 
+Read [`DESIGN.md`](DESIGN.md) before you build or change a screen, and follow it. It defines the design language, the allowed tokens, the component kit and the checklist to finish with. `nx lint @org/web` enforces the checkable parts and fails on a raw colour, an off-token class, an off-scale spacing value, an inline style and similar mistakes (`DESIGN.md` section 16).
+
 ```sh
+node --test "apps/web/eslint-rules/*.test.mjs"   # only when you change the lint rules
 pnpm exec nx lint @org/web
 pnpm exec nx build @org/web
 ```
@@ -123,6 +127,43 @@ pnpm exec prettier --write path/to/changed-file.md
 pnpm exec prettier --check path/to/changed-file.md
 ```
 
+## Test results and coverage
+
+Every service owner reports reproducible test results for their service. One command runs the Go tests and prints coverage per service and in total:
+
+```sh
+make coverage
+```
+
+It runs `go test -race` over the whole module, prints a table, writes it to `coverage-summary.md` and the raw profile to `coverage.out` (both ignored by git). Without a database the PostgreSQL tests are skipped. To include them, point `TEST_DATABASE_URL` at a throwaway server that may create databases (never the Compose database):
+
+```sh
+docker run -d --name sd-test-pg -p 127.0.0.1:5434:5432 -e POSTGRES_USER=swiftdrop -e POSTGRES_PASSWORD=swiftdrop -e POSTGRES_DB=postgres postgres:16-alpine
+```
+
+```sh
+TEST_DATABASE_URL='postgres://swiftdrop:swiftdrop@127.0.0.1:5434/postgres?sslmode=disable' make coverage
+```
+
+CI runs the same script, shows the table on the run's summary page, uploads both files as the `go-coverage` artifact and fails when a service falls below its minimum. The minimums live in `COVERAGE_MIN` (default `identity=60 pricing=70`, the task sheet targets). Pass your own gates for a local run, for example `COVERAGE_MIN="identity=60 pricing=70 parcel=70" make coverage`.
+
+Paste this into the pull request description of any change that adds or changes tests, filling in the real numbers from your run:
+
+```markdown
+### Test results
+
+- Service: <name>
+- Commit: <short sha>
+- Command: `make coverage` (with or without `TEST_DATABASE_URL`)
+- Result: <all pass | N failing: names>
+- Coverage: <service %> unit only, <service %> with PostgreSQL tests; total <%>
+- Skipped tests and why: <none | list>
+- Behaviour not covered yet: <list what you know is untested>
+- Access cases added in `tests/access`: <names | none>
+```
+
+Only report what you ran. A skipped test is not a pass.
+
 ## Migrations
 
 - Put migrations under the owning service's `migrations/<service>/` directory.
@@ -134,7 +175,6 @@ pnpm exec prettier --check path/to/changed-file.md
   docker compose up -d postgres
   ```
 
-- No service connects to PostgreSQL yet. Do not add application database access or speculative business tables as part of an unrelated change.
 - Down migrations may drop schemas. Confirm the target database before running them.
 - Follow [`migrations/README.md`](migrations/README.md) for tooling and per-service migration version tables.
 
@@ -144,7 +184,7 @@ pnpm exec prettier --check path/to/changed-file.md
 - When an event changes, update the schema under `contracts/events/` and respect versioning rules.
 - When configuration changes, update `.env.example` and the relevant documentation.
 - Mark planned functionality as planned.
-- Keep the README, architecture document, contracts, and migration guide consistent.
+- Keep the README, architecture document, contracts, migration guide, and agent guide consistent.
 
 ## Secrets policy
 

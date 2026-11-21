@@ -1,0 +1,64 @@
+$ go test -count=1 ./...
+go: downloading github.com/coreos/go-oidc/v3 v3.21.0
+go: downloading github.com/go-jose/go-jose/v4 v4.1.4
+go: downloading github.com/coder/websocket v1.8.15
+?   	github.com/Vineth-R/swiftdrop/apps/services/identity	[no test files]
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/config	0.779s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/google	2.518s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/http	1.143s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/lockout	1.308s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/password	1.398s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/repository	0.379s
+# github.com/Vineth-R/swiftdrop/apps/services/notification-worker
+apps\services\notification-worker\main.go:117:22: undefined: syscall.Kill
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/seed	0.435s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/identity/internal/service	0.984s
+?   	github.com/Vineth-R/swiftdrop/apps/services/identity/seed	[no test files]
+?   	github.com/Vineth-R/swiftdrop/apps/services/merchant	[no test files]
+ok  	github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/apikey	0.771s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/config	0.810s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/http	0.819s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/merchant/internal/repository	1.187s
+FAIL	github.com/Vineth-R/swiftdrop/apps/services/notification-worker [build failed]
+ok  	github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/config	1.100s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/http	0.333s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/idempotency	1.371s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/notificationlog	2.382s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/retention	1.459s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/notification-worker/internal/worker	1.136s
+?   	github.com/Vineth-R/swiftdrop/apps/services/parcel	[no test files]
+ok  	github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/config	0.985s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/http	0.369s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/proof	1.793s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/repository	1.032s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/statemachine	0.625s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/parcel/internal/tracking	2.460s
+?   	github.com/Vineth-R/swiftdrop/apps/services/pricing	[no test files]
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/config	2.094s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/http	2.236s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/pricing/internal/pricing	2.364s
+?   	github.com/Vineth-R/swiftdrop/apps/services/realtime	[no test files]
+# github.com/Vineth-R/swiftdrop/apps/services/webhook-worker
+apps\services\webhook-worker\main.go:61:22: undefined: syscall.Kill
+ok  	github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/config	0.795s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/http	0.737s
+?   	github.com/Vineth-R/swiftdrop/apps/services/realtime/internal/ws	[no test files]
+FAIL	github.com/Vineth-R/swiftdrop/apps/services/webhook-worker [build failed]
+ok  	github.com/Vineth-R/swiftdrop/apps/services/webhook-worker/internal/config	0.851s
+ok  	github.com/Vineth-R/swiftdrop/apps/services/webhook-worker/internal/worker	0.711s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/auth	0.199s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/config	0.777s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/httpx	0.503s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/logging	0.822s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/mailer	1.094s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/messaging	0.734s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/postgres	0.184s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/requestid	0.172s
+ok  	github.com/Vineth-R/swiftdrop/packages/go-common/validation	0.589s
+ok  	github.com/Vineth-R/swiftdrop/tests/access/accesskit	0.572s
+ok  	github.com/Vineth-R/swiftdrop/tests/architecture	2.051s
+ok  	github.com/Vineth-R/swiftdrop/tests/integration/parceltest	1.359s
+ok  	github.com/Vineth-R/swiftdrop/tests/nginxconfig	0.959s
+ok  	github.com/Vineth-R/swiftdrop/tests/scripts	27.504s
+FAIL
+rc=1
