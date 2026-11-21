@@ -16,6 +16,8 @@ import (
 // TestCISecretScanScopes pins the Gitleaks policy in the workflow:
 //
 //   - PRs scan only base..head (with merge diffs) and never unrelated refs.
+//   - PRs use the trusted base config; the one-time first release into a base
+//     branch without .gitleaks.toml uses the reviewed head config instead.
 //   - Protected branch/tag pushes scan the full history reachable from the
 //     pushed protected ref, not every ref fetched by the checkout.
 //   - Feature branch pushes scan only the pushed range, in the dedicated
@@ -37,8 +39,11 @@ func TestCISecretScanScopes(t *testing.T) {
 		`trap 'rm -f "${PR_CONFIG}"' EXIT`,
 		`git cat-file -e "${PR_BASE_SHA}:.gitleaks.toml"`,
 		`git show "${PR_BASE_SHA}:.gitleaks.toml" > "${PR_CONFIG}"`,
+		`git cat-file -e "${PR_HEAD_SHA}:.gitleaks.toml"`,
+		`git show "${PR_HEAD_SHA}:.gitleaks.toml" > "${PR_CONFIG}"`,
 		`--config "${PR_CONFIG}"`,
-		"::error::The PR base has no .gitleaks.toml; refusing to scan",
+		"::error::Neither the PR base nor the PR head has .gitleaks.toml; refusing to scan",
+		"::warning::The PR base has no .gitleaks.toml; scanning this first release with the reviewed head config",
 		`--log-opts="${PR_BASE_SHA}..${PR_HEAD_SHA} -m"`,
 	}
 	for _, want := range required {
